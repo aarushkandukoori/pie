@@ -82,9 +82,9 @@ fn no_two_rows_claim_the_same_entrypoint() {
 /// comparison above passed either way — it compares the table to whatever the
 /// census says — and this is the assertion that made the correction visible.
 #[test]
-fn the_table_is_ninety_eight_kernels_over_four_hundred_and_eighty_four_entrypoints() {
+fn the_table_is_ninety_eight_kernels_over_four_hundred_and_seventy_nine_entrypoints() {
     assert_eq!(kernels_metal::KERNELS.len(), 98);
-    assert_eq!(kernels_metal::entrypoints().len(), 484);
+    assert_eq!(kernels_metal::entrypoints().len(), 479);
 }
 
 /// Every entrypoint resolves through the public lookup `model-compiler` uses,

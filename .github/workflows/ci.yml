@@ -280,6 +280,13 @@ jobs:
       - name: Check kernels-metal reaches nothing above it
         run: python3 scripts/metal-kernel-audit.py --one-way
 
+      # Tests and tools open shaders by PATH, and both the family move and the
+      # rename swept only `csrc/src` -- leaving five stale paths and one dead
+      # entrypoint name behind. A guard that looks where the edit looked cannot
+      # catch the edit's blind spot, so this one walks all of `csrc`.
+      - name: Check every shader path the driver names resolves
+        run: python3 scripts/metal-kernel-audit.py --paths
+
   # WIT drift — the canonical inferlet interface (crates/inferlet/wit) is
   # vendored into ONE remaining copy, bakery's
   # (sdk/inferlet/tools/bakery/src/bakery/wit), which is a Python package and

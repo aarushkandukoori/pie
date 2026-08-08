@@ -35,21 +35,25 @@ int main() {
            == "affine_qmv_wide_strided_bfloat16_gs_64_b_4_v_4_kl_8", "wide strided");
     ok(entrypoint("gdn_core_recurrent_prefill", {bf16(), chunk(32), rows(4)})
            == "gdn_core_recurrent_prefill_bfloat16_l_32_v_4", "gdn prefill");
-    // 3. `affine_qmv_routed` USED to be the gap this test pinned: one affine
-    // format where the dense twin had six. It has all six now, so what is
-    // pinned is the coverage, and the refusal is demonstrated on a format
-    // nothing compiles for anything.
-    for (int group : {32, 64, 128}) {
-        for (int bits : {4, 8}) {
-            const auto q = pie::metal::AffineFormat{bits, group};
-            ok(is_entrypoint(std::string("affine_qmv_routed") + affine(q)),
-               "routed qmv is compiled for every affine format");
-        }
-    }
+    // 3. The refusal, on the kernel this exists for. `affine_qmv_routed` is
+    // compiled for ONE affine format BY DESIGN -- `AffineQ::group_size` is a
+    // constant, so a second point would name an instantiation that dequantises
+    // at 64 whatever it claims. A routed checkpoint at another group is meant
+    // to fail by name, and this is that failure, at the call rather than in
+    // the Metal compiler.
+    //
+    // An earlier version of this test asserted the opposite, after the gap was
+    // "fixed" by adding five instantiations. They were five DUPLICATE explicit
+    // instantiations of two specializations -- the macro puts `gs` in the
+    // `host_name` string only -- so the file would not have compiled, and had
+    // it compiled the numbers would have been wrong under a name that promised
+    // otherwise. Reverted; this asserts the design.
+    ok(is_entrypoint("affine_qmv_routed_bfloat16_gs_64_b_4"), "routed qmv at g64/b4");
+    ok(!is_entrypoint("affine_qmv_routed_bfloat16_gs_32_b_4"), "and at no other group");
     bool threw = false;
-    try { entrypoint("affine_qmv_routed", {affine(pie::metal::AffineFormat{3, 17})}); }
+    try { entrypoint("affine_qmv_routed", {affine(pie::metal::AffineFormat{4, 32})}); }
     catch (const std::exception& e) { threw = true; std::printf("  refusal: %s\n", e.what()); }
-    ok(threw, "an affine format nothing compiles is refused");
+    ok(threw, "a group with no instantiation is refused, by name");
     // 4. a half-spelled name (a tile short) is refused
     threw = false;
     try { entrypoint("affine_qmm_t", {affine(g64b4)}); }

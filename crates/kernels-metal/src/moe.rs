@@ -31,12 +31,13 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(qmm_t_routed_fp16 "affine_qmm_t_routed_fp16",
         axes = &[BF16, GROUP_64, BITS_4, TILE_M, TILE_N]),
     // 1 in quantized_qmv.metal
-    // Six formats now, and it was one until the table said so out loud: the
-    // dense twin `qmv_fast` had all six, `llama` and `gemma4` build this from
-    // the checkpoint's own format, and a mixture at any other simply failed to
-    // load. That gap was invisible while the driver assembled the name with
-    // `+`; it became a row the moment the axes were declared.
-    kernel!(qmv_routed "affine_qmv_routed", axes = &[BF16, GROUP, BITS]),
+    // ONE affine format, and that is the kernel's design rather than a gap:
+    // `AffineQ::group_size` is a constant, so a second group point would name
+    // an instantiation that dequantises at 64 whatever it claims. A routed
+    // checkpoint at another group is meant to fail by name when its pipeline
+    // is built -- which `entrypoint()` now does at the call instead of in the
+    // Metal compiler.
+    kernel!(qmv_routed "affine_qmv_routed", axes = &[BF16, GROUP_64, BITS_4]),
     // 1 in quantized_qmv.metal
     kernel!(qmv_routed_bias "affine_qmv_routed_bias", axes = &[BF16, GROUP_64, BITS_4]),
     // 1 in moe_route.metal

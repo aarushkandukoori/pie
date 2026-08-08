@@ -50,7 +50,7 @@ std::vector<PsoSpec> specs_4bit() {
              Kernel::PleGateGemv, Kernel::PleProjLayerGemv, Kernel::LmHead}},
         // alpha's gemma-specific pointwise + sliding SDPA.
         {"norm/vector.metal",        "vnorm_single_row_bfloat16",       {Kernel::VNorm}},
-        {"rope/neox.metal",         "rope_neox_decode_bfloat16",       {Kernel::RopeQ, Kernel::RopeK}},
+        {"rope/neox.metal",         "neox_decode_bfloat16",       {Kernel::RopeQ, Kernel::RopeK}},
         {"attn/kv_write.metal",    "kv_append_bfloat16",              {Kernel::KvAppend}},
         {"attn/sdpa_sliding.metal", "sdpa_vector_decode_swa_bfloat16_d_256", {Kernel::Sdpa}},
         {"norm/residual_add.metal", "residual_add_bfloat16",

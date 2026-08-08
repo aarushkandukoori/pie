@@ -577,23 +577,14 @@ instantiate_gptoss_qmv(affine_qmv_tail_bias, qmv_tail_bias, AffineU4, bfloat16, 
 instantiate_gptoss_qmv(affine_qmv_routed_bias, qmv_routed_bias, AffineU4, bfloat16, bfloat, 64, 4)
 instantiate_gptoss_qmv(affine_qmv_routed, qmv_routed, AffineU4, bfloat16, bfloat, 64, 4)
 
-// The unbiased routed matvec, at every affine format -- because unlike the
-// three above it, this one is not gpt-oss's. `llama/kernels.cpp` and
-// `gemma4/kernels.cpp` both build it from the CHECKPOINT's `g.quant`, so a
-// Qwen3-MoE or a routed gemma-4 at any other format asked for a name that did
-// not exist and failed the load.
-//
-// Widened rather than refused, on the evidence: the dense twin
-// `affine_qmv_fast` is compiled for all six, nothing in this file claims the
-// routed form is narrower, and the two blocks that ARE deliberately narrow say
-// so in prose ("only gpt-oss has them", "both of the widths one checkpoint can
-// hold"). An unstated asymmetry between a kernel and its dense twin is an
-// omission, not a decision.
-instantiate_gptoss_qmv(affine_qmv_routed, qmv_routed, AffineU4, bfloat16, bfloat, 32, 4)
-instantiate_gptoss_qmv(affine_qmv_routed, qmv_routed, AffineU4, bfloat16, bfloat, 128, 4)
-instantiate_gptoss_qmv(affine_qmv_routed, qmv_routed, AffineU8, bfloat16, bfloat, 32, 8)
-instantiate_gptoss_qmv(affine_qmv_routed, qmv_routed, AffineU8, bfloat16, bfloat, 64, 8)
-instantiate_gptoss_qmv(affine_qmv_routed, qmv_routed, AffineU8, bfloat16, bfloat, 128, 8)
+// NOT widened, and an attempt to widen it was reverted. `AffineQ::group_size`
+// above is a CONSTANT, and `gs` in the macro reaches only the `host_name`
+// string -- the template arguments are `fn<itype, codec>`. So five more lines
+// here are five duplicate explicit instantiations of two specializations,
+// which Clang rejects outright, and had it compiled, `_gs_32_`/`_gs_128_`
+// would have dequantised at stride 64 and returned wrong numbers under a name
+// that promised otherwise. See the codec's own note: a routed checkpoint at
+// another group is meant to fail when its pipeline is built, by name.
 
 // The same matvec against the checkpoint's own MXFP4 experts. Only gpt-oss has
 // them, and only its experts -- attention, router, embedding and head are all

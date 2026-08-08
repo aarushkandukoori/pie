@@ -261,7 +261,11 @@ def main():
         # against a pattern, because the pattern version of this check flagged
         # every `path + "/"` in the tree and was turned off within a day.
         bases = {split_axes(name)[0] for name in found}
-        driver = ROOT / "crates/driver-metal/csrc/src"
+        # `csrc`, not `csrc/src`: the rename and the family move both swept
+        # only `src/` and left five stale shader paths and one dead entrypoint
+        # name in `tests/` and `tools/`. A guard that looks where the edit
+        # looked cannot catch the edit's blind spot.
+        driver = ROOT / "crates/driver-metal/csrc"
         # A literal followed by `+`, or a `kernel_suffix()` reaching a caller:
         # both are a name being assembled outside `entrypoint()`.
         pattern = re.compile(
@@ -286,6 +290,34 @@ def main():
                   f"no shader instantiates.")
             return 1
         print("no driver source assembles an entrypoint name")
+        return 0
+
+    if mode == "--paths":
+        # Every `"*.metal"` literal in the driver must name a file that exists.
+        # Tests and tools open shaders by path too, and they are the half the
+        # PSO-name check does not reach.
+        shaders = ROOT / "crates/kernels-metal/kernels"
+        driver = ROOT / "crates/driver-metal/csrc"
+        local = {"probe.metal", "ptir_m0.metal", "gemv_demo.metal",
+                 "nop_probe.metal", "roofline_stream.metal"}
+        bad = []
+        for path in sorted(driver.rglob("*.cpp")) + sorted(driver.rglob("*.hpp")) \
+                  + sorted(driver.rglob("*.mm")):
+            if "/build/" in str(path):
+                continue
+            for number, line in enumerate(path.read_text(errors="ignore").splitlines(), 1):
+                for match in re.finditer(r'"([^"]*\.metal)"', line):
+                    named = match.group(1).lstrip("/")
+                    if pathlib.Path(named).name in local:
+                        continue        # a tool's own fixture, not the shader tree
+                    if not (shaders / named).exists():
+                        bad.append((path, number, named))
+        for path, number, named in bad:
+            print(f"  {path.relative_to(ROOT)}:{number}: no shader at {named}")
+        if bad:
+            print(f"\n{len(bad)} stale shader path(s). The tree moved under them.")
+            return 1
+        print("every shader path the driver names resolves")
         return 0
 
     if mode == "--cpp":

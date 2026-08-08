@@ -8,7 +8,7 @@
 #include "ops/elementwise.hpp"
 #include "ops/embedding.hpp"
 #include "ops/gated_delta.hpp"
-#include "gemm/gemm.hpp"
+#include "ops/gemm.hpp"
 #include "ops/moe.hpp"
 #include "ops/norm.hpp"
 #include "ops/rope.hpp"

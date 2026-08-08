@@ -85,7 +85,7 @@ int main() {
     }
     std::string err;
     const Pso pso = ctx->compile_pso_from_file(
-        std::string(PIE_METAL_KERNELS_DIR_FOR_TEST) + "/row_gather.metal",
+        std::string(PIE_METAL_KERNELS_DIR_FOR_TEST) + "/layout/row_gather.metal",
         "row_gather_bfloat16", &err);
     if (!pso.valid()) {
         std::printf("  FAIL  compiling row_gather: %s\n", err.c_str());
