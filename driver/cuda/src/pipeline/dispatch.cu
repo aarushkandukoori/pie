@@ -835,6 +835,19 @@ __global__ void compose_fixed_decode(
                 }
             }
         }
+        if (output.kill_reasons != nullptr && kill_reason != 0) {
+            atomicOr(output.kill_reasons, kill_reason);
+        }
+        if (output.kill_ports != nullptr && not_ready_ports != 0) {
+            atomicOr(output.kill_ports, not_ready_ports);
+        }
+        if (output.kill_reason_counts != nullptr) {
+            for (std::uint32_t bit = 0; bit < 8; ++bit) {
+                if ((kill_reason >> bit) & 1u) {
+                    atomicAdd(&output.kill_reason_counts[bit], 1u);
+                }
+            }
+        }
         page_count = 1;
         kv_len = 1;
         write_page = output.dummy_page;
@@ -8479,6 +8492,24 @@ bool Dispatch::enqueue_fixed_decode(
         // ONE word: upstream's kill-reason bitmask replaced our 16-slot
         // per-reason counter array, and this copy-back sat in an
         // auto-merged region where no conflict marker pointed at it.
+        sizeof(std::uint32_t),
+        cudaMemcpyDeviceToHost,
+        staged.stream));
+    CUDA_CHECK(cudaMemcpyAsync(
+        state.h_fixed_decode_kill_reasons,
+        state.d_fixed_decode_kill_reasons,
+        sizeof(std::uint32_t),
+        cudaMemcpyDeviceToHost,
+        staged.stream));
+    CUDA_CHECK(cudaMemcpyAsync(
+        state.h_fixed_decode_kill_counts,
+        state.d_fixed_decode_kill_counts,
+        8 * sizeof(std::uint32_t),
+        cudaMemcpyDeviceToHost,
+        staged.stream));
+    CUDA_CHECK(cudaMemcpyAsync(
+        state.h_fixed_decode_kill_ports,
+        state.d_fixed_decode_kill_ports,
         sizeof(std::uint32_t),
         cudaMemcpyDeviceToHost,
         staged.stream));

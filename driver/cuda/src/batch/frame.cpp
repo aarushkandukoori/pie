@@ -11,6 +11,7 @@
 #include <exception>
 #include <iostream>
 #include <limits>
+#include <deque>
 #include <mutex>
 #include <numeric>
 #include <sstream>
@@ -661,6 +662,10 @@ struct PreparedStep::Impl {
     int R = 0;
     int N = 0;
     int num_sampling = 0;
+    // Rows the FORWARD gathers/emits: `num_sampling` padded up to the request
+    // bucket when the wave is graph-padded, so the baked count is keyed. See
+    // the comment where it is set. Settlement still uses `num_sampling`.
+    int num_logit_rows = 0;
     bool is_pure_decode = false;
     bool empty_step = false;
     bool settle_plain = false;   // empty or fold settle: finish(nullptr, 0)
@@ -1982,7 +1987,11 @@ void prepare_step(
             // dispatcher (`run_forward_dispatch`). Fires the dispatch-side
             // prepare pass later vetoes just run eagerly, padded.
             hook_fire_blocks_graph(engine, s.has_attention_stages),
-            engine.dispatch->launch_wants_lora(s.dispatch_view));
+            engine.dispatch->launch_wants_lora(s.dispatch_view),
+            // Nothing is baked yet at this point -- this call only decides
+            // whether to PAD. The dispatch-side call is the authority on
+            // replay and re-checks the real row count.
+            /*num_logit_rows=*/0);
         if (eligible && engine.graph_pad_page >= 0) {
             const int max_requests = std::min(
                 engine.max_forward_requests, engine.max_workspace_tokens);
@@ -2153,10 +2162,7 @@ void prepare_step(
     if (!s.rs_is_fold && N > tensor_rows(ws.logits)) {
         throw std::runtime_error("forward batch exceeds logits workspace");
     }
-    if (!s.sample_rows.empty() && !s.rpg.device_composed) {
-        s.up_sample_idx = pi.sample_idx.stage_from_host(
-            std::span<const std::int32_t>(s.sample_rows));
-    }
+    // MTP plans against the REAL rows, before any padding below.
     s.mtp_plan = preflight_mtp_draft_logits(
         engine, s.composed, s.sample_rows, s.mtp_draft_counts);
     s.compact_logits =
@@ -2164,6 +2170,37 @@ void prepare_step(
         s.mtp_plan.work.empty() &&
         num_sampling > 0 &&
         num_sampling < s.fN_real;
+    // `num_logit_rows` is baked into a captured body (it sizes the gather and
+    // the lm_head rows) but `ForwardGraphKey` carries only the (R, N) buckets,
+    // so a compact row count that varies per fire cannot be replayed safely --
+    // two waves in the same bucket pair would gather different row counts and
+    // the surplus requests would sample the previous fire's residue.
+    //
+    // Padding the row list up to `s.forward_R` makes the baked count equal to
+    // a value the key already carries. The extra entries name row 0, which is
+    // always in range; their logits land in slots [num_sampling, forward_R)
+    // of `ws.logits`, and settlement reads only [0, num_sampling), so they are
+    // computed and never read. `s.num_sampling` stays the REAL count for
+    // exactly that reason.
+    //
+    // Only worth doing when the wave was padded at all; an unpadded wave has
+    // nothing to gain and the dispatch gate will refuse it either way.
+    s.num_logit_rows = num_sampling;
+    if (s.compact_logits && s.graph_pad_requests > 0 &&
+        !s.rpg.device_composed &&
+        static_cast<int>(s.sample_rows.size()) < s.forward_R &&
+        s.forward_R < s.fN_real + s.graph_pad_tokens) {
+        s.sample_rows.resize(static_cast<std::size_t>(s.forward_R), 0);
+        s.num_logit_rows = s.forward_R;
+    }
+    if (s.sample_rows.size() > pi.sample_idx.size()) {
+        throw std::runtime_error(
+            "padded sampling rows exceed persistent input capacity");
+    }
+    if (!s.sample_rows.empty() && !s.rpg.device_composed) {
+        s.up_sample_idx = pi.sample_idx.stage_from_host(
+            std::span<const std::int32_t>(s.sample_rows));
+    }
     // Fold the greedy argmax into the LM head GEMM when every epilogue in the
     // launch is a bare argmax over `logits`, so the vocabulary is reduced as
     // it is produced instead of making a round trip through HBM (§20.37).
@@ -2616,12 +2653,155 @@ class EnqTimer {
     std::chrono::steady_clock::time_point start_;
 };
 
+// `PIE_DEVICE_BUSY=1`: per-fire DEVICE interval, bracketing the whole
+// enqueue+settle region on the compute stream.
+//
+// This is the quantity `analysis.md` §3.3 was built on and that dev no longer
+// records anywhere. Without it, `period - host_chain` is merely unattributed:
+// it cannot distinguish "the GPU is busy" from "the GPU is idle waiting", and
+// those imply opposite next moves.
+//
+// The events are read only once `cudaEventQuery` says the stop event has
+// already retired. `cudaEventElapsedTime` blocks until then, so draining
+// eagerly would stall the very fire being measured and manufacture the idle
+// it is looking for.
+class DeviceIntervalProbe {
+  public:
+    static bool enabled() {
+        static const bool value = [] {
+            const char* const env = std::getenv("PIE_DEVICE_BUSY");
+            return env != nullptr && *env != '\0' && env[0] != '0';
+        }();
+        return value;
+    }
+
+    static DeviceIntervalProbe& instance() {
+        static DeviceIntervalProbe probe;
+        return probe;
+    }
+
+    void begin(cudaStream_t stream) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        drain_locked();
+        Pair pair;
+        if (free_.empty()) {
+            CUDA_CHECK(cudaEventCreateWithFlags(&pair.start, cudaEventDefault));
+            CUDA_CHECK(cudaEventCreateWithFlags(&pair.stop, cudaEventDefault));
+        } else {
+            pair = free_.back();
+            free_.pop_back();
+        }
+        CUDA_CHECK(cudaEventRecord(pair.start, stream));
+        open_.push_back(pair);
+    }
+
+    // Stamped right after the forward is enqueued, so `start -> mid` covers
+    // the H2D + forward kernels and `mid -> stop` the settlement kernels.
+    //
+    // On a graph-replayed decode fire the whole forward is ONE launch that the
+    // host issues in ~11 us, so `start -> mid` is very close to pure device
+    // time: there is no host work interleaved for the stream to drain against.
+    // That is what makes it a usable check on how much of the fire-wide
+    // interval is real device work versus intra-fire stall.
+    void mid(cudaStream_t stream) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (open_.empty()) return;
+        Pair& pair = open_.back();
+        if (pair.mid == nullptr) {
+            CUDA_CHECK(cudaEventCreateWithFlags(&pair.mid, cudaEventDefault));
+        }
+        CUDA_CHECK(cudaEventRecord(pair.mid, stream));
+        pair.has_mid = true;
+    }
+
+    void end(cudaStream_t stream, int requests, int tokens) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (open_.empty()) return;
+        Pair pair = open_.back();
+        open_.pop_back();
+        pair.requests = requests;
+        pair.tokens = tokens;
+        CUDA_CHECK(cudaEventRecord(pair.stop, stream));
+        pending_.push_back(pair);
+    }
+
+  private:
+    struct Pair {
+        cudaEvent_t start = nullptr;
+        cudaEvent_t mid = nullptr;
+        cudaEvent_t stop = nullptr;
+        bool has_mid = false;
+        int requests = 0;
+        int tokens = 0;
+    };
+
+    void drain_locked() {
+        while (!pending_.empty()) {
+            const Pair pair = pending_.front();
+            if (cudaEventQuery(pair.stop) != cudaSuccess) break;
+            pending_.pop_front();
+            // Device gap since the PREVIOUS fire finished: both events sit on
+            // the same stream, so this is exactly the idle the GPU spent
+            // waiting for the host to enqueue the next fire. Summed, it is the
+            // recoverable number; per fire it says which boundaries are slow.
+            float gap_ms = -1.0f;
+            if (have_prev_) {
+                float g = 0.0f;
+                if (cudaEventElapsedTime(&g, prev_stop_, pair.start) ==
+                    cudaSuccess) {
+                    gap_ms = g;
+                }
+            }
+            float ms = 0.0f;
+            if (cudaEventElapsedTime(&ms, pair.start, pair.stop) ==
+                cudaSuccess) {
+                float fwd_ms = -1.0f;
+                if (pair.has_mid) {
+                    float m = 0.0f;
+                    if (cudaEventElapsedTime(&m, pair.start, pair.mid) ==
+                        cudaSuccess) {
+                        fwd_ms = m;
+                    }
+                }
+                std::fprintf(stderr,
+                             "[devbusy] us=%.1f fwd_us=%.1f gap_us=%.1f "
+                             "R=%d N=%d\n",
+                             static_cast<double>(ms) * 1000.0,
+                             static_cast<double>(fwd_ms) * 1000.0,
+                             static_cast<double>(gap_ms) * 1000.0,
+                             pair.requests, pair.tokens);
+            }
+            // Hold this fire's stop event one extra round so the next drain
+            // can measure the gap against it; recycle the one it replaces.
+            if (have_prev_) {
+                Pair old = prev_pair_;
+                old.has_mid = false;
+                free_.push_back(old);
+            }
+            prev_pair_ = pair;
+            prev_stop_ = pair.stop;
+            have_prev_ = true;
+        }
+    }
+
+    std::mutex mutex_;
+    std::vector<Pair> open_;
+    std::deque<Pair> pending_;
+    std::vector<Pair> free_;
+    Pair prev_pair_{};
+    cudaEvent_t prev_stop_ = nullptr;
+    bool have_prev_ = false;
+};
+
 }  // namespace
 
 void enqueue_step(BatchEngine& engine, PreparedStep& step) {
     PreparedStep::Impl& s = *step.impl();
     const bool dbg_fire = s.timing.enabled;
     if (dbg_fire) s.timing.enqueue_start = fire_timing::Clock::now();
+    if (DeviceIntervalProbe::enabled()) {
+        DeviceIntervalProbe::instance().begin(engine.cublas.stream());
+    }
 
     auto& pi = engine.inputs;
     auto& cublas = engine.cublas;
@@ -2674,7 +2854,7 @@ void enqueue_step(BatchEngine& engine, PreparedStep& step) {
             s.rs_is_fold ? 0 : s.mask_indptr_count,
             /*has_slot_ids=*/s.use_slots,
             !s.rs_is_fold && s.has_write_desc,
-            s.compact_logits ? s.num_sampling : 0,
+            s.compact_logits ? s.num_logit_rows : 0,
             s.structured_window_left,
             s.rs_plan.mode,
             static_cast<int>(s.rs_fold_len_view.size()),
@@ -2821,7 +3001,7 @@ void enqueue_step(BatchEngine& engine, PreparedStep& step) {
                             s.rs_is_fold ? 0 : s.mask_indptr_count,
                             /*has_slot_ids=*/s.use_slots,
                             !s.rs_is_fold && s.has_write_desc,
-                            s.compact_logits ? s.num_sampling : 0,
+                            s.compact_logits ? s.num_logit_rows : 0,
                             s.structured_window_left,
                             s.rs_plan.mode,
                             static_cast<int>(s.rs_fold_len_view.size()),
@@ -3172,6 +3352,7 @@ void enqueue_step(BatchEngine& engine, PreparedStep& step) {
             .forward_R = s.forward_R,
             .forward_N = s.forward_N,
             .num_sampling = s.num_sampling,
+            .num_logit_rows = s.compact_logits ? s.num_logit_rows : 0,
             .is_pure_decode = s.is_pure_decode,
             .have_custom_mask = s.have_custom_mask,
             .unmasked_prefix_rows =
@@ -3260,6 +3441,9 @@ void enqueue_step(BatchEngine& engine, PreparedStep& step) {
         std::cerr.flush();
     }
     verify_timer.finish(cublas.stream());
+    if (DeviceIntervalProbe::enabled()) {
+        DeviceIntervalProbe::instance().mid(cublas.stream());
+    }
     if (dbg_fire) {
         s.timing.begin_breakdown = s.staged->begin_breakdown();
         s.timing.forward_enqueue_end = fire_timing::Clock::now();
@@ -3310,6 +3494,10 @@ void settle_step(
                       engine.ws.sampled_tokens.data())
                 : nullptr,
             dbg_fire ? &s.timing.finish_breakdown : nullptr);
+    }
+    if (DeviceIntervalProbe::enabled()) {
+        DeviceIntervalProbe::instance().end(
+            engine.cublas.stream(), s.forward_R, s.forward_N);
     }
     if (dbg_fire) {
         s.timing.settlement_enqueue_end = fire_timing::Clock::now();

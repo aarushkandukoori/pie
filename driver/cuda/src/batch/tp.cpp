@@ -1536,7 +1536,13 @@ void tp_follower_serve(BatchEngine& engine, std::atomic<bool>& stop) {
             /*has_stage_hooks=*/false,
             // lora is capability-gated to tp_size == 1 (context.cpp), so a
             // TP follower can never see a lora fire.
-            /*has_lora=*/false);
+            /*has_lora=*/false,
+            // Rank 0 sends the same `logit_rows` it bakes into its own body,
+            // so testing it here reproduces rank 0's `logit_rows_keyed` exactly
+            // and the two ranks decide replay identically. They must: a rank
+            // that replays while its peer captures deadlocks the NCCL ops
+            // inside the body, which is the whole reason this mirror exists.
+            logit_rows);
         const std::uint32_t graph_layout =
             engine.forward_fn.invoke_graph_layout();
         const std::uint32_t graph_variant =
@@ -1544,7 +1550,8 @@ void tp_follower_serve(BatchEngine& engine, std::atomic<bool>& stop) {
                                /*rs_verify=*/false,
                                have_custom_mask,
                                /*fused_argmax=*/false,
-                               graph_layout);
+                               graph_layout,
+                               /*compact_logits=*/logit_rows > 0);
         if (try_graphs) {
             const ForwardGraphKey key{R, N, graph_variant};
             cudaGraphExec_t exec = engine.graph_cache->get(key);

@@ -711,6 +711,11 @@ struct ForwardDispatchInputs {
     int forward_R = 0;
     int forward_N = 0;
     int num_sampling = 0;
+    // Rows the forward gathers and emits logits for. Separate from
+    // `num_sampling` (which settlement uses) because a graph-padded wave pads
+    // this up to `forward_R` so the count the captured body bakes is a value
+    // `ForwardGraphKey` already carries. 0 = full-N emit.
+    int num_logit_rows = 0;
     bool is_pure_decode = false;
     bool have_custom_mask = false;
     // NS-2: planned unmasked wire-row prefix (UINT32_MAX = no split).
@@ -820,7 +825,8 @@ bool forward_graph_replay_eligible(
     // correction GEMMs read per-launch channel-cell addresses (and the graph
     // key carries no adapter identity), so a replayed capture would either
     // drop the delta or bake a stale adapter in.
-    bool has_lora);
+    bool has_lora,
+    int num_logit_rows);
 
 // Run the per-fire forward body directly against `forward_fn.body`. See
 // `ForwardDispatchInputs` for why this is not a graph-replay dispatcher.

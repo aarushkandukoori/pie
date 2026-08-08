@@ -522,6 +522,11 @@ struct MetalExecutor::Impl {
     std::vector<SlotHandle> pool_{};
     DecodeStepPsos psos_{};
     MultiBatchPsos mb_psos_{};
+    // The same table in the checkpoint's ALTERNATE affine format, built only
+    // when one exists. Only the strided entries are wanted from it: the two
+    // kinds an alt format covers here -- the router and the shared expert's
+    // gate -- need a batched shape for a prefill, and had none.
+    MultiBatchPsos mb_alt_psos_{};
     KvPagePool kv_pool_{};
     std::vector<Dispatch> mb_dag_{};
     ScratchSchedule mb_sched_{};
@@ -540,6 +545,11 @@ struct MetalExecutor::Impl {
     SlotHandle prefill_row_stride_{};
     SlotHandle prefill_rows_{};
     SlotHandle prefill_fp16_input_{};
+    // The batched decode stages into the same buffer the prefill does -- the
+    // two never encode in one fire and the prefill's size bounds both -- but
+    // its element counts are the fire's, so they are their own slots.
+    std::vector<SlotHandle> mb_fp16_keep_{};
+    int mb_fp16_tokens_ = 0;
     // One scan-length buffer per prompt row.  A grouped prefill carries several
     // requests, each with its own scan length, and the row's argument table is
     // what selects the segment -- so the length has to be per row too.
@@ -791,26 +801,47 @@ void warn_once_if_the_gpu_leaked_memory_before_this_run() {
     }();
 }
 
-// What a weight that is COPIED into the heap costs the host while it is being
-// copied: the heap byte it becomes, and the mmap byte it is read from, at the
-// same time. Both are resident, so the process peaks at twice what the GPU
-// ends up holding, and it peaks there during load -- before the first
-// dispatch, and before anything else here has had a chance to refuse.
+// What a weight that is COPIED into the heap costs the host WHILE it is being
+// copied, on top of the heap byte it becomes.
 //
-// Measured rather than assumed, because the doubling is not obvious from any
-// one number this file computes: Llama-3.2-1B is 0.65 GiB of weights and
-// peaks at 1.42 GiB (2.19x), gemma-4-e2b is 2.43 GiB and peaks at 4.90 GiB
-// (2.02x). Weights bound where they lie are exempt -- there is no second copy
-// of a tensor the GPU reads out of the mapping -- which is why the caller
-// passes the copied bytes and not the model.
+// The obvious answer -- the whole mapping, so the peak is twice the model --
+// is what RSS says and it is not what the machine feels. `copy_storage_bytes`
+// walks a tensor in `max_tile_bytes` chunks and `madvise(MADV_DONTNEED)`s each
+// chunk behind it, and `with_mapped_span` does the same once per strided
+// selection. On Darwin that call deactivates rather than discards, so the page
+// stays counted in RSS while moving to the queue the kernel reclaims from
+// first. Both numbers are real; only one of them is a demand.
 //
-// This is what six kernel panics on the 48 GiB M4 Pro were: a checkpoint of
-// 18.16 GiB passed a check that compared ~19 GiB against a quiet machine's
-// free memory and then peaked at 40.5 GiB, which took free memory to 60 MiB.
-// The panics differed -- a data abort on a PAC-mangled pointer, a WindowServer
-// watchdog, an assertion inside IOGPUGroupMemory -- and every one of them had
-// free memory under 200 MiB. The kernel dies of this in whatever way it
-// happens to die; what it does not do is give the byte back.
+// gpt-oss-20b, 10.41 GiB of weights, all copied, measured with `time -l`:
+//
+//     maximum resident set size  20.84 GiB   <- the mapping is in here
+//     peak memory footprint      10.84 GiB   <- and not in here
+//     swaps                      0
+//
+// `peak memory footprint` is `phys_footprint`, which is the number the kernel
+// itself bills a process for and the one jetsam reads. It is the heap plus
+// change. Sampling `vm_stat` through that load says the same thing from the
+// other side: free memory does bottom out at 50 MiB, but the inactive queue
+// holds steady at 11.8 GiB the whole way down and no page is ever swapped.
+// Free is not the resource; reclaimable is, and the mapping funds itself out
+// of it -- every tile it faults in, it hands back before taking the next.
+//
+// So the transient is one window, not one model, and the window is whatever a
+// single release covers: a 64 MiB tile on the bulk path, one source tensor on
+// the strided one. It is capped rather than derived because the two paths
+// disagree and the larger of them is a property of the checkpoint's biggest
+// tensor, which this file cannot see. Under the cap the whole model IS the
+// window, which is the right answer for a checkpoint that small.
+//
+// The cap is not the guard. The guard is that `want` -- the heap, which
+// `make_resident` wires and nothing can reclaim -- has to fit in what the
+// machine will give back, with `kHostMargin` to spare. That is the check the
+// six kernel panics on the 48 GiB M4 Pro were missing: an 18.16 GiB checkpoint
+// passed a test that compared it against *free* memory on a quiet machine,
+// which says nothing, and the panics -- a data abort on a PAC-mangled pointer,
+// a WindowServer watchdog, an assertion inside IOGPUGroupMemory -- all landed
+// with free under 200 MiB. Comparing against reclaimable is what fixed that.
+// Adding the mapping on top of it only ever refused models that fit.
 bool fits_on_this_gpu(std::size_t heap_bytes,
                       std::size_t elastic_bytes,
                       std::size_t resident_weights,
@@ -844,11 +875,11 @@ bool fits_on_this_gpu(std::size_t heap_bytes,
             ? 0  // a forced ceiling describes a device, not this machine
             : RawMetalContext::host_reclaimable_bytes();
     constexpr std::size_t kHostMargin = 2ull * 1024 * 1024 * 1024;
-    // The host bound is about the PEAK, not the steady state. The device
-    // ceiling above is right to ignore the copy -- the GPU never holds it --
-    // but the machine does hold it, and it is the larger of the two numbers
-    // for any checkpoint that has to be copied at all.
-    const std::size_t host_want = want + transient_copy_bytes;
+    // The host bound is about the PEAK, not the steady state -- but the peak
+    // is the heap plus one copy window, not the heap plus the checkpoint. See
+    // the note above this function for the measurement.
+    constexpr std::size_t kCopyWindow = 2ull * 1024 * 1024 * 1024;
+    const std::size_t host_want = want + std::min(transient_copy_bytes, kCopyWindow);
     const bool host_bound =
         reclaimable != 0 && host_want + kHostMargin > reclaimable && want <= limit;
 
@@ -862,12 +893,11 @@ bool fits_on_this_gpu(std::size_t heap_bytes,
                    "it needs " + gib(want) + " GiB resident (" +
                    gib(resident_weights) + " GiB of weights, " +
                    gib(elastic_bytes) + " GiB of KV, state and scratch)" +
-                   (transient_copy_bytes != 0
-                        ? " and " + gib(transient_copy_bytes) +
-                              " GiB more while it loads, because a weight that is copied "
-                              "into the heap is resident twice -- once in the heap and "
-                              "once in the mapping it is read from -- so the peak is " +
-                              gib(host_want) + " GiB and not " + gib(want) + " GiB"
+                   (host_want != want
+                        ? " and " + gib(host_want - want) +
+                              " GiB more while it loads, for the window of the "
+                              "checkpoint that is mapped and not yet copied, so the "
+                              "peak is " + gib(host_want) + " GiB"
                         : "") +
                    ", and only " + gib(reclaimable) + " GiB is reclaimable. The GPU "
                    "itself would hold " + gib(limit) + " GiB, so this is the machine, "
@@ -1007,10 +1037,10 @@ bool MetalExecutor::Impl::setup_simple(model::ModelFamily family,
     // mmap the GPU never sees, so they are neither allocated nor resident, and
     // adding them here would refuse exactly the models this exists to run.
     //
-    // What IS resident twice is whatever had to be copied into the heap, and
-    // for these checkpoints that is nearly the whole model -- `extra` is KV and
-    // scratch, which is built rather than read, and a slab's budget is filled
-    // from the mapping a band at a time rather than all at once.
+    // What comes off the mapping is whatever had to be copied into the heap --
+    // `extra` is KV and scratch, which is built rather than read, and a slab's
+    // budget is filled from the mapping a band at a time. `fits_on_this_gpu`
+    // caps it at one copy window; passing the total lets it do that.
     const std::size_t copied =
         heap_bytes >= extra + (slab ? std::size_t(cfg.expert_slab_bytes) : 0)
             ? heap_bytes - extra - (slab ? std::size_t(cfg.expert_slab_bytes) : 0)
@@ -1206,8 +1236,8 @@ bool MetalExecutor::Impl::setup(const std::string& kernels_dir,
                      mb(elastic_parts.state), mb(elastic_parts.scratch));
     }
     // `resident_weights` is exactly what gets copied: the model minus whatever
-    // is bound where it lies. Every one of those bytes is resident twice while
-    // the copy runs -- see `fits_on_this_gpu`.
+    // is bound where it lies. Only a window of it is off the mapping at once --
+    // see `fits_on_this_gpu`.
     if (!fits_on_this_gpu(heap_bytes + streamed, elastic_budget, plan_.weights_bytes, err,
                           &elastic_parts, resident_weights))
         return false;
@@ -1290,9 +1320,29 @@ bool MetalExecutor::Impl::setup(const std::string& kernels_dir,
                 .residual = fuse_residual_,
                 .routed = g_.is_moe(),
                 .strided = true,
-                .fp16_strided = !g_.is_moe() &&
-                    g_.quant.bits == 4 && g_.quant.group == 64})) {
+                // Neither of these excludes a mixture. They both used to, on
+                // the reading that a routed checkpoint has nothing dense worth
+                // staging -- but q, k, v, o and the shared expert are ordinary
+                // dense projections whatever the FFN is, and on a device with
+                // no bfloat matrix unit they were the last GEMMs in this
+                // family still emulating one. The ROUTED projections are kept
+                // off by the tables they select, not by these flags.
+                .fp16_precast = g_.quant.bits == 4 && g_.quant.group == 64,
+                .fp16_strided = g_.quant.bits == 4 && g_.quant.group == 64})) {
         if (err) *err = "multi-batch PSO load failed: " + load_err;
+        ctx_.reset();
+        return false;
+    }
+    // The alternate format's batched matvec. Without it a prefill ran the
+    // router and the shared gate as ONE MATVEC PER TOKEN -- the largest single
+    // line in a Qwen3.6-35B-A3B prefill profile -- because the strided arm has
+    // to decline a kind whose bytes its pipelines cannot read. Strided only:
+    // nothing else in this table is ever asked of the alt format, and building
+    // the rest would be compiling pipelines with no caller.
+    if (g_.paged_kv_enabled && g_.has_alt_quant() &&
+        !load_multibatch_psos(*ctx_, kernels_dir, mb_alt_psos_, g_.alt_quant, &load_err,
+                              MultiBatchPsoFeatures{.strided = true})) {
+        if (err) *err = "multi-batch PSO load failed (alt format): " + load_err;
         ctx_.reset();
         return false;
     }
@@ -1309,7 +1359,7 @@ bool MetalExecutor::Impl::setup(const std::string& kernels_dir,
         *static_cast<std::int32_t*>(prefill_row_stride_.contents()) =
             static_cast<std::int32_t>(scratch_widest_elems(g_));
     }
-    if (!g_.is_moe() && g_.quant.bits == 4 && g_.quant.group == 64) {
+    if (g_.quant.bits == 4 && g_.quant.group == 64) {
         prefill_fp16_input_ = ctx_->heap_alloc(
             std::size_t(std::max(1, g_.max_tokens)) *
             std::size_t(scratch_widest_elems(g_)) * sizeof(std::uint16_t));
@@ -1615,9 +1665,19 @@ bool MetalExecutor::Impl::ensure_elastic_storage(
             capacity;
         add_target(slot, bytes);
     }
-    if (ctx_->ensure_elastic_buffers_atomically(targets)) return true;
+    if (ctx_->ensure_elastic_buffers_atomically(
+            targets, /*step_requirement=*/true)) {
+        return true;
+    }
     if (err != nullptr) {
-        *err = "Metal elastic physical budget exhausted";
+        // Which of the two it is decides what an operator does about it. A full
+        // pool is a sizing problem; a clamped one is the OS having said the
+        // machine is tight, which passes on its own.
+        *err = "Metal elastic physical budget exhausted (" +
+               std::to_string(ctx_->elastic_committed_pages()) + " of " +
+               std::to_string(ctx_->elastic_budget_pages()) +
+               " pages committed, memory pressure level " +
+               std::to_string(ctx_->memory_pressure_level()) + ")";
     }
     return false;
 }
@@ -1681,7 +1741,9 @@ bool MetalExecutor::Impl::setup_kv_pool(uint32_t total_pages, uint32_t page_size
             if (err) {
                 *err = "MetalExecutor::Impl::setup_kv_pool: sparse arena allocation failed "
                        "(layer " + std::to_string(L) + ", " + std::to_string(layer_bytes) +
-                       " bytes/buffer)";
+                       " bytes/buffer, against " +
+                       std::to_string(ctx_->elastic_budget_pages()) +
+                       " pages of elastic budget)";
             }
             release_pool(pool);
             return false;
@@ -1797,7 +1859,36 @@ bool MetalExecutor::Impl::bind_paged_dag(std::string* err) {
                         case Kernel::FfnRms:
                         case Kernel::FinalRms:
                         case Kernel::SiluMul:
+                        case Kernel::QNorm:
+                        case Kernel::KNorm:
                             ctx_->arg_bind_ordinal(d.ordinal, 4, prefill_row_stride_);
+                            break;
+                        // `residual_add` takes three buffers, so its pitch is
+                        // the fourth; `shared_expert_combine` takes five.
+                        case Kernel::Residual:
+                        case Kernel::LayerOut:
+                            ctx_->arg_bind_ordinal(d.ordinal, 3, prefill_row_stride_);
+                            break;
+                        case Kernel::LlSharedCombine:
+                            ctx_->arg_bind_ordinal(d.ordinal, 5, prefill_row_stride_);
+                            break;
+                        // The batched attention. `Rows` is what lets its grid
+                        // round up to whole query tiles and still retire the
+                        // partial one; the two pitches are what let it read a
+                        // prefill's scratch, whose rows are a uniform
+                        // `scratch_widest_elems` apart rather than packed.
+                        // Bound on the PACKED pipeline's kind too, because
+                        // which of the two runs is decided per fire, after
+                        // this table is written.
+                        case Kernel::SdpaPaged:
+                            if (prefill_rows_.valid())
+                                ctx_->arg_bind_ordinal(d.ordinal, 17, prefill_rows_);
+                            ctx_->arg_bind_ordinal(d.ordinal, 18, prefill_row_stride_);
+                            ctx_->arg_bind_ordinal(d.ordinal, 19, prefill_row_stride_);
+                            break;
+                        case Kernel::Rope:
+                        case Kernel::RopeK:
+                            ctx_->arg_bind_ordinal(d.ordinal, 5, prefill_row_stride_);
                             break;
                         case Kernel::GatedRms:
                             ctx_->arg_bind_ordinal(d.ordinal, 5, prefill_row_stride_);
@@ -1805,6 +1896,28 @@ bool MetalExecutor::Impl::bind_paged_dag(std::string* err) {
                         case Kernel::GdnInA:
                         case Kernel::GdnInB:
                             ctx_->arg_bind_ordinal(d.ordinal, 5, prefill_row_stride_);
+                            break;
+                        // The two gated-attention kernels. Both read and write
+                        // the scratch arena, whose rows share one pitch however
+                        // narrow the tensor is, so the 2x-wide q projection and
+                        // its two halves all take the same number.
+                        case Kernel::QSplit:
+                            ctx_->arg_bind_ordinal(
+                                d.ordinal, (std::uint8_t)bind::QSplit::QgRowStride,
+                                prefill_row_stride_);
+                            ctx_->arg_bind_ordinal(
+                                d.ordinal, (std::uint8_t)bind::QSplit::OutRowStride,
+                                prefill_row_stride_);
+                            break;
+                        case Kernel::AttnGate:
+                            ctx_->arg_bind_ordinal(
+                                d.ordinal, (std::uint8_t)bind::AttnGate::RowStride,
+                                prefill_row_stride_);
+                            break;
+                        case Kernel::KvAppendPaged:
+                            ctx_->arg_bind_ordinal(
+                                d.ordinal, (std::uint8_t)bind::KvAppendPaged::SrcRowStride,
+                                prefill_row_stride_);
                             break;
 
                         default:
@@ -2350,15 +2463,28 @@ bool MetalExecutor::Impl::run_batch_step(const BatchSchedule& schedule, const Ba
     // slots are cached by (ordinal, index)) and moves no encoded byte, since
     // the argument table already holds the address whose contents change.
     if (g_.is_moe() && mb_bound_tokens_ != schedule.N) {
-        bind_token_consts(*ctx_, fire_dag, g_, schedule.N);
+        // The decode's routed projections do not batch; see
+        // `qwen35_routed_decode_batched`. Passing it here is what keeps the
+        // sort's padding off, and the padding is most of the cost.
+        bind_token_consts(*ctx_, fire_dag, g_, schedule.N, /*row_pitch=*/0,
+                          qwen35_routed_decode_batched());
         mb_bound_tokens_ = schedule.N;
+    }
+    // The FP16 staging buffer and, next to it, the element count the cast
+    // kernel walks. The count is the only thing here that depends on the
+    // fire's width, so it is rebound when the width moves and left alone when
+    // a serving loop settles.
+    if (prefill_fp16_input_.valid() && mb_fp16_tokens_ != schedule.N) {
+        bind_mb_fp16_qmm(*ctx_, fire_dag, g_, schedule.N, prefill_fp16_input_,
+                         mb_fp16_keep_);
+        mb_fp16_tokens_ = schedule.N;
     }
     const StepTiming timing = ctx_->run_step([&](StepEncoder& se) {
         if (ptir != nullptr) {
             for (const auto& callbacks : *ptir)
                 if (callbacks.pre_forward) callbacks.pre_forward(se);
         }
-        encode_decode_step_mb(se, fire_dag, psos_, mb_psos_, force_barriers_);
+        encode_decode_step_mb(se, fire_dag, psos_, mb_psos_, force_barriers_, &g_, schedule.N);
         if (ptir != nullptr) {
             for (const auto& callbacks : *ptir)
                 if (callbacks.post_forward) callbacks.post_forward(se);
@@ -2530,7 +2656,8 @@ bool MetalExecutor::Impl::run_prefill_step(
         }
         encode_prefill_dags_mb(se, prefill_dags_, schedule.N, psos_, mb_psos_,
                                force_barriers_, in.row_needs_logits, &g_,
-                               int(prefill_dags_.size()), gdn_scans);
+                               int(prefill_dags_.size()), gdn_scans,
+                               g_.has_alt_quant() ? &mb_alt_psos_ : nullptr);
         if (ptir != nullptr) {
             for (const auto& callbacks : *ptir)
                 if (callbacks.post_forward) callbacks.post_forward(se);
