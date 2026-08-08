@@ -10,7 +10,7 @@ class CustomAllreduce {};
 struct Signal {};
 }  // namespace vllm
 
-namespace pie_cuda_driver {
+namespace pie_cuda_driver::kernels::comm {
 
 CustomAllReduce::CustomAllReduce() = default;
 
@@ -107,4 +107,4 @@ void CustomAllReduce::all_reduce_residual_rmsnorm_bf16_exact(
         "custom_all_reduce: exact fused residual RMSNorm is unavailable");
 }
 
-}  // namespace pie_cuda_driver
+}  // namespace pie_cuda_driver::kernels::comm

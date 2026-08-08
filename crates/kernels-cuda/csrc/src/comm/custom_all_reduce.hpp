@@ -20,6 +20,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -31,9 +32,28 @@ class CustomAllreduce;
 struct Signal;
 }
 
-namespace pie_cuda_driver {
+namespace pie_cuda_driver::kernels::comm {
 
-class NcclComm;
+
+// What this needs from the collective, and nothing more.
+//
+// The wrapper used to take an `NcclComm&`. It reads exactly two things off it
+// -- the world size, and one bootstrap-time all-gather of IPC handles -- and
+// taking the class instead of those two made a compute kernel depend on the
+// driver's comm plane. It is a compute kernel: `all_reduce_residual_rmsnorm_bf16`
+// fuses a reduction with a residual add and an RMSNorm, and the unfused halves
+// of that live in `kernels-cuda`.
+//
+// So the seam is a callback. `gather` takes HOST buffers; whatever H2D dance a
+// given collective needs is the caller's business, which is where NCCL knowledge
+// belongs. Who decides custom-vs-NCCL by message size stays the caller's too --
+// `can_handle()` only reports.
+struct HostAllgather {
+    int rank = 0;
+    int world_size = 1;
+    // send[bytes] from this rank -> recv[bytes * world_size], rank-major.
+    std::function<void(const void* send, void* recv, std::size_t bytes)> gather;
+};
 
 class CustomAllReduce {
 public:
@@ -42,7 +62,7 @@ public:
     // group, indexed by rank. A TP group is not necessarily devices
     // 0..world_size-1, so the ordinals have to be supplied rather than
     // inferred from rank indices.
-    CustomAllReduce(NcclComm& comm,
+    CustomAllReduce(HostAllgather ag,
                     bool same_process,
                     std::vector<int> group_devices,
                     std::size_t max_bytes = 8 * 1024 * 1024,
@@ -64,8 +84,8 @@ public:
     // across ranks, but typically they are). Subsequent `all_reduce_bf16`
     // calls passing a pointer >= `buf` and < `buf + buf_bytes` use this
     // registration; we resolve buf-base via cuPointerGetAttribute.
-    void register_buffer(NcclComm& comm, void* buf, std::size_t buf_bytes);
-    void register_graph_buffers(NcclComm& comm);
+    void register_buffer(void* buf, std::size_t buf_bytes);
+    void register_graph_buffers();
 
     // Returns true when the kernel will handle `bytes` directly. Above
     // the threshold the kernel falls off NCCL on bandwidth, so we
@@ -113,6 +133,7 @@ private:
     // Track which base pointers have already been IPC-registered so
     // subsequent all-reduces don't reopen handles.
     std::unordered_map<void*, void*> registered_bases_;  // self_base -> self_base
+    HostAllgather ag_;
     std::vector<void*> fusion_buffers_;
     void* fusion_workspace_dev_ = nullptr;
     void* fusion_flag_dev_ = nullptr;
@@ -121,4 +142,4 @@ private:
     std::size_t fusion_lamport_comm_bytes_ = 0;
 };
 
-}  // namespace pie_cuda_driver
+}  // namespace pie_cuda_driver::kernels::comm

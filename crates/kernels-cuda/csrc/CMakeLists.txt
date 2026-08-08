@@ -523,7 +523,24 @@ foreach(_pie_hd_src IN LISTS _pie_hd_stubs)
   endif()
 endforeach()
 
+
+# The custom P2P all-reduce, arch-gated. It wraps FlashInfer's vllm-style
+# kernel and FUSES a residual add and an RMSNorm into the reduction -- the
+# unfused halves of which are `norm/`'s -- so it is a compute kernel that
+# happens to be collective, not comm machinery. What it needs from the
+# collective is one bootstrap all-gather, taken as a callback
+# (`HostAllgather`) rather than an `NcclComm&`.
+#
+# Blackwell (sm100/120) has no kernel yet; the stub keeps the entry points.
+if(PIE_HAS_SM100 OR PIE_HAS_SM120)
+  set(PIE_KERNELS_CUSTOM_ALL_REDUCE_SOURCE src/comm/custom_all_reduce_stub.cpp)
+  message(STATUS "Disabling FlashInfer custom all-reduce for CUDA architecture ${CMAKE_CUDA_ARCHITECTURES}")
+else()
+  set(PIE_KERNELS_CUSTOM_ALL_REDUCE_SOURCE src/comm/custom_all_reduce.cu)
+endif()
+
 add_library(pie_kernels_cuda STATIC
+  ${PIE_KERNELS_CUSTOM_ALL_REDUCE_SOURCE}
   src/tensor.cpp
   # ops/ -- attention / GEMM / MoE / SSM wrappers
   src/ops/attention_flashinfer.cu

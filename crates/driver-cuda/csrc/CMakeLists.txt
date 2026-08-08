@@ -214,13 +214,7 @@ pie_cuda_has_arch(PIE_HAS_SM90 90)
 pie_cuda_has_arch(PIE_HAS_SM100 100)
 pie_cuda_has_arch(PIE_HAS_SM120 120)
 
-# Blackwell (sm100/120) has no custom-all-reduce kernel yet; stub it out.
-if(PIE_HAS_SM100 OR PIE_HAS_SM120)
-  set(PIE_CUDA_CUSTOM_ALL_REDUCE_SOURCE src/comm/custom_all_reduce_stub.cpp)
-  message(STATUS "Disabling FlashInfer custom all-reduce for CUDA architecture ${CMAKE_CUDA_ARCHITECTURES}")
-else()
-  set(PIE_CUDA_CUSTOM_ALL_REDUCE_SOURCE src/comm/custom_all_reduce.cu)
-endif()
+# The custom all-reduce moved to the kernels crate; its arch gate went with it.
 
 
 # The graph-heavy model implementations. The registry (src/model/registry.cpp)
@@ -309,7 +303,6 @@ add_library(pie_driver_cuda_lib STATIC
   # comm/ -- the TP collective's device half, which is not a compute kernel:
   # it sits on the NCCL/CUDA-IPC comm `distributed.cpp` owns, and that is why
   # it did not go to the kernels crate with the rest of src/kernels.
-  ${PIE_CUDA_CUSTOM_ALL_REDUCE_SOURCE}
   # batch/ -- one submitted batch -> device work
   src/batch/brle.cpp
   src/batch/frame.cpp

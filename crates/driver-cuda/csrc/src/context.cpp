@@ -683,7 +683,7 @@ class Context::Impl {
     std::size_t elastic_safety_floor_bytes_ = 0;
     pie_cuda_driver::ops::RuntimeQuantContext runtime_quant_context_;
     pie_cuda_driver::NcclComm* tp_comm_ = nullptr;
-    pie_cuda_driver::CustomAllReduce* tp_custom_ar_ = nullptr;
+    pie_cuda_driver::kernels::comm::CustomAllReduce* tp_custom_ar_ = nullptr;
     // CUDA device ordinal of every rank in the TP group, indexed by rank.
     std::vector<int> tp_group_devices_;
     std::string caps_json_;
@@ -1965,8 +1965,29 @@ int Context::Impl::load_model(
             });
 
         if (unanimous) {
-            auto* car = own_emplace<pie_cuda_driver::CustomAllReduce>(
-                *tp_comm_,
+            // The all-gather the wrapper needs at bootstrap, with the H2D
+            // round-trip NCCL requires kept on this side -- that plumbing is
+            // the collective's business, not the kernel's.
+            pie_cuda_driver::kernels::comm::HostAllgather ag;
+            ag.rank = tp_comm_->rank();
+            ag.world_size = tp_comm_->world_size();
+            ag.gather = [comm = tp_comm_](const void* send, void* recv,
+                                          std::size_t bytes) {
+                if (bytes == 0) return;
+                void* d_send = nullptr;
+                void* d_recv = nullptr;
+                CUDA_CHECK(cudaMalloc(&d_send, bytes));
+                CUDA_CHECK(cudaMalloc(&d_recv, bytes * comm->world_size()));
+                CUDA_CHECK(cudaMemcpy(d_send, send, bytes, cudaMemcpyHostToDevice));
+                comm->all_gather_bytes(d_send, d_recv, bytes, /*stream=*/nullptr);
+                CUDA_CHECK(cudaDeviceSynchronize());
+                CUDA_CHECK(cudaMemcpy(recv, d_recv, bytes * comm->world_size(),
+                                      cudaMemcpyDeviceToHost));
+                CUDA_CHECK(cudaFree(d_send));
+                CUDA_CHECK(cudaFree(d_recv));
+            };
+            auto* car = own_emplace<pie_cuda_driver::kernels::comm::CustomAllReduce>(
+                std::move(ag),
                 /*same_process=*/true,
                 tp_group_devices_,
                 /*max_bytes=*/8ull * 1024 * 1024,
@@ -1974,7 +1995,7 @@ int Context::Impl::load_model(
                 /*fusion_max_tokens=*/max_workspace_tokens,
                 /*fusion_hidden=*/engine.hf_config().hidden_size);
             for (void* base : workspace_bases) {
-                car->register_buffer(*tp_comm_, base, 0);
+                car->register_buffer(base, 0);
             }
             tp_comm_->set_custom_all_reduce(car);
             tp_custom_ar_ = car;

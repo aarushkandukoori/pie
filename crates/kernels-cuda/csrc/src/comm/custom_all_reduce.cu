@@ -12,13 +12,12 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "distributed.hpp"
 
 #include <flashinfer/comm/trtllm_allreduce.cuh>
 #include <flashinfer/comm/trtllm_allreduce_fusion.cuh>
 #include <flashinfer/comm/vllm_custom_all_reduce.cuh>
 
-namespace pie_cuda_driver {
+namespace pie_cuda_driver::kernels::comm {
 
 namespace {
 
@@ -82,24 +81,6 @@ void* get_base_ptr(const void* ptr) {
     return base;
 }
 
-void all_gather_host_bytes(NcclComm& comm,
-                           const void* send,
-                           void* recv,
-                           std::size_t bytes)
-{
-    if (bytes == 0) return;
-    void* d_send = nullptr;
-    void* d_recv = nullptr;
-    CUDA_CHECK(cudaMalloc(&d_send, bytes));
-    CUDA_CHECK(cudaMalloc(&d_recv, bytes * comm.world_size()));
-    CUDA_CHECK(cudaMemcpy(d_send, send, bytes, cudaMemcpyHostToDevice));
-    comm.all_gather_bytes(d_send, d_recv, bytes, /*stream=*/nullptr);
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpy(recv, d_recv, bytes * comm.world_size(),
-                          cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaFree(d_send));
-    CUDA_CHECK(cudaFree(d_recv));
-}
 
 std::size_t align_up(std::size_t n, std::size_t a) {
     return ((n + a - 1) / a) * a;
@@ -273,15 +254,16 @@ cudaError_t pie_allreduce_fusion_op(
 // at every use site of the wrapper.
 CustomAllReduce::CustomAllReduce() = default;
 
-CustomAllReduce::CustomAllReduce(NcclComm& comm,
+CustomAllReduce::CustomAllReduce(HostAllgather ag,
                                  bool same_process,
                                  std::vector<int> group_devices,
                                  std::size_t max_bytes,
                                  std::size_t rank_data_bytes,
                                  int fusion_max_tokens,
                                  int fusion_hidden) {
-    rank_       = comm.rank();
-    world_size_ = comm.world_size();
+    ag_         = std::move(ag);
+    rank_       = ag_.rank;
+    world_size_ = ag_.world_size;
     same_process_ = same_process;
     max_bytes_ = max_bytes;
     if (world_size_ < 2 || world_size_ > 8 || (world_size_ % 2) != 0) {
@@ -321,7 +303,7 @@ CustomAllReduce::CustomAllReduce(NcclComm& comm,
     if (same_process_) {
         std::uint64_t self_ptr = reinterpret_cast<std::uint64_t>(signal_self_);
         std::vector<std::uint64_t> all_ptrs(world_size_);
-        all_gather_host_bytes(comm, &self_ptr, all_ptrs.data(), sizeof(self_ptr));
+        ag_.gather(&self_ptr, all_ptrs.data(), sizeof(self_ptr));
         for (int r = 0; r < world_size_; ++r) {
             signal_peers_[r] =
                 reinterpret_cast<vllm::Signal*>(all_ptrs[static_cast<std::size_t>(r)]);
@@ -333,7 +315,7 @@ CustomAllReduce::CustomAllReduce(NcclComm& comm,
         cudaIpcMemHandle_t self_signal_handle{};
         CUDA_CHECK(cudaIpcGetMemHandle(&self_signal_handle, signal_self_));
         std::vector<cudaIpcMemHandle_t> all_signal_handles(world_size_);
-        all_gather_host_bytes(comm, &self_signal_handle, all_signal_handles.data(),
+        ag_.gather(&self_signal_handle, all_signal_handles.data(),
                               sizeof(cudaIpcMemHandle_t));
 
         for (int r = 0; r < world_size_; ++r) {
@@ -414,8 +396,7 @@ CustomAllReduce::CustomAllReduce(NcclComm& comm,
                 std::uint64_t self_ptr =
                     reinterpret_cast<std::uint64_t>(local_buf);
                 std::vector<std::uint64_t> all_ptrs(world_size_);
-                all_gather_host_bytes(
-                    comm, &self_ptr, all_ptrs.data(), sizeof(self_ptr));
+                ag_.gather(&self_ptr, all_ptrs.data(), sizeof(self_ptr));
                 for (int r = 0; r < world_size_; ++r) {
                     workspace.push_back(reinterpret_cast<void*>(
                         all_ptrs[static_cast<std::size_t>(r)]));
@@ -424,7 +405,7 @@ CustomAllReduce::CustomAllReduce(NcclComm& comm,
                 cudaIpcMemHandle_t self_handle{};
                 CUDA_CHECK(cudaIpcGetMemHandle(&self_handle, local_buf));
                 std::vector<cudaIpcMemHandle_t> all_handles(world_size_);
-                all_gather_host_bytes(comm, &self_handle, all_handles.data(),
+                ag_.gather(&self_handle, all_handles.data(),
                                       sizeof(cudaIpcMemHandle_t));
                 for (int r = 0; r < world_size_; ++r) {
                     if (r == rank_) {
@@ -551,7 +532,7 @@ bool CustomAllReduce::can_fuse_residual_rmsnorm(
     return (hidden % 8) == 0;
 }
 
-void CustomAllReduce::register_buffer(NcclComm& comm, void* buf,
+void CustomAllReduce::register_buffer(void* buf,
                                       std::size_t /*buf_bytes*/)
 {
     if (!impl_) return;
@@ -562,7 +543,7 @@ void CustomAllReduce::register_buffer(NcclComm& comm, void* buf,
     if (same_process_) {
         std::uint64_t self_ptr = reinterpret_cast<std::uint64_t>(self_base);
         std::vector<std::uint64_t> all_ptrs(world_size_);
-        all_gather_host_bytes(comm, &self_ptr, all_ptrs.data(), sizeof(self_ptr));
+        ag_.gather(&self_ptr, all_ptrs.data(), sizeof(self_ptr));
         for (int r = 0; r < world_size_; ++r) {
             peer_bases[static_cast<std::size_t>(r)] =
                 reinterpret_cast<void*>(all_ptrs[static_cast<std::size_t>(r)]);
@@ -571,7 +552,7 @@ void CustomAllReduce::register_buffer(NcclComm& comm, void* buf,
         cudaIpcMemHandle_t self_handle{};
         CUDA_CHECK(cudaIpcGetMemHandle(&self_handle, self_base));
         std::vector<cudaIpcMemHandle_t> all_handles(world_size_);
-        all_gather_host_bytes(comm, &self_handle, all_handles.data(),
+        ag_.gather(&self_handle, all_handles.data(),
                               sizeof(cudaIpcMemHandle_t));
 
         // Open peer handles, build the per-rank pointer array, and register.
@@ -598,7 +579,7 @@ void CustomAllReduce::register_buffer(NcclComm& comm, void* buf,
     registered_bases_[self_base] = self_base;
 }
 
-void CustomAllReduce::register_graph_buffers(NcclComm& comm)
+void CustomAllReduce::register_graph_buffers()
 {
     if (!impl_) return;
     const std::size_t num_buffers = impl_->graph_unreg_buffers_.size();
@@ -611,7 +592,7 @@ void CustomAllReduce::register_graph_buffers(NcclComm& comm)
                 impl_->graph_unreg_buffers_[i]);
         }
         std::vector<std::uint64_t> gathered(num_buffers * world_size_);
-        all_gather_host_bytes(comm, local.data(), gathered.data(),
+        ag_.gather(local.data(), gathered.data(),
                               num_buffers * sizeof(std::uint64_t));
 
         impl_->check_rank_data_capacity(num_buffers);
@@ -635,11 +616,11 @@ void CustomAllReduce::register_graph_buffers(NcclComm& comm)
     auto [self_handles, self_offsets] = impl_->get_graph_buffer_ipc_meta();
     const std::size_t handle_bytes = self_handles.size();
     std::vector<char> all_handles(handle_bytes * world_size_);
-    all_gather_host_bytes(comm, self_handles.data(), all_handles.data(),
+    ag_.gather(self_handles.data(), all_handles.data(),
                           handle_bytes);
 
     std::vector<std::int64_t> all_offsets(num_buffers * world_size_);
-    all_gather_host_bytes(comm, self_offsets.data(), all_offsets.data(),
+    ag_.gather(self_offsets.data(), all_offsets.data(),
                           num_buffers * sizeof(std::int64_t));
 
     std::vector<std::string> handles(world_size_);
@@ -774,4 +755,4 @@ void CustomAllReduce::all_reduce_residual_rmsnorm_bf16_exact(
             eps);
 }
 
-}  // namespace pie_cuda_driver
+}  // namespace pie_cuda_driver::kernels::comm

@@ -554,7 +554,7 @@ cudaGraphExec_t capture_forward_graph_exec(
     if (engine.tp_comm != nullptr &&
         engine.tp_comm->custom_all_reduce() != nullptr) {
         engine.tp_comm->custom_all_reduce()
-            ->register_graph_buffers(*engine.tp_comm);
+            ->register_graph_buffers();
     }
     cublas_stream.restore();
 
