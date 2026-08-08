@@ -854,14 +854,14 @@ fn the_glm5_decode_text_lowers() {
 /// and a fact that only lowers one way is a fact stated wrong.
 #[test]
 fn the_kimi_decode_text_lowers() {
-    use model::kimi::forward::facts::{KimiCudaFacts, KimiFacts};
+    use model::kimi_k2::forward::facts::{KimiCudaFacts, KimiFacts};
     let facts = KimiFacts::kimi_k2();
     for fused in [true, false] {
         let cuda = KimiCudaFacts {
             q_kv_a_fused: fused,
             ..KimiCudaFacts::kimi_k2_synthetic()
         };
-        let plan = model::kimi::forward::kimi_cuda(&facts, &cuda, FireClass::Decode);
+        let plan = model::kimi_k2::forward::kimi_cuda(&facts, &cuda, FireClass::Decode);
         let out = lower(&plan, &sampled(1), Fire::default())
             .unwrap_or_else(|e| panic!("kimi (fused={fused}) must lower: {e:?}"));
         assert!(
@@ -872,4 +872,31 @@ fn the_kimi_decode_text_lowers() {
         );
         assert_eq!(out.coverage(), 1.0);
     }
+}
+
+/// kimi_k3's CUDA decode text lowers with nothing left over.
+///
+/// The hybrid matters here: the fixture's schedule puts both an MLA layer
+/// and a KDA layer in the plan, so this covers both halves — a text that
+/// only lowered one would pass a single-kind fixture and fail the first
+/// real deployment.
+#[test]
+fn the_kimi_k3_decode_text_lowers() {
+    use model::kimi_k3::forward::facts::KimiK3Facts;
+    let facts = KimiK3Facts::kimi_k3_synthetic();
+    assert!(
+        (0..facts.layers).any(|l| facts.is_full_attn(l))
+            && (0..facts.layers).any(|l| !facts.is_full_attn(l)),
+        "the fixture must exercise BOTH halves of the hybrid"
+    );
+    let plan = model::kimi_k3::forward::kimi_k3_cuda(&facts, FireClass::Decode);
+    let out = lower(&plan, &sampled(1), Fire::default())
+        .unwrap_or_else(|e| panic!("kimi_k3's decode text must lower: {e:?}"));
+    assert!(
+        out.residue.is_empty(),
+        "{} statement(s) still owe a declaration: {:#?}",
+        out.residue.len(),
+        out.residue
+    );
+    assert_eq!(out.coverage(), 1.0);
 }

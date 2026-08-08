@@ -140,7 +140,6 @@ pub mod gemma_3;
 pub mod gemma_4;
 pub mod glm_5;
 pub mod glm5;
-pub mod kimi;
 pub mod gpt_oss;
 pub mod kimi_k2;
 pub mod kimi_k3;
