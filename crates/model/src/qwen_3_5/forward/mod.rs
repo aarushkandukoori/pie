@@ -178,9 +178,17 @@ fn moe_mlp_body_aligned_cuda(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val 
     let route_out =
         dsl::cuda::reorder_moe_aligned_output(&down, &sorted, facts.top_k, facts.hidden);
 
-    // The combine is a BINDING, and the text says which one. Both reach the
-    // same numbers; they differ in whether the residual rides along.
-    let routed = dsl::cuda::token_batched_weighted_sum_aligned(&route_out, &weights, facts.hidden);
+    // The combine, in the form the aligned leg actually fires: the reorder
+    // above already put the rows back in ROUTE order, so what follows is the
+    // ordinary token-batched sum, not the aligned one. Read off
+    // `qwen3_5_moe_forward.cpp`'s aligned block rather than inferred from the
+    // name -- `_aligned_` names a kernel that reads block-major rows, and
+    // this one no longer has any.
+    //
+    // The residual fold is the binding: at tp=1 the MoE output lands straight
+    // on the stream, so the add is not a second launch. Here the shared
+    // expert's landing takes it, so the routed combine does not.
+    let routed = dsl::cuda::weighted_sum(&weights, &route_out, facts.hidden, None);
 
     let combined = if facts.shared_expert_intermediate > 0 {
         let inter = facts.shared_expert_intermediate;
