@@ -52,6 +52,8 @@
 #include "rope/rope.hpp"
 #include "moe/topk_softmax.hpp"
 
+namespace kernels = pie_cuda_driver::kernels;
+
 namespace {
 
 #define CHECK(x)                                                            \

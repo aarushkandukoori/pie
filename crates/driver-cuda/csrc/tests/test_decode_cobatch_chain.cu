@@ -27,7 +27,7 @@
 #include "attn/attention_flashinfer.hpp"
 
 using pie_cuda_driver::AttentionWorkspace;
-namespace ops = pie_cuda_driver::ops;
+namespace kernels = pie_cuda_driver::kernels;
 namespace k = pie_cuda_driver::kernels;
 
 namespace {
@@ -171,7 +171,7 @@ ChainResult run_chain(const std::vector<Req>& reqs, int first, int R, int num_st
         RT(cudaMemcpy(d_pos, positions_h.data(), R*4, cudaMemcpyHostToDevice));
         RT(cudaMemcpy(d_klpl, kv_last_page_lens_h.data(), R*4, cudaMemcpyHostToDevice));
         RT(cudaMemcpy(d_packed, packed.data(), packed.size()*2, cudaMemcpyHostToDevice));
-        k::launch_qkv_decode_qk_norm_rope_write_kv_bf16(
+        k::attn::qkv_decode_qk_norm_rope_write_kv_bf16(
             d_packed, d_qout, d_k, d_v, d_qw, d_kw, d_pos, /*rope_table=*/nullptr,
             d_kpi, d_kpp, d_klpl,
             /*w_page=*/nullptr, /*w_off=*/nullptr, /*row_valid=*/nullptr,

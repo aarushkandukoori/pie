@@ -37,7 +37,8 @@
 
 #include "attn/attention_flashinfer.hpp"
 
-namespace ops = pie_cuda_driver::ops;
+
+namespace kernels = pie_cuda_driver::kernels;
 
 namespace {
 

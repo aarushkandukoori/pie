@@ -202,7 +202,7 @@ void run_format(const char* dtype) {
     auto* kv_last_page_lens = device_copy<std::uint32_t>({kTotalTokens});
 
     auto layer = cache.layer_view(0);
-    kernels::attn::write_kv_to_pages(
+    write_kv_to_pages(
         layer, k_curr.data(), v_curr.data(),
         qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
         kTotalTokens, 1, nullptr);

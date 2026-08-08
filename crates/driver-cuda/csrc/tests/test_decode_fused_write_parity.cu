@@ -147,7 +147,7 @@ Result run_fused(const std::vector<Req>& reqs, int first, int R,
             d_valid, valid.data(), R, cudaMemcpyHostToDevice));
     }
 
-    k::launch_qkv_decode_qk_norm_rope_write_kv_bf16(
+    k::attn::qkv_decode_qk_norm_rope_write_kv_bf16(
         d_packed, d_qout, d_k, d_v, d_qw, d_kw, d_pos, /*rope_table=*/nullptr,
         d_kpi, d_kpp, d_klpl,
         d_w_page, d_w_off, d_valid,

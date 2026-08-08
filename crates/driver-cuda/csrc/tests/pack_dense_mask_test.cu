@@ -340,6 +340,7 @@ void test_mask_aware_graph_padding() {
         /*real_requests=*/1,
         /*real_tokens=*/1,
         /*padding=*/1,
+        /*pad_tokens=*/1,  // decode path: one token per pad lane
         /*pad_page=*/9,
         /*stream=*/nullptr);
     CUDA_RT(cudaDeviceSynchronize());
