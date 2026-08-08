@@ -1643,6 +1643,273 @@ pub mod cuda {
         .expect("fused post produces q")
     }
 
+    // ── the DEVICE-WINDOW forms ────────────────────────────────────
+    //
+    // A hooked pure-decode fire is graph-CAPTURED, and its hook split rides a
+    // DEVICE word (`win_d`) rather than a host row range. That is what makes
+    // these their own statements: the window is not a number the lowering
+    // knows, so it cannot be expressed as a rectangle -- every one is
+    // `whole`, and for a reason no other `whole` row in this table gives.
+    //
+    // `.wiki/tart/dsl.md`'s step 2e found this path by surveying before
+    // deleting; these are the statements that survey was about.
+
+    /// `kernels::launch_qk_rmsnorm_rope_bf16_devwin`: the fused q/k norm and
+    /// rope, over a device-carried window.
+    pub fn qk_rmsnorm_rope_devwin(q: &Val, k: &Val, q_w: &str, k_w: &str, q_width: u32) -> Val {
+        record(
+            &q.t,
+            q.layer,
+            "launch_qk_rmsnorm_rope_bf16_devwin",
+            vec![q_w.to_string(), k_w.to_string()],
+            None,
+            vec![q.id, k.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(q_width)]), DType::BF16)),
+        )
+        .expect("the norm+rope produces its value")
+    }
+
+    /// `kernels::launch_qkv_decode_qk_norm_rope_write_kv_bf16_devwin`: the
+    /// fused decode QKV epilogue, over a device-carried window.
+    pub fn qkv_decode_fused_devwin(packed: &Val, l: u32, q_width: u32) -> Val {
+        record(
+            &packed.t,
+            Some(l),
+            "launch_qkv_decode_qk_norm_rope_write_kv_bf16_devwin",
+            vec![],
+            Some(StateRef { store: StateStore::KvCache, layer: l }),
+            vec![packed.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(q_width)]), DType::BF16)),
+        )
+        .expect("the fused epilogue produces its value")
+    }
+
+    /// `kernels::launch_write_kv_to_pages_bf16_devwin`: the page write, over
+    /// a device-carried window.
+    pub fn write_kv_to_pages_devwin(k: &Val, v: &Val, l: u32) {
+        record(
+            &k.t,
+            Some(l),
+            "launch_write_kv_to_pages_bf16_devwin",
+            vec![],
+            Some(StateRef { store: StateStore::KvCache, layer: l }),
+            vec![k.id, v.id],
+            None,
+        );
+    }
+
+    /// `kernels::launch_write_kv_explicit_bf16_devwin`: the explicit-slot
+    /// write, over a device-carried window.
+    pub fn write_kv_explicit_devwin(k: &Val, v: &Val, l: u32) {
+        record(
+            &k.t,
+            Some(l),
+            "launch_write_kv_explicit_bf16_devwin",
+            vec![],
+            Some(StateRef { store: StateStore::KvCache, layer: l }),
+            vec![k.id, v.id],
+            None,
+        );
+    }
+
+    // ── head-dim padding, and the rest ─────────────────────────────
+
+    /// `kernels::launch_pad_head_dim_bf16` / `launch_strip_head_dim_bf16`:
+    /// widen each head to the padded width a kernel demands, and narrow back.
+    ///
+    /// The pair is what `head_dim_padded` COSTS, and stating it is what turns
+    /// `if (c.head_dim_padded)` in the model body into a fact the trace
+    /// carries. Row-shaped: each token's heads are padded independently.
+    pub fn pad_head_dim(x: &Val, heads: u32, head_dim_padded: u32) -> Val {
+        record(
+            &x.t, x.layer, "launch_pad_head_dim_bf16", vec![], None, vec![x.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(head_dim_padded)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the pad produces its value")
+    }
+
+    /// The inverse of [`Self::pad_head_dim`].
+    pub fn strip_head_dim(x: &Val, heads: u32, head_dim: u32) -> Val {
+        record(
+            &x.t, x.layer, "launch_strip_head_dim_bf16", vec![], None, vec![x.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(head_dim)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the strip produces its value")
+    }
+
+    /// `ops::merge_attention_states_bf16`: merge partial attention outputs by
+    /// their log-sum-exps.
+    ///
+    /// The KV-split's other half. `whole` -- it merges `num_index_sets`
+    /// partials whose boundaries are the split's, not a row range's.
+    pub fn merge_attention_states(v: &Val, s: &Val, heads: u32, head_dim: u32) -> (Val, Val) {
+        let outs = record_many(
+            &v.t, v.layer, "merge_attention_states_bf16", vec![], vec![v.id, s.id],
+            vec![
+                (Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(head_dim)]), DType::BF16),
+                (Shape(vec![Dim::Tokens, Dim::Const(heads)]), DType::F32),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let merged = it.next().expect("the merge states two outputs");
+        let lse = it.next().expect("the merge states two outputs");
+        (merged, lse)
+    }
+
+    /// `kernels::launch_compact_page_csr`: drop the pages a keep-mask
+    /// excludes, rewriting the CSR.
+    ///
+    /// `whole`: it rewrites `[R+1]` indptr arrays, so a row window would
+    /// compact the wrong requests' page lists.
+    pub fn compact_page_csr(t: &Trace, l: u32, keep: &Val) -> Val {
+        record(
+            t, Some(l), "launch_compact_page_csr", vec![],
+            Some(StateRef { store: StateStore::KvCache, layer: l }),
+            vec![keep.id],
+            Some((Shape(vec![Dim::Requests]), DType::I32)),
+        )
+        .expect("the compaction produces its value")
+    }
+
+    /// `ops::launch_attn_score_fold_heads`: fold the captured per-head scores
+    /// into the per-request form an observer reads.
+    pub fn attn_score_fold_heads(scores: &Val, heads: u32) -> Val {
+        record(
+            &scores.t, scores.layer, "launch_attn_score_fold_heads", vec![], None,
+            vec![scores.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(heads)]), DType::F32)),
+        )
+        .expect("the fold produces its value")
+    }
+
+    /// `ops::mla_absorb_q_to_latent_bf16`: project the query into the latent
+    /// space MLA attends in.
+    ///
+    /// A cuBLAS op, not a raw launch -- and that is why the vocabulary audit
+    /// missed it twice: a launcher is anything that issues DEVICE work, and
+    /// there are two ways to do that here.
+    pub fn mla_absorb_q_to_latent(q_nope: &Val, w: &str, heads: u32, kv_lora_rank: u32) -> Val {
+        record(
+            &q_nope.t, q_nope.layer, "mla_absorb_q_to_latent_bf16",
+            vec![w.to_string()], None, vec![q_nope.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(kv_lora_rank)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the absorb produces its value")
+    }
+
+    /// `ops::mla_absorb_latent_to_v_bf16`: project the latent attention
+    /// output back to the value space.
+    pub fn mla_absorb_latent_to_v(latent: &Val, w: &str, heads: u32, v_head_dim: u32) -> Val {
+        record(
+            &latent.t, latent.layer, "mla_absorb_latent_to_v_bf16",
+            vec![w.to_string()], None, vec![latent.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(v_head_dim)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the absorb produces its value")
+    }
+
+    /// `ops::flashinfer_mamba_ssu_bf16`: FlashInfer's selective state update.
+    ///
+    /// The other mamba scan -- nemotron_h takes this on sm90+ and its own
+    /// batched kernel elsewhere. `whole` for the reasons every state scan is.
+    pub fn flashinfer_mamba_ssu(conv_out: &Val, dt: &Val, l: u32, intermediate: u32) -> Val {
+        record(
+            &conv_out.t, Some(l), "flashinfer_mamba_ssu_bf16", vec![],
+            Some(StateRef { store: StateStore::RecurrentState, layer: l }),
+            vec![conv_out.id, dt.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(intermediate)]), DType::BF16)),
+        )
+        .expect("the scan produces its value")
+    }
+
+    /// `ops::gemm_act_x_wt_bf16_cublas`: the plain cuBLAS GEMM, named.
+    pub fn gemm_cublas(act: &Val, w: &str, n: u32) -> Val {
+        record(
+            &act.t, act.layer, "gemm_act_x_wt_bf16_cublas",
+            vec![w.to_string()], None, vec![act.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(n)]), DType::BF16)),
+        )
+        .expect("the gemm produces its value")
+    }
+
+    /// `ops::gemm_act_x_wt_bf16_out_fp32`: the same, accumulating to fp32.
+    pub fn gemm_out_fp32(act: &Val, w: &str, n: u32) -> Val {
+        record(
+            &act.t, act.layer, "gemm_act_x_wt_bf16_out_fp32",
+            vec![w.to_string()], None, vec![act.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(n)]), DType::F32)),
+        )
+        .expect("the gemm produces its value")
+    }
+
+    /// `ops::gemm_grouped_act_x_wt_bf16`: one GEMM per group, batched.
+    ///
+    /// `whole`: the group boundaries (`M_array`) are fire-global, so a row
+    /// window would cut a group in half.
+    pub fn gemm_grouped(act: &Val, w: &str, n: u32) -> Val {
+        record(
+            &act.t, act.layer, "gemm_grouped_act_x_wt_bf16",
+            vec![w.to_string()], None, vec![act.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(n)]), DType::BF16)),
+        )
+        .expect("the gemm produces its value")
+    }
+
+    /// `kernels::launch_sigmoid_scalar_gate_add_bf16`: add `x` onto `out`,
+    /// each row scaled by its own sigmoid gate.
+    pub fn sigmoid_scalar_gate_add(out: &Val, x: &Val, gate: &Val, hidden: u32) -> Val {
+        record(
+            &out.t, out.layer, "launch_sigmoid_scalar_gate_add_bf16", vec![], None,
+            vec![out.id, x.id, gate.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the gated add produces its value")
+    }
+
+    /// `kernels::launch_split_bf16_rows`: split `[N, l+r]` into `[N, l]` and
+    /// `[N, r]`. The inverse of [`Self::concat_rows`].
+    pub fn split_rows(src: &Val, left_dim: u32, right_dim: u32) -> (Val, Val) {
+        let outs = record_many(
+            &src.t, src.layer, "launch_split_bf16_rows", vec![], vec![src.id],
+            vec![
+                (Shape(vec![Dim::Tokens, Dim::Const(left_dim)]), DType::BF16),
+                (Shape(vec![Dim::Tokens, Dim::Const(right_dim)]), DType::BF16),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let l = it.next().expect("the split states two outputs");
+        let r = it.next().expect("the split states two outputs");
+        (l, r)
+    }
+
+    /// `kernels::launch_split_qwen_gdn_ba_bf16`: split the GDN `ba`
+    /// projection into its beta and alpha halves.
+    pub fn split_qwen_gdn_ba(ba: &Val, v_h: u32) -> (Val, Val) {
+        let outs = record_many(
+            &ba.t, ba.layer, "launch_split_qwen_gdn_ba_bf16", vec![], vec![ba.id],
+            vec![
+                (Shape(vec![Dim::Tokens, Dim::Const(v_h)]), DType::BF16),
+                (Shape(vec![Dim::Tokens, Dim::Const(v_h)]), DType::BF16),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let b = it.next().expect("the split states two outputs");
+        let a = it.next().expect("the split states two outputs");
+        (b, a)
+    }
+
     // ── qwen3_5: multi-token prediction ────────────────────────────
     //
     // MTP drafts several tokens per step and repairs when a draft is

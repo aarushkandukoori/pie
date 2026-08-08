@@ -66,6 +66,50 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── the DEVICE-WINDOW forms ────────────────────────────────────
+    // A hooked pure-decode fire is graph-CAPTURED and its hook split rides a
+    // DEVICE word (`win_d`), not a host row range. All four are `whole`, and
+    // for a reason no other `whole` row here gives: the window is not a
+    // number the lowering knows, so it cannot be a rectangle at all.
+    kernel!(qk_rmsnorm_rope_devwin "launch_qk_rmsnorm_rope_bf16_devwin", whole = true),
+    kernel!(qkv_decode_fused_devwin "launch_qkv_decode_qk_norm_rope_write_kv_bf16_devwin",
+        whole = true, sink = Some("kv.pages")),
+    kernel!(write_kv_to_pages_devwin "launch_write_kv_to_pages_bf16_devwin",
+        whole = true, sink = Some("kv.pages")),
+    kernel!(write_kv_explicit_devwin "launch_write_kv_explicit_bf16_devwin",
+        whole = true, sink = Some("kv.pages")),
+
+    // ── head-dim padding, and the rest of the audit's findings ─────
+    // The pair is what `head_dim_padded` COSTS; stating it turns
+    // `if (c.head_dim_padded)` in the model body into a fact the trace
+    // carries. Row-shaped -- each token's heads pad independently.
+    kernel!(pad_head_dim "launch_pad_head_dim_bf16"),
+    kernel!(strip_head_dim "launch_strip_head_dim_bf16"),
+    // The KV-split's other half: it merges `num_index_sets` partials whose
+    // boundaries are the split's, not a row range's.
+    kernel!(merge_attention_states "merge_attention_states_bf16", whole = true),
+    // Rewrites `[R+1]` indptr arrays, so a row window would compact the wrong
+    // requests' page lists.
+    kernel!(compact_page_csr "launch_compact_page_csr", whole = true),
+    kernel!(attn_score_fold_heads "launch_attn_score_fold_heads", whole = true),
+    // MLA's absorb pair -- cuBLAS ops rather than raw launches, which is why
+    // a launcher is "anything that issues DEVICE work" and not "anything
+    // taking a cudaStream_t". `scripts/kernel-vocabulary-audit.py` learned
+    // that the hard way.
+    kernel!(mla_absorb_q_to_latent "mla_absorb_q_to_latent_bf16"),
+    kernel!(mla_absorb_latent_to_v "mla_absorb_latent_to_v_bf16"),
+    // The other mamba scan: nemotron_h takes FlashInfer's SSU on sm90+ and
+    // its own batched kernel elsewhere.
+    kernel!(flashinfer_mamba_ssu "flashinfer_mamba_ssu_bf16", whole = true),
+    kernel!(gemm_cublas "gemm_act_x_wt_bf16_cublas"),
+    kernel!(gemm_out_fp32 "gemm_act_x_wt_bf16_out_fp32"),
+    // The group boundaries (`M_array`) are fire-global, so a row window would
+    // cut a group in half.
+    kernel!(gemm_grouped "gemm_grouped_act_x_wt_bf16", whole = true),
+    kernel!(sigmoid_scalar_gate_add "launch_sigmoid_scalar_gate_add_bf16"),
+    kernel!(split_rows "launch_split_bf16_rows"),
+    kernel!(split_qwen_gdn_ba "launch_split_qwen_gdn_ba_bf16"),
+
     // ── qwen3_5: multi-token prediction ────────────────────────────
     // MTP drafts several tokens per step and repairs on rejection, which
     // needs an attention that sees a HISTORY buffer beside the pages (the
