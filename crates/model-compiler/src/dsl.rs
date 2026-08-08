@@ -1643,6 +1643,323 @@ pub mod cuda {
         .expect("fused post produces q")
     }
 
+    // ── qwen3_5: multi-token prediction ────────────────────────────
+    //
+    // MTP drafts several tokens per step and repairs when a draft is
+    // rejected, which needs two things the rest of the model does not: an
+    // attention that can see a HISTORY buffer alongside the pages (the
+    // rejected tokens are not committed), and a per-slot pending-hidden
+    // shuffle. All four address through `slot_ids` or `qo_indptr`, so all
+    // four are `whole`.
+
+    /// `ops::launch_attention_mtp_paged_history_bf16`: attend the pages AND
+    /// an uncommitted history buffer.
+    ///
+    /// The draft's own tokens are not in the cache yet -- committing them
+    /// before they are accepted is the thing MTP must not do -- so they are
+    /// passed beside it and the kernel reads both.
+    pub fn attention_mtp_paged_history(q: &Val, l: u32, heads: u32, head_dim: u32) -> Val {
+        record(
+            &q.t,
+            Some(l),
+            "launch_attention_mtp_paged_history_bf16",
+            vec![],
+            Some(StateRef {
+                store: StateStore::KvCache,
+                layer: l,
+            }),
+            vec![q.id],
+            Some((
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(heads),
+                    Dim::Const(head_dim),
+                ]),
+                DType::BF16,
+            )),
+        )
+        .expect("the attention produces its value")
+    }
+
+    /// `ops::launch_mtp_shift_hidden_bf16`: the previous step's pending
+    /// hidden, shifted into this step's rows.
+    pub fn mtp_shift_hidden(target: &Val, pending: &Val, hidden: u32) -> Val {
+        record(
+            &target.t,
+            target.layer,
+            "launch_mtp_shift_hidden_bf16",
+            vec![],
+            None,
+            vec![target.id, pending.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the shift produces its value")
+    }
+
+    /// `ops::launch_mtp_update_pending_hidden_bf16`: stash each request's
+    /// last hidden for the next step.
+    pub fn mtp_update_pending_hidden(target: &Val, l: u32) {
+        record(
+            &target.t,
+            Some(l),
+            "launch_mtp_update_pending_hidden_bf16",
+            vec![],
+            Some(StateRef {
+                store: StateStore::RecurrentState,
+                layer: l,
+            }),
+            vec![target.id],
+            None,
+        );
+    }
+
+    /// `kernels::launch_copy_if_valid_slot`: a copy that skips requests
+    /// whose slot id is invalid.
+    ///
+    /// The graph-safe shape: the launch happens for every request every
+    /// time, and the slot id decides whether it does anything -- so the
+    /// dispatch is fixed and a CUDA graph replays.
+    pub fn copy_if_valid_slot(src: &Val, l: u32, width: u32) -> Val {
+        record(
+            &src.t,
+            Some(l),
+            "launch_copy_if_valid_slot",
+            vec![],
+            Some(StateRef {
+                store: StateStore::RecurrentState,
+                layer: l,
+            }),
+            vec![src.id],
+            Some((
+                Shape(vec![Dim::Requests, Dim::Const(width)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the copy produces its value")
+    }
+
+    // ── qwen3_5: the single-request GDN entries ────────────────────
+    //
+    // The unbatched twins of the `_batched` forms above: a legacy parity
+    // entrypoint and a single-request fast path. Same recurrence, one
+    // request, so they are not `whole` for the reason the batched ones are
+    // not -- their `B` is the batch, not a window into one.
+
+    /// `kernels::launch_recurrent_gated_delta_step`: one decode step,
+    /// single request.
+    pub fn gdn_step_single(q: &Val, l: u32, heads: u32, v_dim: u32) -> Val {
+        record(
+            &q.t,
+            Some(l),
+            "launch_recurrent_gated_delta_step",
+            vec![],
+            Some(StateRef {
+                store: StateStore::RecurrentState,
+                layer: l,
+            }),
+            vec![q.id],
+            Some((
+                Shape(vec![
+                    Dim::Requests,
+                    Dim::Const(heads),
+                    Dim::Const(v_dim),
+                ]),
+                DType::F32,
+            )),
+        )
+        .expect("the step produces its value")
+    }
+
+    /// The same, with the state kept in bf16.
+    ///
+    /// A precision BINDING, not a variant: which one a deployment uses is a
+    /// load-time fact, exactly as the `_batched` pair above states it.
+    pub fn gdn_step_single_state_bf16(q: &Val, l: u32, heads: u32, v_dim: u32) -> Val {
+        record(
+            &q.t,
+            Some(l),
+            "launch_recurrent_gated_delta_step_state_bf16",
+            vec![],
+            Some(StateRef {
+                store: StateStore::RecurrentState,
+                layer: l,
+            }),
+            vec![q.id],
+            Some((
+                Shape(vec![
+                    Dim::Requests,
+                    Dim::Const(heads),
+                    Dim::Const(v_dim),
+                ]),
+                DType::F32,
+            )),
+        )
+        .expect("the step produces its value")
+    }
+
+    /// `kernels::launch_chunk_gated_delta_prefill`: the chunked prefill,
+    /// single request.
+    pub fn gdn_prefill_single(q: &Val, l: u32, heads: u32, v_dim: u32) -> Val {
+        record(
+            &q.t,
+            Some(l),
+            "launch_chunk_gated_delta_prefill",
+            vec![],
+            Some(StateRef {
+                store: StateStore::RecurrentState,
+                layer: l,
+            }),
+            vec![q.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(v_dim)]),
+                DType::F32,
+            )),
+        )
+        .expect("the prefill produces its value")
+    }
+
+    /// The same, with the state kept in bf16.
+    pub fn gdn_prefill_single_state_bf16(q: &Val, l: u32, heads: u32, v_dim: u32) -> Val {
+        record(
+            &q.t,
+            Some(l),
+            "launch_chunk_gated_delta_prefill_state_bf16",
+            vec![],
+            Some(StateRef {
+                store: StateStore::RecurrentState,
+                layer: l,
+            }),
+            vec![q.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(v_dim)]),
+                DType::F32,
+            )),
+        )
+        .expect("the prefill produces its value")
+    }
+
+    /// `kernels::launch_causal_conv1d_prefill_bf16`: the prefill conv,
+    /// single request.
+    pub fn causal_conv1d_prefill_single(x: &Val, weight: &str, l: u32, channels: u32) -> Val {
+        record(
+            &x.t,
+            Some(l),
+            "launch_causal_conv1d_prefill_bf16",
+            vec![weight.to_string()],
+            Some(StateRef {
+                store: StateStore::RecurrentState,
+                layer: l,
+            }),
+            vec![x.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(channels)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the conv produces its value")
+    }
+
+    // ── qwen3_5: the rest ──────────────────────────────────────────
+
+    /// `kernels::launch_rmsnorm_gated_bf16`: the gated RMS norm, in its own
+    /// launch rather than folded into a projection.
+    pub fn rmsnorm_gated_launch(x: &Val, gate: &Val, weight: &str, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_rmsnorm_gated_bf16",
+            vec![weight.to_string()],
+            None,
+            vec![x.id, gate.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the norm produces its value")
+    }
+
+    /// `kernels::launch_moe_grouped_gemm_bf16`: the grouped expert GEMM.
+    pub fn moe_grouped_gemm(act: &Val, sorted_route_ids: &Val, width: u32) -> Val {
+        record(
+            &act.t,
+            act.layer,
+            "launch_moe_grouped_gemm_bf16",
+            vec![],
+            None,
+            vec![act.id, sorted_route_ids.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the gemm produces its value")
+    }
+
+    /// `kernels::launch_chunked_swiglu_strided_bf16`: chunked swiglu over
+    /// strided rows.
+    pub fn chunked_swiglu_strided(x: &Val, intermediate: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_chunked_swiglu_strided_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the activation produces its value")
+    }
+
+    /// `kernels::launch_sigmoid_scalar_gate_strided_add_bf16`: the shared
+    /// expert's sigmoid-gated add, into a strided destination.
+    pub fn sigmoid_scalar_gate_strided_add(x: &Val, y: &Val, gate: &Val, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_sigmoid_scalar_gate_strided_add_bf16",
+            vec![],
+            None,
+            vec![x.id, y.id, gate.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the gated add produces its value")
+    }
+
+    /// `kernels::launch_concat_bf16_rows`: join two row-aligned tensors
+    /// along the channel axis.
+    pub fn concat_rows(left: &Val, right: &Val, left_dim: u32, right_dim: u32) -> Val {
+        record(
+            &left.t,
+            left.layer,
+            "launch_concat_bf16_rows",
+            vec![],
+            None,
+            vec![left.id, right.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(left_dim + right_dim)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the concat produces its value")
+    }
+
+    /// `kernels::launch_lm_head_gemv_argmax_int8`: the readout and the argmax
+    /// in one launch, over an int8 head with a per-channel scale.
+    ///
+    /// It produces TOKEN IDS, not logits. A greedy-decode fast path that
+    /// never materializes the vocab-wide row -- which is why it is its own
+    /// statement rather than `lm_head` followed by an argmax.
+    pub fn lm_head_gemv_argmax_int8(x: &Val, weight: &str, scale: &str) -> Val {
+        record(
+            &x.t,
+            None,
+            "launch_lm_head_gemv_argmax_int8",
+            vec![weight.to_string(), scale.to_string()],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Requests]), DType::I32)),
+        )
+        .expect("the readout produces its value")
+    }
+
     // ── kimi: the WNA16 quantized MoE path ─────────────────────────
     //
     // 4-bit weights with a bf16 scale per group of `group_size` along K.

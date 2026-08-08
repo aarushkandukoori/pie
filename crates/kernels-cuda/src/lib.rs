@@ -66,6 +66,44 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── qwen3_5: multi-token prediction ────────────────────────────
+    // MTP drafts several tokens per step and repairs on rejection, which
+    // needs an attention that sees a HISTORY buffer beside the pages (the
+    // drafted tokens are not committed -- committing them before acceptance
+    // is the thing MTP must not do) and a per-slot pending-hidden shuffle.
+    // All four address through `slot_ids` or `qo_indptr`.
+    kernel!(attention_mtp_paged_history "launch_attention_mtp_paged_history_bf16",
+        whole = true, lacks = &[Cap::Scores]),
+    kernel!(mtp_shift_hidden "launch_mtp_shift_hidden_bf16", whole = true),
+    kernel!(mtp_update_pending_hidden "launch_mtp_update_pending_hidden_bf16", whole = true),
+    // A copy that skips requests whose slot id is invalid: the launch happens
+    // for every request every time and the slot decides whether it does
+    // anything, so the dispatch is fixed and a CUDA graph replays.
+    kernel!(copy_if_valid_slot "launch_copy_if_valid_slot", whole = true),
+
+    // ── qwen3_5: the single-request GDN entries ────────────────────
+    // Unbatched twins of the `_batched` forms below -- a legacy parity
+    // entrypoint and a single-request fast path. Not `whole`, for the reason
+    // the batched ones are not: their `B` is the batch, not a window into it.
+    // The `_state_bf16` pairing is a precision BINDING a deployment states,
+    // the same way the batched rows spell it.
+    kernel!(gdn_step_single "launch_recurrent_gated_delta_step"),
+    kernel!(gdn_step_single_state_bf16 "launch_recurrent_gated_delta_step_state_bf16"),
+    kernel!(gdn_prefill_single "launch_chunk_gated_delta_prefill"),
+    kernel!(gdn_prefill_single_state_bf16 "launch_chunk_gated_delta_prefill_state_bf16"),
+    kernel!(causal_conv1d_prefill_single "launch_causal_conv1d_prefill_bf16"),
+
+    // ── qwen3_5: the rest ──────────────────────────────────────────
+    kernel!(rmsnorm_gated_launch "launch_rmsnorm_gated_bf16"),
+    kernel!(moe_grouped_gemm "launch_moe_grouped_gemm_bf16"),
+    kernel!(chunked_swiglu_strided "launch_chunked_swiglu_strided_bf16"),
+    kernel!(sigmoid_scalar_gate_strided_add "launch_sigmoid_scalar_gate_strided_add_bf16"),
+    kernel!(concat_rows "launch_concat_bf16_rows"),
+    // Produces TOKEN IDS, not logits: a greedy-decode fast path that never
+    // materializes the vocab-wide row, which is why it is its own statement
+    // rather than `lm_head` followed by an argmax.
+    kernel!(lm_head_gemv_argmax_int8 "launch_lm_head_gemv_argmax_int8"),
+
     // ── kimi: the WNA16 quantized MoE path ─────────────────────────
     // 4-bit weights with a bf16 scale per group along K. Distinct from MXFP4
     // (E8M0 byte per 32) and from fp8 -- three quantizations, three
