@@ -105,6 +105,15 @@ void Qwen35Model::body(Workspace& ws,
             fallback_reason =
                 "rs-buffer write/fold fire (stage-2 verdict: unbatchable "
                 "by contract / zero callers)";
+        } else if (declared_.cuda_prefill_decode && in.is_pure_decode &&
+                   in.num_requests == 1 && !plan_state_.use_prefill_plan) {
+            // The trace's decode class took the `TokensLE(1)` arm, which
+            // names the PREFILL dispatch, but the prepare did not make
+            // the redirect -- its cache terms (native bf16, no HND) are
+            // engine-owned and cannot be facts. Decline; the hand body
+            // reads the same plan_state and picks the same way it always
+            // has.
+            fallback_reason = "prefill-decode redirect stated but not planned";
         } else if (in.has_write_desc &&
                    (in.w_page_d == nullptr || in.w_off_d == nullptr)) {
             // Same guard the hand-written explicit-write validation makes.

@@ -633,6 +633,21 @@ Qwen35DeclaredPlan build_impl(const HfConfig& cfg, const W& w, int tp_size) {
     cuda.verify_stash = 1;
     out.cuda_verify_stash = true;
 
+    // The single-request decode redirect (`prepare_qwen3_5_decode_plan`):
+    // with it on, an R == 1 pure-decode fire is PLANNED and dispatched
+    // through the prefill path and `decode_plan` is left null. The cache
+    // terms beside the env are engine-owned and invisible here, so this
+    // fact is the env alone and the trace states BOTH arms -- the guard
+    // is `TokensLE(1)`, which in a pure-decode fire is exactly
+    // `num_requests == 1`.
+    //
+    // Stating it is not optional: without it the decode class named the
+    // decode dispatch unconditionally, the prepare built no decode plan,
+    // and the executor's drift throw failed the MODEL LOAD. This family
+    // is default-ON, so that was every single-request decode.
+    cuda.prefill_decode = qwen35_prefill_decode_enabled() ? 1 : 0;
+    out.cuda_prefill_decode = cuda.prefill_decode != 0;
+
     // The dense MLP's gate_up BINDING — llama_like's reasoning verbatim
     // (declared_forward.cpp: the executor re-derived this per layer as
     // `gate_up_proj_fused != nullptr && !ws.gate_up_fused.empty()`, and
@@ -742,7 +757,8 @@ Qwen35DeclaredPlan build_impl(const HfConfig& cfg, const W& w, int tp_size) {
         "/wt" + std::to_string(cuda.warp_tiled) +
         "/wtm" + std::to_string(cuda.warp_tiled_max) +
         "/cm" + std::to_string(cuda.cached_max) +
-        "/vs" + std::to_string(cuda.verify_stash);
+        "/vs" + std::to_string(cuda.verify_stash) +
+        "/pd" + std::to_string(cuda.prefill_decode);
 
     out.decode = pie_forward::ForwardPlan::trace_qwen3_5_hybrid_cuda(
         facts, cuda, pie_forward::PieForwardFireClass::Decode);

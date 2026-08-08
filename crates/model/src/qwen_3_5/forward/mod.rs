@@ -839,6 +839,7 @@ fn full_attn_body_cuda(
     t: &Trace,
     l: u32,
     facts: &Qwen35FullAttnFacts,
+    c: &Qwen35CudaFacts,
     y: &Val,
     class: FireClass,
 ) -> Val {
@@ -883,6 +884,27 @@ fn full_attn_body_cuda(
     // CommitAdvance skips full-attention layers entirely and never enters
     // this body ([`commit_advance_body`]).
     let attn = match class {
+        // The single-request redirect is a GUARD, not a second class: at
+        // `prefill_decode` the prepare plans the prefill path for R == 1
+        // and leaves `decode_plan` null, and in a pure-decode fire one
+        // token per request makes `num_requests == 1` exactly
+        // `TokensLE(1)`. Both arms stated, so neither reading is the
+        // executor's to guess.
+        FireClass::Decode if c.prefill_decode => {
+            let out_shape = (
+                Shape(vec![Dim::Tokens, Dim::Const(facts.q_width())]),
+                DType::BF16,
+            );
+            let (guard, core) = dsl::guarded_value(t, Some(l), out_shape);
+            guard
+                .arm(GuardPred::TokensLE(1), || {
+                    cuda::attention_flashinfer_prefill(&q, &w.kv);
+                })
+                .otherwise(|| {
+                    cuda::attention_flashinfer_decode(&q, &w.kv);
+                });
+            Some(core)
+        }
         FireClass::Decode => cuda::attention_flashinfer_decode(&q, &w.kv),
         FireClass::Prefill | FireClass::StateOnly | FireClass::FrozenVerify => {
             // No dequant statement beside it: qwen3_5's full-attention
@@ -1078,7 +1100,7 @@ pub fn qwen3_5_hybrid_cuda(
 
         for l in 0..facts.layers {
             let y_attn = if facts.is_full_attn(l) {
-                full_attn_body_cuda(t, l, &facts.attn, &y, class)
+                full_attn_body_cuda(t, l, &facts.attn, cuda, &y, class)
             } else {
                 gdn_attn_body_cuda(t, l, &facts.gdn, &y, cuda, class)
             };

@@ -715,6 +715,8 @@ struct PieForwardQwen35CudaFacts {
   /// The MoE block's row bound — `kFusedMoeMaxRows` (512) when the
   /// CUTLASS workspace is sized, else 0 (no fused leg, no MoE text).
   uint32_t moe_cutlass_max_rows;
+  /// [`Qwen35CudaFacts::prefill_decode`] as the wire form.
+  uint32_t prefill_decode;
   /// `add_to_residual` (tp==1). Non-zero is true.
   uint8_t moe_residual_fold;
   /// The shared expert's gate takes the fused dot landing.

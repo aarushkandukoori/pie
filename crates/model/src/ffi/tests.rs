@@ -862,6 +862,7 @@ fn c_cuda_facts_synthetic() -> PieForwardQwen35CudaFacts {
         verify_stash: 1,
         // Mirrors `Qwen35CudaFacts::qwen3_5_0_8b_synthetic`'s MoE terms.
         moe_cutlass_max_rows: 512,
+        prefill_decode: 1,
         moe_residual_fold: 1,
         moe_shared_gate_dot: 1,
         moe_streamed_experts: 0,
