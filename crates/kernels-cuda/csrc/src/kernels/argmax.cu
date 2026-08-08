@@ -5,7 +5,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::sample {
 
 namespace {
 
@@ -570,7 +570,7 @@ bool argmax_vec2_usable(const void* logits, int vocab) {
 
 }  // namespace
 
-void launch_argmax_bf16(
+void argmax_bf16(
     const void* logits, std::int32_t* token_ids,
     int num_rows, int vocab, cudaStream_t stream)
 {
@@ -585,7 +585,7 @@ void launch_argmax_bf16(
     }
 }
 
-void launch_argmax_bf16_compact_scatter(
+void argmax_bf16_compact_scatter(
     const void* logits,
     const std::int32_t* row_indices,
     std::int32_t* token_ids,
@@ -607,7 +607,7 @@ void launch_argmax_bf16_compact_scatter(
     }
 }
 
-void launch_argmax_accumulate_bf16(
+void argmax_accumulate_bf16(
     const void* slab,
     int rows,
     int width,
@@ -630,7 +630,7 @@ void launch_argmax_accumulate_bf16(
         vocab_base, acc_val, acc_idx, init, vectorised);
 }
 
-void launch_argmax_finalize_bf16(
+void argmax_finalize_bf16(
     const float* acc_val,
     const std::int32_t* acc_idx,
     std::int32_t* token_ids,
@@ -732,7 +732,7 @@ __global__ void lm_head_gemv_argmax_int8_kernel(
     }
 }
 
-void launch_lm_head_gemv_argmax_int8(
+void lm_head_gemv_argmax_int8(
     const void* hidden_states,
     const std::int8_t* lm_head_weight,
     const float* scale_inv,
@@ -852,7 +852,7 @@ __global__ void lm_head_gemv_argmax_bf16_kernel(
     }
 }
 
-void launch_lm_head_gemv_argmax_bf16(
+void lm_head_gemv_argmax_bf16(
     const void* hidden_states,
     const void* lm_head_weight,
     std::int32_t* token_ids,
@@ -900,7 +900,7 @@ void launch_lm_head_gemv_argmax_bf16(
         s_partial_pairs_bf16, token_ids, num_rows, num_blocks_x);
 }
 
-void launch_argmax_fp32(
+void argmax_fp32(
     const void* logits,
     std::int32_t* token_ids,
     int num_rows,
@@ -914,7 +914,7 @@ void launch_argmax_fp32(
         static_cast<const float*>(logits), token_ids, vocab);
 }
 
-void launch_masked_embedding_argmax_bf16(
+void masked_embedding_argmax_bf16(
     const void* centroid_logits,
     const void* hidden_states,
     const void* lm_head_weight,
@@ -948,7 +948,7 @@ void launch_masked_embedding_argmax_bf16(
         vocab_per_centroid);
 }
 
-void launch_topk_centroids_bf16(
+void topk_centroids_bf16(
     const void* centroid_logits,
     std::int32_t* top_centroids,
     int num_rows,
@@ -967,7 +967,7 @@ void launch_topk_centroids_bf16(
         centroid_top_k);
 }
 
-void launch_masked_embedding_tile_argmax_pairs_bf16(
+void masked_embedding_tile_argmax_pairs_bf16(
     const std::int32_t* top_centroids,
     const void* hidden_states,
     const void* lm_head_weight,
@@ -1001,4 +1001,4 @@ void launch_masked_embedding_tile_argmax_pairs_bf16(
         num_tiles);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::sample

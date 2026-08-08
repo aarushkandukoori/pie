@@ -395,10 +395,10 @@ int logits_argmax_chunk_tokens() {
         // a config error, and failing at startup beats capturing a graph with
         // tens of thousands of slab nodes and appearing to hang.
         if (parsed > std::numeric_limits<int>::max() ||
-            parsed < static_cast<long>(kernels::kArgmaxAccumSlots)) {
+            parsed < static_cast<long>(kernels::sample::kArgmaxAccumSlots)) {
             throw std::runtime_error(
                 "PIE_LOGITS_CHUNK_TOKENS must be at least " +
-                std::to_string(kernels::kArgmaxAccumSlots) +
+                std::to_string(kernels::sample::kArgmaxAccumSlots) +
                 " (the per-row accumulator width) and fit in an int; a slab "
                 "narrower than that carries more running state than it "
                 "summarises");

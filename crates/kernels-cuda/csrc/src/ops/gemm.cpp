@@ -2316,11 +2316,11 @@ bool lm_head_argmax_chunked(
                                   static_cast<std::size_t>(K) * sizeof(__nv_bfloat16),
                 DType::BF16),
             slab, M, width, K);
-        kernels::launch_argmax_accumulate_bf16(
+        kernels::sample::argmax_accumulate_bf16(
             slab, M, width, width, base, acc_val, acc_idx,
             /*init=*/base == 0, stream);
     }
-    kernels::launch_argmax_finalize_bf16(acc_val, acc_idx, token_ids, M, stream);
+    kernels::sample::argmax_finalize_bf16(acc_val, acc_idx, token_ids, M, stream);
     return true;
 }
 

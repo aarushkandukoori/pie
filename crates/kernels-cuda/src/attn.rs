@@ -76,7 +76,6 @@ pub static KERNELS: &[KernelSig] = &[
     // over the same pages.
     kernel!(build_window_page_view "launch_build_window_page_view", whole = true),
     kernel!(build_full_split_view "launch_build_full_split_view", whole = true),
-    kernel!(rope_write_kv "launch_rope_write_kv_bf16", whole = true, sink = Some("kv.pages")),
     kernel!(flashinfer_decode_bf16 "dispatch_attention_flashinfer_decode_bf16",
         needs = Prepare::DecodePlan, sink = Some("kv.pages")),
     kernel!(attn_sink_correction "launch_attn_sink_correction_bf16"),

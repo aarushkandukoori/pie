@@ -1871,7 +1871,7 @@ void gemma4_moe_block(
         // `gate_second = false` default and computed `gelu_tanh(up) * gate`:
         // wrong, but smoothly wrong, so 26B-A4B stayed fluent and looped
         // instead of failing.
-        kernels::launch_chunked_geglu_tanh_bf16(
+        kernels::mlp::chunked_geglu_tanh_bf16(
             moe_ws.expert_gate_up.data(),
             moe_ws.expert_act.data(),
             routes, Im, stream, /*gate_second=*/gemma4_moe_gate_up_swapped());
@@ -1989,7 +1989,7 @@ void gemma4_moe_block(
             moe_ws.expert_in.data(), gate_up_w,
             moe_ws.expert_gate_up.data(), Ne, 2 * Im, H);
 
-        kernels::launch_chunked_geglu_tanh_bf16(
+        kernels::mlp::chunked_geglu_tanh_bf16(
             moe_ws.expert_gate_up.data(),
             moe_ws.expert_act.data(),
             Ne, Im, stream, /*gate_second=*/gemma4_moe_gate_up_swapped());
@@ -2411,7 +2411,7 @@ void gemma4_forward_paged(
                     ws.v.data(), ws.v.data(),
                     N * num_kv_heads_local, d, eps, stream);
             }
-            kernels::launch_qk_rmsnorm_rope_bf16_rounded(
+            kernels::rope::qk_rmsnorm_rope_bf16_rounded(
                 ws.q.data(), ws.k.data(),
                 layer.q_norm->data(),
                 layer.is_shared ? nullptr : layer.k_norm->data(),
@@ -2436,12 +2436,12 @@ void gemma4_forward_paged(
 
             if (!layer.is_shared) {
                 if (partial) {
-                    kernels::launch_rope_partial_bf16(
+                    kernels::rope::rope_partial_bf16(
                         ws.q.data(), ws.k.data(), positions,
                         N, num_q_heads_local, num_kv_heads_local, d,
                         rotary_dim, w.per_layer_rope_theta[l], stream);
                 } else {
-                    kernels::launch_rope_bf16(
+                    kernels::rope::rope_bf16(
                         ws.q.data(), ws.k.data(), positions,
                         N, num_q_heads_local, num_kv_heads_local, d,
                         w.per_layer_rope_theta[l], stream);
@@ -2450,12 +2450,12 @@ void gemma4_forward_paged(
                 // Shared layers: only Q gets RoPE'd here; K was rotated at
                 // its source layer (where it was written to the cache).
                 if (partial) {
-                    kernels::launch_rope_partial_bf16(
+                    kernels::rope::rope_partial_bf16(
                         ws.q.data(), ws.q.data(), positions,
                         N, num_q_heads_local, /*num_kv_heads=*/0, d,
                         rotary_dim, w.per_layer_rope_theta[l], stream);
                 } else {
-                    kernels::launch_rope_bf16(
+                    kernels::rope::rope_bf16(
                         ws.q.data(), ws.q.data(), positions,
                         N, num_q_heads_local, /*num_kv_heads=*/0, d,
                         w.per_layer_rope_theta[l], stream);
@@ -2742,7 +2742,7 @@ void gemma4_forward_paged(
             ops::gemm_act_x_wt_bf16_cublas(cublas.handle(),
                 ws.norm_x.data(), layer.gate_up_proj_fused->data(),
                 ws.gate_up_fused.data(), N, 2 * I, H);
-            kernels::launch_chunked_geglu_tanh_bf16(
+            kernels::mlp::chunked_geglu_tanh_bf16(
                 ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
         } else {
             if (use_row_decode_path) {
@@ -2760,7 +2760,7 @@ void gemma4_forward_paged(
                     ws.norm_x.data(), layer.up_proj->data(),   ws.up.data(),
                     N, I, H);
             }
-            kernels::launch_geglu_tanh_bf16(
+            kernels::mlp::geglu_tanh_bf16(
                 ws.gate.data(), ws.up.data(), ws.gate.data(),
                 N * I, stream);
         }
@@ -2866,7 +2866,7 @@ void gemma4_forward_paged(
             static_cast<std::size_t>(l) * N * ple_dim;
         dump_l0("ple_signal_slice", ple_signal,
                 static_cast<std::size_t>(N) * ple_dim);
-        kernels::launch_geglu_tanh_bf16(
+        kernels::mlp::geglu_tanh_bf16(
             ws.norm_x.data(), ple_signal, ws.norm_x.data(),
             N * ple_dim, stream);
         dump_l0("ple_gated", ws.norm_x.data(),

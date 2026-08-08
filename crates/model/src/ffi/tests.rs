@@ -1126,7 +1126,7 @@ fn lowered_trace_round_trips_through_the_arena() {
     assert_eq!(launches.len(), 449);
 
     let table = launches[0];
-    assert_eq!(view::name(&out, table.weight_name), "launch_rope_standard_table");
+    assert_eq!(view::name(&out, table.weight_name), "rope::rope_standard_table");
     assert_eq!(table.param0, 0); // no implicit state
     assert_eq!(table.aux_names.len, 0);
     let table_out = view::ids(&out, table.outputs)[0];
@@ -1281,7 +1281,7 @@ fn the_lowering_crosses_the_abi() {
     // Both the stated kernels and the semantic statements' launchers are
     // named — the list is what the fire RUNS, not what it states.
     assert!(view.iter().any(|(k, ..)| k == "dispatch_attention_flashinfer_decode"));
-    assert!(view.iter().any(|(k, ..)| k == "launch_chunked_swiglu_bf16"));
+    assert!(view.iter().any(|(k, ..)| k == "mlp::chunked_swiglu_bf16"));
     assert!(view.iter().any(|(k, ..)| k == "gemm_act_x_w"));
     // Every rectangle points at a real statement.
     let ops = view::ops(&plan).len() as u32;

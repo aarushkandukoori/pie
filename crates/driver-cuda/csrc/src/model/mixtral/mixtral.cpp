@@ -836,7 +836,7 @@ void mixtral_forward_paged(
         // graph capture introduces at concurrency. It costs nothing today,
         // since concurrency is broken for an unrelated reason.
         // PLAIN ROPE ONLY, and this term is not optional.
-        // `launch_rope_write_kv_bf16` takes `rope_theta` and nothing else, so
+        // `kernels::rope::rope_write_kv_bf16` takes `rope_theta` and nothing else, so
         // a model whose config asks for YaRN cannot go through it. gpt-oss is
         // exactly such a model -- YaRNOriginal, factor 32 over an original
         // 4096 -- and it is the ONE model carrying this fusion. Without the
@@ -847,7 +847,7 @@ void mixtral_forward_paged(
             N == 1 && kv_view.is_native_bf16() && !kv_view.has_envelopes() &&
             fwd_cfg.rope_kind == RopeKind::Standard;
         if (fused_rope_kv) {
-            kernels::launch_rope_write_kv_bf16(
+            kernels::rope::rope_write_kv_bf16(
                 ws.q.data(), ws.k.data(), ws.v.data(), positions,
                 kv_view.k_pages, kv_view.v_pages,
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -1245,12 +1245,12 @@ void mixtral_forward_paged(
                     d_topk_idx.data(), routes, I, Ip_marlin, stream);
             }
             if (cfg.swiglu_limit > 0.f) {
-                kernels::launch_gpt_oss_glu_strided_bf16(
+                kernels::mlp::gpt_oss_glu_strided_bf16(
                     d_marlin_gate.data(), d_marlin_up.data(),
                     d_marlin_act.data(), routes, I, Ip_marlin, Ip_marlin,
                     stream, cfg.swiglu_limit);
             } else {
-                kernels::launch_gpt_oss_glu_strided_bf16(
+                kernels::mlp::gpt_oss_glu_strided_bf16(
                     d_marlin_gate.data(), d_marlin_up.data(),
                     d_marlin_act.data(), routes, I, Ip_marlin, Ip_marlin,
                     stream, /*limit=*/0.f);
@@ -1339,7 +1339,7 @@ void mixtral_forward_paged(
             // swiglu branch, which no model with this activation takes.
             bool act_fp16_ready = false;
             if (cfg.swiglu_limit > 0.f) {
-                kernels::launch_gpt_oss_glu_bf16(
+                kernels::mlp::gpt_oss_glu_bf16(
                     d_mxfp4_route_gate.data(), d_mxfp4_route_up.data(),
                     d_mxfp4_route_gate.data(),
                     static_cast<int>(static_cast<std::size_t>(routes) * I),
@@ -1347,7 +1347,7 @@ void mixtral_forward_paged(
                     d_mxfp4_route_act_fp16.data());
                 act_fp16_ready = true;
             } else {
-                kernels::launch_swiglu_bf16(
+                kernels::mlp::swiglu_bf16(
                     d_mxfp4_route_gate.data(), d_mxfp4_route_up.data(),
                     d_mxfp4_route_gate.data(),
                     static_cast<std::size_t>(routes) * I, stream);
@@ -1520,13 +1520,13 @@ void mixtral_forward_paged(
                     d_expert_up.data(), expert.b_up->data(), Ne, I, Ip,
                     stream);
                 if (cfg.swiglu_limit > 0.f) {
-                    kernels::launch_gpt_oss_glu_bf16(
+                    kernels::mlp::gpt_oss_glu_bf16(
                         d_expert_gate.data(), d_expert_up.data(),
                         d_expert_gate.data(),
                         static_cast<int>(static_cast<std::size_t>(Ne) * Ip), stream,
                         /*limit=*/cfg.swiglu_limit);
                 } else {
-                    kernels::launch_swiglu_bf16(
+                    kernels::mlp::swiglu_bf16(
                         d_expert_gate.data(), d_expert_up.data(),
                         d_expert_gate.data(),
                         static_cast<std::size_t>(Ne) * Ip, stream);
@@ -1591,13 +1591,13 @@ void mixtral_forward_paged(
             if (expert.b_up) kernels::launch_add_bias_bf16(
                 d_expert_up.data(), expert.b_up->data(), Ne, I, stream);
             if (cfg.swiglu_limit > 0.f) {
-                kernels::launch_gpt_oss_glu_bf16(
+                kernels::mlp::gpt_oss_glu_bf16(
                     d_expert_gate.data(), d_expert_up.data(),
                     d_expert_gate.data(),
                     static_cast<int>(static_cast<std::size_t>(Ne) * I), stream,
                     /*limit=*/cfg.swiglu_limit);
             } else {
-                kernels::launch_swiglu_bf16(
+                kernels::mlp::swiglu_bf16(
                     d_expert_gate.data(), d_expert_up.data(),
                     d_expert_gate.data(),
                     static_cast<std::size_t>(Ne) * I, stream);

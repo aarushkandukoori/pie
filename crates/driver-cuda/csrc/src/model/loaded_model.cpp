@@ -164,7 +164,7 @@ LoadedModel LoadedModel::load(
             "pie.model/1 descriptor beside its startup TOML; a hand-written "
             "config must point `[model] descriptor` at one "
             "(`pie model import` writes an artifact that carries it, and "
-            "`cargo run -p pie-model-config --bin descriptor config.json` "
+            "`cargo run -p model --features config --bin descriptor config.json` "
             "compiles one from a snapshot).");
     }
     log_stage("read model descriptor begin");

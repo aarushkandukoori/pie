@@ -519,12 +519,12 @@ void gemma3n_forward_paged(
 
         const float layer_rope_theta = w.per_layer_rope_theta[L];
         if (layer.is_shared) {
-            kernels::launch_rope_bf16(
+            kernels::rope::rope_bf16(
                 ws.q.data(), ws.q.data(), positions,
                 N, num_q_heads_local, num_q_heads_local, d,
                 layer_rope_theta, stream);
         } else {
-            kernels::launch_rope_bf16(
+            kernels::rope::rope_bf16(
                 ws.q.data(), ws.k.data(), positions,
                 N, num_q_heads_local, num_kv_heads_local, d,
                 layer_rope_theta, stream);
@@ -615,11 +615,11 @@ void gemma3n_forward_paged(
             ws.norm_x.data(), layer.up_proj->data(),   ws.up.data(),   N, I, H);
         if (layer.activation_sparsity > 0.f) {
             const float std_mult = gaussian_inverse_cdf(layer.activation_sparsity);
-            kernels::launch_gaussian_topk_bf16(
+            kernels::mlp::gaussian_topk_bf16(
                 ws.gate.data(), N, I, std_mult, stream);
         }
         // Gemma3n MLP uses GeLU(tanh) like Gemma-2/3, not SiLU.
-        kernels::launch_geglu_tanh_bf16(
+        kernels::mlp::geglu_tanh_bf16(
             ws.gate.data(), ws.up.data(), ws.gate.data(),
             N * I, stream);
         // down_proj is row-parallel under TP. Same pattern as attention-O.
@@ -706,7 +706,7 @@ void gemma3n_forward_paged(
         const std::uint16_t* per_layer_input_L =
             static_cast<std::uint16_t*>(per_layer_inputs.data())
                 + static_cast<std::size_t>(L) * N * H_ple;
-        kernels::launch_geglu_tanh_bf16(
+        kernels::mlp::geglu_tanh_bf16(
             ple_gate_buf.data(), per_layer_input_L, ple_gate_buf.data(),
             N * H_ple, stream);
 

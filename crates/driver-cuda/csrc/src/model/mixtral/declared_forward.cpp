@@ -58,13 +58,13 @@ GoKernel resolve_go_kernel(std::string_view k) {
         return GoKernel::AttnFlashinferPrefill;
     if (k == "launch_attention_sink_rescale_bf16")
         return GoKernel::AttnSinkRescale;
-    if (k == "launch_rope_yarn_original_bf16") return GoKernel::RopeYarnOriginal;
+    if (k == "rope::rope_yarn_original_bf16") return GoKernel::RopeYarnOriginal;
     if (k == "launch_topk_softmax_bf16") return GoKernel::TopkSoftmax;
     if (k == "launch_bf16_to_fp16") return GoKernel::Bf16ToFp16;
     if (k == "launch_mxfp4_moe_gate_up_decode_bf16")
         return GoKernel::Mxfp4GateUp;
     if (k == "launch_mxfp4_moe_down_decode_bf16") return GoKernel::Mxfp4Down;
-    if (k == "launch_gpt_oss_glu_bf16") return GoKernel::GptOssGlu;
+    if (k == "mlp::gpt_oss_glu_bf16") return GoKernel::GptOssGlu;
     if (k == "launch_token_batched_weighted_sum_bf16")
         return GoKernel::WeightedSum;
     if (k == "launch_residual_add_bf16") return GoKernel::ResidualAdd;
@@ -363,7 +363,7 @@ bool gpt_oss_forward_declared(
             break;
         }
         case PieForwardOpKind::Rope:
-            kernels::launch_rope_bf16(
+            kernels::rope::rope_bf16(
                 ws.q.data(), ws.k.data(), positions, N,
                 cfg.num_attention_heads, cfg.num_key_value_heads, d,
                 cfg.rope_theta, stream);
@@ -471,7 +471,7 @@ bool gpt_oss_forward_declared(
                 // Argument for argument the hand pass's `apply_rope`
                 // arm; the params come off the shared cfg, which had
                 // resolved them all along.
-                kernels::launch_rope_yarn_original_bf16(
+                kernels::rope::rope_yarn_original_bf16(
                     ws.q.data(), ws.k.data(), positions, N,
                     cfg.num_attention_heads, cfg.num_key_value_heads, d,
                     cfg.rope_theta, fwd_cfg.yarn_factor,
@@ -514,7 +514,7 @@ bool gpt_oss_forward_declared(
                     N, top_k, H, I, stream);
                 break;
             case GoKernel::GptOssGlu:
-                kernels::launch_gpt_oss_glu_bf16(
+                kernels::mlp::gpt_oss_glu_bf16(
                     d_route_gate.data(), d_route_up.data(),
                     d_route_gate.data(),
                     static_cast<int>(static_cast<std::size_t>(routes) * I),

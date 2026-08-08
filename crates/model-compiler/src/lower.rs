@@ -712,7 +712,7 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         GdnPrep { .. } => Semantic::Kernels(&["launch_qwen_gdn_post_conv_prep_bf16"]),
         RmsnormGated { .. } => Semantic::Kernels(&["launch_rmsnorm_gated_fp32_in_bf16"]),
         SplitQGate { .. } => Semantic::Kernels(&["launch_split_q_gate_bf16"]),
-        SigmoidGateMul => Semantic::Kernels(&["launch_sigmoid_gate_inplace_bf16"]),
+        SigmoidGateMul => Semantic::Kernels(&["mlp::sigmoid_gate_inplace_bf16"]),
 
         // Gemma folds `(1 + w)` — different arithmetic, so a different
         // kernel, but the same signature and the same row space. The
@@ -751,9 +751,9 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
             if !matches!(kind, crate::trace::RopeKind::Standard) {
                 Semantic::Unlowered("only standard rope is emitted")
             } else if partial.is_some() {
-                Semantic::Kernels(&["launch_rope_partial_bf16"])
+                Semantic::Kernels(&["rope::rope_partial_bf16"])
             } else {
-                Semantic::Kernels(&["launch_rope_bf16"])
+                Semantic::Kernels(&["rope::rope_bf16"])
             }
         }
 
@@ -809,7 +809,7 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         WeightedSum { .. } => Semantic::Kernels(&["launch_token_batched_weighted_sum_bf16"]),
         // The shared expert's landing: `sigmoid(x·g)` scaling the shared
         // output onto the routed sum, one launch.
-        SigmoidGateAdd => Semantic::Kernels(&["launch_sigmoid_dot_scalar_gate_add_bf16"]),
+        SigmoidGateAdd => Semantic::Kernels(&["mlp::sigmoid_dot_scalar_gate_add_bf16"]),
 
         // Handled by `Lowerer::epilogue`, which needs the row counts and
         // so cannot answer from the kind alone.

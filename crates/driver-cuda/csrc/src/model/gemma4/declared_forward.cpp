@@ -63,10 +63,10 @@ enum class G4Kernel {
 G4Kernel resolve_g4_kernel(std::string_view k) {
     if (k == "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16")
         return G4Kernel::QkvPackedPost;
-    if (k == "launch_qk_rmsnorm_rope_bf16_rounded")
+    if (k == "rope::qk_rmsnorm_rope_bf16_rounded")
         return G4Kernel::QkRmsnormRopeRounded;
-    if (k == "launch_rope_bf16") return G4Kernel::RopeQOnly;
-    if (k == "launch_rope_partial_bf16") return G4Kernel::RopeQOnlyPartial;
+    if (k == "rope::rope_bf16") return G4Kernel::RopeQOnly;
+    if (k == "rope::rope_partial_bf16") return G4Kernel::RopeQOnlyPartial;
     if (k == "launch_rmsnorm_no_scale_bf16") return G4Kernel::RmsnormNoScale;
     if (k == "launch_write_kv_to_pages") return G4Kernel::WriteKvToPages;
     if (k == "dispatch_attention_flashinfer_decode")
@@ -79,8 +79,8 @@ G4Kernel resolve_g4_kernel(std::string_view k) {
         return G4Kernel::AttnFlashinferPrefill;
     if (k == "ops::launch_attention_naive_paged")
         return G4Kernel::AttnNaivePaged;
-    if (k == "launch_geglu_tanh_bf16") return G4Kernel::GegluTanh;
-    if (k == "launch_chunked_geglu_tanh_bf16") return G4Kernel::ChunkedGegluTanh;
+    if (k == "mlp::geglu_tanh_bf16") return G4Kernel::GegluTanh;
+    if (k == "mlp::chunked_geglu_tanh_bf16") return G4Kernel::ChunkedGegluTanh;
     if (k == "launch_rmsnorm_residual_add_scale_rmsnorm_bf16")
         return G4Kernel::NormResidualScaleNorm;
     if (k == "launch_rmsnorm_residual_add_bf16") return G4Kernel::NormResidualAdd;
@@ -463,7 +463,7 @@ bool gemma4_forward_declared(
         case PieForwardOpKind::Rope:
             // Only the FULL layers reach the semantic kind: sliding
             // layers state the fused rounded pair instead.
-            kernels::launch_rope_partial_bf16(
+            kernels::rope::rope_partial_bf16(
                 ws.q.data(), ws.k.data(), positions, N,
                 cfg.num_attention_heads, cur_hk / cur_d, cur_d,
                 static_cast<int>(op.param1),
@@ -554,7 +554,7 @@ bool gemma4_forward_declared(
             }
             case G4Kernel::QkRmsnormRopeRounded: {
                 const bool q_only = names.size == 1;
-                kernels::launch_qk_rmsnorm_rope_bf16_rounded(
+                kernels::rope::qk_rmsnorm_rope_bf16_rounded(
                     ws.q.data(), ws.k.data(), require(w, aux(0)).data(),
                     q_only ? nullptr : require(w, aux(1)).data(),
                     positions, N, cfg.num_attention_heads,
@@ -564,7 +564,7 @@ bool gemma4_forward_declared(
                 break;
             }
             case G4Kernel::RopeQOnlyPartial:
-                kernels::launch_rope_partial_bf16(
+                kernels::rope::rope_partial_bf16(
                     ws.q.data(), ws.q.data(), positions, N,
                     cfg.num_attention_heads, /*num_kv_heads=*/0, cur_d,
                     rotary_of(cur_layer),
@@ -613,7 +613,7 @@ bool gemma4_forward_declared(
                 break;
             }
             case G4Kernel::ChunkedGegluTanh:
-                kernels::launch_chunked_geglu_tanh_bf16(
+                kernels::mlp::chunked_geglu_tanh_bf16(
                     ws.gate_up_fused.data(), ws.gate.data(), N, cur_inter, stream);
                 break;
             case G4Kernel::GegluTanh: {
@@ -630,11 +630,11 @@ bool gemma4_forward_declared(
                     const auto* signal =
                         static_cast<const std::uint16_t*>(per_layer_token) +
                         static_cast<std::size_t>(cur_layer) * N * ple_dim;
-                    kernels::launch_geglu_tanh_bf16(
+                    kernels::mlp::geglu_tanh_bf16(
                         ws.norm_x.data(), signal, ws.norm_x.data(),
                         N * ple_dim, stream);
                 } else {
-                    kernels::launch_geglu_tanh_bf16(
+                    kernels::mlp::geglu_tanh_bf16(
                         ws.gate.data(), ws.up.data(), ws.gate.data(),
                         N * cur_inter, stream);
                 }

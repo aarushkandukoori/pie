@@ -330,7 +330,7 @@ pub struct LlamaLikeCudaFacts {
 /// The Metal driver cannot even build on the box we have (`xcrun --find
 /// metal` fails — the shader compiler ships with full Xcode), so every
 /// field here is read off the driver's SOURCE
-/// (`crates/driver-metal/csrc/src/kernels/decode_psos.cpp`, `model/qwen3_5/decode_step.hpp`)
+/// (`crates/driver-metal/csrc/src/batch/decode_psos.cpp`, `model/qwen3_5/decode_step.hpp`)
 /// rather than measured. `.wiki/tart/macos.md` records the ladder; the
 /// precedent for refusing to call an unmeasured fact set measured is
 /// [`Qwen35CudaFacts::qwen3_5_0_8b_synthetic`].

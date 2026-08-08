@@ -221,13 +221,13 @@ set_source_files_properties(src/batch/forward.cpp
 # the same default when PIE_METAL_KERNELS_DIR is unset. Installed packaging
 # of the kernels dir is a follow-up.
 #
-# ptir_rng.generated.metal is owned by tensor-compiler and staged here at configure
-# time rather than checked in twice. The host emitter now embeds the M1 runtime
-# template into every emitted MSL source itself, but the RNG preamble still
-# needs to sit beside the checked-in .metal kernels so a build-time
-# `configure_file` (below) keeps them in lockstep -- the driver splices it in
-# at compile time because Metal's runtime shader compiler does no filesystem
-# include lookup.
+# ptir_rng.generated.metal is NOT staged here. It is owned by tensor-compiler,
+# committed once under its `include/`, and copied beside the shaders by
+# `crates/kernels-metal/build.rs` -- which is where it has to sit, because
+# Metal's runtime shader compiler does no filesystem include lookup and the
+# driver's splicer resolves a quoted include against the including file's
+# directory. This file only points at the result; nothing here generates or
+# copies it, and PIE_MSL_RNG_PREAMBLE below is a path into the same directory.
 if(APPLE)
   target_compile_definitions(pie_driver_metal_lib PUBLIC
     PIE_METAL_KERNELS_DIR_DEFAULT="${PIE_KERNELS_METAL_DIR}")

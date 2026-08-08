@@ -20,14 +20,17 @@
 namespace pie::metal::shared_kernels {
 
 /// Params structs, replicated EXACTLY from the .metal sources.
+///
+/// Included, not retyped: each of these headers is the one the shader itself
+/// includes, so the two sides cannot drift. The `static_assert`s are what
+/// catches a change to a header that the host's binding order has not
+/// followed.
 #include "rms_params.h"
 static_assert(sizeof(RmsParams) == 20);
 static_assert(sizeof(VNormParams) == 8);
 static_assert(sizeof(GatedRmsParams) == 8);
-struct RowGatherParams {    // row_gather.metal       (buffer 3)
-    std::uint32_t width;
-    std::uint32_t count;
-};
+#include "row_gather_params.h"
+static_assert(sizeof(RowGatherParams) == 8);
 #include "moe_params.h"
 static_assert(sizeof(RouterParams) == 16);
 static_assert(sizeof(ExpertCombineParams) == 12);

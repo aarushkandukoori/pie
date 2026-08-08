@@ -199,14 +199,14 @@ void gemm_act_x_w(
 //
 // `W` is [N, K] row-major, so a vocabulary slab is a contiguous row range and
 // no gather is needed. Results are bit-identical to a full GEMM followed by
-// `launch_argmax_bf16`: the tie-break is a total order on (value, -index), so
+// `kernels::sample::argmax_bf16`: the tie-break is a total order on (value, -index), so
 // where the vocabulary is cut cannot change the answer.
 //
 //   act      : [M, K] bf16
 //   w        : [N, K] bf16 (dense only)
 //   token_ids: [M] i32, the output
 //   slab     : [M, chunk] bf16 scratch, overwritten every iteration
-//   acc_val / acc_idx : [M, kernels::kArgmaxAccumSlots] scratch
+//   acc_val / acc_idx : [M, kernels::sample::kArgmaxAccumSlots] scratch
 //
 // Returns false without launching anything when the weight is not dense BF16.
 // Callers must not treat that as a fallback: by the time the forward runs, the

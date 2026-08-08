@@ -9,9 +9,7 @@ use kernels::KernelSig;
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
-    kernel!(sigmoid_scalar_gate_add "launch_sigmoid_scalar_gate_add_bf16"),
     kernel!(rmsnorm_gated_launch "launch_rmsnorm_gated_bf16"),
-    kernel!(sigmoid_scalar_gate_strided_add "launch_sigmoid_scalar_gate_strided_add_bf16"),
     kernel!(rmsnorm_strided "launch_rmsnorm_strided_bf16"),
     kernel!(scale_rows "launch_scale_rows_bf16"),
     // gemma-4's end-of-layer shape: the scale sits BETWEEN the add and the
@@ -76,4 +74,5 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(norm_residual_add "launch_rmsnorm_residual_add_bf16"),
     kernel!(scalar_mul "launch_scalar_mul_bf16"),
     kernel!(residual_add_cuda "launch_residual_add_bf16"),
+    kernel!(tanh "launch_tanh_bf16"),
 ];

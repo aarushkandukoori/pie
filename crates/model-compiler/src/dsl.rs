@@ -1434,7 +1434,7 @@ pub fn seam(t: &Trace, def: &seam::Def, sees: &[&Val], layer: Option<u32>) {
 /// of the second backend (`.wiki/tart/dsl.md` ②).
 ///
 /// UNVERIFIED (2026-08-05). Every symbol here is an MSL entrypoint read
-/// off the driver's source (`crates/driver-metal/csrc/src/kernels/decode_psos.cpp`'s
+/// off the driver's source (`crates/driver-metal/csrc/src/batch/decode_psos.cpp`'s
 /// `PsoSpec` table and `model/qwen3_5/decode_step.hpp`'s `Kernel` kinds),
 /// not something a running deployment produced: the Metal driver cannot
 /// build on the machine we have, because `xcrun --find metal` fails —
@@ -1767,14 +1767,14 @@ pub mod cuda {
         })
     }
 
-    /// `kernels::launch_rope_standard_table`: build the fire's cos/sin
+    /// `kernels::rope::rope_standard_table`: build the fire's cos/sin
     /// table, once. A value, not a latch — the fused-QKV kernel consumes
     /// it as an operand.
     pub fn rope_standard_table(t: &Trace, head_dim: u32) -> Val {
         record(
             t,
             None,
-            "launch_rope_standard_table",
+            "rope::rope_standard_table",
             vec![],
             None,
             vec![],
@@ -1825,13 +1825,13 @@ pub mod cuda {
     // `.wiki/tart/dsl.md`'s step 2e found this path by surveying before
     // deleting; these are the statements that survey was about.
 
-    /// `kernels::launch_qk_rmsnorm_rope_bf16_devwin`: the fused q/k norm and
+    /// `kernels::rope::qk_rmsnorm_rope_bf16_devwin`: the fused q/k norm and
     /// rope, over a device-carried window.
     pub fn qk_rmsnorm_rope_devwin(q: &Val, k: &Val, q_w: &str, k_w: &str, q_width: u32) -> Val {
         record(
             &q.t,
             q.layer,
-            "launch_qk_rmsnorm_rope_bf16_devwin",
+            "rope::qk_rmsnorm_rope_bf16_devwin",
             vec![q_w.to_string(), k_w.to_string()],
             None,
             vec![q.id, k.id],
@@ -2076,11 +2076,11 @@ pub mod cuda {
         .expect("the gemm produces its value")
     }
 
-    /// `kernels::launch_sigmoid_scalar_gate_add_bf16`: add `x` onto `out`,
+    /// `kernels::mlp::sigmoid_scalar_gate_add_bf16`: add `x` onto `out`,
     /// each row scaled by its own sigmoid gate.
     pub fn sigmoid_scalar_gate_add(out: &Val, x: &Val, gate: &Val, hidden: u32) -> Val {
         record(
-            &out.t, out.layer, "launch_sigmoid_scalar_gate_add_bf16", vec![], None,
+            &out.t, out.layer, "mlp::sigmoid_scalar_gate_add_bf16", vec![], None,
             vec![out.id, x.id, gate.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
         )
@@ -2383,13 +2383,13 @@ pub mod cuda {
         .expect("the gemm produces its value")
     }
 
-    /// `kernels::launch_chunked_swiglu_strided_bf16`: chunked swiglu over
+    /// `kernels::mlp::chunked_swiglu_strided_bf16`: chunked swiglu over
     /// strided rows.
     pub fn chunked_swiglu_strided(x: &Val, intermediate: u32) -> Val {
         record(
             &x.t,
             x.layer,
-            "launch_chunked_swiglu_strided_bf16",
+            "mlp::chunked_swiglu_strided_bf16",
             vec![],
             None,
             vec![x.id],
@@ -2401,13 +2401,13 @@ pub mod cuda {
         .expect("the activation produces its value")
     }
 
-    /// `kernels::launch_sigmoid_scalar_gate_strided_add_bf16`: the shared
+    /// `kernels::mlp::sigmoid_scalar_gate_strided_add_bf16`: the shared
     /// expert's sigmoid-gated add, into a strided destination.
     pub fn sigmoid_scalar_gate_strided_add(x: &Val, y: &Val, gate: &Val, width: u32) -> Val {
         record(
             &x.t,
             x.layer,
-            "launch_sigmoid_scalar_gate_strided_add_bf16",
+            "mlp::sigmoid_scalar_gate_strided_add_bf16",
             vec![],
             None,
             vec![x.id, y.id, gate.id],
@@ -2434,7 +2434,7 @@ pub mod cuda {
         .expect("the concat produces its value")
     }
 
-    /// `kernels::launch_lm_head_gemv_argmax_int8`: the readout and the argmax
+    /// `kernels::sample::lm_head_gemv_argmax_int8`: the readout and the argmax
     /// in one launch, over an int8 head with a per-channel scale.
     ///
     /// It produces TOKEN IDS, not logits. A greedy-decode fast path that
@@ -2444,7 +2444,7 @@ pub mod cuda {
         record(
             &x.t,
             None,
-            "launch_lm_head_gemv_argmax_int8",
+            "sample::lm_head_gemv_argmax_int8",
             vec![weight.to_string(), scale.to_string()],
             None,
             vec![x.id],
@@ -2546,7 +2546,7 @@ pub mod cuda {
 
     // ── the rope variants, and three small shapes ──────────────────
 
-    /// `kernels::launch_rope_yarn_bf16`: YaRN-scaled rope.
+    /// `kernels::rope::rope_yarn_bf16`: YaRN-scaled rope.
     ///
     /// A different statement from [`Self::rope_yarn_original`], not a
     /// parameterization of it: the two interpolate frequencies differently,
@@ -2555,7 +2555,7 @@ pub mod cuda {
         record(
             &q.t,
             q.layer,
-            "launch_rope_yarn_bf16",
+            "rope::rope_yarn_bf16",
             vec![],
             None,
             vec![q.id, k.id],
@@ -2564,7 +2564,7 @@ pub mod cuda {
         .expect("the rope produces its value")
     }
 
-    /// `kernels::launch_qk_rmsnorm_mrope_bf16`: per-head q/k norms and MROPE.
+    /// `kernels::rope::qk_rmsnorm_mrope_bf16`: per-head q/k norms and MROPE.
     ///
     /// MROPE takes `[num_tokens, 3]` positions — a `(t, h, w)` triple rather
     /// than one index — because a vision model's tokens sit in a grid. That
@@ -2574,7 +2574,7 @@ pub mod cuda {
         record(
             &q.t,
             q.layer,
-            "launch_qk_rmsnorm_mrope_bf16",
+            "rope::qk_rmsnorm_mrope_bf16",
             vec![q_weight.to_string(), k_weight.to_string()],
             None,
             vec![q.id, k.id],
@@ -2857,13 +2857,13 @@ pub mod cuda {
         (o0, o1, o2)
     }
 
-    /// `kernels::launch_gpt_oss_glu_strided_bf16`: gpt-oss's clamped GLU,
+    /// `kernels::mlp::gpt_oss_glu_strided_bf16`: gpt-oss's clamped GLU,
     /// reading and writing strided.
     pub fn gpt_oss_glu_strided(gate: &Val, up: &Val, width: u32) -> Val {
         record(
             &gate.t,
             gate.layer,
-            "launch_gpt_oss_glu_strided_bf16",
+            "mlp::gpt_oss_glu_strided_bf16",
             vec![],
             None,
             vec![gate.id, up.id],
@@ -2896,13 +2896,13 @@ pub mod cuda {
         (bf16, fp16)
     }
 
-    /// `kernels::launch_rope_write_kv_bf16`: rope q and k, then commit k/v to
+    /// `kernels::rope::rope_write_kv_bf16`: rope q and k, then commit k/v to
     /// the pages, in one launch.
     pub fn rope_write_kv(q: &Val, k: &Val, v: &Val, l: u32, q_width: u32) -> Val {
         record(
             &q.t,
             Some(l),
-            "launch_rope_write_kv_bf16",
+            "rope::rope_write_kv_bf16",
             vec![],
             Some(StateRef {
                 store: StateStore::KvCache,
@@ -3407,7 +3407,7 @@ pub mod cuda {
         (idx, w)
     }
 
-    /// `kernels::launch_swiglu_clamp_bf16` / `launch_chunked_swiglu_clamp_bf16`:
+    /// `kernels::mlp::swiglu_clamp_bf16` / `kernels::mlp::chunked_swiglu_clamp_bf16`:
     /// swiglu with the gate clamped.
     ///
     /// `packed` picks the chunked form, the binding choice [`Self::swiglu`]
@@ -3417,9 +3417,9 @@ pub mod cuda {
             &x.t,
             x.layer,
             if packed {
-                "launch_chunked_swiglu_clamp_bf16"
+                "mlp::chunked_swiglu_clamp_bf16"
             } else {
-                "launch_swiglu_clamp_bf16"
+                "mlp::swiglu_clamp_bf16"
             },
             vec![],
             None,
@@ -3432,7 +3432,7 @@ pub mod cuda {
         .expect("the activation produces its value")
     }
 
-    /// `kernels::launch_rope_partial_last_bf16`: rope the LAST `rope_dim`
+    /// `kernels::rope::rope_partial_last_bf16`: rope the LAST `rope_dim`
     /// channels rather than the first.
     ///
     /// A different statement from [`Self::rope_partial_q_only`], not a flag on
@@ -3442,7 +3442,7 @@ pub mod cuda {
         record(
             &x.t,
             x.layer,
-            "launch_rope_partial_last_bf16",
+            "rope::rope_partial_last_bf16",
             vec![],
             None,
             vec![x.id],
@@ -3722,12 +3722,12 @@ pub mod cuda {
         .expect("the norm produces its value")
     }
 
-    /// `kernels::launch_relu2_bf16`: `relu(x)²`, nemotron_h's MLP activation.
+    /// `kernels::mlp::relu2_bf16`: `relu(x)²`, nemotron_h's MLP activation.
     pub fn relu2(x: &Val, width: u32) -> Val {
         record(
             &x.t,
             x.layer,
-            "launch_relu2_bf16",
+            "mlp::relu2_bf16",
             vec![],
             None,
             vec![x.id],
@@ -3968,7 +3968,7 @@ pub mod cuda {
 
     // ── kimi_k3: SiTU, and the fp32 widenings its recurrence needs ─
 
-    /// `kernels::launch_situ_bf16` / `launch_chunked_situ_bf16`: Moonshot's
+    /// `kernels::mlp::situ_bf16` / `kernels::mlp::chunked_situ_bf16`: Moonshot's
     /// `SituAndMul`.
     ///
     /// Not a swiglu variant. The tanh saturates far enough out (beta 4,
@@ -3981,9 +3981,9 @@ pub mod cuda {
             &x.t,
             x.layer,
             if packed {
-                "launch_chunked_situ_bf16"
+                "mlp::chunked_situ_bf16"
             } else {
-                "launch_situ_bf16"
+                "mlp::situ_bf16"
             },
             vec![],
             None,
@@ -4787,7 +4787,7 @@ pub mod cuda {
         .expect("the activation produces its value")
     }
 
-    /// `kernels::launch_gaussian_topk_bf16`: gemma-3n's activation
+    /// `kernels::mlp::gaussian_topk_bf16`: gemma-3n's activation
     /// sparsity — zero every element below `mean + std_multiplier·std` of
     /// its own row.
     ///
@@ -4798,7 +4798,7 @@ pub mod cuda {
         record(
             &x.t,
             x.layer,
-            "launch_gaussian_topk_bf16",
+            "mlp::gaussian_topk_bf16",
             vec![],
             None,
             vec![x.id],
@@ -4826,9 +4826,9 @@ pub mod cuda {
             &x.t,
             x.layer,
             if packed {
-                "launch_chunked_geglu_tanh_bf16"
+                "mlp::chunked_geglu_tanh_bf16"
             } else {
-                "launch_geglu_tanh_bf16"
+                "mlp::geglu_tanh_bf16"
             },
             vec![],
             None,
@@ -4841,7 +4841,7 @@ pub mod cuda {
         .expect("the activation produces its value")
     }
 
-    /// `kernels::launch_geglu_tanh_bf16` in its PAIR form: the gate and
+    /// `kernels::mlp::geglu_tanh_bf16` in its PAIR form: the gate and
     /// the up operand are two buffers, not one packed bank.
     ///
     /// gemma-4's PLE epilogue needs it even on a checkpoint that bound a
@@ -4854,7 +4854,7 @@ pub mod cuda {
         record(
             &gate.t,
             gate.layer,
-            "launch_geglu_tanh_bf16",
+            "mlp::geglu_tanh_bf16",
             vec![],
             None,
             vec![gate.id, up.id],
@@ -4863,7 +4863,7 @@ pub mod cuda {
         .expect("the activation produces its value")
     }
 
-    /// `kernels::launch_rope_partial_bf16` rotating Q ALONE.
+    /// `kernels::rope::rope_partial_bf16` rotating Q ALONE.
     ///
     /// A KV-shared layer's K was rotated at its SOURCE layer, where it
     /// was written to the cache, so rotating it again here would be
@@ -4879,7 +4879,7 @@ pub mod cuda {
         record(
             &q.t,
             q.layer,
-            "launch_rope_partial_bf16",
+            "rope::rope_partial_bf16",
             vec![],
             None,
             vec![q.id],
@@ -4901,7 +4901,7 @@ pub mod cuda {
         record(
             &q.t,
             q_norm.layer,
-            "launch_qk_rmsnorm_rope_bf16_rounded",
+            "rope::qk_rmsnorm_rope_bf16_rounded",
             vec![q_norm.name.clone()],
             None,
             vec![q.id],
@@ -5061,7 +5061,7 @@ pub mod cuda {
         .expect("the fused post produces q")
     }
 
-    /// `kernels::launch_qk_rmsnorm_rope_bf16_rounded`: the per-head q/k
+    /// `kernels::rope::qk_rmsnorm_rope_bf16_rounded`: the per-head q/k
     /// norm + rope pair, in the ROUNDED form.
     ///
     /// gemma-4 rounds where qwen3_5 does not, and bf16 rounding is not
@@ -5084,7 +5084,7 @@ pub mod cuda {
         };
         let ids = q.t.with(q_norm.layer, |b| {
             b.launch(
-                "launch_qk_rmsnorm_rope_bf16_rounded",
+                "rope::qk_rmsnorm_rope_bf16_rounded",
                 vec![q_norm.name.clone(), k_norm.name.clone()],
                 None,
                 vec![q.id, k.id],
@@ -5254,13 +5254,13 @@ pub mod cuda {
         .expect("the residual add produces its value")
     }
 
-    /// `kernels::launch_sigmoid_dot_scalar_gate_add_bf16`: the shared
+    /// `kernels::mlp::sigmoid_dot_scalar_gate_add_bf16`: the shared
     /// expert's landing with its gate logit folded in — one launch that
     /// dots `norm_x` with the `[1, H]` gate row, sigmoids the scalar, and
     /// accumulates `shared` into the stream.
     ///
     /// The general form is a `[Tokens, 1]` GEMM followed by
-    /// `launch_sigmoid_scalar_gate_add_bf16`; this fused form runs when
+    /// `kernels::mlp::sigmoid_scalar_gate_add_bf16`; this fused form runs when
     /// the gate weight is bound unquantized and `N` is within the decode
     /// fast path's bound (1024). Every fire this text covers is under
     /// `cutlass_max_rows` (<= 512), so within the declaration's own row
@@ -5275,7 +5275,7 @@ pub mod cuda {
         record(
             &x.t,
             gate.layer,
-            "launch_sigmoid_dot_scalar_gate_add_bf16",
+            "mlp::sigmoid_dot_scalar_gate_add_bf16",
             vec![gate.name.clone()],
             None,
             vec![x.id, base.id, shared.id],
@@ -5284,7 +5284,7 @@ pub mod cuda {
         .expect("the shared-expert landing produces its value")
     }
 
-    /// `kernels::launch_chunked_swiglu_bf16` over the routed rows — the
+    /// `kernels::mlp::chunked_swiglu_bf16` over the routed rows — the
     /// same kernel [`swiglu`]'s packed arm names, launched with `N * k`
     /// rows instead of `N`. A separate statement because the SHAPE
     /// differs, not the kernel: the routed value keeps its expert dim.
@@ -5292,7 +5292,7 @@ pub mod cuda {
         record(
             &x.t,
             x.layer,
-            "launch_chunked_swiglu_bf16",
+            "mlp::chunked_swiglu_bf16",
             vec![],
             None,
             vec![x.id],
@@ -5363,9 +5363,9 @@ pub mod cuda {
             &x.t,
             x.layer,
             if packed {
-                "launch_chunked_swiglu_bf16"
+                "mlp::chunked_swiglu_bf16"
             } else {
-                "launch_swiglu_bf16"
+                "mlp::swiglu_bf16"
             },
             vec![],
             None,
@@ -5378,7 +5378,7 @@ pub mod cuda {
         .expect("the activation produces its value")
     }
 
-    /// `kernels::launch_qk_rmsnorm_rope_bf16`: the fused per-head q/k
+    /// `kernels::rope::qk_rmsnorm_rope_bf16`: the fused per-head q/k
     /// norm + Standard rope, one launch — the hand-written
     /// `fuse_qk_norm_rope` branch. bf16 rounding differs between this
     /// kernel and the norm+rope triple it replaces, so parity requires
@@ -5391,7 +5391,7 @@ pub mod cuda {
             let q_sh = b.value_shape(q.id);
             let k_sh = b.value_shape(k.id);
             b.launch(
-                "launch_qk_rmsnorm_rope_bf16",
+                "rope::qk_rmsnorm_rope_bf16",
                 vec![q_norm.name.clone(), k_norm.name.clone()],
                 None,
                 vec![q.id, k.id],
@@ -5484,7 +5484,7 @@ pub mod cuda {
         (mk(ids[0]), mk(ids[1]))
     }
 
-    /// `kernels::launch_rope_yarn_original_bf16`: the YaRN-paper rope —
+    /// `kernels::rope::rope_yarn_original_bf16`: the YaRN-paper rope —
     /// a dim-index ramp between interpolated and extrapolated
     /// frequencies, plus an `attention_factor` magnitude scale.
     ///
@@ -5500,7 +5500,7 @@ pub mod cuda {
         };
         let ids = q.t.with(q.layer, |b| {
             b.launch(
-                "launch_rope_yarn_original_bf16",
+                "rope::rope_yarn_original_bf16",
                 vec![],
                 None,
                 vec![q.id, k.id],
@@ -5684,7 +5684,7 @@ pub mod cuda {
         .expect("the routed down projection produces its value")
     }
 
-    /// `kernels::launch_gpt_oss_glu_bf16`: SwiGLU with gpt-oss's CLAMP.
+    /// `kernels::mlp::gpt_oss_glu_bf16`: SwiGLU with gpt-oss's CLAMP.
     ///
     /// A different kernel from [`swiglu`], not a parameterisation of it:
     /// `swiglu_limit` is a config constant, so which of the two runs is
@@ -5702,7 +5702,7 @@ pub mod cuda {
         record(
             &gate.t,
             gate.layer,
-            "launch_gpt_oss_glu_bf16",
+            "mlp::gpt_oss_glu_bf16",
             vec![],
             None,
             vec![gate.id, up.id],

@@ -191,7 +191,7 @@ void gemma2_forward_paged(
                 ? fwd_cfg.per_layer_rope_theta[L]
                 : cfg.rope_theta;
 
-        kernels::launch_rope_bf16(
+        kernels::rope::rope_bf16(
             ws.q.data(), ws.k.data(), positions,
             N, num_q_heads_local, num_kv_heads_local, d,
             layer_rope_theta, stream);
@@ -275,7 +275,7 @@ void gemma2_forward_paged(
             ws.norm_x.data(), layer.gate_proj->data(), ws.gate.data(), N, I, H);
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.up_proj->data(),   ws.up.data(),   N, I, H);
-        kernels::launch_geglu_tanh_bf16(
+        kernels::mlp::geglu_tanh_bf16(
             ws.gate.data(), ws.up.data(), ws.gate.data(),
             N * I, stream);
 

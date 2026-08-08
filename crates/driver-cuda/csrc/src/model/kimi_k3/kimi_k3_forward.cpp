@@ -652,7 +652,7 @@ void kimi_k3_forward_paged(
                           total_tokens, kv_lora, stream);
 
             // NoPE: `mla_use_nope` means the rope halves are carried through
-            // untouched. There is deliberately no `launch_rope_bf16` here --
+            // untouched. There is deliberately no `kernels::rope::rope_bf16` here --
             // KDA supplies this model's only position signal.
             auto layer_view = mla_cache.layer_view(Lw.kv_layer);
             kernels::launch_write_mla_to_pages(
@@ -682,7 +682,7 @@ void kimi_k3_forward_paged(
                 ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(),
                                   *Lw.mla_g_proj, ws.mla_gate.data(),
                                   total_tokens, mla_heads * v_dim, H);
-                kernels::launch_sigmoid_gate_inplace_bf16(
+                kernels::mlp::sigmoid_gate_inplace_bf16(
                     ws.attn_v.data(), ws.mla_gate.data(),
                     total_tokens * mla_heads * v_dim, stream);
             }
@@ -737,7 +737,7 @@ void kimi_k3_forward_paged(
             ops::gemm_act_x_w(cublas.handle(), ws.norm_y.data(),
                               *Lw.dense_up_proj, ws.up.data(), total_tokens,
                               dense_I, H);
-            kernels::launch_situ_bf16(ws.gate.data(), ws.up.data(),
+            kernels::mlp::situ_bf16(ws.gate.data(), ws.up.data(),
                                       ws.gate.data(), total_tokens * dense_I,
                                       cfg.situ_beta, cfg.situ_linear_beta,
                                       stream);
@@ -812,7 +812,7 @@ void kimi_k3_forward_paged(
                     Lw.expert_gate_up_scale_ptrs.data(),
                     /*gate_bias=*/nullptr, /*up_bias=*/nullptr,
                     gate_out, up_out, total_tokens, K, latent, routed_I, stream);
-                kernels::launch_situ_bf16(
+                kernels::mlp::situ_bf16(
                     gate_out, up_out, ws.aligned_act.data(),
                     routes * routed_I, cfg.situ_beta, cfg.situ_linear_beta,
                     stream);
@@ -836,7 +836,7 @@ void kimi_k3_forward_paged(
                     expert_in, Lw.moe_gate_up_bf16->data(),
                     ws.aligned_gate_up.data(),
                     total_tokens, K, latent, routed_I, stream);
-                kernels::launch_chunked_situ_bf16(
+                kernels::mlp::chunked_situ_bf16(
                     ws.aligned_gate_up.data(), ws.aligned_act.data(), routes,
                     routed_I, cfg.situ_beta, cfg.situ_linear_beta,
                     kimi_k3_moe_gate_up_swapped(), stream);
@@ -897,7 +897,7 @@ void kimi_k3_forward_paged(
                 reinterpret_cast<const void* const*>(ws.a_gu_ptrs.data()),
                 reinterpret_cast<void* const*>(ws.c_gu_ptrs.data()),
                 block, 2 * routed_I, latent, nblocks);
-            kernels::launch_chunked_situ_bf16(
+            kernels::mlp::chunked_situ_bf16(
                 ws.aligned_gate_up.data(), ws.aligned_act.data(), aligned_rows,
                 routed_I, cfg.situ_beta, cfg.situ_linear_beta,
                 kimi_k3_moe_gate_up_swapped(), stream);
@@ -951,7 +951,7 @@ void kimi_k3_forward_paged(
                 ops::gemm_act_x_w(cublas.handle(), ws.norm_y.data(),
                                   *Lw.shared_up_proj, ws.up.data(),
                                   total_tokens, shared_I, H);
-                kernels::launch_situ_bf16(ws.gate.data(), ws.up.data(),
+                kernels::mlp::situ_bf16(ws.gate.data(), ws.up.data(),
                                           ws.gate.data(),
                                           total_tokens * shared_I,
                                           cfg.situ_beta, cfg.situ_linear_beta,

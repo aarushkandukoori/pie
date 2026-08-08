@@ -39,10 +39,10 @@ inline void arm_swiglu(Workspace& ws,
                        int intermediate,
                        cudaStream_t stream) {
     if (gate_up_used_fused) {
-        kernels::launch_chunked_swiglu_bf16(
+        kernels::mlp::chunked_swiglu_bf16(
             ws.gate_up_fused.data(), dst, n, intermediate, stream);
     } else {
-        kernels::launch_swiglu_bf16(
+        kernels::mlp::swiglu_bf16(
             ws.gate.data(), ws.up.data(), dst, n * intermediate, stream);
     }
 }

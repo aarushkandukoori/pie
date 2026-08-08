@@ -16,10 +16,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
-struct RowGatherParams {
-  uint width;  // elements per row
-  uint count;  // rows to gather
-};
+#include "row_gather_params.h"
 
 template <typename T>
 [[kernel]] void row_gather(

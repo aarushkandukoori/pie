@@ -228,7 +228,7 @@ enum class Q35Kernel {
     ChunkedSwiglu,
     Swiglu,
     // The aligned MoE leg. Eight launches, in the order the traced form
-    // states them; `launch_chunked_swiglu_bf16` is shared with the dense
+    // states them; `kernels::mlp::chunked_swiglu_bf16` is shared with the dense
     // leg and already above.
     TopkSoftmax,
     MoeAlignDecode,
@@ -260,8 +260,8 @@ Q35Kernel resolve_q35_kernel(std::string_view k) {
     if (k == "dispatch_attention_flashinfer_prefill_bf16") return Q35Kernel::AttnFlashinferPrefill;
     if (k == "launch_write_kv_explicit_bf16") return Q35Kernel::WriteKvExplicit;
     if (k == "launch_write_kv_to_pages") return Q35Kernel::WriteKvToPages;
-    if (k == "launch_chunked_swiglu_bf16") return Q35Kernel::ChunkedSwiglu;
-    if (k == "launch_swiglu_bf16") return Q35Kernel::Swiglu;
+    if (k == "mlp::chunked_swiglu_bf16") return Q35Kernel::ChunkedSwiglu;
+    if (k == "mlp::swiglu_bf16") return Q35Kernel::Swiglu;
     if (k == "launch_topk_softmax_bf16") return Q35Kernel::TopkSoftmax;
     if (k == "launch_moe_align_decode") return Q35Kernel::MoeAlignDecode;
     if (k == "launch_gather_moe_aligned_inputs_bf16") return Q35Kernel::MoeGatherAligned;
@@ -269,7 +269,7 @@ Q35Kernel resolve_q35_kernel(std::string_view k) {
     if (k == "launch_moe_grouped_gemm_bf16") return Q35Kernel::MoeGroupedGemm;
     if (k == "launch_reorder_moe_aligned_output_bf16") return Q35Kernel::MoeReorderAligned;
     if (k == "launch_token_batched_weighted_sum_add_bf16") return Q35Kernel::MoeWeightedSum;
-    if (k == "launch_sigmoid_dot_scalar_gate_add_bf16") return Q35Kernel::SigmoidDotScalarGateAdd;
+    if (k == "mlp::sigmoid_dot_scalar_gate_add_bf16") return Q35Kernel::SigmoidDotScalarGateAdd;
     throw std::runtime_error(
         "declared qwen3_5: stated kernel '" + std::string(k) +
         "' is not in this executor's registry (the trace and the driver "
@@ -993,7 +993,7 @@ bool forward_declared_tmpl(
                 op.param1 == 0) {
                 throw_drift("only the partial standard rope is emitted");
             }
-            kernels::launch_rope_partial_bf16(
+            kernels::rope::rope_partial_bf16(
                 ws.q.data(), ws.k.data(), positions,
                 N, num_q_heads, num_kv_heads,
                 d, static_cast<int>(op.param1), cfg.rope_theta, stream);
@@ -1013,7 +1013,7 @@ bool forward_declared_tmpl(
         }
         case PieForwardOpKind::SigmoidGateMul: {
             // attn_out *= sigmoid(gate) — the full-attention output gate.
-            kernels::launch_sigmoid_gate_inplace_bf16(
+            kernels::mlp::sigmoid_gate_inplace_bf16(
                 ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
             break;
         }
@@ -1291,20 +1291,20 @@ case PieForwardOpKind::Launch: {
                         const int aligned_rows =
                             ((routes + cap * (block - 1) + block - 1) / block) *
                             block;
-                        kernels::launch_chunked_swiglu_bf16(
+                        kernels::mlp::chunked_swiglu_bf16(
                             mw.aligned_gate_up.data(), mw.aligned_act.data(),
                             aligned_rows, Im, stream);
                         break;
                     }
                     if (moe_ws != nullptr) {
-                        kernels::launch_chunked_swiglu_bf16(
+                        kernels::mlp::chunked_swiglu_bf16(
                             moe_ws->shared_gate_up.data(),
                             moe_ws->shared_act.data(),
                             N, cfg.shared_expert_intermediate_size, stream);
                         break;
                     }
                 }
-                kernels::launch_chunked_swiglu_bf16(
+                kernels::mlp::chunked_swiglu_bf16(
                     ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
                 break;
             }
@@ -1467,7 +1467,7 @@ case PieForwardOpKind::Launch: {
                         // (x, gate_weight, ACCUMULATOR, addend) -- the
                         // hand call's order. Reversing the last two lands
                         // the gate on the wrong buffer and still compiles.
-                        kernels::launch_sigmoid_dot_scalar_gate_add_bf16(
+                        kernels::mlp::sigmoid_dot_scalar_gate_add_bf16(
                             ws.norm_x.data(),
                             wb.require(plan.name(aux[0])).data(),
                             ws.y.data(), mw.shared_out.data(),
@@ -1481,7 +1481,7 @@ case PieForwardOpKind::Launch: {
                 break;
             }
             case Q35Kernel::Swiglu:
-                kernels::launch_swiglu_bf16(
+                kernels::mlp::swiglu_bf16(
                     ws.gate.data(), ws.up.data(), ws.gate.data(),
                     N * I, stream);
                 break;

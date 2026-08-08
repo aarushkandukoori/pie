@@ -186,7 +186,7 @@ pub fn gpt_oss_cuda(
             // gpt-oss scales, and the driver had to be TAUGHT to: this
             // family shares llama_like's cfg, where `apply_rope_config`
             // had already resolved the scaling, and `mixtral.cpp` spelled
-            // a plain `launch_rope_bf16` anyway. The declaration states
+            // a plain `kernels::rope::rope_bf16` anyway. The declaration states
             // the kernel the fixed pass fires.
             let (q, k) = if facts.rope_yarn_original {
                 dsl::cuda::rope_yarn_original(&q, &k)
@@ -248,7 +248,7 @@ pub fn gpt_oss_cuda(
                 facts.intermediate,
             );
             // The clamp is the whole fork, and a checkpoint without one
-            // takes `launch_swiglu_bf16`'s PAIR form — a spelling no
+            // takes `kernels::mlp::swiglu_bf16`'s PAIR form — a spelling no
             // statement carries yet. Refused by name rather than guessed:
             // every gpt-oss release so far clamps, so an unclamped one
             // would be the first thing this text had never seen.

@@ -590,13 +590,13 @@ fn emit_op(
         }
         OpKind::Rope { partial, .. } => {
             let rot = partial.expect("qwen3_5 rope is partial");
-            b.stmt("kernels::launch_rope_partial_bf16(");
+            b.stmt("kernels::rope::rope_partial_bf16(");
             b.stmt("    ws.q.data(), ws.k.data(), positions,");
             b.stmt("    N, num_q_heads, num_kv_heads,");
             b.stmt(&format!("    d, {rot}, cfg.rope_theta, stream);"));
         }
         OpKind::SigmoidGateMul => {
-            b.stmt("kernels::launch_sigmoid_gate_inplace_bf16(");
+            b.stmt("kernels::mlp::sigmoid_gate_inplace_bf16(");
             b.stmt("    ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);");
         }
         OpKind::HookSite { stage, layer } => {
@@ -695,12 +695,12 @@ fn emit_launch(
         // C++ — a runtime read of a workspace to recover something the
         // load already knew. The fact deletes the branch here, in the
         // interpreter's arm, and in the flat list's residue at once.
-        "launch_chunked_swiglu_bf16" => {
-            b.stmt("kernels::launch_chunked_swiglu_bf16(");
+        "mlp::chunked_swiglu_bf16" => {
+            b.stmt("kernels::mlp::chunked_swiglu_bf16(");
             b.stmt("    ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);");
         }
-        "launch_swiglu_bf16" => {
-            b.stmt("kernels::launch_swiglu_bf16(");
+        "mlp::swiglu_bf16" => {
+            b.stmt("kernels::mlp::swiglu_bf16(");
             b.stmt("    ws.gate.data(), ws.up.data(), ws.gate.data(),");
             b.stmt("    N * I, stream);");
         }

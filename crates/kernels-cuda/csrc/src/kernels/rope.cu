@@ -9,7 +9,7 @@
 
 #include "kernels/rope_device.cuh"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::rope {
 
 namespace {
 
@@ -364,7 +364,7 @@ __global__ void qk_rmsnorm_mrope_bf16_kernel(
 
 }  // namespace
 
-void launch_qk_rmsnorm_mrope_bf16(
+void qk_rmsnorm_mrope_bf16(
     void* q, void* k,
     const void* q_weight, const void* k_weight,
     const std::int32_t* positions,
@@ -392,7 +392,7 @@ void launch_qk_rmsnorm_mrope_bf16(
         mrope_section_t, mrope_section_h, mrope_section_w);
 }
 
-void launch_rope_standard_table(
+void rope_standard_table(
     const std::int32_t* positions,
     float* table,
     int num_tokens,
@@ -406,7 +406,7 @@ void launch_rope_standard_table(
         positions, table, head_dim, theta);
 }
 
-void launch_rope_bf16(
+void rope_bf16(
     void* q, void* k,
     const std::int32_t* positions,
     int num_tokens,
@@ -440,7 +440,7 @@ void launch_rope_bf16(
         0, 0);
 }
 
-void launch_rope_write_kv_bf16(
+void rope_write_kv_bf16(
     void* q, void* k, const void* v,
     const std::int32_t* positions,
     void* k_pages, void* v_pages,
@@ -548,7 +548,7 @@ __global__ void qk_rmsnorm_rope_bf16_devwin_kernel(
     }
 }
 
-void launch_qk_rmsnorm_rope_bf16_devwin(
+void qk_rmsnorm_rope_bf16_devwin(
     void* q, void* k,
     const void* q_weight, const void* k_weight,
     const std::int32_t* positions,
@@ -573,7 +573,7 @@ void launch_qk_rmsnorm_rope_bf16_devwin(
         num_q_heads, num_kv_heads, head_dim, theta, eps);
 }
 
-void launch_qk_rmsnorm_rope_bf16(
+void qk_rmsnorm_rope_bf16(
     void* q, void* k,
     const void* q_weight, const void* k_weight,
     const std::int32_t* positions,
@@ -600,7 +600,7 @@ void launch_qk_rmsnorm_rope_bf16(
         num_q_heads, num_kv_heads, head_dim, theta, eps);
 }
 
-void launch_qk_rmsnorm_rope_bf16_rounded(
+void qk_rmsnorm_rope_bf16_rounded(
     void* q, void* k,
     const void* q_weight, const void* k_weight,
     const std::int32_t* positions,
@@ -692,7 +692,7 @@ __global__ void rope_yarn_bf16_kernel(
 
 }  // namespace
 
-void launch_rope_yarn_bf16(
+void rope_yarn_bf16(
     void* q, void* k,
     const std::int32_t* positions,
     int num_tokens,
@@ -787,7 +787,7 @@ __global__ void rope_yarn_original_bf16_kernel(
 
 }  // namespace
 
-void launch_rope_yarn_original_bf16(
+void rope_yarn_original_bf16(
     void* q, void* k,
     const std::int32_t* positions,
     int num_tokens,
@@ -906,7 +906,7 @@ __global__ void rope_partial_bf16_kernel(
 
 }  // namespace
 
-void launch_rope_partial_bf16(
+void rope_partial_bf16(
     void* q, void* k,
     const std::int32_t* positions,
     int num_tokens,
@@ -928,7 +928,7 @@ void launch_rope_partial_bf16(
         num_q_heads, num_kv_heads, head_dim, rotary_dim, theta);
 }
 
-void launch_rope_partial_bf16_position_delta(
+void rope_partial_bf16_position_delta(
     void* q, void* k,
     const std::int32_t* positions,
     int position_delta,
@@ -1008,7 +1008,7 @@ __global__ void rope_partial_last_bf16_kernel(
 
 }  // namespace
 
-void launch_rope_partial_last_bf16(
+void rope_partial_last_bf16(
     void* q, void* k,
     const std::int32_t* positions,
     int num_tokens,
@@ -1025,7 +1025,7 @@ void launch_rope_partial_last_bf16(
     float yarn_beta_slow,
     int   yarn_original_max_position)
 {
-    // Same ramp as `launch_rope_yarn_original_bf16`, but the correction range
+    // Same ramp as `rope_yarn_original_bf16`, but the correction range
     // is over `rotary_dim` (the rotated slice), not the full head_dim.
     float low_dim = 0.f, high_dim = 0.f;
     if (yarn_factor > 1.f && yarn_original_max_position > 0) {
@@ -1053,4 +1053,4 @@ void launch_rope_partial_last_bf16(
         interleaved, yarn_factor, low_dim, high_dim);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::rope

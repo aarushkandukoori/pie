@@ -167,9 +167,9 @@ impl Qwen35GdnFacts {
 /// instead of a `LlamaLikeFacts` configuration: the q projection is 2× wide
 /// with an interleaved per-head `[query | gate]` split
 /// (`launch_split_q_gate_bf16`), the attention output is multiplied by
-/// `sigmoid(gate)` (`launch_sigmoid_gate_inplace_bf16` — no residual, not
+/// `sigmoid(gate)` (`kernels::mlp::sigmoid_gate_inplace_bf16` — no residual, not
 /// the shared-expert `SigmoidGateAdd`), rope is PARTIAL
-/// (`partial_rotary_factor`, `launch_rope_partial_bf16`), and the per-head
+/// (`partial_rotary_factor`, `kernels::rope::rope_partial_bf16`), and the per-head
 /// q/k norms fold Gemma-style (`launch_rmsnorm_gemma_bf16` over `N * heads`
 /// rows of `head_dim`). The qk-norm is not a tri-state here: the
 /// hand-written `full_attn_layer_body` launches the per-head pair

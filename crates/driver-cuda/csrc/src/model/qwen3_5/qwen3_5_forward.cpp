@@ -97,7 +97,7 @@ void qwen35_dense_mlp_block(
         ops::gemm_act_x_w(cublas.handle(),
             ws.norm_x.data(), ops::WeightView(*Lw.gate_up_proj_fused),
             ws.gate_up_fused.data(), N, 2 * I, H);
-        kernels::launch_chunked_swiglu_bf16(
+        kernels::mlp::chunked_swiglu_bf16(
             ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     } else {
         ops::gemm_act_x_w(cublas.handle(),
@@ -106,7 +106,7 @@ void qwen35_dense_mlp_block(
         ops::gemm_act_x_w(cublas.handle(),
             ws.norm_x.data(), make_weight_view(Lw.up_proj, Lw.up_proj_quant),
             ws.up.data(), N, I, H);
-        kernels::launch_swiglu_bf16(
+        kernels::mlp::swiglu_bf16(
             ws.gate.data(), ws.up.data(), ws.gate.data(),
             N * I, stream);
     }
@@ -1391,7 +1391,7 @@ void full_attn_layer_body(
         N * num_kv_heads_local, d, eps, stream);
 
     // ── Partial RoPE ──────────────────────────────────────────────
-    kernels::launch_rope_partial_bf16(
+    kernels::rope::rope_partial_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads_local, num_kv_heads_local,
         d, rotary_dim, cfg.rope_theta, stream);
@@ -1455,7 +1455,7 @@ void full_attn_layer_body(
             N, R, num_q_heads_local, attn_ws, stream);
     }
     // ── Output gate: attn_out *= sigmoid(gate) ────────────────────
-    kernels::launch_sigmoid_gate_inplace_bf16(
+    kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     invoke_stage_hook(
         StageHookPoint::OnAttn, ws.q.data(),
@@ -2137,7 +2137,7 @@ void mtp_full_attn_no_cache(
     kernels::launch_rmsnorm_gemma_bf16(
         k_step, Lw.fa_k_norm->data(), k_step,
         N * kv_heads, d, eps, stream);
-    kernels::launch_rope_partial_bf16(
+    kernels::rope::rope_partial_bf16(
         ws.q.data(), k_step, position_ids,
         N, q_heads, kv_heads, d, rotary_dim, cfg.rope_theta, stream);
 
@@ -2150,7 +2150,7 @@ void mtp_full_attn_no_cache(
             N, draft_step + 1, N, max_global_tokens, cache.page_size(),
             q_heads, kv_heads, d, mtp_kv.hnd_layout,
             fwd_cfg.mtp_global_cache_uses_prefix_position, stream);
-    kernels::launch_sigmoid_gate_inplace_bf16(
+    kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
 
     NcclComm* tp = (T > 1) ? fwd_cfg.tp_comm : nullptr;
@@ -2249,7 +2249,7 @@ void qwen3_5_mtp_process_cache(
     kernels::launch_rmsnorm_gemma_bf16(
         ws.k.data(), Lw.fa_k_norm->data(), ws.k.data(),
         total_tokens * kv_heads, d, eps, stream);
-    kernels::launch_rope_partial_bf16(
+    kernels::rope::rope_partial_bf16(
         /*q=*/nullptr, ws.k.data(), positions,
         total_tokens, 0, kv_heads, d, rotary_dim, cfg.rope_theta, stream);
     kernels::launch_write_kv_to_pages(
@@ -2341,7 +2341,7 @@ void qwen3_5_mtp_forward(
     if (sampled_token_ids != nullptr &&
         mtp.lm_head_scale_inv != nullptr &&
         lm_head.dtype == DType::INT8) {
-        kernels::launch_lm_head_gemv_argmax_int8(
+        kernels::sample::lm_head_gemv_argmax_int8(
             ws.norm_x.data(),
             static_cast<const std::int8_t*>(lm_head.data),
             static_cast<const float*>(mtp.lm_head_scale_inv->data()),

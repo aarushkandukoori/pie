@@ -706,7 +706,7 @@ void kimi_forward_paged(
             // position (row 0 exact, later rows increasingly wrong).
             if (cfg.has_rope_scaling &&
                 cfg.rope_scaling_kind == HfConfig::RopeScaling::OriginalYaRN) {
-                kernels::launch_rope_yarn_original_bf16(
+                kernels::rope::rope_yarn_original_bf16(
                     kimi_ws.q_pe.data(), kimi_ws.k_pe.data(), positions,
                     total_tokens, heads, 1, q_rope, cfg.rope_theta,
                     cfg.rope_factor, cfg.rope_beta_fast, cfg.rope_beta_slow,
@@ -714,7 +714,7 @@ void kimi_forward_paged(
                     cfg.rope_original_max_position, stream,
                     /*interleaved=*/true);
             } else {
-                kernels::launch_rope_bf16(
+                kernels::rope::rope_bf16(
                     kimi_ws.q_pe.data(), kimi_ws.k_pe.data(), positions,
                     total_tokens, heads, 1, q_rope, cfg.rope_theta, stream,
                     /*interleaved=*/true);
@@ -799,7 +799,7 @@ void kimi_forward_paged(
                 ops::gemm_act_x_w(cublas.handle(),
                     kimi_ws.norm_y.data(), *Lw.dense_up_proj,
                     kimi_ws.up.data(), total_tokens, dense_I, H);
-                kernels::launch_swiglu_bf16(
+                kernels::mlp::swiglu_bf16(
                     kimi_ws.gate.data(), kimi_ws.up.data(), kimi_ws.gate.data(),
                     total_tokens * dense_I, stream);
                 if (T == 1) {
@@ -927,7 +927,7 @@ void kimi_forward_paged(
                     reinterpret_cast<const void* const*>(kimi_ws.a_gu_ptrs.data()),
                     reinterpret_cast<void* const*>(kimi_ws.c_gu_ptrs.data()),
                     block, 2 * routed_I, H, max_blocks);
-                kernels::launch_chunked_swiglu_bf16(
+                kernels::mlp::chunked_swiglu_bf16(
                     kimi_ws.aligned_gate_up.data(), kimi_ws.aligned_act.data(),
                     aligned_rows, routed_I, stream,
                     /*gate_second=*/kimi_moe_gate_up_swapped());
@@ -964,7 +964,7 @@ void kimi_forward_paged(
                     total_tokens, K, H, routed_I, 32, stream);
             });
             profile_cuda_stage(&profile, &profile.moe_swiglu_ms, stream, [&] {
-                kernels::launch_swiglu_bf16(
+                kernels::mlp::swiglu_bf16(
                     kimi_ws.expert_gate.data(), kimi_ws.expert_up.data(),
                     kimi_ws.expert_gate.data(), routes * routed_I, stream);
                 kernels::launch_bf16_to_fp16(
@@ -1036,7 +1036,7 @@ void kimi_forward_paged(
                     kimi_ws.expert_in.data(),
                     ops::WeightView::raw(kimi_ws.expert_up_w.data(), DType::BF16),
                     kimi_ws.expert_up.data(), Ne, routed_I, H);
-                kernels::launch_swiglu_bf16(
+                kernels::mlp::swiglu_bf16(
                     kimi_ws.expert_gate.data(), kimi_ws.expert_up.data(),
                     kimi_ws.expert_gate.data(), Ne * routed_I, stream);
                 ops::gemm_act_x_w(cublas.handle(),
@@ -1063,7 +1063,7 @@ void kimi_forward_paged(
                     ops::gemm_act_x_w(cublas.handle(),
                         kimi_ws.norm_y.data(), *Lw.shared_gate_up_fused,
                         kimi_ws.shared_gate.data(), total_tokens, 2 * shared_I, H);
-                    kernels::launch_chunked_swiglu_bf16(
+                    kernels::mlp::chunked_swiglu_bf16(
                         kimi_ws.shared_gate.data(), kimi_ws.shared_act.data(),
                         total_tokens, shared_I, stream);
                 } else {
@@ -1073,7 +1073,7 @@ void kimi_forward_paged(
                     ops::gemm_act_x_w(cublas.handle(),
                         kimi_ws.norm_y.data(), *Lw.shared_up_proj,
                         kimi_ws.shared_up.data(), total_tokens, shared_I, H);
-                    kernels::launch_swiglu_bf16(
+                    kernels::mlp::swiglu_bf16(
                         kimi_ws.shared_gate.data(), kimi_ws.shared_up.data(),
                         kimi_ws.shared_act.data(), total_tokens * shared_I, stream);
                 }

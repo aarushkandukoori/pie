@@ -6,16 +6,16 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::sample {
 
-void launch_argmax_bf16(
+void argmax_bf16(
     const void* logits,        // [num_rows, vocab] bf16
     std::int32_t* token_ids,   // [num_rows]
     int num_rows,
     int vocab,
     cudaStream_t stream);
 
-void launch_argmax_bf16_compact_scatter(
+void argmax_bf16_compact_scatter(
     const void* logits,                    // [num_rows, vocab] bf16
     const std::int32_t* row_indices,       // [num_rows] original row ids
     std::int32_t* token_ids,               // [original rows]
@@ -38,9 +38,9 @@ void launch_argmax_bf16_compact_scatter(
 // the write and the read stop reaching HBM (§20.36: 185 us/step at
 // rows=512, vocab=151936).
 //
-// `launch_argmax_accumulate_bf16` folds one slab into a running per-warp
-// best; `launch_argmax_finalize_bf16` collapses that to token ids. Results
-// are bit-identical to `launch_argmax_bf16` over the concatenated slabs:
+// `argmax_accumulate_bf16` folds one slab into a running per-warp
+// best; `argmax_finalize_bf16` collapses that to token ids. Results
+// are bit-identical to `argmax_bf16` over the concatenated slabs:
 // the ordering is a total order on (value, -index), so slab order and scan
 // order do not matter.
 //
@@ -48,7 +48,7 @@ void launch_argmax_bf16_compact_scatter(
 // `rows * kArgmaxAccumSlots` elements each.
 constexpr int kArgmaxAccumSlots = 32;
 
-void launch_argmax_accumulate_bf16(
+void argmax_accumulate_bf16(
     const void* slab,          // [rows, row_stride] bf16
     int rows,
     int width,                 // valid columns in this slab
@@ -59,7 +59,7 @@ void launch_argmax_accumulate_bf16(
     bool init,                 // true for the first slab
     cudaStream_t stream);
 
-void launch_argmax_finalize_bf16(
+void argmax_finalize_bf16(
     const float* acc_val,
     const std::int32_t* acc_idx,
     std::int32_t* token_ids,   // [rows]
@@ -67,7 +67,7 @@ void launch_argmax_finalize_bf16(
     cudaStream_t stream);
 
 // Per-row argmax over [num_rows, vocab] fp32 logits → [num_rows] i32 token ids.
-void launch_argmax_fp32(
+void argmax_fp32(
     const void* logits,        // [num_rows, vocab] fp32
     std::int32_t* token_ids,   // [num_rows]
     int num_rows,
@@ -76,7 +76,7 @@ void launch_argmax_fp32(
 
 // Gemma4 MTP ordered-embedding argmax. The assistant first selects top
 // centroids, then scores only the tokens assigned to those centroids.
-void launch_masked_embedding_argmax_bf16(
+void masked_embedding_argmax_bf16(
     const void* centroid_logits,       // [num_rows, num_centroids] bf16
     const void* hidden_states,         // [num_rows, hidden] bf16
     const void* lm_head_weight,        // [vocab, hidden] bf16
@@ -89,7 +89,7 @@ void launch_masked_embedding_argmax_bf16(
     int vocab_per_centroid,
     cudaStream_t stream);
 
-void launch_topk_centroids_bf16(
+void topk_centroids_bf16(
     const void* centroid_logits,       // [num_rows, num_centroids] bf16
     std::int32_t* top_centroids,       // [num_rows, centroid_top_k]
     int num_rows,
@@ -97,7 +97,7 @@ void launch_topk_centroids_bf16(
     int centroid_top_k,
     cudaStream_t stream);
 
-void launch_masked_embedding_tile_argmax_pairs_bf16(
+void masked_embedding_tile_argmax_pairs_bf16(
     const std::int32_t* top_centroids, // [num_rows, centroid_top_k]
     const void* hidden_states,         // [num_rows, hidden] bf16
     const void* lm_head_weight,        // [vocab, hidden] bf16
@@ -112,7 +112,7 @@ void launch_masked_embedding_tile_argmax_pairs_bf16(
 
 // Fused GEMV + argmax for MTP lm_head scoring. Returns greedy token IDs
 // without materializing logits.
-void launch_lm_head_gemv_argmax_int8(
+void lm_head_gemv_argmax_int8(
     const void* hidden_states,        // [num_rows, hidden] bf16
     const std::int8_t* lm_head_weight, // [vocab, hidden] int8
     const float* scale_inv,           // [vocab] fp32 per-channel
@@ -122,7 +122,7 @@ void launch_lm_head_gemv_argmax_int8(
     int vocab,
     cudaStream_t stream);
 
-void launch_lm_head_gemv_argmax_bf16(
+void lm_head_gemv_argmax_bf16(
     const void* hidden_states,        // [num_rows, hidden] bf16
     const void* lm_head_weight,       // [vocab, hidden] bf16
     std::int32_t* token_ids,          // [num_rows]
@@ -131,4 +131,4 @@ void launch_lm_head_gemv_argmax_bf16(
     int vocab,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::sample

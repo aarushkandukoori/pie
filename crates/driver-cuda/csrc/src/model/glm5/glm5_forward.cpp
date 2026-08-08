@@ -449,7 +449,7 @@ void glm5_forward_paged(
         // (NeoX) pairing used by Llama/Kimi. Using the wrong pairing scrambles
         // the rotary subspace for every position > 0 and produces degenerate
         // output, so we pass interleaved=true here.
-        kernels::launch_rope_bf16(
+        kernels::rope::rope_bf16(
             ws.q_pe.data(), ws.k_pe.data(), positions,
             total_tokens, heads, 1, q_rope, cfg.rope_theta, stream,
             /*interleaved=*/true);
@@ -527,7 +527,7 @@ void glm5_forward_paged(
                 ws.norm_y.data(),
                 make_weight_view(Lw.dense_up_proj, Lw.dense_up_quant),
                 ws.up.data(), total_tokens, dense_I, H);
-            kernels::launch_swiglu_bf16(
+            kernels::mlp::swiglu_bf16(
                 ws.gate.data(), ws.up.data(), ws.gate.data(),
                 total_tokens * dense_I, stream);
             if (T == 1) {
@@ -617,7 +617,7 @@ void glm5_forward_paged(
                 ws.norm_y.data(), Lw.moe_gate_up_proj->data(),
                 ws.aligned_gate_up.data(),
                 total_tokens, K, H, routed_I, stream);
-            kernels::launch_chunked_swiglu_bf16(
+            kernels::mlp::chunked_swiglu_bf16(
                 ws.aligned_gate_up.data(), ws.aligned_act.data(),
                 routes, routed_I, stream,
                 /*gate_second=*/glm5_moe_gate_up_swapped());
@@ -674,7 +674,7 @@ void glm5_forward_paged(
                 reinterpret_cast<const void* const*>(ws.a_gu_ptrs.data()),
                 reinterpret_cast<void* const*>(ws.c_gu_ptrs.data()),
                 block, 2 * routed_I, H, max_blocks);
-            kernels::launch_chunked_swiglu_bf16(
+            kernels::mlp::chunked_swiglu_bf16(
                 ws.aligned_gate_up.data(), ws.aligned_act.data(),
                 aligned_rows, routed_I, stream,
                 /*gate_second=*/glm5_moe_gate_up_swapped());
@@ -746,7 +746,7 @@ void glm5_forward_paged(
                 ws.expert_in.data(),
                 make_expert_weight_view(Ew.up_proj, Ew.up_quant),
                 ws.expert_up.data(), Ne, routed_I, H);
-            kernels::launch_swiglu_bf16(
+            kernels::mlp::swiglu_bf16(
                 ws.expert_gate.data(), ws.expert_up.data(),
                 ws.expert_gate.data(), Ne * routed_I, stream);
             ops::gemm_act_x_w(cublas.handle(),
@@ -771,7 +771,7 @@ void glm5_forward_paged(
                 ws.norm_y.data(),
                 make_expert_weight_view(Lw.shared_up_proj, Lw.shared_up_quant),
                 ws.shared_up.data(), total_tokens, shared_I, H);
-            kernels::launch_swiglu_bf16(
+            kernels::mlp::swiglu_bf16(
                 ws.shared_gate.data(), ws.shared_up.data(),
                 ws.shared_act.data(), total_tokens * shared_I, stream);
             ops::gemm_act_x_w(cublas.handle(),

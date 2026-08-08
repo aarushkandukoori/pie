@@ -1008,7 +1008,7 @@ fn emit_op(
                 model_compiler::trace::RopeKind::Standard,
                 "emitter: only standard rope"
             );
-            b.stmt("kernels::launch_rope_bf16(");
+            b.stmt("kernels::rope::rope_bf16(");
             b.stmt("    ws.q.data(), ws.k.data(), positions,");
             b.stmt("    N, num_q_heads, num_kv_heads, d,");
             b.stmt("    cfg.rope_theta, stream);");
@@ -1239,21 +1239,21 @@ fn emit_launch(
         // convention, character for character what the `OpKind::Swiglu`
         // emission wrote — the island moves when the down_proj that
         // reads it moves, not before.
-        "launch_chunked_swiglu_bf16" => {
-            b.stmt("kernels::launch_chunked_swiglu_bf16(");
+        "mlp::chunked_swiglu_bf16" => {
+            b.stmt("kernels::mlp::chunked_swiglu_bf16(");
             b.stmt("    ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);");
         }
-        "launch_swiglu_bf16" => {
-            b.stmt("kernels::launch_swiglu_bf16(");
+        "mlp::swiglu_bf16" => {
+            b.stmt("kernels::mlp::swiglu_bf16(");
             b.stmt("    ws.gate.data(), ws.up.data(), ws.gate.data(),");
             b.stmt("    N * I, stream);");
         }
-        "launch_rope_standard_table" => {
+        "rope::rope_standard_table" => {
             b.stmt("if (ws.rope_table.empty()) {");
             b.stmt("    throw std::runtime_error(");
             b.stmt("        \"generated forward: no rope table in workspace\");");
             b.stmt("}");
-            b.stmt("kernels::launch_rope_standard_table(");
+            b.stmt("kernels::rope::rope_standard_table(");
             b.stmt("    positions,");
             b.stmt("    static_cast<float*>(ws.rope_table.data()),");
             b.stmt("    N, d, cfg.rope_theta, stream);");
@@ -1416,11 +1416,11 @@ fn emit_launch(
             ));
             b.stmt("}");
         }
-        "launch_qk_rmsnorm_rope_bf16" => {
+        "rope::qk_rmsnorm_rope_bf16" => {
             let (q_norm, k_norm) = (&weights[0], &weights[1]);
             let (ql, _) = split_layer_weight(q_norm).expect("q_norm layer");
             if matches!(win, Some(Win::DevTail)) {
-                b.stmt("kernels::launch_qk_rmsnorm_rope_bf16_devwin(");
+                b.stmt("kernels::rope::qk_rmsnorm_rope_bf16_devwin(");
                 b.stmt("    ws.q.data(), ws.k.data(),");
                 b.stmt(&format!("    {},", require(ql, "q_norm", q_norm)));
                 b.stmt(&format!("    {},", require(ql, "k_norm", k_norm)));
@@ -1437,7 +1437,7 @@ fn emit_launch(
                     panic!("emitter: qk-norm+rope in a Peel prefix region")
                 }
             };
-            b.stmt("kernels::launch_qk_rmsnorm_rope_bf16(");
+            b.stmt("kernels::rope::qk_rmsnorm_rope_bf16(");
             b.stmt(&format!("    bf16_row(ws.q.data(), {s_}, Hq),"));
             b.stmt(&format!("    bf16_row(ws.k.data(), {s_}, Hk),"));
             b.stmt(&format!("    {},", require(ql, "q_norm", q_norm)));

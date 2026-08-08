@@ -207,7 +207,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[0].k_norm, "layer.0.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -545,7 +545,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -630,7 +630,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[1].k_norm, "layer.1.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -968,7 +968,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -1053,7 +1053,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[2].k_norm, "layer.2.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -1391,7 +1391,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -1476,7 +1476,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[3].k_norm, "layer.3.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -1814,7 +1814,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -1899,7 +1899,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[4].k_norm, "layer.4.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -2237,7 +2237,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -2322,7 +2322,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[5].k_norm, "layer.5.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -2660,7 +2660,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -2745,7 +2745,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[6].k_norm, "layer.6.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -3083,7 +3083,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -3168,7 +3168,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[7].k_norm, "layer.7.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -3506,7 +3506,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -3591,7 +3591,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[8].k_norm, "layer.8.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -3929,7 +3929,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -4014,7 +4014,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[9].k_norm, "layer.9.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -4352,7 +4352,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -4437,7 +4437,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[10].k_norm, "layer.10.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -4775,7 +4775,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -4860,7 +4860,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[11].k_norm, "layer.11.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -5198,7 +5198,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -5283,7 +5283,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[12].k_norm, "layer.12.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -5621,7 +5621,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -5706,7 +5706,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[13].k_norm, "layer.13.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -6044,7 +6044,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -6129,7 +6129,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[14].k_norm, "layer.14.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -6467,7 +6467,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -6552,7 +6552,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[15].k_norm, "layer.15.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -6890,7 +6890,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -7131,7 +7131,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[0].k_norm, "layer.0.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -7389,7 +7389,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -7474,7 +7474,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[1].k_norm, "layer.1.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -7732,7 +7732,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -7817,7 +7817,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[2].k_norm, "layer.2.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -8075,7 +8075,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -8160,7 +8160,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[3].k_norm, "layer.3.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -8418,7 +8418,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -8503,7 +8503,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[4].k_norm, "layer.4.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -8761,7 +8761,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -8846,7 +8846,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[5].k_norm, "layer.5.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -9104,7 +9104,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -9189,7 +9189,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[6].k_norm, "layer.6.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -9447,7 +9447,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -9532,7 +9532,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[7].k_norm, "layer.7.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -9790,7 +9790,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -9875,7 +9875,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[8].k_norm, "layer.8.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -10133,7 +10133,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -10218,7 +10218,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[9].k_norm, "layer.9.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -10476,7 +10476,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -10561,7 +10561,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[10].k_norm, "layer.10.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -10819,7 +10819,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -10904,7 +10904,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[11].k_norm, "layer.11.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -11162,7 +11162,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -11247,7 +11247,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[12].k_norm, "layer.12.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -11505,7 +11505,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -11590,7 +11590,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[13].k_norm, "layer.13.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -11848,7 +11848,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -11933,7 +11933,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[14].k_norm, "layer.14.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -12191,7 +12191,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -12276,7 +12276,7 @@ std::uint32_t declared_full_depth_rows)
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[15].k_norm, "layer.15.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -12534,7 +12534,7 @@ std::uint32_t declared_full_depth_rows)
         ws.y.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -12730,7 +12730,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[0].k_norm, "layer.0.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -12795,7 +12795,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -12825,7 +12825,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[1].k_norm, "layer.1.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -12890,7 +12890,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -12920,7 +12920,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[2].k_norm, "layer.2.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -12985,7 +12985,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13015,7 +13015,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[3].k_norm, "layer.3.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13080,7 +13080,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13110,7 +13110,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[4].k_norm, "layer.4.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13175,7 +13175,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13205,7 +13205,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[5].k_norm, "layer.5.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13270,7 +13270,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13300,7 +13300,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[6].k_norm, "layer.6.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13365,7 +13365,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13395,7 +13395,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[7].k_norm, "layer.7.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13460,7 +13460,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13490,7 +13490,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[8].k_norm, "layer.8.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13555,7 +13555,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13585,7 +13585,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[9].k_norm, "layer.9.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13650,7 +13650,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13680,7 +13680,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[10].k_norm, "layer.10.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13745,7 +13745,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13775,7 +13775,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[11].k_norm, "layer.11.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13840,7 +13840,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13870,7 +13870,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[12].k_norm, "layer.12.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -13935,7 +13935,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -13965,7 +13965,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[13].k_norm, "layer.13.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -14030,7 +14030,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -14060,7 +14060,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[14].k_norm, "layer.14.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -14125,7 +14125,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -14155,7 +14155,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[15].k_norm, "layer.15.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -14220,7 +14220,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -14289,7 +14289,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[0].k_norm, "layer.0.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -14379,7 +14379,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -14409,7 +14409,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[1].k_norm, "layer.1.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -14499,7 +14499,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -14529,7 +14529,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[2].k_norm, "layer.2.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -14619,7 +14619,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -14649,7 +14649,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[3].k_norm, "layer.3.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -14739,7 +14739,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -14769,7 +14769,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[4].k_norm, "layer.4.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -14859,7 +14859,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -14889,7 +14889,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[5].k_norm, "layer.5.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -14979,7 +14979,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -15009,7 +15009,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[6].k_norm, "layer.6.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -15099,7 +15099,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -15129,7 +15129,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[7].k_norm, "layer.7.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -15219,7 +15219,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -15249,7 +15249,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[8].k_norm, "layer.8.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -15339,7 +15339,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -15369,7 +15369,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[9].k_norm, "layer.9.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -15459,7 +15459,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -15489,7 +15489,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[10].k_norm, "layer.10.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -15579,7 +15579,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -15609,7 +15609,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[11].k_norm, "layer.11.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -15699,7 +15699,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -15729,7 +15729,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[12].k_norm, "layer.12.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -15819,7 +15819,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -15849,7 +15849,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[13].k_norm, "layer.13.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -15939,7 +15939,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -15969,7 +15969,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[14].k_norm, "layer.14.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -16059,7 +16059,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),
@@ -16089,7 +16089,7 @@ std::uint32_t declared_full_depth_rows,
     kernels::launch_rmsnorm_bf16(
         ws.k.data(), require(w.layers[15].k_norm, "layer.15.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
@@ -16179,7 +16179,7 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
-    kernels::launch_chunked_swiglu_bf16(
+    kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     ops::gemm_act_x_w(cublas.handle(),
         ws.gate.data(),

@@ -1357,7 +1357,7 @@ void full_attn_body(
         ws.k.data(), Lw.fa_k_norm->data(), ws.k.data(),
         N * num_kv_heads_local, d, eps, stream);
 
-    kernels::launch_rope_partial_bf16(
+    kernels::rope::rope_partial_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads_local, num_kv_heads_local,
         d, rotary_dim, cfg.rope_theta, stream);
@@ -1419,7 +1419,7 @@ void full_attn_body(
             N, R, num_q_heads_local, attn_ws, stream);
     }
     if (cfg.attn_output_gate) {
-        kernels::launch_sigmoid_gate_inplace_bf16(
+        kernels::mlp::sigmoid_gate_inplace_bf16(
             ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     }
     invoke_stage_hook(
@@ -1697,7 +1697,7 @@ bool moe_block(
                     profile_cuda_detail_stage(
                         profile, profile ? &profile->moe_act_ms : nullptr,
                         stream, [&] {
-                            kernels::launch_chunked_swiglu_bf16(
+                            kernels::mlp::chunked_swiglu_bf16(
                                 moe_ws.aligned_gate_up.data(),
                                 moe_ws.aligned_act.data(),
                                 aligned_rows, Im, stream,
@@ -1768,7 +1768,7 @@ bool moe_block(
                     profile_cuda_detail_stage(
                         profile, profile ? &profile->moe_act_ms : nullptr,
                         stream, [&] {
-                            kernels::launch_chunked_swiglu_bf16(
+                            kernels::mlp::chunked_swiglu_bf16(
                                 moe_ws.expert_gate_up.data(),
                                 moe_ws.expert_act.data(),
                                 routes, Im, stream,
@@ -1869,7 +1869,7 @@ bool moe_block(
                         moe_ws.expert_in.data(), gate_up_w,
                         moe_ws.expert_gate_up.data(), Ne, 2 * Im, H);
 
-                    kernels::launch_chunked_swiglu_bf16(
+                    kernels::mlp::chunked_swiglu_bf16(
                         moe_ws.expert_gate_up.data(),
                         moe_ws.expert_act.data(),
                         Ne, Im, stream,
@@ -1916,7 +1916,7 @@ bool moe_block(
                                 ws.norm_x.data(),
                                 ops::WeightView(*Lw.shared_gate_up_gate_proj),
                                 moe_ws.shared_gate_up.data(), N, 2 * Is + 1, H);
-                            kernels::launch_chunked_swiglu_strided_bf16(
+                            kernels::mlp::chunked_swiglu_strided_bf16(
                                 moe_ws.shared_gate_up.data(),
                                 moe_ws.shared_act.data(), N, Is, 2 * Is + 1, stream);
                         });
@@ -1927,7 +1927,7 @@ bool moe_block(
                             ops::gemm_act_x_w(cublas.handle(),
                                 ws.norm_x.data(), ops::WeightView(*Lw.shared_gate_up_proj),
                                 moe_ws.shared_gate_up.data(), N, 2 * Is, H);
-                            kernels::launch_chunked_swiglu_bf16(
+                            kernels::mlp::chunked_swiglu_bf16(
                                 moe_ws.shared_gate_up.data(),
                                 moe_ws.shared_act.data(), N, Is, stream);
                         });
@@ -1945,7 +1945,7 @@ bool moe_block(
                                 make_weight_view(
                                     Lw.shared_up_proj, Lw.shared_up_proj_quant),
                                 moe_ws.shared_up.data(), N, Is, H);
-                            kernels::launch_swiglu_bf16(
+                            kernels::mlp::swiglu_bf16(
                                 moe_ws.shared_gate.data(), moe_ws.shared_up.data(),
                                 moe_ws.shared_act.data(),
                                 N * Is, stream);
@@ -1971,14 +1971,14 @@ bool moe_block(
                             const auto* scalar_gate =
                                 moe_ws.shared_gate_up.data() +
                                 static_cast<std::size_t>(2 * Is);
-                            kernels::launch_sigmoid_scalar_gate_strided_add_bf16(
+                            kernels::mlp::sigmoid_scalar_gate_strided_add_bf16(
                                 moe_out, moe_ws.shared_out.data(),
                                 scalar_gate,
                                 N, H, 2 * Is + 1, stream);
                         } else if (Lw.shared_gate != nullptr &&
                                    N <= kQwen35MoeDecodeFastMaxTokens &&
                                    !Lw.shared_gate_quant.has_value()) {
-                            kernels::launch_sigmoid_dot_scalar_gate_add_bf16(
+                            kernels::mlp::sigmoid_dot_scalar_gate_add_bf16(
                                 ws.norm_x.data(),
                                 Lw.shared_gate->data(),
                                 moe_out,
@@ -1992,7 +1992,7 @@ bool moe_block(
 
                             // shared_out *= sigmoid(scalar_gate[n]) per token,
                             // broadcast across all H channels.
-                            kernels::launch_sigmoid_scalar_gate_add_bf16(
+                            kernels::mlp::sigmoid_scalar_gate_add_bf16(
                                 moe_out, moe_ws.shared_out.data(),
                                 moe_ws.shared_gate_logit.data(),
                                 N, H, stream);
@@ -2445,7 +2445,7 @@ void mtp_full_attn_no_cache_moe(
     rmsnorm_bf16_dispatch(cfg,
         k_step, Lw.fa_k_norm->data(), k_step,
         N * kv_heads, d, eps, stream);
-    kernels::launch_rope_partial_bf16(
+    kernels::rope::rope_partial_bf16(
         ws.q.data(), k_step, position_ids,
         N, q_heads, kv_heads, d, rotary_dim, cfg.rope_theta, stream);
     const auto mtp_kv = cache.layer_view(Lw.kv_layer);
@@ -2458,7 +2458,7 @@ void mtp_full_attn_no_cache_moe(
         q_heads, kv_heads, d, mtp_kv.hnd_layout,
         fwd_cfg.mtp_global_cache_uses_prefix_position, stream);
     if (cfg.attn_output_gate) {
-        kernels::launch_sigmoid_gate_inplace_bf16(
+        kernels::mlp::sigmoid_gate_inplace_bf16(
             ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     }
 
@@ -2558,7 +2558,7 @@ void qwen3_5_moe_mtp_process_cache(
     rmsnorm_bf16_dispatch(cfg,
         ws.k.data(), Lw.fa_k_norm->data(), ws.k.data(),
         total_tokens * kv_heads, d, eps, stream);
-    kernels::launch_rope_partial_bf16(
+    kernels::rope::rope_partial_bf16(
         /*q=*/nullptr, ws.k.data(), positions,
         total_tokens, 0, kv_heads, d, rotary_dim, cfg.rope_theta, stream);
     kernels::launch_write_kv_to_pages(

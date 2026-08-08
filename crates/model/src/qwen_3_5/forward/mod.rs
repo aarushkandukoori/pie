@@ -56,14 +56,14 @@ use model_compiler::trace::{
 /// | Matmul(router)                 | ops::gemm_act_x_wt_bf16 (router logits)     |
 /// | TopK                           | launch_topk_softmax_bf16                    |
 /// | Matmul(expert.{e}.gate_up, sel)| grouped GEMM (batched/aligned/CUTLASS)      |
-/// | Swiglu                         | launch_chunked_swiglu_bf16 over N*k rows    |
+/// | Swiglu                         | kernels::mlp::chunked_swiglu_bf16 over N*k rows    |
 /// | Matmul(expert.{e}.down, sel)   | grouped GEMM (batched/aligned/CUTLASS)      |
 /// | WeightedSum                    | launch_token_batched_weighted_sum_bf16      |
 /// | Matmul(shared_expert.gate_up)  | ops::gemm_act_x_w                           |
-/// | Swiglu                         | launch_chunked_swiglu_bf16                  |
+/// | Swiglu                         | kernels::mlp::chunked_swiglu_bf16                  |
 /// | Matmul(shared_expert.down)     | ops::gemm_act_x_w                           |
 /// | Matmul(shared_expert_gate)     | ops::gemm_act_x_w ([Tokens, 1] logit)       |
-/// | SigmoidGateAdd                 | launch_sigmoid_scalar_gate_add_bf16         |
+/// | SigmoidGateAdd                 | kernels::mlp::sigmoid_scalar_gate_add_bf16         |
 /// | ResidualAdd                    | launch_residual_add_bf16                    |
 ///
 /// The five shared-expert ops fold away when the facts say the checkpoint
@@ -689,10 +689,10 @@ fn gdn_attn_body_cuda(
 /// | SplitQGate                | launch_split_q_gate_bf16 (per-head q‖gate)    |
 /// | RmsnormPerHead(q, Gemma)  | launch_rmsnorm_gemma_bf16 over N·Hq rows of d |
 /// | RmsnormPerHead(k, Gemma)  | launch_rmsnorm_gemma_bf16 over N·Hkv rows of d|
-/// | Rope(partial)             | launch_rope_partial_bf16 (rotary_dim chans)   |
+/// | Rope(partial)             | kernels::rope::rope_partial_bf16 (rotary_dim chans)   |
 /// | KvAppend                  | launch_write_kv_to_pages / _explicit          |
 /// | Attention                 | dispatch_attention_flashinfer_{decode,prefill}|
-/// | SigmoidGateMul            | launch_sigmoid_gate_inplace_bf16              |
+/// | SigmoidGateMul            | kernels::mlp::sigmoid_gate_inplace_bf16              |
 /// | Matmul(o_proj)+res        | ops::gemm_act_x_w beta=1                      |
 ///
 /// With the fused binding (`fused_qkv`, `PIE_QWEN35_FUSED_FULL_ATTN_QGKV`)

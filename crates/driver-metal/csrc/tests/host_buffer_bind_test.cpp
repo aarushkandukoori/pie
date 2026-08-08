@@ -30,6 +30,11 @@
 #include <vector>
 
 #include "mtl4_context.hpp"
+// The row_gather ABI, from the header the shader itself includes. This test's
+// whole argument is that the only thing separating the three buffers is the
+// binding, so a params layout retyped here — and left behind by an edit to the
+// shader — would answer the wrong question and look like a binding failure.
+#include "row_gather_params.h"
 
 using namespace pie::metal;
 
@@ -41,11 +46,6 @@ void expect(bool ok, const std::string& what) {
     std::printf("  %s  %s\n", ok ? "PASS" : "FAIL", what.c_str());
     if (!ok) ++failures;
 }
-
-struct RowGatherParams {
-    std::uint32_t width;
-    std::uint32_t count;
-};
 
 /// Copy `width` bfloat16 elements out of `in` with `row_gather`, and report how
 /// many came back right. The kernel is the family-agnostic one gemma4 and

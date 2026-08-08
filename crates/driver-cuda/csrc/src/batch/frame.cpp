@@ -354,7 +354,7 @@ void enqueue_mtp_draft_logits(
         cudaMemcpyDeviceToDevice,
         stream));
     for (const MtpDraftWork& item : plan.work) {
-        kernels::launch_argmax_bf16(
+        kernels::sample::argmax_bf16(
             logits + static_cast<std::size_t>(item.seed_row) * vocab,
             reinterpret_cast<std::int32_t*>(engine.inputs.sampled.data()),
             1,
@@ -439,7 +439,7 @@ void enqueue_mtp_draft_logits(
                 1,
                 static_cast<int>(draft),
                 max_global_tokens);
-            kernels::launch_argmax_bf16(
+            kernels::sample::argmax_bf16(
                 logits,
                 reinterpret_cast<std::int32_t*>(
                     engine.inputs.sampled.data()),

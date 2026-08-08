@@ -94,12 +94,16 @@ fn the_backend_is_read_off_the_family() {
     assert_eq!(Backend::of_family("qwen3_5_moe_mlp_block"), None);
 }
 
-/// Metal's table is empty, and that REFUSES rather than permits: a
-/// `llama_like.metal.*` text cannot state a kernel it has not
-/// declared. This is the discipline that will fill the table when
-/// the first Metal text is written.
+/// The backend table is a GATE, not a wall: it admits exactly the symbols
+/// it declares and refuses everything else, so a `llama_like.metal.*` text
+/// cannot state a kernel nobody wrote a row for.
+///
+/// Metal's table holds only the rows a first such text would need, so most
+/// of the MSL entrypoints `decode_psos.cpp` compiles are still undeclared.
+/// That is safe precisely because of the refusal half: an undeclared symbol
+/// fails the trace at load rather than silently resolving to nothing.
 #[test]
-fn an_empty_backend_table_refuses() {
+fn the_metal_table_admits_its_rows_and_refuses_the_rest() {
     let mut p = plan_of(vec![launch("metal_gemm_bf16")]);
     p.family = "llama_like.metal.decode".to_string();
     // (the same symbol under CUDA's table is refused too — this is
@@ -107,6 +111,15 @@ fn an_empty_backend_table_refuses() {
     let problems = check_plan(&p);
     assert_eq!(problems.len(), 1, "{problems:#?}");
     assert!(problems[0].contains("metal"), "{}", problems[0]);
+
+    // And the other half, without which the above would also pass on a table
+    // that refuses everything: a declared row goes through.
+    let declared = KERNELS_METAL
+        .first()
+        .expect("Metal's table declares at least one kernel");
+    let mut ok = plan_of(vec![launch(declared.symbol)]);
+    ok.family = "llama_like.metal.decode".to_string();
+    assert_eq!(check_plan(&ok), Vec::<String>::new());
 }
 
 /// The table is exactly the set of symbols `dsl::cuda` can record.
@@ -160,6 +173,11 @@ fn the_table_is_exactly_the_dsl_surface() {
                 "flashinfer_",
                 "pie_lora",
                 "qwen35_verify",
+                // One line per family as step 3 lands; when the last
+                // `launch_` is gone the first five entries can go too.
+                "rope::",
+                "mlp::",
+                "sample::",
             ]
                 .iter()
                 .any(|p| s.starts_with(p))

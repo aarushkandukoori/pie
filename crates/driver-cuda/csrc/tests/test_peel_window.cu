@@ -225,7 +225,7 @@ int main() {
                                   cudaMemcpyHostToDevice));
             CUDA_CHECK(cudaMemcpy(kb, kk_h.data(), kk_h.size() * 2,
                                   cudaMemcpyHostToDevice));
-            kernels::launch_qk_rmsnorm_rope_bf16(
+            kernels::rope::qk_rmsnorm_rope_bf16(
                 qa + static_cast<long long>(w[0]) * kQH * kD,
                 ka + static_cast<long long>(w[0]) * kKH * kD,
                 wq, wk, pos_d + w[0], w[1], kQH, kKH, kD,
@@ -235,7 +235,7 @@ int main() {
                 static_cast<std::uint32_t>(w[1])};
             CUDA_CHECK(cudaMemcpyAsync(win_d, win_h, 8,
                                        cudaMemcpyHostToDevice, s));
-            kernels::launch_qk_rmsnorm_rope_bf16_devwin(
+            kernels::rope::qk_rmsnorm_rope_bf16_devwin(
                 qb, kb, wq, wk, pos_d, win_d, kLanes, kQH, kKH, kD,
                 10000.f, 1e-6f, s);
             CUDA_CHECK(cudaStreamSynchronize(s));

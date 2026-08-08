@@ -47,9 +47,9 @@ static constexpr int kDsV4MoeGemvMaxTokens = 1;
 inline void dsv4_chunked_swiglu(const void* packed, void* y, int rows, int I,
                                 float limit, cudaStream_t stream) {
     if (limit > 0.f) {
-        kernels::launch_chunked_swiglu_clamp_bf16(packed, y, rows, I, limit, stream);
+        kernels::mlp::chunked_swiglu_clamp_bf16(packed, y, rows, I, limit, stream);
     } else {
-        kernels::launch_chunked_swiglu_bf16(packed, y, rows, I, stream);
+        kernels::mlp::chunked_swiglu_bf16(packed, y, rows, I, stream);
     }
 }
 
@@ -695,7 +695,7 @@ void dsv4_forward_paged(
             ws.kv.data(), N, head_dim, stream);
 
         // Partial RoPE on last qk_rope dims of Q and KV
-        kernels::launch_rope_partial_last_bf16(
+        kernels::rope::rope_partial_last_bf16(
             ws.q.data(), ws.kv.data(),
             positions, N, num_heads, 1, head_dim, qk_rope,
             rope_theta_l, stream, /*inverse=*/false, /*interleaved=*/true,
@@ -797,7 +797,7 @@ void dsv4_forward_paged(
                             cb.count, head_dim, eps, stream);
                     }
 
-                    kernels::launch_rope_partial_last_bf16(
+                    kernels::rope::rope_partial_last_bf16(
                         ws.comp_kv.data(),  // "q" — will be rotated
                         ws.comp_kv.data(),  // "k" — dummy (0 kv heads below)
                         cb.rope_pos_d,
@@ -861,7 +861,7 @@ void dsv4_forward_paged(
                 ws.attn_out.data(), N, num_heads * head_dim, stream);
 
             // Inverse RoPE on attention output (removes position info before projection)
-            kernels::launch_rope_partial_last_bf16(
+            kernels::rope::rope_partial_last_bf16(
                 ws.attn_out.data(), ws.attn_out.data(),
                 positions, N, num_heads, 0, head_dim, qk_rope,
                 rope_theta_l, stream, /*inverse=*/true, /*interleaved=*/true,
@@ -1360,13 +1360,13 @@ void dsv4_forward_paged(
                     ops::WeightView::raw(w_up, DType::BF16),
                     ws.expert_up.data(), Ne, local_moe_I, H);
                 if (cfg.swiglu_limit > 0.f) {
-                    kernels::launch_swiglu_clamp_bf16(
+                    kernels::mlp::swiglu_clamp_bf16(
                         ws.expert_gate.data(), ws.expert_up.data(),
                         ws.expert_gate.data(),
                         static_cast<int>(Ne) * local_moe_I,
                         cfg.swiglu_limit, stream);
                 } else {
-                    kernels::launch_swiglu_bf16(
+                    kernels::mlp::swiglu_bf16(
                         ws.expert_gate.data(), ws.expert_up.data(),
                         ws.expert_gate.data(),
                         static_cast<std::size_t>(Ne) * local_moe_I, stream);
@@ -1414,12 +1414,12 @@ void dsv4_forward_paged(
                 ws.norm_y.data(), make_weight_view(Lw.shared_w3, Lw.shared_w3_quant), ws.shared_up.data(),
                 N, local_shared_I, H);
             if (cfg.swiglu_limit > 0.f) {
-                kernels::launch_swiglu_clamp_bf16(
+                kernels::mlp::swiglu_clamp_bf16(
                     ws.shared_gate.data(), ws.shared_up.data(),
                     ws.shared_act.data(),
                     N * local_shared_I, cfg.swiglu_limit, stream);
             } else {
-                kernels::launch_swiglu_bf16(
+                kernels::mlp::swiglu_bf16(
                     ws.shared_gate.data(), ws.shared_up.data(),
                     ws.shared_act.data(),
                     static_cast<std::size_t>(N) * local_shared_I, stream);

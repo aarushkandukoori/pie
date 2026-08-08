@@ -753,7 +753,7 @@ void apply_rope(
     cudaStream_t stream)
 {
     if (fwd_cfg.rope_kind == RopeKind::YaRN) {
-        kernels::launch_rope_yarn_bf16(
+        kernels::rope::rope_yarn_bf16(
             q, k, positions,
             N, num_q_heads, num_kv_heads, head_dim,
             cfg.rope_theta,
@@ -763,7 +763,7 @@ void apply_rope(
             fwd_cfg.yarn_original_max_position,
             stream);
     } else if (fwd_cfg.rope_kind == RopeKind::YaRNOriginal) {
-        kernels::launch_rope_yarn_original_bf16(
+        kernels::rope::rope_yarn_original_bf16(
             q, k, positions,
             N, num_q_heads, num_kv_heads, head_dim,
             cfg.rope_theta,
@@ -774,7 +774,7 @@ void apply_rope(
             fwd_cfg.yarn_original_max_position,
             stream);
     } else {
-        kernels::launch_rope_bf16(
+        kernels::rope::rope_bf16(
             q, k, positions,
             N, num_q_heads, num_kv_heads, head_dim,
             cfg.rope_theta, stream);
@@ -1935,7 +1935,7 @@ void llama_like_forward_paged(
                 ws.qkv_fused.data(), N, Hq + 2 * Hk, H);
             if (fused_decode_qkv_post) {
                 if (!rope_table_ready && !ws.rope_table.empty()) {
-                    kernels::launch_rope_standard_table(
+                    kernels::rope::rope_standard_table(
                         positions,
                         static_cast<float*>(ws.rope_table.data()),
                         N, d, cfg.rope_theta, stream);
@@ -2081,7 +2081,7 @@ void llama_like_forward_paged(
             // per-head-norm + standard-rope transform the predicate
             // guaranteed, over its own rows only.
             if (peel_window_d != nullptr) {
-                kernels::launch_qk_rmsnorm_rope_bf16_devwin(
+                kernels::rope::qk_rmsnorm_rope_bf16_devwin(
                     ws.q.data(), ws.k.data(),
                     layer.q_norm->data(), layer.k_norm->data(),
                     positions,
@@ -2089,7 +2089,7 @@ void llama_like_forward_paged(
                     num_q_heads_local, num_kv_heads_local, d,
                     cfg.rope_theta, eps, stream);
             } else if (unfused_tail_rows > 0) {
-                kernels::launch_qk_rmsnorm_rope_bf16(
+                kernels::rope::qk_rmsnorm_rope_bf16(
                     bf16_row(ws.q.data(), fast_rows, Hq),
                     bf16_row(ws.k.data(), fast_rows, Hk),
                     layer.q_norm->data(), layer.k_norm->data(),
@@ -2100,7 +2100,7 @@ void llama_like_forward_paged(
             }
         } else if (use_mrope) {
             // Qwen3-VL: fused per-head q/k RMSNorm + interleaved 3-axis M-RoPE.
-            kernels::launch_qk_rmsnorm_mrope_bf16(
+            kernels::rope::qk_rmsnorm_mrope_bf16(
                 ws.q.data(), ws.k.data(),
                 layer.q_norm->data(), layer.k_norm->data(),
                 vision->mrope_positions,
@@ -2109,7 +2109,7 @@ void llama_like_forward_paged(
                 fwd_cfg.mrope_section_t, fwd_cfg.mrope_section_h,
                 fwd_cfg.mrope_section_w, stream);
         } else if (fuse_qk_norm_rope) {
-            kernels::launch_qk_rmsnorm_rope_bf16(
+            kernels::rope::qk_rmsnorm_rope_bf16(
                 ws.q.data(), ws.k.data(),
                 layer.q_norm->data(), layer.k_norm->data(),
                 positions, N, num_q_heads_local, num_kv_heads_local, d,
@@ -2758,7 +2758,7 @@ void llama_like_forward_paged(
             ops::gemm_act_x_w(cublas.handle(),
                 mlp_in, ops::WeightView(*layer.gate_up_proj_fused),
                 ws.gate_up_fused.data(), N, 2 * I, H);
-            kernels::launch_chunked_swiglu_bf16(
+            kernels::mlp::chunked_swiglu_bf16(
                 ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
         } else {
             ops::gemm_act_x_w(cublas.handle(),
@@ -2767,7 +2767,7 @@ void llama_like_forward_paged(
             ops::gemm_act_x_w(cublas.handle(),
                 mlp_in, make_weight_view(layer.up_proj, layer.up_proj_quant),
                 ws.up.data(),   N, I, H);
-            kernels::launch_swiglu_bf16(
+            kernels::mlp::swiglu_bf16(
                 ws.gate.data(), ws.up.data(), ws.gate.data(),
                 N * I, stream);
         }
@@ -3106,7 +3106,7 @@ void llama_like_forward_paged(
         const int chunk = fwd_cfg.logits_argmax_chunk_tokens;
         if (chunk > 0) {
             const auto rows = static_cast<std::size_t>(lm_head_rows);
-            const std::size_t accum = rows * kernels::kArgmaxAccumSlots;
+            const std::size_t accum = rows * kernels::sample::kArgmaxAccumSlots;
             if (ws.sampled_tokens.numel() < rows ||
                 ws.argmax_acc_val.numel() < accum ||
                 ws.argmax_acc_idx.numel() < accum) {

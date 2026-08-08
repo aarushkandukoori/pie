@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::mlp {
 
 namespace {
 
@@ -91,7 +91,7 @@ __global__ void situ_bf16_kernel(
 
 }  // namespace
 
-void launch_situ_bf16(
+void situ_bf16(
     const void* gate, const void* up, void* y,
     int num_elements, float beta, float linear_beta, cudaStream_t stream)
 {
@@ -104,7 +104,7 @@ void launch_situ_bf16(
         num_elements, beta, linear_beta);
 }
 
-void launch_swiglu_clamp_bf16(
+void swiglu_clamp_bf16(
     const void* gate, const void* up, void* y,
     int num_elements, float limit, cudaStream_t stream)
 {
@@ -117,7 +117,7 @@ void launch_swiglu_clamp_bf16(
         num_elements, limit);
 }
 
-void launch_swiglu_bf16(
+void swiglu_bf16(
     const void* gate, const void* up, void* y,
     int num_elements, cudaStream_t stream)
 {
@@ -160,7 +160,7 @@ __global__ void gpt_oss_glu_strided_bf16_kernel(
 
 }  // namespace
 
-void launch_gpt_oss_glu_strided_bf16(
+void gpt_oss_glu_strided_bf16(
     const void* gate, const void* up, void* y,
     int rows, int cols, int in_stride, int out_stride, cudaStream_t stream,
     float limit, float alpha)
@@ -175,7 +175,7 @@ void launch_gpt_oss_glu_strided_bf16(
         rows, cols, in_stride, out_stride, limit, alpha);
 }
 
-void launch_gpt_oss_glu_bf16(
+void gpt_oss_glu_bf16(
     const void* gate, const void* up, void* y,
     int num_elements, cudaStream_t stream,
     float limit, float alpha, void* y_fp16)
@@ -212,7 +212,7 @@ __global__ void geglu_tanh_bf16_kernel(
 
 }  // namespace
 
-void launch_geglu_tanh_bf16(
+void geglu_tanh_bf16(
     const void* gate, const void* up, void* y,
     int num_elements, cudaStream_t stream)
 {
@@ -242,7 +242,7 @@ __global__ void sigmoid_gate_inplace_bf16_kernel(
 
 }  // namespace
 
-void launch_sigmoid_gate_inplace_bf16(
+void sigmoid_gate_inplace_bf16(
     void* x, const void* gate, int n, cudaStream_t stream)
 {
     if (n <= 0) return;
@@ -395,7 +395,7 @@ __global__ void chunked_swiglu_bf16_strided_kernel(
 
 }  // namespace
 
-void launch_chunked_swiglu_bf16(
+void chunked_swiglu_bf16(
     const void* packed, void* y, int N, int I, cudaStream_t stream,
     bool gate_second)
 {
@@ -420,7 +420,7 @@ void launch_chunked_swiglu_bf16(
     }
 }
 
-void launch_chunked_swiglu_clamp_bf16(
+void chunked_swiglu_clamp_bf16(
     const void* packed, void* y, int N, int I, float limit,
     cudaStream_t stream)
 {
@@ -431,12 +431,12 @@ void launch_chunked_swiglu_clamp_bf16(
         static_cast<__nv_bfloat16*>(y), N, I, limit);
 }
 
-void launch_chunked_swiglu_strided_bf16(
+void chunked_swiglu_strided_bf16(
     const void* packed, void* y, int N, int I, int row_stride, cudaStream_t stream)
 {
     if (N <= 0 || I <= 0) return;
     if (row_stride == 2 * I) {
-        launch_chunked_swiglu_bf16(packed, y, N, I, stream);
+        chunked_swiglu_bf16(packed, y, N, I, stream);
         return;
     }
     constexpr int BLOCK = 128;
@@ -482,7 +482,7 @@ __global__ void chunked_geglu_tanh_bf16_kernel(
 
 }  // namespace
 
-void launch_chunked_geglu_tanh_bf16(
+void chunked_geglu_tanh_bf16(
     const void* packed, void* y, int N, int I, cudaStream_t stream,
     bool gate_second)
 {
@@ -513,7 +513,7 @@ __global__ void relu2_bf16_kernel(
 
 }  // namespace
 
-void launch_relu2_bf16(
+void relu2_bf16(
     const void* x, void* y, int num_elements, cudaStream_t stream)
 {
     if (num_elements <= 0) return;
@@ -692,7 +692,7 @@ __global__ void sigmoid_dot_scalar_gate_add_bf16_kernel(
 
 }  // namespace
 
-void launch_sigmoid_scalar_gate_inplace_bf16(
+void sigmoid_scalar_gate_inplace_bf16(
     void* x, const void* scalar_gate, int N, int H, cudaStream_t stream)
 {
     if (N <= 0 || H <= 0) return;
@@ -704,12 +704,12 @@ void launch_sigmoid_scalar_gate_inplace_bf16(
         N, H);
 }
 
-void launch_sigmoid_scalar_gate_strided_inplace_bf16(
+void sigmoid_scalar_gate_strided_inplace_bf16(
     void* x, const void* scalar_gate, int N, int H, int stride, cudaStream_t stream)
 {
     if (N <= 0 || H <= 0) return;
     if (stride == 1) {
-        launch_sigmoid_scalar_gate_inplace_bf16(x, scalar_gate, N, H, stream);
+        sigmoid_scalar_gate_inplace_bf16(x, scalar_gate, N, H, stream);
         return;
     }
     constexpr int BLOCK = 128;
@@ -720,15 +720,15 @@ void launch_sigmoid_scalar_gate_strided_inplace_bf16(
         N, H, stride);
 }
 
-void launch_sigmoid_scalar_gate_add_bf16(
+void sigmoid_scalar_gate_add_bf16(
     void* out, const void* x, const void* scalar_gate, int N, int H,
     cudaStream_t stream)
 {
-    launch_sigmoid_scalar_gate_strided_add_bf16(
+    sigmoid_scalar_gate_strided_add_bf16(
         out, x, scalar_gate, N, H, /*stride=*/1, stream);
 }
 
-void launch_sigmoid_scalar_gate_strided_add_bf16(
+void sigmoid_scalar_gate_strided_add_bf16(
     void* out, const void* x, const void* scalar_gate,
     int N, int H, int stride, cudaStream_t stream)
 {
@@ -742,7 +742,7 @@ void launch_sigmoid_scalar_gate_strided_add_bf16(
         N, H, stride);
 }
 
-void launch_sigmoid_dot_scalar_gate_inplace_bf16(
+void sigmoid_dot_scalar_gate_inplace_bf16(
     const void* x, const void* gate_w, void* y, int N, int H,
     cudaStream_t stream)
 {
@@ -756,7 +756,7 @@ void launch_sigmoid_dot_scalar_gate_inplace_bf16(
         H);
 }
 
-void launch_sigmoid_dot_scalar_gate_add_bf16(
+void sigmoid_dot_scalar_gate_add_bf16(
     const void* x, const void* gate_w, void* out, const void* y,
     int N, int H, cudaStream_t stream)
 {
@@ -771,7 +771,7 @@ void launch_sigmoid_dot_scalar_gate_add_bf16(
         H);
 }
 
-void launch_chunked_situ_bf16(
+void chunked_situ_bf16(
     const void* packed, void* y, int N, int I, float beta, float linear_beta,
     bool gate_second, cudaStream_t stream)
 {
@@ -789,4 +789,4 @@ void launch_chunked_situ_bf16(
     }
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::mlp

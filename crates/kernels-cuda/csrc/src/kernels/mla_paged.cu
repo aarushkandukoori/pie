@@ -292,7 +292,7 @@ void launch_mla_prepare_bf16(
     const int half = rope / 2;
     const int stride =
         kv_a_row_stride > 0 ? kv_a_row_stride : kv_lora + rope;
-    // Match `launch_rope_bf16`'s head packing so the query lane has the same
+    // Match `kernels::rope::rope_bf16`'s head packing so the query lane has the same
     // shape of work per block that the standalone kernel had.
     const int heads_per_block = half >= BS ? 1 : (BS / half);
     const int q_blocks = (heads + heads_per_block - 1) / heads_per_block;

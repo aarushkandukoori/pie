@@ -11,5 +11,5 @@ pub static KERNELS: &[KernelSig] = &[
     // Produces TOKEN IDS, not logits: a greedy-decode fast path that never
     // materializes the vocab-wide row, which is why it is its own statement
     // rather than `lm_head` followed by an argmax.
-    kernel!(lm_head_gemv_argmax_int8 "launch_lm_head_gemv_argmax_int8"),
+    kernel!(lm_head_gemv_argmax_int8 "sample::lm_head_gemv_argmax_int8"),
 ];

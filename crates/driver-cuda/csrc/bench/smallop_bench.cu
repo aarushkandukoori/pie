@@ -261,14 +261,14 @@ bool bench_rope_write_kv() {
         }
         namespace K = pie_cuda_driver::kernels;
         // Reference: the two kernels the engine runs today.
-        K::launch_rope_bf16(q[0], k[0], (const std::int32_t*)dpos, f.N, f.hq,
+        kernels::rope::rope_bf16(q[0], k[0], (const std::int32_t*)dpos, f.N, f.hq,
                             f.hkv, f.d, 10000.f, nullptr);
         K::launch_write_kv_to_pages_bf16(
             kp[0], vp[0], k[0], v, (const std::uint32_t*)dqo,
             (const std::uint32_t*)dpi, (const std::uint32_t*)dpp,
             (const std::uint32_t*)dll, f.N, f.R, f.page_size, f.hkv, f.d,
             f.hnd, nullptr, nullptr);
-        K::launch_rope_write_kv_bf16(
+        kernels::rope::rope_write_kv_bf16(
             q[1], k[1], v, (const std::int32_t*)dpos, kp[1], vp[1],
             (const std::uint32_t*)dqo, (const std::uint32_t*)dpi,
             (const std::uint32_t*)dpp, (const std::uint32_t*)dll, nullptr,
@@ -295,7 +295,7 @@ bool bench_rope_write_kv() {
 
         if (bad == 0 && f.N == 1 && !f.hnd && f.d == 64) {
             bench("  rope + write_kv (2 kernels)", [&](cudaStream_t st) {
-                K::launch_rope_bf16(q[0], k[0], (const std::int32_t*)dpos, f.N,
+                kernels::rope::rope_bf16(q[0], k[0], (const std::int32_t*)dpos, f.N,
                                     f.hq, f.hkv, f.d, 10000.f, st);
                 K::launch_write_kv_to_pages_bf16(
                     kp[0], vp[0], k[0], v, (const std::uint32_t*)dqo,
@@ -304,7 +304,7 @@ bool bench_rope_write_kv() {
                     f.d, f.hnd, st, nullptr);
             });
             bench("  rope_write_kv (fused)", [&](cudaStream_t st) {
-                K::launch_rope_write_kv_bf16(
+                kernels::rope::rope_write_kv_bf16(
                     q[1], k[1], v, (const std::int32_t*)dpos, kp[1], vp[1],
                     (const std::uint32_t*)dqo, (const std::uint32_t*)dpi,
                     (const std::uint32_t*)dpp, (const std::uint32_t*)dll,

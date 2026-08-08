@@ -219,19 +219,19 @@ enum class LaunchKernel {
 };
 
 LaunchKernel resolve_launch_kernel(std::string_view kernel) {
-    if (kernel == "launch_chunked_swiglu_bf16") {
+    if (kernel == "mlp::chunked_swiglu_bf16") {
         return LaunchKernel::ChunkedSwiglu;
     }
-    if (kernel == "launch_swiglu_bf16") {
+    if (kernel == "mlp::swiglu_bf16") {
         return LaunchKernel::Swiglu;
     }
-    if (kernel == "launch_rope_standard_table") {
+    if (kernel == "rope::rope_standard_table") {
         return LaunchKernel::RopeStandardTable;
     }
     if (kernel == "launch_qkv_decode_qk_norm_rope_write_kv_bf16") {
         return LaunchKernel::QkvDecodeQkNormRopeWriteKv;
     }
-    if (kernel == "launch_qk_rmsnorm_rope_bf16") {
+    if (kernel == "rope::qk_rmsnorm_rope_bf16") {
         return LaunchKernel::QkRmsnormRope;
     }
     if (kernel == "launch_attention_xqa_decode_bf16_prepared") {
@@ -1468,12 +1468,12 @@ void llama_like_forward_declared(
             // trace therefore states its own width, and the executor does
             // not re-derive it from the config.
             if (op.param1 != 0) {
-                kernels::launch_rope_partial_bf16(
+                kernels::rope::rope_partial_bf16(
                     ws.q.data(), ws.k.data(), positions,
                     N, num_q_heads, num_kv_heads, d,
                     static_cast<int>(op.param1), cfg.rope_theta, stream);
             } else {
-                kernels::launch_rope_bf16(
+                kernels::rope::rope_bf16(
                     ws.q.data(), ws.k.data(), positions,
                     N, num_q_heads, num_kv_heads, d,
                     cfg.rope_theta, stream);
@@ -1564,10 +1564,10 @@ void llama_like_forward_declared(
                     values.slot(plan.outputs(op)[0],
                                 plan.value(plan.outputs(op)[0]));
                 if (stated_fused) {
-                    kernels::launch_chunked_swiglu_bf16(
+                    kernels::mlp::chunked_swiglu_bf16(
                         ws.gate_up_fused.data(), dst, N, I, stream);
                 } else {
-                    kernels::launch_swiglu_bf16(
+                    kernels::mlp::swiglu_bf16(
                         ws.gate.data(), ws.up.data(), dst, N * I, stream);
                 }
                 break;
@@ -1578,7 +1578,7 @@ void llama_like_forward_declared(
                         "declared forward: trace states the rope table "
                         "build but the workspace carries no table");
                 }
-                kernels::launch_rope_standard_table(
+                kernels::rope::rope_standard_table(
                     positions,
                     static_cast<float*>(ws.rope_table.data()),
                     N, d, cfg.rope_theta, stream);
@@ -1663,7 +1663,7 @@ void llama_like_forward_declared(
                 // the plain full-N form.
                 if (peel_window_d != nullptr &&
                     win_region == WinRegion::Tail) {
-                    kernels::launch_qk_rmsnorm_rope_bf16_devwin(
+                    kernels::rope::qk_rmsnorm_rope_bf16_devwin(
                         ws.q.data(), ws.k.data(),
                         require(layer.q_norm, q_name)->data(),
                         require(layer.k_norm, k_name)->data(),
@@ -1673,7 +1673,7 @@ void llama_like_forward_declared(
                         cfg.rope_theta, eps, stream);
                     break;
                 }
-                kernels::launch_qk_rmsnorm_rope_bf16(
+                kernels::rope::qk_rmsnorm_rope_bf16(
                     bf16_row(ws.q.data(), win_start, Hq),
                     bf16_row(ws.k.data(), win_start, Hk),
                     require(layer.q_norm, q_name)->data(),

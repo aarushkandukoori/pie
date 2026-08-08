@@ -11,11 +11,11 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::mlp {
 
 // Standard SwiGLU. Used by Llama / Qwen / Mistral / Mixtral.
 //     y = silu(gate) * up = gate * sigmoid(gate) * up
-void launch_swiglu_bf16(
+void swiglu_bf16(
     const void* gate,
     const void* up,
     void* y,
@@ -23,7 +23,7 @@ void launch_swiglu_bf16(
     cudaStream_t stream);
 
 // GeLU-tanh-glu (Gemma).
-void launch_geglu_tanh_bf16(
+void geglu_tanh_bf16(
     const void* gate,
     const void* up,
     void* y,
@@ -42,7 +42,7 @@ void launch_geglu_tanh_bf16(
 // Matches `transformers/models/gpt_oss/modeling_gpt_oss.py::_apply_gate`.
 // Strided variant: `gate`/`up` are read at `in_stride` (Marlin's padded
 // intermediate width) and `y` is written densely at `cols`.
-void launch_gpt_oss_glu_strided_bf16(
+void gpt_oss_glu_strided_bf16(
     const void* gate,
     const void* up,
     void* y,
@@ -57,7 +57,7 @@ void launch_gpt_oss_glu_strided_bf16(
 // `y_fp16`, when non-null, receives the same activation in fp16 -- what the
 // MXFP4 decode GEMV consumes -- so the separate cast kernel that used to
 // follow this one disappears.
-void launch_gpt_oss_glu_bf16(
+void gpt_oss_glu_bf16(
     const void* gate,
     const void* up,
     void* y,
@@ -74,9 +74,9 @@ void launch_gpt_oss_glu_bf16(
 //     up'   = clamp(up, -limit, +limit)
 //     y     = gate' * sigmoid(gate') * up'
 //
-// Same clamping as `launch_gpt_oss_glu_bf16` but with the plain SiLU
+// Same clamping as `gpt_oss_glu_bf16` but with the plain SiLU
 // sigmoid slope and no `+1` shift on the up branch.
-void launch_swiglu_clamp_bf16(
+void swiglu_clamp_bf16(
     const void* gate,
     const void* up,
     void* y,
@@ -96,7 +96,7 @@ void launch_swiglu_clamp_bf16(
 // distinction the gate is there to make.
 //
 // Matches `SituAndMul` in Moonshot's `modeling_kimi_linear.py`.
-void launch_situ_bf16(
+void situ_bf16(
     const void* gate,
     const void* up,
     void* y,
@@ -107,7 +107,7 @@ void launch_situ_bf16(
 
 // Elementwise `x[i] *= sigmoid(gate[i])`. Used by Qwen3.5 full-
 // attention's per-token output gate (a' = a * σ(g)).
-void launch_sigmoid_gate_inplace_bf16(
+void sigmoid_gate_inplace_bf16(
     void*       x,      // bf16, in-place
     const void* gate,   // bf16, same shape as x
     int num_elements,
@@ -123,7 +123,7 @@ void launch_sigmoid_gate_inplace_bf16(
 //     y[n, i] = silu(packed[n, i]) * packed[n, I + i]
 // `gate_second` selects the [linear|gate] order flashinfer's CUTLASS MoE
 // requires; the default is HuggingFace's [gate|up].
-void launch_chunked_swiglu_bf16(
+void chunked_swiglu_bf16(
     const void* packed,  // [N, 2*I] bf16
     void*       y,       // [N, I]   bf16
     int N, int I,
@@ -134,7 +134,7 @@ void launch_chunked_swiglu_bf16(
 // the grouped GEMM's `[N, 2*I]` output becomes `[N, I]` in one pass:
 //
 //     y[n, i] = situ(packed[n, i]) * linear_beta * tanh(packed[n, I+i] / linear_beta)
-void launch_chunked_situ_bf16(
+void chunked_situ_bf16(
     const void* packed,  // [N, 2*I] bf16
     void*       y,       // [N, I]   bf16
     int N, int I,
@@ -145,13 +145,13 @@ void launch_chunked_situ_bf16(
 
 // Clamped variant of `chunked_swiglu_bf16`, matching `swiglu_clamp_bf16`:
 // [-limit, limit] before the product. DeepSeek-V4 ships `swiglu_limit`.
-void launch_chunked_swiglu_clamp_bf16(
+void chunked_swiglu_clamp_bf16(
     const void* packed,  // [N, 2*I] bf16 (gate first, up second)
     void*       y,       // [N, I]   bf16
     int N, int I, float limit,
     cudaStream_t stream);
 
-void launch_chunked_swiglu_strided_bf16(
+void chunked_swiglu_strided_bf16(
     const void* packed,  // [N, row_stride] bf16 (gate first, up second)
     void*       y,       // [N, I] bf16
     int N, int I, int row_stride,
@@ -160,11 +160,11 @@ void launch_chunked_swiglu_strided_bf16(
 // GELU-tanh variant of `chunked_swiglu_bf16` — same fused gate/up
 // split, but emits `gelu_tanh(gate) * up` instead of `silu(gate) * up`.
 // Used by Gemma-4 26B-A4B's routed-expert block (its dense MLP also
-// uses GeGLU-tanh, see `launch_geglu_tanh_bf16`).
+// uses GeGLU-tanh, see `geglu_tanh_bf16`).
 //
 // `gate_second` selects the [linear|gate] order flashinfer's CUTLASS MoE
 // requires; the default is HuggingFace's [gate|up].
-void launch_chunked_geglu_tanh_bf16(
+void chunked_geglu_tanh_bf16(
     const void* packed,  // [N, 2*I] bf16 (gate first, up second)
     void*       y,       // [N, I]   bf16
     int N, int I,
@@ -173,7 +173,7 @@ void launch_chunked_geglu_tanh_bf16(
 
 // ReLU-squared activation used by Nemotron-H MLP experts:
 //     y = relu(x) ** 2
-void launch_relu2_bf16(
+void relu2_bf16(
     const void* x,
     void* y,
     int num_elements,
@@ -183,13 +183,13 @@ void launch_relu2_bf16(
 // sigmoid(scalar_gate[n])`. Used by the Qwen3.6-MoE shared-expert path,
 // where the gate is a single scalar per token (output of the `[N, 1]`
 // shared_expert_gate projection).
-void launch_sigmoid_scalar_gate_inplace_bf16(
+void sigmoid_scalar_gate_inplace_bf16(
     void*       x,             // bf16 [N, H], in-place
     const void* scalar_gate,   // bf16 [N]
     int N, int H,
     cudaStream_t stream);
 
-void launch_sigmoid_scalar_gate_strided_inplace_bf16(
+void sigmoid_scalar_gate_strided_inplace_bf16(
     void*       x,             // bf16 [N, H], in-place
     const void* scalar_gate,   // bf16 [N, stride]
     int N, int H, int stride,
@@ -198,14 +198,14 @@ void launch_sigmoid_scalar_gate_strided_inplace_bf16(
 // Fused version of `x *= sigmoid(gate); out += x` for Qwen3.6-MoE's
 // shared expert. Saves one kernel launch and one bf16 read/write pass over
 // the shared expert output on decode/spec-verification shapes.
-void launch_sigmoid_scalar_gate_add_bf16(
+void sigmoid_scalar_gate_add_bf16(
     void*       out,           // bf16 [N, H], in-place add destination
     const void* x,             // bf16 [N, H]
     const void* scalar_gate,   // bf16 [N]
     int N, int H,
     cudaStream_t stream);
 
-void launch_sigmoid_scalar_gate_strided_add_bf16(
+void sigmoid_scalar_gate_strided_add_bf16(
     void*       out,           // bf16 [N, H], in-place add destination
     const void* x,             // bf16 [N, H]
     const void* scalar_gate,   // bf16 [N, stride]
@@ -217,14 +217,14 @@ void launch_sigmoid_scalar_gate_strided_add_bf16(
 //   y[n, h] *= sigmoid(gate[n])
 // This replaces the tiny [N, H] x [H, 1] cuBLAS GEMM plus the scalar gate
 // kernel on decode/spec-verification shapes.
-void launch_sigmoid_dot_scalar_gate_inplace_bf16(
+void sigmoid_dot_scalar_gate_inplace_bf16(
     const void* x,       // bf16 [N, H]
     const void* gate_w,  // bf16 [H]
     void*       y,       // bf16 [N, H], in-place
     int N, int H,
     cudaStream_t stream);
 
-void launch_sigmoid_dot_scalar_gate_add_bf16(
+void sigmoid_dot_scalar_gate_add_bf16(
     const void* x,       // bf16 [N, H]
     const void* gate_w,  // bf16 [H]
     void*       out,     // bf16 [N, H], in-place add destination
@@ -232,4 +232,4 @@ void launch_sigmoid_dot_scalar_gate_add_bf16(
     int N, int H,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::mlp

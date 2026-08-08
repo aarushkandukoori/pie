@@ -15,13 +15,13 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::mlp {
 
-void launch_gaussian_topk_bf16(
+void gaussian_topk_bf16(
     void* x,                  // bf16 [N, dim], in-place
     int   N,
     int   dim,
     float std_multiplier,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::mlp

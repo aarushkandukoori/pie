@@ -383,7 +383,7 @@ pub enum OpKind {
     ///
     /// `partial` is the partial-rotary width: `Some(rotary_dim)` rotates
     /// only the first `rotary_dim` channels of each head and passes the
-    /// rest through (qwen3.5 full attention, `launch_rope_partial_bf16`);
+    /// rest through (qwen3.5 full attention, `kernels::rope::rope_partial_bf16`);
     /// `None` is the full rotation every earlier family traces. The trace
     /// states the resolved CHANNEL COUNT, not HF's `partial_rotary_factor`,
     /// for the same reason `SplitQkv` states widths rather than head
@@ -451,7 +451,7 @@ pub enum OpKind {
     /// per-token gate broadcast over the hidden dim. Operands `[x, gate,
     /// base]` — fresh value first, the stream it lands on last, the
     /// [`TraceBuilder::residual_add`] convention. One op because it is one
-    /// launch (`launch_sigmoid_scalar_gate_add_bf16`); the `[Tokens, 1]`
+    /// launch (`kernels::mlp::sigmoid_scalar_gate_add_bf16`); the `[Tokens, 1]`
     /// gate logit comes from an ordinary `Matmul` the trace states
     /// separately, exactly as the hand-written pass launches it.
     SigmoidGateAdd,
@@ -518,7 +518,7 @@ pub enum OpKind {
     /// gate, each `[rows, heads * head_dim]`.
     SplitQGate { heads: u32, head_dim: u32 },
     /// `out = x * sigmoid(gate)`, elementwise — qwen3.5 full attention's
-    /// output gate (`launch_sigmoid_gate_inplace_bf16`: `attn_out *=
+    /// output gate (`kernels::mlp::sigmoid_gate_inplace_bf16`: `attn_out *=
     /// sigmoid(gate)` before o_proj). Operands `[x, gate]`, same shape.
     /// A multiply with NO residual and no landing: distinct from
     /// [`OpKind::SigmoidGateAdd`], whose scalar per-token gate broadcasts
@@ -1215,7 +1215,7 @@ impl TraceBuilder {
     }
 
     /// The partial-rotary form: only the first `rotary_dim` channels of
-    /// each head rotate (`launch_rope_partial_bf16`; qwen3.5's
+    /// each head rotate (`kernels::rope::rope_partial_bf16`; qwen3.5's
     /// `partial_rotary_factor` resolved to a channel count — see
     /// [`OpKind::Rope`]).
     pub fn rope_partial(

@@ -432,7 +432,7 @@ void apply_rope_config(LlamaLikeForwardCfg& fwd_cfg, const HfConfig& hf);
 // or plain. Exported because MIXTRAL SHARES THIS CFG: it is handed the
 // same `LlamaLikeForwardCfg`, so the scaling its checkpoint asks for is
 // already resolved there, and a family that spells its own
-// `launch_rope_bf16` silently drops it. gpt-oss did exactly that.
+// `kernels::rope::rope_bf16` silently drops it. gpt-oss did exactly that.
 void apply_rope(
     const LlamaLikeForwardCfg& fwd_cfg,
     const HfConfig& cfg,

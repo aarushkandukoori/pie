@@ -702,7 +702,7 @@ mod tests {
     /// | Rmsnorm(attn_norm)  | launch_rmsnorm_bf16                              |
     /// | Matmul(qkv)         | ops::gemm_act_x_w (qkv_proj_fused)               |
     /// | SplitQkv            | launch_split_qkv_bf16                            |
-    /// | RmsnormPerHead x2 + Rope | launch_qk_rmsnorm_rope_bf16 (fused pair)    |
+    /// | RmsnormPerHead x2 + Rope | kernels::rope::qk_rmsnorm_rope_bf16 (fused pair)    |
     /// | KvAppend            | launch_write_kv_to_pages                         |
     /// | Attention           | dispatch_attention_flashinfer_{decode,prefill}   |
     /// | Matmul(o_proj)+res  | ops::gemm_act_x_w beta=1                         |

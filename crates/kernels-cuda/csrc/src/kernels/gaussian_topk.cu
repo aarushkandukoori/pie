@@ -3,7 +3,7 @@
 #include <cuda_bf16.h>
 #include <cooperative_groups.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::mlp {
 
 namespace cg = cooperative_groups;
 
@@ -78,7 +78,7 @@ __global__ void gaussian_topk_bf16_kernel(
 
 }  // namespace
 
-void launch_gaussian_topk_bf16(
+void gaussian_topk_bf16(
     void* x, int N, int dim,
     float std_multiplier, cudaStream_t stream)
 {
@@ -89,4 +89,4 @@ void launch_gaussian_topk_bf16(
         static_cast<__nv_bfloat16*>(x), dim, std_multiplier);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::mlp

@@ -14,11 +14,11 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::rope {
 
 // Build a per-token standard RoPE table. Layout is [num_tokens, head_dim]:
 // row[0:head_dim/2] contains cos, row[head_dim/2:head_dim] contains sin.
-void launch_rope_standard_table(
+void rope_standard_table(
     const std::int32_t* positions,
     float* table,
     int num_tokens,
@@ -31,7 +31,7 @@ void launch_rope_standard_table(
 // 2i, 2i+1), required by GLM (config `rope_interleave=true`) and by the
 // DeepSeek-V2/V3/Kimi-K2 MLA rope dims (HF spells it as an interleave-transpose
 // plus a NeoX rotate_half; vLLM as `is_neox_style=False`).
-void launch_rope_bf16(
+void rope_bf16(
     void* q, void* k,
     const std::int32_t* positions,  // [num_tokens]
     int num_tokens,
@@ -53,7 +53,7 @@ void launch_rope_bf16(
 //
 // K is still written to `k` as well, so anything downstream reading the
 // contiguous copy is unaffected.
-void launch_rope_write_kv_bf16(
+void rope_write_kv_bf16(
     void* q, void* k, const void* v,
     const std::int32_t* positions,
     void* k_pages, void* v_pages,
@@ -78,7 +78,7 @@ void launch_rope_write_kv_bf16(
 // first-half/second-half pairing.
 // Peel device-window variant: {start, len} in device memory, full-grid
 // launch with uniform per-block early-out, base pointers.
-void launch_qk_rmsnorm_rope_bf16_devwin(
+void qk_rmsnorm_rope_bf16_devwin(
     void* q, void* k,
     const void* q_weight, const void* k_weight,
     const std::int32_t* positions,
@@ -91,7 +91,7 @@ void launch_qk_rmsnorm_rope_bf16_devwin(
     float eps,
     cudaStream_t stream);
 
-void launch_qk_rmsnorm_rope_bf16(
+void qk_rmsnorm_rope_bf16(
     void* q,
     void* k,
     const void* q_weight,
@@ -109,7 +109,7 @@ void launch_qk_rmsnorm_rope_bf16(
 // materialization point of the unfused sequence:
 //   q = bf16(rmsnorm(q)); k = bf16(rmsnorm(k)); rope(q, k)
 // Gemma-4 parity is sensitive to this rounding boundary.
-void launch_qk_rmsnorm_rope_bf16_rounded(
+void qk_rmsnorm_rope_bf16_rounded(
     void* q,
     void* k,
     const void* q_weight,
@@ -129,7 +129,7 @@ void launch_qk_rmsnorm_rope_bf16_rounded(
 // `apply_interleaved_mrope` with section split (t, h, w). Text-only rows pass
 // t == h == w and collapse to ordinary RoPE. Matches Qwen3's per-head q/k norm
 // (weight shape [head_dim]) and the standard half/half rotate_half pairing.
-void launch_qk_rmsnorm_mrope_bf16(
+void qk_rmsnorm_mrope_bf16(
     void* q,
     void* k,
     const void* q_weight,
@@ -159,7 +159,7 @@ void launch_qk_rmsnorm_mrope_bf16(
 //   if wavelen < high_w:                no scaling
 //   else if wavelen > low_w:            freq /= factor
 //   else: smooth interp between the two regimes
-void launch_rope_yarn_bf16(
+void rope_yarn_bf16(
     void* q, void* k,
     const std::int32_t* positions,
     int num_tokens,
@@ -188,7 +188,7 @@ void launch_rope_yarn_bf16(
 //      is multiplied into both cos and sin so that the post-rotation
 //      magnitude scales attention scores. HF passes 1.21 for
 //      `factor=8` on OLMo-3.
-void launch_rope_yarn_original_bf16(
+void rope_yarn_original_bf16(
     void* q, void* k,
     const std::int32_t* positions,
     int num_tokens,
@@ -213,7 +213,7 @@ void launch_rope_yarn_original_bf16(
 // only the first `rotary_dim` of each head's `head_dim` channels;
 // the trailing `head_dim - rotary_dim` channels pass through
 // unchanged. The pair convention is HF's (i, i + rotary_dim/2).
-void launch_rope_partial_bf16(
+void rope_partial_bf16(
     void* q, void* k,
     const std::int32_t* positions,
     int num_tokens,
@@ -224,7 +224,7 @@ void launch_rope_partial_bf16(
     float theta,
     cudaStream_t stream);
 
-void launch_rope_partial_bf16_position_delta(
+void rope_partial_bf16_position_delta(
     void* q, void* k,
     const std::int32_t* positions,
     int position_delta,
@@ -243,7 +243,7 @@ void launch_rope_partial_bf16_position_delta(
 // needs the latter (vLLM `build_deepseek_v4_rope` uses `is_neox_style=False`).
 // `yarn_factor > 1` additionally applies the original-YaRN inv_freq ramp, with
 // the correction range computed over `rotary_dim`.
-void launch_rope_partial_last_bf16(
+void rope_partial_last_bf16(
     void* q, void* k,
     const std::int32_t* positions,
     int num_tokens,
@@ -260,4 +260,4 @@ void launch_rope_partial_last_bf16(
     float yarn_beta_slow = 1.f,
     int   yarn_original_max_position = 0);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::rope

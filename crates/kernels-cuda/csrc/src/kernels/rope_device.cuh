@@ -93,7 +93,7 @@ __device__ __forceinline__ void rope_cos_sin_yarn_original(
 }
 
 // Host-side ramp bounds for the original-YaRN variant. Shared so a fused
-// kernel and `launch_rope_yarn_original_bf16` cannot disagree about where the
+// kernel and `kernels::rope::rope_yarn_original_bf16` cannot disagree about where the
 // ramp starts, which would silently change every position > 0.
 inline void yarn_original_ramp_bounds(
     int head_dim, float theta, float beta_fast, float beta_slow,

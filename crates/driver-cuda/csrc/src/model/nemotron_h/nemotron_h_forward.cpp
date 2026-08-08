@@ -215,7 +215,7 @@ void attention_layer(
     ops::gemm_act_x_wt_bf16(cublas.handle(),
         ws.norm_x.data(), Lw.v_proj->data(), ws.v.data(), N, Hk, H);
 
-    kernels::launch_rope_bf16(
+    kernels::rope::rope_bf16(
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads_local, num_kv_heads_local,
         cfg.head_dim, cfg.rope_theta, stream);
@@ -602,7 +602,7 @@ void moe_layer(
                 reinterpret_cast<const void* const*>(nem_ws.a_up_ptrs.data()),
                 reinterpret_cast<void* const*>(nem_ws.c_up_ptrs.data()),
                 /*M=*/1, /*N=*/I, /*K=*/H, routes);
-            kernels::launch_relu2_bf16(
+            kernels::mlp::relu2_bf16(
                 nem_ws.expert_up.data(), nem_ws.expert_act.data(),
                 routes * I, stream);
             ops::gemm_batched_act_x_wt_bf16(cublas.handle(),
@@ -705,7 +705,7 @@ void moe_layer(
                         rows_per_expert.data(),
                         static_cast<int>(rows_per_expert.size()), I, H);
 
-                    kernels::launch_relu2_bf16(
+                    kernels::mlp::relu2_bf16(
                         nem_ws.expert_up.data(), nem_ws.expert_act.data(),
                         offset * I, stream);
 
@@ -769,7 +769,7 @@ void moe_layer(
                     reinterpret_cast<const void* const*>(nem_ws.a_up_ptrs.data()),
                     reinterpret_cast<void* const*>(nem_ws.c_up_ptrs.data()),
                     block_size, I, H, max_blocks);
-                kernels::launch_relu2_bf16(
+                kernels::mlp::relu2_bf16(
                     nem_ws.expert_up.data(), nem_ws.expert_act.data(),
                     aligned_rows * I, stream);
                 ops::gemm_batched_act_x_wt_bf16(cublas.handle(),
@@ -843,7 +843,7 @@ void moe_layer(
                     nem_ws.expert_in.data(),
                     Lw.expert_up[static_cast<std::size_t>(e)]->data(),
                     nem_ws.expert_up.data(), Ne, I, H);
-                kernels::launch_relu2_bf16(
+                kernels::mlp::relu2_bf16(
                     nem_ws.expert_up.data(), nem_ws.expert_act.data(),
                     Ne * I, stream);
                 ops::gemm_act_x_wt_bf16(cublas.handle(),
@@ -864,7 +864,7 @@ void moe_layer(
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), Lw.shared_up->data(),
             nem_ws.shared_up.data(), N, Is, H);
-        kernels::launch_relu2_bf16(
+        kernels::mlp::relu2_bf16(
             nem_ws.shared_up.data(), nem_ws.shared_act.data(),
             N * Is, stream);
         ops::gemm_act_x_wt_bf16(cublas.handle(),

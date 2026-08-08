@@ -30,7 +30,7 @@ using pie_cuda_driver::kernels::launch_kda_gate_beta_bf16;
 using pie_cuda_driver::kernels::launch_kda_o_norm_gated_bf16;
 using pie_cuda_driver::kernels::launch_kda_prefill_batched;
 using pie_cuda_driver::kernels::launch_kda_recurrent_step_batched;
-using pie_cuda_driver::kernels::launch_situ_bf16;
+using pie_cuda_driver::kernels::mlp::situ_bf16;
 
 namespace {
 
@@ -104,7 +104,7 @@ void test_situ() {
     __nv_bfloat16* d_y = nullptr;
     CUDA_OK(cudaMalloc(&d_y, N * sizeof(__nv_bfloat16)));
 
-    launch_situ_bf16(d_gate, d_up, d_y, N, kBeta, kLinearBeta, nullptr);
+    kernels::mlp::situ_bf16(d_gate, d_up, d_y, N, kBeta, kLinearBeta, nullptr);
     CUDA_OK(cudaDeviceSynchronize());
 
     std::vector<__nv_bfloat16> h_y(N);
