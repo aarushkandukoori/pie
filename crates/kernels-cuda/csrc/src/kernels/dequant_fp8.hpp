@@ -14,9 +14,13 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+// `ops::` on the names below: they live in `ops/tuning_cache.hpp` and
+// `ops/quant_meta.hpp`, which are `quant`-family infrastructure and have
+// not been renamed. Being in the same namespace used to resolve them
+// silently; the qualifier is what makes the cross-family use visible.
+namespace pie_cuda_driver::kernels::quant {
 
-void launch_dequant_fp8_e4m3_to_bf16(
+void dequant_fp8_e4m3_to_bf16(
     const std::uint8_t* fp8_in,    // [n] fp8 bits (e4m3fn) — stored as raw bytes
     void*               bf16_out,  // [n] bf16
     float               scale,     // weight_scale_inv (multiplicative)
@@ -26,8 +30,8 @@ void launch_dequant_fp8_e4m3_to_bf16(
 /// Per-channel variant: dequant a `[rows, cols]` row-major fp8 weight to
 /// bf16 with one scale per row (weight_scale_inv applied along axis 0).
 /// Used by the sm<89 fallback path in `gemm_act_x_w` when the weight
-/// has `QuantMeta::PerChannel`.
-void launch_dequant_fp8_e4m3_to_bf16_per_channel(
+/// has `ops::QuantMeta::PerChannel`.
+void dequant_fp8_e4m3_to_bf16_per_channel(
     const std::uint8_t* fp8_in,         // [rows, cols] fp8 bytes
     void*               bf16_out,       // [rows, cols] bf16
     const float*        scale_inv_dev,  // [rows] fp32 device scales
@@ -42,7 +46,7 @@ void launch_dequant_fp8_e4m3_to_bf16_per_channel(
 /// The two extents are separate because they need not be equal: a per-channel
 /// scale is `row_block = 1` with the whole row as one column block, and
 /// DeepSeek's square 128x128 is the case where they happen to agree.
-void launch_dequant_fp8_e4m3_to_bf16_blocked(
+void dequant_fp8_e4m3_to_bf16_blocked(
     const std::uint8_t* fp8_in,     // [rows, cols] fp8 bytes
     void*               bf16_out,   // [rows, cols] bf16
     const float*        scale_dev,  // [rows/rb, cols/cb] fp32 device scales
@@ -54,7 +58,7 @@ void launch_dequant_fp8_e4m3_to_bf16_blocked(
 
 /// The square case, kept because a checkpoint that ships one number per block
 /// says it once: `group_size` on both axes.
-void launch_dequant_fp8_e4m3_to_bf16_per_group(
+void dequant_fp8_e4m3_to_bf16_per_group(
     const std::uint8_t* fp8_in,         // [rows, cols] fp8 bytes
     void*               bf16_out,       // [rows, cols] bf16
     const float*        scale_dev,      // [rows/gs, cols/gs] fp32 device scales
@@ -63,4 +67,4 @@ void launch_dequant_fp8_e4m3_to_bf16_per_group(
     int                 group_size,
     cudaStream_t        stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

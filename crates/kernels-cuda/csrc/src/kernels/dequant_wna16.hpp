@@ -11,9 +11,9 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
-void launch_dequant_wna16_int4b8_to_bf16(
+void dequant_wna16_int4b8_to_bf16(
     const std::int32_t* packed,     // [out_dim, in_dim / 8]
     const void*         scale_bf16, // [out_dim, in_dim / group_size]
     void*               out_bf16,   // [out_dim, in_dim]
@@ -22,7 +22,7 @@ void launch_dequant_wna16_int4b8_to_bf16(
     int                 group_size,
     cudaStream_t        stream);
 
-void launch_wna16_gate_up_decode_bf16(
+void wna16_gate_up_decode_bf16(
     const void*          act_fp16,
     const std::int32_t*  topk_idx,
     const std::int32_t* const* gate_packed,
@@ -38,7 +38,7 @@ void launch_wna16_gate_up_decode_bf16(
     int                  group_size,
     cudaStream_t         stream);
 
-void launch_wna16_down_decode_bf16(
+void wna16_down_decode_bf16(
     const void*          act_fp16,
     const std::int32_t*  topk_idx,
     const std::int32_t* const* down_packed,
@@ -54,9 +54,9 @@ void launch_wna16_down_decode_bf16(
 // Converts a bf16 buffer to fp16 in place of a separate cast op. The W4A16
 // decode GEMVs above consume their activation as fp16 so their inner loop can
 // be pure `__hfma2`; this stages it once per MoE layer.
-void launch_bf16_to_fp16(const void* in_bf16,
+void bf16_to_fp16(const void* in_bf16,
                          void* out_fp16,
                          std::size_t count,
                          cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

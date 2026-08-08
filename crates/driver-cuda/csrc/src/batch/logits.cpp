@@ -29,7 +29,7 @@ const float* gather_selected_logits_f32(
         num_sampling,
         static_cast<int>(vocab),
         engine.cublas.stream());
-    kernels::launch_cast_bf16_to_fp32(
+    kernels::quant::cast_bf16_to_fp32(
         engine.ptir_logits_bf16.data(),
         engine.ptir_logits_f32.data(),
         n_conv,

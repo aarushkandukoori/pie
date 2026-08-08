@@ -19,9 +19,9 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
-void launch_dequant_mxfp4_to_bf16(
+void dequant_mxfp4_to_bf16(
     const std::uint8_t* packed,        // [out_dim, in_dim/2]
     const std::uint8_t* block_scale,   // [out_dim, in_dim/32]
     void*               out,           // [out_dim, in_dim] bf16
@@ -47,9 +47,9 @@ void launch_dequant_mxfp4_to_bf16(
 // Expert-grouped gate/up decode: one block per (expert, row slab), walking the
 // expert's own routes so its weight slab is streamed once for up to four
 // tokens instead of once per route. `sorted_route_ids` / `counts` come from
-// `launch_moe_bucket_exact`. Output layout is identical to the per-route
+// `kernels::moe::moe_bucket_exact`. Output layout is identical to the per-route
 // kernel (indexed by original route id), so the consumers are unchanged.
-void launch_mxfp4_moe_gate_up_decode_grouped_bf16(
+void mxfp4_moe_gate_up_decode_grouped_bf16(
     const void* act_fp16,
     const std::int32_t* sorted_route_ids,
     const std::int32_t* counts,
@@ -62,7 +62,7 @@ void launch_mxfp4_moe_gate_up_decode_grouped_bf16(
     int num_experts, int top_k, int hidden, int intermediate,
     cudaStream_t stream);
 
-void launch_mxfp4_moe_gate_up_decode_bf16(
+void mxfp4_moe_gate_up_decode_bf16(
     const void*          act_fp16,      // [num_tokens, hidden] fp16
     const std::int32_t*  topk_idx,      // [num_tokens * top_k]
     const std::uint8_t* const* gate_up_packed,  // per-expert [2I, H/2]
@@ -84,7 +84,7 @@ void launch_mxfp4_moe_gate_up_decode_bf16(
     float                glu_limit = 0.f,
     float                glu_alpha = 1.702f);
 
-void launch_mxfp4_moe_down_decode_bf16(
+void mxfp4_moe_down_decode_bf16(
     const void*          act_fp16,      // [routes, intermediate] fp16
     const std::int32_t*  topk_idx,      // [num_tokens * top_k]
     const std::uint8_t* const* down_packed,  // per-expert [H, I/2]
@@ -97,4 +97,4 @@ void launch_mxfp4_moe_down_decode_bf16(
     int                  intermediate,
     cudaStream_t         stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

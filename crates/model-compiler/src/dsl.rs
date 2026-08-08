@@ -2050,7 +2050,7 @@ pub mod cuda {
     ///
     /// `whole` for the same reason `gemm_grouped` is, and then some: the
     /// batch is addressed through DEVICE pointer arrays built for the
-    /// whole fire (`launch_build_moe_ptrs_aligned_bf16` fills them), so a
+    /// whole fire (`kernels::moe::build_moe_ptrs_aligned_bf16` fills them), so a
     /// row window would leave every pointer aimed at a row the window does
     /// not own. This is the MoE aligned leg's projection on a deployment
     /// whose shape the grouped kernel refuses.
@@ -2352,7 +2352,7 @@ pub mod cuda {
         .expect("the norm produces its value")
     }
 
-    /// `kernels::launch_moe_grouped_gemm_bf16`: the grouped expert GEMM.
+    /// `kernels::moe::moe_grouped_gemm_bf16`: the grouped expert GEMM.
     /// The bank is named, like any other matmul's weight. It is ONE tensor
     /// (`[E, N, K]`) that the kernel indexes by the block's expert id, not a
     /// per-expert selection, so the traced name carries the `{e}` the family
@@ -2369,7 +2369,7 @@ pub mod cuda {
         record(
             &act.t,
             act.layer,
-            "launch_moe_grouped_gemm_bf16",
+            "moe::moe_grouped_gemm_bf16",
             vec![bank.to_string()],
             None,
             vec![act.id, sorted_route_ids.id],
@@ -2460,7 +2460,7 @@ pub mod cuda {
     // from fp8 -- three quantizations, three statements, because which one a
     // checkpoint ships is a fact the declaration reads.
 
-    /// `kernels::launch_dequant_wna16_int4b8_to_bf16`: widen a packed
+    /// `kernels::quant::dequant_wna16_int4b8_to_bf16`: widen a packed
     /// int4-b8 weight to bf16.
     ///
     /// Weight-shaped: `[out_dim, in_dim/8]` packed to `[out_dim, in_dim]`,
@@ -2469,7 +2469,7 @@ pub mod cuda {
         record(
             t,
             Some(l),
-            "launch_dequant_wna16_int4b8_to_bf16",
+            "quant::dequant_wna16_int4b8_to_bf16",
             vec![w.to_string()],
             None,
             vec![],
@@ -2481,7 +2481,7 @@ pub mod cuda {
         .expect("the dequant produces its value")
     }
 
-    /// `kernels::launch_wna16_gate_up_decode_bf16`: the gate and up
+    /// `kernels::quant::wna16_gate_up_decode_bf16`: the gate and up
     /// projections, decode-shaped, straight off the packed weights.
     ///
     /// `topk_idx` here is `[N, K]` in TOKEN order -- not the route-major
@@ -2491,7 +2491,7 @@ pub mod cuda {
         let outs = record_many(
             &act.t,
             act.layer,
-            "launch_wna16_gate_up_decode_bf16",
+            "quant::wna16_gate_up_decode_bf16",
             vec![],
             vec![act.id, topk_idx.id],
             vec![
@@ -2511,13 +2511,13 @@ pub mod cuda {
         (gate, up)
     }
 
-    /// `kernels::launch_wna16_down_decode_bf16`: the down projection, same
+    /// `kernels::quant::wna16_down_decode_bf16`: the down projection, same
     /// shape.
     pub fn wna16_down_decode(act: &Val, topk_idx: &Val, hidden: u32) -> Val {
         record(
             &act.t,
             act.layer,
-            "launch_wna16_down_decode_bf16",
+            "quant::wna16_down_decode_bf16",
             vec![],
             None,
             vec![act.id, topk_idx.id],
@@ -2611,12 +2611,12 @@ pub mod cuda {
         (gate, up)
     }
 
-    /// `kernels::launch_scale_rows_bf16`: scale each row by its own factor.
+    /// `kernels::quant::scale_rows_bf16`: scale each row by its own factor.
     pub fn scale_rows(x: &Val, scale: &Val, width: u32) -> Val {
         record(
             &x.t,
             x.layer,
-            "launch_scale_rows_bf16",
+            "quant::scale_rows_bf16",
             vec![],
             None,
             vec![x.id, scale.id],
@@ -2625,12 +2625,12 @@ pub mod cuda {
         .expect("the scale produces its value")
     }
 
-    /// `kernels::launch_cast_fp32_to_bf16`: narrow.
+    /// `kernels::quant::cast_fp32_to_bf16`: narrow.
     pub fn cast_f32_to_bf16(x: &Val, width: u32) -> Val {
         record(
             &x.t,
             x.layer,
-            "launch_cast_fp32_to_bf16",
+            "quant::cast_fp32_to_bf16",
             vec![],
             None,
             vec![x.id],
@@ -2639,13 +2639,13 @@ pub mod cuda {
         .expect("the cast produces its value")
     }
 
-    /// `kernels::launch_apply_per_expert_scale_bf16`: multiply each route's
+    /// `kernels::moe::apply_per_expert_scale_bf16`: multiply each route's
     /// weight by its expert's scale, in place.
     pub fn apply_per_expert_scale(topk_idx: &Val, topk_w: &Val, scale: &str, top_k: u32) -> Val {
         record(
             &topk_w.t,
             topk_w.layer,
-            "launch_apply_per_expert_scale_bf16",
+            "moe::apply_per_expert_scale_bf16",
             vec![scale.to_string()],
             None,
             vec![topk_idx.id, topk_w.id],
@@ -2723,7 +2723,7 @@ pub mod cuda {
         .expect("the bias add produces its value")
     }
 
-    /// `kernels::launch_add_moe_route_bias_bf16`: add each route's EXPERT
+    /// `kernels::moe::add_moe_route_bias_bf16`: add each route's EXPERT
     /// bias, indexed by that route's expert.
     ///
     /// `whole`: `topk_idx` is route-global, so a row window would pick the
@@ -2732,7 +2732,7 @@ pub mod cuda {
         record(
             &x.t,
             x.layer,
-            "launch_add_moe_route_bias_bf16",
+            "moe::add_moe_route_bias_bf16",
             vec![bias.to_string()],
             None,
             vec![x.id, topk_idx.id],
@@ -2914,13 +2914,13 @@ pub mod cuda {
         .expect("the fused rope+write produces its value")
     }
 
-    /// `kernels::launch_mxfp4_scales_to_marlin_e8m0`: repack the checkpoint's
+    /// `kernels::quant::mxfp4_scales_to_marlin_e8m0`: repack the checkpoint's
     /// E8M0 scale layout into the one Marlin walks.
     pub fn mxfp4_scales_to_marlin(t: &Trace, l: u32, w: &str, groups: u32, rows: u32) -> Val {
         record(
             t,
             Some(l),
-            "launch_mxfp4_scales_to_marlin_e8m0",
+            "quant::mxfp4_scales_to_marlin_e8m0",
             vec![w.to_string()],
             None,
             vec![],
@@ -2932,13 +2932,13 @@ pub mod cuda {
         .expect("the repack produces its value")
     }
 
-    /// `kernels::launch_transpose_expert_scales_u8`: the per-expert group
+    /// `kernels::moe::transpose_expert_scales_u8`: the per-expert group
     /// scales, `[E, n, k/32]` -> `[E, k/32, n]`.
     pub fn transpose_expert_scales(t: &Trace, l: u32, w: &str, experts: u32, k_groups: u32, n: u32) -> Val {
         record(
             t,
             Some(l),
-            "launch_transpose_expert_scales_u8",
+            "moe::transpose_expert_scales_u8",
             vec![w.to_string()],
             None,
             vec![],
@@ -2954,7 +2954,7 @@ pub mod cuda {
         .expect("the transpose produces its value")
     }
 
-    /// `kernels::launch_mxfp4_moe_gate_up_decode_grouped_bf16`: the gate and
+    /// `kernels::quant::mxfp4_moe_gate_up_decode_grouped_bf16`: the gate and
     /// up projections for every route, grouped by expert.
     pub fn mxfp4_moe_gate_up_decode_grouped(
         act: &Val,
@@ -2965,7 +2965,7 @@ pub mod cuda {
         let outs = record_many(
             &act.t,
             act.layer,
-            "launch_mxfp4_moe_gate_up_decode_grouped_bf16",
+            "quant::mxfp4_moe_gate_up_decode_grouped_bf16",
             vec![],
             vec![act.id, sorted_route_ids.id, counts.id],
             vec![
@@ -3362,13 +3362,13 @@ pub mod cuda {
 
     // ── deepseek_v4: routing, activation, dequant ──────────────────
 
-    /// `kernels::launch_topk_sqrtsoftplus_bf16`: the router, scored by
+    /// `kernels::moe::topk_sqrtsoftplus_bf16`: the router, scored by
     /// `sqrt(softplus(·))`.
     pub fn topk_sqrtsoftplus(logits: &Val, bias: &str, top_k: u32) -> (Val, Val) {
         let outs = record_many(
             &logits.t,
             logits.layer,
-            "launch_topk_sqrtsoftplus_bf16",
+            "moe::topk_sqrtsoftplus_bf16",
             vec![bias.to_string()],
             vec![logits.id],
             vec![
@@ -3382,7 +3382,7 @@ pub mod cuda {
         (idx, w)
     }
 
-    /// `kernels::launch_hash_route_lookup`: expert INDICES from a hash table
+    /// `kernels::moe::hash_route_lookup`: expert INDICES from a hash table
     /// keyed by token id; weights still from the router logits.
     ///
     /// A route that is a pure function of the token, not of its activations —
@@ -3393,7 +3393,7 @@ pub mod cuda {
         let outs = record_many(
             &logits.t,
             logits.layer,
-            "launch_hash_route_lookup",
+            "moe::hash_route_lookup",
             vec![table.to_string()],
             vec![token_ids.id, logits.id],
             vec![
@@ -3516,7 +3516,7 @@ pub mod cuda {
         PerGroup,
     }
 
-    /// `kernels::launch_dequant_fp8_e4m3_to_bf16[_per_channel|_per_group]`:
+    /// `kernels::quant::dequant_fp8_e4m3_to_bf16[_per_channel|_per_group]`:
     /// widen an fp8 weight to bf16.
     pub fn dequant_fp8_e4m3(
         t: &Trace,
@@ -3530,9 +3530,9 @@ pub mod cuda {
             t,
             Some(l),
             match scale {
-                Fp8Scale::PerTensor => "launch_dequant_fp8_e4m3_to_bf16",
-                Fp8Scale::PerChannel => "launch_dequant_fp8_e4m3_to_bf16_per_channel",
-                Fp8Scale::PerGroup => "launch_dequant_fp8_e4m3_to_bf16_per_group",
+                Fp8Scale::PerTensor => "quant::dequant_fp8_e4m3_to_bf16",
+                Fp8Scale::PerChannel => "quant::dequant_fp8_e4m3_to_bf16_per_channel",
+                Fp8Scale::PerGroup => "quant::dequant_fp8_e4m3_to_bf16_per_group",
             },
             vec![weight.to_string()],
             None,
@@ -3545,13 +3545,13 @@ pub mod cuda {
         .expect("the dequant produces its value")
     }
 
-    /// `kernels::launch_dequant_mxfp4_to_bf16`: the same for MXFP4, whose
+    /// `kernels::quant::dequant_mxfp4_to_bf16`: the same for MXFP4, whose
     /// scale is an E8M0 exponent byte per block of 32.
     pub fn dequant_mxfp4(t: &Trace, l: u32, weight: &str, rows: u32, cols: u32) -> Val {
         record(
             t,
             Some(l),
-            "launch_dequant_mxfp4_to_bf16",
+            "quant::dequant_mxfp4_to_bf16",
             vec![weight.to_string()],
             None,
             vec![],
@@ -3738,13 +3738,13 @@ pub mod cuda {
 
     // ── nemotron_h: its own MoE dispatch ───────────────────────────
 
-    /// `kernels::launch_topk_sigmoid_bias_fp32`: the router, over fp32
+    /// `kernels::moe::topk_sigmoid_bias_fp32`: the router, over fp32
     /// logits and with a per-expert correction bias.
     pub fn topk_sigmoid_bias(logits: &Val, bias: &str, top_k: u32) -> (Val, Val) {
         let outs = record_many(
             &logits.t,
             logits.layer,
-            "launch_topk_sigmoid_bias_fp32",
+            "moe::topk_sigmoid_bias_fp32",
             vec![bias.to_string()],
             vec![logits.id],
             vec![
@@ -3758,7 +3758,7 @@ pub mod cuda {
         (idx, w)
     }
 
-    /// `kernels::launch_moe_bucket_exact`: bucket routes by expert WITHOUT
+    /// `kernels::moe::moe_bucket_exact`: bucket routes by expert WITHOUT
     /// padding to fixed blocks.
     ///
     /// The unpadded counterpart of [`Self::moe_align`], writing exact
@@ -3768,7 +3768,7 @@ pub mod cuda {
         let outs = record_many(
             &topk_idx.t,
             topk_idx.layer,
-            "launch_moe_bucket_exact",
+            "moe::moe_bucket_exact",
             vec![],
             vec![topk_idx.id],
             vec![
@@ -3810,7 +3810,7 @@ pub mod cuda {
         );
     }
 
-    /// `kernels::launch_token_batched_weighted_sum_aligned_bf16`: combine the
+    /// `kernels::moe::token_batched_weighted_sum_aligned_bf16`: combine the
     /// aligned expert outputs back per token.
     pub fn token_batched_weighted_sum_aligned(
         aligned_out: &Val,
@@ -3820,7 +3820,7 @@ pub mod cuda {
         record(
             &aligned_out.t,
             aligned_out.layer,
-            "launch_token_batched_weighted_sum_aligned_bf16",
+            "moe::token_batched_weighted_sum_aligned_bf16",
             vec![],
             None,
             vec![aligned_out.id, topk_w.id],
@@ -4316,7 +4316,7 @@ pub mod cuda {
         (idx, w)
     }
 
-    /// `kernels::launch_moe_align_decode`: bucket the routes by expert and
+    /// `kernels::moe::moe_align_decode`: bucket the routes by expert and
     /// pad each bucket to a block.
     ///
     /// Returns `(sorted_route_ids, expert_ids, route_to_aligned_row)` — the
@@ -4332,7 +4332,7 @@ pub mod cuda {
         let outs = record_many(
             &topk_idx.t,
             topk_idx.layer,
-            "launch_moe_align_decode",
+            "moe::moe_align_decode",
             vec![],
             vec![topk_idx.id],
             vec![
@@ -4351,7 +4351,7 @@ pub mod cuda {
         (sorted, experts, inverse)
     }
 
-    /// `kernels::launch_gather_moe_aligned_inputs_bf16`: the block-major
+    /// `kernels::moe::gather_moe_aligned_inputs_bf16`: the block-major
     /// operand, gathered in the sorted order.
     pub fn gather_moe_aligned_inputs(
         x: &Val,
@@ -4362,7 +4362,7 @@ pub mod cuda {
         record(
             &x.t,
             x.layer,
-            "launch_gather_moe_aligned_inputs_bf16",
+            "moe::gather_moe_aligned_inputs_bf16",
             vec![],
             None,
             vec![x.id, sorted_route_ids.id],
@@ -4371,7 +4371,7 @@ pub mod cuda {
         .expect("the gather produces its value")
     }
 
-    /// `kernels::launch_build_moe_ptrs_aligned_bf16`: the pointer arrays one
+    /// `kernels::moe::build_moe_ptrs_aligned_bf16`: the pointer arrays one
     /// batched GEMM per projection needs.
     ///
     /// Produces no tensor — it fills device pointer arrays. Stated anyway,
@@ -4387,7 +4387,7 @@ pub mod cuda {
         record(
             &expert_ids.t,
             Some(l),
-            "launch_build_moe_ptrs_aligned_bf16",
+            "moe::build_moe_ptrs_aligned_bf16",
             vec![gate_up_bank.to_string(), down_bank.to_string()],
             None,
             vec![expert_ids.id, aligned_in.id],
@@ -4395,7 +4395,7 @@ pub mod cuda {
         );
     }
 
-    /// `kernels::launch_reorder_moe_aligned_output_bf16`: undo the block
+    /// `kernels::moe::reorder_moe_aligned_output_bf16`: undo the block
     /// permutation, back to route order.
     pub fn reorder_moe_aligned_output(
         aligned_out: &Val,
@@ -4406,7 +4406,7 @@ pub mod cuda {
         record(
             &aligned_out.t,
             aligned_out.layer,
-            "launch_reorder_moe_aligned_output_bf16",
+            "moe::reorder_moe_aligned_output_bf16",
             vec![],
             None,
             vec![aligned_out.id, sorted_route_ids.id],
@@ -4422,7 +4422,7 @@ pub mod cuda {
         .expect("the reorder produces its value")
     }
 
-    /// `kernels::launch_scatter_add_weighted_bf16`: fold the routed rows back
+    /// `kernels::moe::scatter_add_weighted_bf16`: fold the routed rows back
     /// onto the residual stream, each scaled by its router weight.
     ///
     /// `out[dst_idx[i]] += src[i] · row_weights[i]`. `whole` because
@@ -4438,7 +4438,7 @@ pub mod cuda {
         record(
             &out.t,
             out.layer,
-            "launch_scatter_add_weighted_bf16",
+            "moe::scatter_add_weighted_bf16",
             vec![],
             None,
             vec![out.id, src.id, dst_idx.id, row_weights.id],
@@ -5124,7 +5124,7 @@ pub mod cuda {
         .expect("the relay produces its value")
     }
 
-    /// `kernels::launch_topk_softmax_bf16`: the router's top-k + softmax +
+    /// `kernels::moe::topk_softmax_bf16`: the router's top-k + softmax +
     /// renormalize, one launch, two results — expert indices
     /// (`[Tokens, k]` i32, the `dyn` value every expert-indexed statement
     /// consumes) and routing weights (`[Tokens, k]` f32).
@@ -5136,7 +5136,7 @@ pub mod cuda {
     pub fn topk(logits: &Val, k: u32) -> (Val, Val) {
         let ids = logits.t.with(logits.layer, |b| {
             b.launch(
-                "launch_topk_softmax_bf16",
+                "moe::topk_softmax_bf16",
                 vec![],
                 None,
                 vec![logits.id],
@@ -5154,7 +5154,7 @@ pub mod cuda {
         (mk(ids[0]), mk(ids[1]))
     }
 
-    /// `kernels::launch_moe_gate_up_decode_gemv_bf16` /
+    /// `kernels::moe::moe_gate_up_decode_gemv_bf16` /
     /// `..._moe_down_decode_gemv_bf16`: the routed projections of the
     /// decode GEMV leg, one launch each over the fire's `N * k` routes.
     ///
@@ -5173,7 +5173,7 @@ pub mod cuda {
     /// row space.
     pub fn moe_gate_up_gemv(x: &Val, w: &MatW, experts: &Val, top_k: u32) -> Val {
         moe_routed_gemv(
-            "launch_moe_gate_up_decode_gemv_bf16",
+            "moe::moe_gate_up_decode_gemv_bf16",
             x,
             w,
             experts,
@@ -5182,7 +5182,7 @@ pub mod cuda {
     }
 
     pub fn moe_down_gemv(x: &Val, w: &MatW, experts: &Val, top_k: u32) -> Val {
-        moe_routed_gemv("launch_moe_down_decode_gemv_bf16", x, w, experts, top_k)
+        moe_routed_gemv("moe::moe_down_decode_gemv_bf16", x, w, experts, top_k)
     }
 
     fn moe_routed_gemv(kernel: &str, x: &Val, w: &MatW, experts: &Val, top_k: u32) -> Val {
@@ -5201,7 +5201,7 @@ pub mod cuda {
         .expect("a routed projection produces its value")
     }
 
-    /// `ops::flashinfer_cutlass_moe_bf16`: the whole routed block —
+    /// `kernels::moe::flashinfer_cutlass_moe_bf16`: the whole routed block —
     /// permute, both grouped GEMMs, the activation, and the weighted
     /// finalize — as ONE call.
     ///
@@ -5230,7 +5230,7 @@ pub mod cuda {
         record(
             &x.t,
             gate_up.layer,
-            "ops::flashinfer_cutlass_moe_bf16",
+            "moe::flashinfer_cutlass_moe_bf16",
             vec![gate_up.name.clone(), down.name.clone()],
             None,
             vec![x.id, experts.id, weights.id],
@@ -5308,7 +5308,7 @@ pub mod cuda {
         .expect("the routed activation produces its value")
     }
 
-    /// `kernels::launch_token_batched_weighted_sum_bf16`, or the
+    /// `kernels::moe::token_batched_weighted_sum_bf16`, or the
     /// `..._add_bf16` form when the residual folds into the same launch.
     ///
     /// The combine collapses `[Tokens, k, H]` to `[Tokens, H]` under the
@@ -5319,7 +5319,7 @@ pub mod cuda {
     /// emits a WeightedSum and a ResidualAdd — the fusion is a kernel
     /// fact, so it belongs in the CUDA reading, not in the trace shape.
     ///
-    /// The per-expert `launch_scatter_add_weighted_bf16` loop is the
+    /// The per-expert `kernels::moe::scatter_add_weighted_bf16` loop is the
     /// OTHER combine, and it is not stated here: it runs once per expert
     /// with a row count the host learned from a device readback, which
     /// is a launch count no declaration fixes.
@@ -5332,9 +5332,9 @@ pub mod cuda {
             &weights.t,
             weights.layer,
             if residual.is_some() {
-                "launch_token_batched_weighted_sum_add_bf16"
+                "moe::token_batched_weighted_sum_add_bf16"
             } else {
-                "launch_token_batched_weighted_sum_bf16"
+                "moe::token_batched_weighted_sum_bf16"
             },
             vec![],
             None,
@@ -5588,7 +5588,7 @@ pub mod cuda {
         .expect("the sink rescale produces its value")
     }
 
-    /// `kernels::launch_bf16_to_fp16`: the activation cast the MXFP4
+    /// `kernels::quant::bf16_to_fp16`: the activation cast the MXFP4
     /// routed GEMVs want on their input.
     ///
     /// A statement rather than an implementation detail of the GEMV
@@ -5600,7 +5600,7 @@ pub mod cuda {
         record(
             &x.t,
             x.layer,
-            "launch_bf16_to_fp16",
+            "quant::bf16_to_fp16",
             vec![],
             None,
             vec![x.id],
@@ -5609,7 +5609,7 @@ pub mod cuda {
         .expect("the cast produces its value")
     }
 
-    /// `kernels::launch_mxfp4_moe_gate_up_decode_bf16`: BOTH routed
+    /// `kernels::quant::mxfp4_moe_gate_up_decode_bf16`: BOTH routed
     /// projections of gpt-oss's fused decode leg, in one launch,
     /// reading the packed 4-bit nibbles straight out of HBM.
     ///
@@ -5644,7 +5644,7 @@ pub mod cuda {
         };
         let ids = x.t.with(bank.layer, |b| {
             b.launch(
-                "launch_mxfp4_moe_gate_up_decode_bf16",
+                "quant::mxfp4_moe_gate_up_decode_bf16",
                 vec![bank.name.clone()],
                 None,
                 vec![experts.id, x.id],
@@ -5659,7 +5659,7 @@ pub mod cuda {
         (mk(ids[0]), mk(ids[1]))
     }
 
-    /// `kernels::launch_mxfp4_moe_down_decode_bf16`: the routed down
+    /// `kernels::quant::mxfp4_moe_down_decode_bf16`: the routed down
     /// projection, the same bank convention as
     /// [`mxfp4_moe_gate_up_decode`].
     pub fn mxfp4_moe_down_decode(
@@ -5672,7 +5672,7 @@ pub mod cuda {
         record(
             &x.t,
             bank.layer,
-            "launch_mxfp4_moe_down_decode_bf16",
+            "quant::mxfp4_moe_down_decode_bf16",
             vec![bank.name.clone()],
             None,
             vec![experts.id, x.id],

@@ -262,13 +262,13 @@ Q35Kernel resolve_q35_kernel(std::string_view k) {
     if (k == "launch_write_kv_to_pages") return Q35Kernel::WriteKvToPages;
     if (k == "mlp::chunked_swiglu_bf16") return Q35Kernel::ChunkedSwiglu;
     if (k == "mlp::swiglu_bf16") return Q35Kernel::Swiglu;
-    if (k == "launch_topk_softmax_bf16") return Q35Kernel::TopkSoftmax;
-    if (k == "launch_moe_align_decode") return Q35Kernel::MoeAlignDecode;
-    if (k == "launch_gather_moe_aligned_inputs_bf16") return Q35Kernel::MoeGatherAligned;
-    if (k == "launch_build_moe_ptrs_aligned_bf16") return Q35Kernel::MoeBuildPtrsAligned;
-    if (k == "launch_moe_grouped_gemm_bf16") return Q35Kernel::MoeGroupedGemm;
-    if (k == "launch_reorder_moe_aligned_output_bf16") return Q35Kernel::MoeReorderAligned;
-    if (k == "launch_token_batched_weighted_sum_add_bf16") return Q35Kernel::MoeWeightedSum;
+    if (k == "moe::topk_softmax_bf16") return Q35Kernel::TopkSoftmax;
+    if (k == "moe::moe_align_decode") return Q35Kernel::MoeAlignDecode;
+    if (k == "moe::gather_moe_aligned_inputs_bf16") return Q35Kernel::MoeGatherAligned;
+    if (k == "moe::build_moe_ptrs_aligned_bf16") return Q35Kernel::MoeBuildPtrsAligned;
+    if (k == "moe::moe_grouped_gemm_bf16") return Q35Kernel::MoeGroupedGemm;
+    if (k == "moe::reorder_moe_aligned_output_bf16") return Q35Kernel::MoeReorderAligned;
+    if (k == "moe::token_batched_weighted_sum_add_bf16") return Q35Kernel::MoeWeightedSum;
     if (k == "mlp::sigmoid_dot_scalar_gate_add_bf16") return Q35Kernel::SigmoidDotScalarGateAdd;
     throw std::runtime_error(
         "declared qwen3_5: stated kernel '" + std::string(k) +
@@ -1345,12 +1345,12 @@ case PieForwardOpKind::Launch: {
                     constexpr int shared_row_begin = -1;
                     switch (resolve_q35_kernel(plan.weight_name(op))) {
                     case Q35Kernel::TopkSoftmax:
-                        kernels::launch_topk_softmax_bf16(
+                        kernels::moe::topk_softmax_bf16(
                             mw.router_logits.data(), mw.topk_idx.data(),
                             mw.topk_weights.data(), N, E, Ktop, stream);
                         break;
                     case Q35Kernel::MoeAlignDecode:
-                        kernels::launch_moe_align_decode(
+                        kernels::moe::moe_align_decode(
                             mw.topk_idx.data(), mw.aligned_route_ids.data(),
                             mw.aligned_expert_ids.data(),
                             /*route_to_aligned_row=*/nullptr,
@@ -1358,7 +1358,7 @@ case PieForwardOpKind::Launch: {
                             /*num_tokens_past_padded=*/nullptr, stream);
                         break;
                     case Q35Kernel::MoeGatherAligned:
-                        kernels::launch_gather_moe_aligned_inputs_bf16(
+                        kernels::moe::gather_moe_aligned_inputs_bf16(
                             ws.norm_x.data(), mw.aligned_route_ids.data(),
                             mw.aligned_expert_in.data(),
                             routes, aligned_rows, Ktop, H,
@@ -1371,7 +1371,7 @@ case PieForwardOpKind::Launch: {
                                         std::to_string(aux.size) +
                                         " banks, wants 2");
                         }
-                        kernels::launch_build_moe_ptrs_aligned_bf16(
+                        kernels::moe::build_moe_ptrs_aligned_bf16(
                             mw.aligned_expert_ids.data(),
                             wb.require(plan.name(aux[0])).data(),
                             wb.require(plan.name(aux[1])).data(),
@@ -1412,9 +1412,9 @@ case PieForwardOpKind::Launch: {
                         std::uint16_t* dst =
                             is_gate_up ? mw.aligned_gate_up.data()
                                        : mw.aligned_out.data();
-                        if (kernels::moe_grouped_gemm_bf16_supported(
+                        if (kernels::moe::moe_grouped_gemm_bf16_supported(
                                 block, out_w, in_w)) {
-                            kernels::launch_moe_grouped_gemm_bf16(
+                            kernels::moe::moe_grouped_gemm_bf16(
                                 src, wb.require(bank).data(), dst,
                                 mw.aligned_expert_ids.data(),
                                 max_blocks, block, out_w, in_w, stream);
@@ -1437,7 +1437,7 @@ case PieForwardOpKind::Launch: {
                         break;
                     }
                     case Q35Kernel::MoeReorderAligned:
-                        kernels::launch_reorder_moe_aligned_output_bf16(
+                        kernels::moe::reorder_moe_aligned_output_bf16(
                             mw.aligned_out.data(), mw.aligned_route_ids.data(),
                             mw.expert_out.data(), routes, aligned_rows, H,
                             shared_row_begin, N,
@@ -1453,7 +1453,7 @@ case PieForwardOpKind::Launch: {
                         // the hand body sets `add_to_residual` and `moe_out`
                         // IS the residual stream. The declaration says the
                         // same thing, so there is no trailing add to make.
-                        kernels::launch_token_batched_weighted_sum_add_bf16(
+                        kernels::moe::token_batched_weighted_sum_add_bf16(
                             ws.y.data(), mw.expert_out.data(),
                             mw.topk_weights.data(), N, Ktop, H, stream);
                         break;

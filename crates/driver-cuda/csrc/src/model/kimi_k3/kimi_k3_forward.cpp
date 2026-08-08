@@ -251,14 +251,14 @@ KimiK3Workspace KimiK3Workspace::allocate(
     ws.shared_out    = DeviceTensor::allocate(DType::BF16, {N, H});
 
     if (routed_I > 0 && cfg.num_experts > 0) {
-        const int block = kernels::moe_aligned_block(routes, cfg.num_experts);
+        const int block = kernels::moe::moe_aligned_block(routes, cfg.num_experts);
         const int active_expert_cap = std::min(cfg.num_experts, routes);
         const int max_blocks =
-            (routes + active_expert_cap * (kernels::kMoeAlignedBlockMin - 1) +
-             kernels::kMoeAlignedBlockMin - 1) /
-            kernels::kMoeAlignedBlockMin;
+            (routes + active_expert_cap * (kernels::moe::kMoeAlignedBlockMin - 1) +
+             kernels::moe::kMoeAlignedBlockMin - 1) /
+            kernels::moe::kMoeAlignedBlockMin;
         const int aligned_rows =
-            std::max(max_blocks * kernels::kMoeAlignedBlockMin,
+            std::max(max_blocks * kernels::moe::kMoeAlignedBlockMin,
                      ((routes + active_expert_cap * (block - 1) + block - 1) /
                       block) * block);
         ws.aligned_block_size = block;
@@ -273,7 +273,7 @@ KimiK3Workspace KimiK3Workspace::allocate(
         // cap rather than `max_tokens`; at the cap this is a few MB.
         const std::int64_t gemv_n =
             std::min<std::int64_t>(max_tokens,
-                                   ops::moe_gemv_max_tokens(kKimiK3MoeMxfp4MaxTokens));
+                                   kernels::moe::moe_gemv_max_tokens(kKimiK3MoeMxfp4MaxTokens));
         if (gemv_n > 0) {
             ws.mxfp4_act_fp16 =
                 DeviceTensor::allocate(DType::FP16, {gemv_n, latent});
@@ -783,7 +783,7 @@ void kimi_k3_forward_paged(
             // of it. Above that token count the batched GEMM's tiling starts
             // paying for itself, which is the same crossover GLM-5 measured.
             const bool gemv_ok =
-                total_tokens <= ops::moe_gemv_max_tokens(kKimiK3MoeGemvMaxTokens) &&
+                total_tokens <= kernels::moe::moe_gemv_max_tokens(kKimiK3MoeGemvMaxTokens) &&
                 (latent % 8) == 0 && (routed_I % 8) == 0;
             // Four-bit weights if the binder found them. A decode step reads
             // the whole routed bank to produce one token and reuses none of
@@ -791,13 +791,13 @@ void kimi_k3_forward_paged(
             // exactly its compression: a quarter of the bytes for the same
             // arithmetic. This is the single largest term in K3's decode.
             const bool mxfp4_ok =
-                total_tokens <= ops::moe_gemv_max_tokens(kKimiK3MoeMxfp4MaxTokens) &&
+                total_tokens <= kernels::moe::moe_gemv_max_tokens(kKimiK3MoeMxfp4MaxTokens) &&
                 (latent % 8) == 0 && (routed_I % 8) == 0 &&
                 !Lw.expert_gate_up_packed_ptrs.empty() &&
                 ws.mxfp4_act_fp16.numel() > 0 &&
                 total_tokens <= ws.mxfp4_act_fp16.shape()[0];
             if (mxfp4_ok) {
-                kernels::launch_bf16_to_fp16(
+                kernels::quant::bf16_to_fp16(
                     expert_in, ws.mxfp4_act_fp16.data(),
                     static_cast<std::size_t>(total_tokens) * latent, stream);
                 // The two halves land in separate buffers, so this is the
@@ -805,7 +805,7 @@ void kimi_k3_forward_paged(
                 void* gate_out = ws.aligned_gate_up.data();
                 void* up_out = static_cast<std::uint16_t*>(gate_out) +
                                static_cast<std::size_t>(routes) * routed_I;
-                kernels::launch_mxfp4_moe_gate_up_decode_bf16(
+                kernels::quant::mxfp4_moe_gate_up_decode_bf16(
                     ws.mxfp4_act_fp16.data(),
                     static_cast<const std::int32_t*>(ws.topk_idx.data()),
                     Lw.expert_gate_up_packed_ptrs.data(),
@@ -816,22 +816,22 @@ void kimi_k3_forward_paged(
                     gate_out, up_out, ws.aligned_act.data(),
                     routes * routed_I, cfg.situ_beta, cfg.situ_linear_beta,
                     stream);
-                kernels::launch_bf16_to_fp16(
+                kernels::quant::bf16_to_fp16(
                     ws.aligned_act.data(), ws.mxfp4_route_act_fp16.data(),
                     static_cast<std::size_t>(routes) * routed_I, stream);
-                kernels::launch_mxfp4_moe_down_decode_bf16(
+                kernels::quant::mxfp4_moe_down_decode_bf16(
                     ws.mxfp4_route_act_fp16.data(),
                     static_cast<const std::int32_t*>(ws.topk_idx.data()),
                     Lw.expert_down_packed_ptrs.data(),
                     Lw.expert_down_scale_ptrs.data(),
                     /*down_bias=*/nullptr, ws.expert_out.data(),
                     total_tokens, K, latent, routed_I, stream);
-                kernels::launch_token_batched_weighted_sum_bf16(
+                kernels::moe::token_batched_weighted_sum_bf16(
                     ws.latent_out.data(), ws.expert_out.data(),
                     static_cast<const float*>(ws.topk_weights.data()),
                     total_tokens, K, latent, stream);
             } else if (gemv_ok) {
-                kernels::launch_moe_gate_up_decode_gemv_bf16(
+                kernels::moe::moe_gate_up_decode_gemv_bf16(
                     static_cast<const std::int32_t*>(ws.topk_idx.data()),
                     expert_in, Lw.moe_gate_up_bf16->data(),
                     ws.aligned_gate_up.data(),
@@ -840,12 +840,12 @@ void kimi_k3_forward_paged(
                     ws.aligned_gate_up.data(), ws.aligned_act.data(), routes,
                     routed_I, cfg.situ_beta, cfg.situ_linear_beta,
                     kimi_k3_moe_gate_up_swapped(), stream);
-                kernels::launch_moe_down_decode_gemv_bf16(
+                kernels::moe::moe_down_decode_gemv_bf16(
                     static_cast<const std::int32_t*>(ws.topk_idx.data()),
                     ws.aligned_act.data(), Lw.moe_down_bf16->data(),
                     ws.expert_out.data(),
                     total_tokens, K, latent, routed_I, stream);
-                kernels::launch_token_batched_weighted_sum_bf16(
+                kernels::moe::token_batched_weighted_sum_bf16(
                     ws.latent_out.data(), ws.expert_out.data(),
                     static_cast<const float*>(ws.topk_weights.data()),
                     total_tokens, K, latent, stream);
@@ -857,7 +857,7 @@ void kimi_k3_forward_paged(
             // what this token count wants; `max_blocks` is then the worst-case
             // routing skew, every route landing in its own padded block.
             const int block = std::min(ws.aligned_block_size,
-                                       kernels::moe_aligned_block(routes, E));
+                                       kernels::moe::moe_aligned_block(routes, E));
             const int active = std::min(E, routes);
             const int nblocks =
                 (routes + active * (block - 1) + block - 1) / block;
@@ -867,18 +867,18 @@ void kimi_k3_forward_paged(
                     static_cast<int>(ws.aligned_expert_in.shape()[0])) {
                 throw std::runtime_error("kimi_k3: aligned MoE scratch too small");
             }
-            kernels::launch_moe_align_decode(
+            kernels::moe::moe_align_decode(
                 static_cast<const std::int32_t*>(ws.topk_idx.data()),
                 static_cast<std::int32_t*>(ws.aligned_route_ids.data()),
                 static_cast<std::int32_t*>(ws.aligned_expert_ids.data()),
                 /*route_to_aligned_row=*/nullptr, routes, E, block, nblocks,
                 /*num_tokens_past_padded=*/nullptr, stream);
-            kernels::launch_gather_moe_aligned_inputs_bf16(
+            kernels::moe::gather_moe_aligned_inputs_bf16(
                 expert_in,
                 static_cast<const std::int32_t*>(ws.aligned_route_ids.data()),
                 ws.aligned_expert_in.data(), routes, aligned_rows, K, latent,
                 /*shared_row_begin=*/-1, total_tokens, stream);
-            kernels::launch_build_moe_ptrs_aligned_bf16(
+            kernels::moe::build_moe_ptrs_aligned_bf16(
                 static_cast<const std::int32_t*>(ws.aligned_expert_ids.data()),
                 Lw.moe_gate_up_bf16->data(), Lw.moe_down_bf16->data(),
                 ws.aligned_expert_in.data(), ws.aligned_gate_up.data(),
@@ -907,12 +907,12 @@ void kimi_k3_forward_paged(
                 reinterpret_cast<const void* const*>(ws.a_dn_ptrs.data()),
                 reinterpret_cast<void* const*>(ws.c_dn_ptrs.data()),
                 block, latent, routed_I, nblocks);
-            kernels::launch_reorder_moe_aligned_output_bf16(
+            kernels::moe::reorder_moe_aligned_output_bf16(
                 ws.aligned_out.data(),
                 static_cast<const std::int32_t*>(ws.aligned_route_ids.data()),
                 ws.expert_out.data(), routes, aligned_rows, latent,
                 /*shared_row_begin=*/-1, total_tokens, nullptr, stream);
-            kernels::launch_token_batched_weighted_sum_bf16(
+            kernels::moe::token_batched_weighted_sum_bf16(
                 ws.latent_out.data(), ws.expert_out.data(),
                 static_cast<const float*>(ws.topk_weights.data()), total_tokens,
                 K, latent, stream);

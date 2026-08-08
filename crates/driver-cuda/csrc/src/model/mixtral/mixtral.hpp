@@ -13,7 +13,7 @@
 // routed to it (via `kernels::layout::gather_bf16_rows`), run the expert's
 // gate/up/down GEMMs through cuBLAS, then `launch_scatter_add_weighted`
 // the result back into the residual stream. Top-K and renormalization
-// happen on-device via `launch_topk_softmax_bf16`.
+// happen on-device via `kernels::moe::topk_softmax_bf16`.
 
 #include "device_buffer.hpp"
 #include <cstdint>

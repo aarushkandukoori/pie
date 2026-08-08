@@ -20,7 +20,11 @@
 #include "cutlass_fused_moe_kernels.cuh"
 #include "ops/tuning_cache.hpp"
 
-namespace pie_cuda_driver::ops {
+// `ops::` on the names below: they live in `ops/tuning_cache.hpp` and
+// `ops/quant_meta.hpp`, which are `quant`-family infrastructure and have
+// not been renamed. Being in the same namespace used to resolve them
+// silently; the qualifier is what makes the cross-family use visible.
+namespace pie_cuda_driver::kernels::moe {
 namespace {
 
 namespace ck = tensorrt_llm::kernels::cutlass_kernels;
@@ -383,7 +387,7 @@ int autotune_m_bucket(int m) {
 }
 
 std::uint64_t tactic_key(const MoeProblem& p) {
-    const auto mix = tuning_hash;
+    const auto mix = ops::tuning_hash;
     std::uint64_t h = 0;
     h = mix(h, static_cast<std::uint64_t>(autotune_m_bucket(p.num_rows)));
     h = mix(h, static_cast<std::uint64_t>(p.hidden_size));
@@ -637,8 +641,8 @@ std::string tactic_cache_signature(const RunnerState& s) {
     return buf;
 }
 
-TuningCache& tactic_cache(const RunnerState& s) {
-    static TuningCache cache("moe_tactics.txt", tactic_cache_signature(s));
+ops::TuningCache& tactic_cache(const RunnerState& s) {
+    static ops::TuningCache cache("moe_tactics.txt", tactic_cache_signature(s));
     return cache;
 }
 
@@ -648,7 +652,7 @@ void install_tactics(RunnerState& s, Runner& runner, const MoeProblem& p,
                      const MoeBuffers& b, std::size_t workspace_bytes) {
     const std::uint64_t key = tactic_key(p);
     std::lock_guard<std::mutex> lock(s.tune_mutex);
-    TuningCache& disk = tactic_cache(s);
+    ops::TuningCache& disk = tactic_cache(s);
     auto it = s.tuned.find(key);
     if (it == s.tuned.end()) {
         TacticPair chosen{};
@@ -837,4 +841,4 @@ bool flashinfer_cutlass_moe_bf16(
     return true;
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::moe

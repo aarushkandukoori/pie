@@ -522,7 +522,7 @@ void rmsnorm_bf16_with_fp16(
     }
     if (!rmsnorm_vec8_ok(x, y, weight, hidden, hidden, hidden)) {
         rmsnorm_bf16(x, weight, y, num_rows, hidden, eps, stream);
-        launch_bf16_to_fp16(y, y_fp16,
+        kernels::quant::bf16_to_fp16(y, y_fp16,
                             static_cast<std::size_t>(num_rows) * hidden,
                             stream);
         return;

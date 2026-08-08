@@ -10,7 +10,7 @@ pub mod emit;
 pub mod facts;
 
 /// The MoE aligned path's block size and block ceiling, as the driver picks
-/// them (`kernels::moe_aligned_block`, `kMoeAlignedBlockMin/Max`).
+/// them (`kernels::moe::moe_aligned_block`, `kMoeAlignedBlockMin/Max`).
 ///
 /// Load-time constants, so a declaration may state them: the driver's own
 /// choice varies with the route count, and the MINIMUM is what a declaration
@@ -54,11 +54,11 @@ use model_compiler::trace::{
 /// |--------------------------------|---------------------------------------------|
 /// | Rmsnorm(mlp_norm)              | kernels::norm::rmsnorm_gemma_bf16                   |
 /// | Matmul(router)                 | ops::gemm_act_x_wt_bf16 (router logits)     |
-/// | TopK                           | launch_topk_softmax_bf16                    |
+/// | TopK                           | kernels::moe::topk_softmax_bf16                    |
 /// | Matmul(expert.{e}.gate_up, sel)| grouped GEMM (batched/aligned/CUTLASS)      |
 /// | Swiglu                         | kernels::mlp::chunked_swiglu_bf16 over N*k rows    |
 /// | Matmul(expert.{e}.down, sel)   | grouped GEMM (batched/aligned/CUTLASS)      |
-/// | WeightedSum                    | launch_token_batched_weighted_sum_bf16      |
+/// | WeightedSum                    | kernels::moe::token_batched_weighted_sum_bf16      |
 /// | Matmul(shared_expert.gate_up)  | ops::gemm_act_x_w                           |
 /// | Swiglu                         | kernels::mlp::chunked_swiglu_bf16                  |
 /// | Matmul(shared_expert.down)     | ops::gemm_act_x_w                           |

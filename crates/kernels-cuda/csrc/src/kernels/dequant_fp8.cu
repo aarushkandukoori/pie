@@ -3,7 +3,7 @@
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 namespace {
 
@@ -61,7 +61,7 @@ __global__ void dequant_fp8_e4m3_blocked_kernel(
 
 }  // namespace
 
-void launch_dequant_fp8_e4m3_to_bf16(
+void dequant_fp8_e4m3_to_bf16(
     const std::uint8_t* fp8_in, void* bf16_out,
     float scale, std::size_t n, cudaStream_t stream)
 {
@@ -73,7 +73,7 @@ void launch_dequant_fp8_e4m3_to_bf16(
         scale, n);
 }
 
-void launch_dequant_fp8_e4m3_to_bf16_per_channel(
+void dequant_fp8_e4m3_to_bf16_per_channel(
     const std::uint8_t* fp8_in, void* bf16_out,
     const float* scale_inv_dev, int rows, int cols, cudaStream_t stream)
 {
@@ -84,7 +84,7 @@ void launch_dequant_fp8_e4m3_to_bf16_per_channel(
         scale_inv_dev, cols);
 }
 
-void launch_dequant_fp8_e4m3_to_bf16_blocked(
+void dequant_fp8_e4m3_to_bf16_blocked(
     const std::uint8_t* fp8_in, void* bf16_out,
     const float* scale_dev, int rows, int cols,
     int row_block, int col_block, cudaStream_t stream)
@@ -97,13 +97,13 @@ void launch_dequant_fp8_e4m3_to_bf16_blocked(
         scale_dev, cols, row_block, col_block, scale_cols);
 }
 
-void launch_dequant_fp8_e4m3_to_bf16_per_group(
+void dequant_fp8_e4m3_to_bf16_per_group(
     const std::uint8_t* fp8_in, void* bf16_out,
     const float* scale_dev, int rows, int cols,
     int group_size, cudaStream_t stream)
 {
-    launch_dequant_fp8_e4m3_to_bf16_blocked(
+    dequant_fp8_e4m3_to_bf16_blocked(
         fp8_in, bf16_out, scale_dev, rows, cols, group_size, group_size, stream);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

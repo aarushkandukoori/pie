@@ -2,7 +2,7 @@
 
 // Runtime BF16 → MXFP4 (E2M1 + E8M0 block scales) quantization, used by the
 // runtime_quant=fp4 path for GLM-5.1 routed experts. Output layout matches the
-// MXFP4 contract consumed by `launch_dequant_mxfp4_to_bf16`:
+// MXFP4 contract consumed by `kernels::quant::dequant_mxfp4_to_bf16`:
 //
 //   * `W_bf16`      — input  `[rows, cols]` bf16 (cols % 32 == 0).
 //   * `W_packed`    — output `[rows, cols/2]` uint8 (low nibble = element 2k,

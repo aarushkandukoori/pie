@@ -8,10 +8,10 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 /// `dst[i] = (bf16)src[i]` for `n` elements.
-void launch_cast_fp16_to_bf16(
+void cast_fp16_to_bf16(
     const void*   src_fp16,
     void*         dst_bf16,
     std::size_t   n,
@@ -20,7 +20,7 @@ void launch_cast_fp16_to_bf16(
 /// `dst[i] = (bf16)src[i]` for `n` fp32 elements. Used when ckpts ship
 /// projection scales as fp32 but our GEMM dispatcher (or the cuBLASLt
 /// scale path) expects bf16.
-void launch_cast_fp32_to_bf16(
+void cast_fp32_to_bf16(
     const void*   src_fp32,
     void*         dst_bf16,
     std::size_t   n,
@@ -32,14 +32,14 @@ void launch_cast_fp32_to_bf16(
 /// fp32. Equivalent to `(int32(bf16_bits) << 16) reinterpreted as fp32`.
 /// `rows x width` bf16 buffer scaled in place by a bf16 vector:
 /// `buf[r, c] *= l[c]` — the adapter SCALE form's (IA3) per-site apply.
-void launch_scale_rows_bf16(
+void scale_rows_bf16(
     void*         buf_bf16,
     const void*   l_bf16,
     int           rows,
     int           width,
     cudaStream_t  stream);
 
-void launch_cast_bf16_to_fp32(
+void cast_bf16_to_fp32(
     const void*   src_bf16,
     void*         dst_fp32,
     std::size_t   n,
@@ -48,7 +48,7 @@ void launch_cast_bf16_to_fp32(
 /// `dst[i] = 2^(src[i] - 127)` for `n` E8M0 elements. Block-scaled FP8
 /// checkpoints (DeepSeek-V4) ship their per-tile scales in OCP Microscaling's
 /// exponent-only format, while the FP8 GEMM wants fp32 scales.
-void launch_cast_e8m0_to_fp32(
+void cast_e8m0_to_fp32(
     const void*   src_e8m0,
     void*         dst_fp32,
     std::size_t   n,
@@ -62,23 +62,23 @@ void launch_cast_e8m0_to_fp32(
 /// The arithmetic is done in fp32 for every input dtype, matching the loader's
 /// host executor exactly so the two can be compared bit for bit. `src` and
 /// `dst` may be the same pointer.
-void launch_scale_bf16(
+void scale_bf16(
     const void*   src_bf16,
     void*         dst_bf16,
     std::size_t   n,
     float         factor,
     cudaStream_t  stream);
 
-/// `dst[i] = src[i] * factor` for `n` fp32 elements. See `launch_scale_bf16`.
-void launch_scale_fp32(
+/// `dst[i] = src[i] * factor` for `n` fp32 elements. See `scale_bf16`.
+void scale_fp32(
     const void*   src_fp32,
     void*         dst_fp32,
     std::size_t   n,
     float         factor,
     cudaStream_t  stream);
 
-/// `dst[i] = src[i] * factor` for `n` fp16 elements. See `launch_scale_bf16`.
-void launch_scale_fp16(
+/// `dst[i] = src[i] * factor` for `n` fp16 elements. See `scale_bf16`.
+void scale_fp16(
     const void*   src_fp16,
     void*         dst_fp16,
     std::size_t   n,
@@ -99,7 +99,7 @@ void launch_scale_fp16(
 ///     Use a different 64-wide perm. Not implemented yet — refuse.
 ///
 /// Runs in-place: `bf16_scales` shape `[groups, size_n]` is rewritten.
-void launch_marlin_permute_scales_bf16(
+void marlin_permute_scales_bf16(
     void*         bf16_scales,
     int           groups,
     int           size_n,
@@ -121,7 +121,7 @@ void launch_marlin_permute_scales_bf16(
 ///   * `scales_in`   — `[groups, N]` bf16. (FP16 scales must be cast
 ///                     to bf16 by the caller.)
 ///   * `bf16_out`    — `[N, K]` bf16 (transposed for HF Linear).
-void launch_awq_dequant_to_bf16(
+void awq_dequant_to_bf16(
     const void*   qweight_in,
     const void*   qzeros_in,
     const void*   scales_in,
@@ -146,7 +146,7 @@ void launch_awq_dequant_to_bf16(
 ///                    desc_act=true (act-order); each row k of the
 ///                    dequanted weight uses scale group g_idx[k].
 ///   * `bf16_out`   — `[N, K]` bf16 (transposed for HF Linear).
-void launch_gptq_dequant_to_bf16(
+void gptq_dequant_to_bf16(
     const void*   qweight_in,
     const void*   qzeros_in,
     const void*   scales_in,
@@ -157,4 +157,4 @@ void launch_gptq_dequant_to_bf16(
     int           group_size,
     cudaStream_t  stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

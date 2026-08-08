@@ -685,11 +685,11 @@ Qwen35DeclaredPlan build_impl(const HfConfig& cfg, const W& w, int tp_size) {
         // gives the same answer without waiting for the merge, and a
         // throw means the same thing zero does: no fused leg.
         cuda.moe_cutlass_max_rows = 0;
-        if (ops::flashinfer_cutlass_moe_enabled()) {
+        if (kernels::moe::flashinfer_cutlass_moe_enabled()) {
             std::size_t bytes = 0;
             try {
-                bytes = ops::flashinfer_cutlass_moe_workspace_bytes(
-                    ops::MoeActivation::Swiglu, 512, cfg.hidden_size,
+                bytes = kernels::moe::flashinfer_cutlass_moe_workspace_bytes(
+                    kernels::moe::MoeActivation::Swiglu, 512, cfg.hidden_size,
                     cfg.moe_intermediate_size, cfg.num_experts,
                     cfg.num_experts_per_tok, /*tp_size=*/1, /*tp_rank=*/0);
             } catch (const std::exception&) {

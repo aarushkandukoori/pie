@@ -565,14 +565,14 @@ Qwen3_5MoeMlpWorkspace Qwen3_5MoeMlpWorkspace::allocate(
         ws.aligned_out =
             DeviceBuffer<std::uint16_t>::alloc(ws.aligned_rows_capacity * H);
     }
-    if (ops::flashinfer_cutlass_moe_enabled()) {
+    if (kernels::moe::flashinfer_cutlass_moe_enabled()) {
         // Sized for decode, not for the prefill high-water mark: the fused
         // path only runs on the decode fast path, and its workspace scales
         // with rows * top_k. At tp=1 the whole 68 GB model sits on one
         // device and a prefill-sized workspace does not fit the budget.
         ws.cutlass_max_rows = std::min(max_tokens, kFusedMoeMaxRows);
-        const std::size_t bytes = ops::flashinfer_cutlass_moe_workspace_bytes(
-            ops::MoeActivation::Swiglu, ws.cutlass_max_rows, hidden,
+        const std::size_t bytes = kernels::moe::flashinfer_cutlass_moe_workspace_bytes(
+            kernels::moe::MoeActivation::Swiglu, ws.cutlass_max_rows, hidden,
             moe_intermediate, num_experts, top_k,
             /*tp_size=*/1, /*tp_rank=*/0);
         if (bytes > 0) {
@@ -1499,7 +1499,7 @@ bool moe_block(
                 ws.norm_x.data(), Lw.moe_router->data(),
                 moe_ws.router_logits.data(), N, E, H);
             // 2. Top-K + softmax + renormalize.
-            kernels::launch_topk_softmax_bf16(
+            kernels::moe::topk_softmax_bf16(
                 moe_ws.router_logits.data(),
                 moe_ws.topk_idx.data(), moe_ws.topk_weights.data(),
                 N, E, K, stream);
@@ -1557,8 +1557,8 @@ bool moe_block(
                 void* fused_out = add_to_residual ? ws.norm_y.data() : moe_out;
                 if (!moe_ws.cutlass_ws.empty() &&
                     N <= moe_ws.cutlass_max_rows &&
-                    ops::flashinfer_cutlass_moe_bf16(
-                        ops::MoeActivation::Swiglu,
+                    kernels::moe::flashinfer_cutlass_moe_bf16(
+                        kernels::moe::MoeActivation::Swiglu,
                         static_cast<const std::uint16_t*>(ws.norm_x.data()),
                         moe_ws.topk_idx.data(),
                         moe_ws.topk_weights.data(),
@@ -1613,7 +1613,7 @@ bool moe_block(
                             profile_cuda_detail_stage(
                                 profile, profile ? &profile->moe_align_ms : nullptr,
                                 stream, [&] {
-                            kernels::launch_moe_align_decode(
+                            kernels::moe::moe_align_decode(
                                 moe_ws.topk_idx.data(),
                                 moe_ws.aligned_route_ids.data(),
                                 moe_ws.aligned_expert_ids.data(),
@@ -1623,7 +1623,7 @@ bool moe_block(
                             profile_cuda_detail_stage(
                                 profile, profile ? &profile->moe_gather_ms : nullptr,
                                 stream, [&] {
-                            kernels::launch_gather_moe_aligned_inputs_bf16(
+                            kernels::moe::gather_moe_aligned_inputs_bf16(
                                 ws.norm_x.data(), moe_ws.aligned_route_ids.data(),
                                 moe_ws.aligned_expert_in.data(),
                                 routes, aligned_rows, K, H,
@@ -1632,7 +1632,7 @@ bool moe_block(
                             profile_cuda_detail_stage(
                                 profile, profile ? &profile->moe_ptrs_ms : nullptr,
                                 stream, [&] {
-                            kernels::launch_build_moe_ptrs_aligned_bf16(
+                            kernels::moe::build_moe_ptrs_aligned_bf16(
                                 moe_ws.aligned_expert_ids.data(),
                                 Lw.moe_gate_up_proj->data(),
                                 Lw.moe_down_proj->data(),
@@ -1668,16 +1668,16 @@ bool moe_block(
                     const bool grouped_ok =
                         !fold_shared;
                     const bool grouped_gu = grouped_ok &&
-                        kernels::moe_grouped_gemm_bf16_supported(
+                        kernels::moe::moe_grouped_gemm_bf16_supported(
                             block, 2 * Im, H);
                     const bool grouped_dn = grouped_ok &&
-                        kernels::moe_grouped_gemm_bf16_supported(
+                        kernels::moe::moe_grouped_gemm_bf16_supported(
                             block, H, Im);
                     profile_cuda_detail_stage(
                         profile, profile ? &profile->moe_gate_up_ms : nullptr,
                         stream, [&] {
                             if (grouped_gu) {
-                                kernels::launch_moe_grouped_gemm_bf16(
+                                kernels::moe::moe_grouped_gemm_bf16(
                                     moe_ws.aligned_expert_in.data(),
                                     Lw.moe_gate_up_proj->data(),
                                     moe_ws.aligned_gate_up.data(),
@@ -1709,7 +1709,7 @@ bool moe_block(
                         profile, profile ? &profile->moe_down_ms : nullptr,
                         stream, [&] {
                             if (grouped_dn) {
-                                kernels::launch_moe_grouped_gemm_bf16(
+                                kernels::moe::moe_grouped_gemm_bf16(
                                     moe_ws.aligned_act.data(),
                                     Lw.moe_down_proj->data(),
                                     moe_ws.aligned_out.data(),
@@ -1729,7 +1729,7 @@ bool moe_block(
                     profile_cuda_detail_stage(
                         profile, profile ? &profile->moe_reduce_ms : nullptr,
                         stream, [&] {
-                            kernels::launch_reorder_moe_aligned_output_bf16(
+                            kernels::moe::reorder_moe_aligned_output_bf16(
                                 moe_ws.aligned_out.data(),
                                 moe_ws.aligned_route_ids.data(),
                                 moe_ws.expert_out.data(),
@@ -1739,12 +1739,12 @@ bool moe_block(
                                             : nullptr,
                                 stream);
                             if (add_to_residual) {
-                                kernels::launch_token_batched_weighted_sum_add_bf16(
+                                kernels::moe::token_batched_weighted_sum_add_bf16(
                                     moe_out, moe_ws.expert_out.data(),
                                     moe_ws.topk_weights.data(),
                                     N, K, H, stream);
                             } else {
-                                kernels::launch_token_batched_weighted_sum_bf16(
+                                kernels::moe::token_batched_weighted_sum_bf16(
                                     moe_out, moe_ws.expert_out.data(),
                                     moe_ws.topk_weights.data(),
                                     N, K, H, stream);
@@ -1757,7 +1757,7 @@ bool moe_block(
                     profile_cuda_detail_stage(
                         profile, profile ? &profile->moe_gate_up_ms : nullptr,
                         stream, [&] {
-                            kernels::launch_moe_gate_up_decode_gemv_bf16(
+                            kernels::moe::moe_gate_up_decode_gemv_bf16(
                                 moe_ws.topk_idx.data(),
                                 ws.norm_x.data(),
                                 Lw.moe_gate_up_proj->data(),
@@ -1778,7 +1778,7 @@ bool moe_block(
                     profile_cuda_detail_stage(
                         profile, profile ? &profile->moe_down_ms : nullptr,
                         stream, [&] {
-                            kernels::launch_moe_down_decode_gemv_bf16(
+                            kernels::moe::moe_down_decode_gemv_bf16(
                                 moe_ws.topk_idx.data(),
                                 moe_ws.expert_act.data(),
                                 Lw.moe_down_proj->data(),
@@ -1790,12 +1790,12 @@ bool moe_block(
                         profile, profile ? &profile->moe_reduce_ms : nullptr,
                         stream, [&] {
                             if (add_to_residual) {
-                                kernels::launch_token_batched_weighted_sum_add_bf16(
+                                kernels::moe::token_batched_weighted_sum_add_bf16(
                                     moe_out, moe_ws.expert_out.data(),
                                     moe_ws.topk_weights.data(),
                                     N, K, H, stream);
                             } else {
-                                kernels::launch_token_batched_weighted_sum_bf16(
+                                kernels::moe::token_batched_weighted_sum_bf16(
                                     moe_out, moe_ws.expert_out.data(),
                                     moe_ws.topk_weights.data(),
                                     N, K, H, stream);
@@ -1879,7 +1879,7 @@ bool moe_block(
                         moe_ws.expert_act.data(), down_w,
                         moe_ws.expert_out.data(), Ne, H, Im);
 
-                    kernels::launch_scatter_add_weighted_bf16(
+                    kernels::moe::scatter_add_weighted_bf16(
                         ws.norm_y.data(), moe_ws.expert_out.data(),
                         moe_ws.expert_idx.data(), moe_ws.expert_w.data(),
                         Ne, H, stream);

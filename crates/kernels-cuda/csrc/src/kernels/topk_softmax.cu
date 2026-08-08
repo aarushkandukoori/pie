@@ -5,7 +5,7 @@
 #include <cstdlib>
 #include <stdexcept>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::moe {
 
 namespace {
 
@@ -303,7 +303,7 @@ __global__ void topk_softmax_warp_bf16_kernel(
 
 }  // namespace
 
-void launch_topk_softmax_bf16(
+void topk_softmax_bf16(
     const void* logits,
     std::int32_t* topk_idx, float* topk_w,
     int N, int num_experts, int K,
@@ -318,11 +318,11 @@ void launch_topk_softmax_bf16(
         const char* v = std::getenv("PIE_TOPK_WARP");
         return v == nullptr || v[0] != '0';
     }();
-    launch_topk_softmax_bf16_form(logits, topk_idx, topk_w, N, num_experts, K,
+    topk_softmax_bf16_form(logits, topk_idx, topk_w, N, num_experts, K,
                                   warp_ok, stream);
 }
 
-void launch_topk_softmax_bf16_form(
+void topk_softmax_bf16_form(
     const void* logits,
     std::int32_t* topk_idx, float* topk_w,
     int N, int num_experts, int K,
@@ -365,7 +365,7 @@ void launch_topk_softmax_bf16_form(
         num_experts, K, 0);
 }
 
-void launch_router_topk_softmax_bf16(
+void router_topk_softmax_bf16(
     const void* act,
     const void* router_weight,
     const void* router_bias,
@@ -403,7 +403,7 @@ __global__ void apply_per_expert_scale_kernel(
 
 }  // namespace
 
-void launch_apply_per_expert_scale_bf16(
+void apply_per_expert_scale_bf16(
     const std::int32_t* topk_idx,
     float* topk_w,
     const void* per_expert_scale_bf16,
@@ -531,7 +531,7 @@ __global__ void topk_sigmoid_bias_fp32_kernel(
 
 }  // namespace
 
-void launch_topk_sigmoid_bias_bf16(
+void topk_sigmoid_bias_bf16(
     const void* logits,
     const float* correction_bias,
     std::int32_t* topk_idx,
@@ -555,7 +555,7 @@ void launch_topk_sigmoid_bias_bf16(
         routed_scaling_factor);
 }
 
-void launch_topk_sigmoid_bias_fp32(
+void topk_sigmoid_bias_fp32(
     const float* logits,
     const float* correction_bias,
     std::int32_t* topk_idx,
@@ -579,4 +579,4 @@ void launch_topk_sigmoid_bias_fp32(
         routed_scaling_factor);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::moe

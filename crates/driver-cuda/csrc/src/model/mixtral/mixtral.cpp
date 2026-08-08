@@ -1009,7 +1009,7 @@ void mixtral_forward_paged(
             ws.norm_y.data(), layer.router->data(),
             layer.router_bias ? layer.router_bias->data() : nullptr,
             ws.gate.data(), N, num_experts, H, stream);
-        kernels::launch_topk_softmax_bf16(
+        kernels::moe::topk_softmax_bf16(
             ws.gate.data(), d_topk_idx.data(), d_topk_w.data(),
             N, num_experts, top_k, stream);
 
@@ -1169,14 +1169,14 @@ void mixtral_forward_paged(
             const int routes = N * top_k;
             const auto& e0 = layer.experts[0];
             // DELIBERATELY NOT TRANSPOSED. This block used to run
-            // `launch_transpose_expert_scales_u8` over these three
+            // `kernels::moe::transpose_expert_scales_u8` over these three
             // tensors, on the stated belief that they were "the
             // checkpoint's `[E, n, k/32]` scales". They are not: the
             // loader already repacked them. `model/gpt_oss`'s contract
             // publishes all three through `RepackLayout::MarlinMxfp4Scale`
             // (contract.rs `native_gate_up` and `native_down`), which
             // `transcode_engine.hpp` executes as
-            // `launch_mxfp4_scales_to_marlin_e8m0` -- already K-major AND
+            // `kernels::quant::mxfp4_scales_to_marlin_e8m0` -- already K-major AND
             // already carrying Marlin's 64-wide plus four-lane
             // permutation. Transposing that again destroyed it.
             //
@@ -1201,7 +1201,7 @@ void mixtral_forward_paged(
             // for `resolve()` to close at teardown. Every other stage boundary
             // in this branch pairs the two for the same reason.
             if (prof.enabled) { prof.close(stream); prof.open(&prof.moe_align, stream); }
-            kernels::launch_moe_align_decode(
+            kernels::moe::moe_align_decode(
                 d_topk_idx.data(), d_marlin_sorted.data(),
                 d_marlin_expert_ids.data(), /*route_to_aligned_row=*/nullptr,
                 routes, num_experts, marlin_block, marlin_max_blocks,
@@ -1237,10 +1237,10 @@ void mixtral_forward_paged(
             // GPT-OSS publishes its expert biases at the UNPADDED width, which
             // is not the stride Marlin's own bias epilogue assumes.
             if (e0.b_gate != nullptr) {
-                kernels::launch_add_moe_route_bias_bf16(
+                kernels::moe::add_moe_route_bias_bf16(
                     d_marlin_gate.data(), e0.b_gate->data(),
                     d_topk_idx.data(), routes, I, Ip_marlin, stream);
-                kernels::launch_add_moe_route_bias_bf16(
+                kernels::moe::add_moe_route_bias_bf16(
                     d_marlin_up.data(), e0.b_up->data(),
                     d_topk_idx.data(), routes, I, Ip_marlin, stream);
             }
@@ -1261,11 +1261,11 @@ void mixtral_forward_paged(
                      routes, /*top_k=*/1, H, Ip_marlin, false);
             if (prof.enabled) { prof.close(stream); prof.open(&prof.moe_reduce, stream); }
             if (e0.b_down != nullptr && tp_is_leader) {
-                kernels::launch_add_moe_route_bias_bf16(
+                kernels::moe::add_moe_route_bias_bf16(
                     d_mxfp4_route_out.data(), e0.b_down->data(),
                     d_topk_idx.data(), routes, H, H, stream);
             }
-            kernels::launch_token_batched_weighted_sum_bf16(
+            kernels::moe::token_batched_weighted_sum_bf16(
                 d_mxfp4_moe_out.data(), d_mxfp4_route_out.data(),
                 static_cast<const float*>(d_topk_w.data()), N, top_k, H,
                 stream);
@@ -1305,11 +1305,11 @@ void mixtral_forward_paged(
             // re-streams its expert's slab, so weight traffic scales with
             // tokens and the decode throughput is flat in batch size.
             if (mxfp4_moe_grouped_choice(routes, num_experts)) {
-                kernels::launch_moe_bucket_exact(
+                kernels::moe::moe_bucket_exact(
                     d_topk_idx.data(), d_moe_sorted_routes.data(),
                     d_moe_route_to_row.data(), d_moe_expert_counts.data(),
                     routes, num_experts, stream);
-                kernels::launch_mxfp4_moe_gate_up_decode_grouped_bf16(
+                kernels::quant::mxfp4_moe_gate_up_decode_grouped_bf16(
                     d_mxfp4_act_fp16.data(),
                     d_moe_sorted_routes.data(), d_moe_expert_counts.data(),
                     layer.expert_gate_up_packed_ptrs.data(),
@@ -1319,7 +1319,7 @@ void mixtral_forward_paged(
                     d_mxfp4_route_gate.data(), d_mxfp4_route_up.data(),
                     num_experts, top_k, H, I, stream);
             } else {
-                kernels::launch_mxfp4_moe_gate_up_decode_bf16(
+                kernels::quant::mxfp4_moe_gate_up_decode_bf16(
                     d_mxfp4_act_fp16.data(), d_topk_idx.data(),
                     layer.expert_gate_up_packed_ptrs.data(),
                     layer.expert_gate_up_scale_ptrs.data(),
@@ -1353,7 +1353,7 @@ void mixtral_forward_paged(
                     static_cast<std::size_t>(routes) * I, stream);
             }
             if (!act_fp16_ready) {
-                kernels::launch_bf16_to_fp16(
+                kernels::quant::bf16_to_fp16(
                     d_mxfp4_route_gate.data(), d_mxfp4_route_act_fp16.data(),
                     static_cast<std::size_t>(routes) * I, stream);
             }
@@ -1362,7 +1362,7 @@ void mixtral_forward_paged(
             // the all-reduce below would otherwise sum it T times.
             if (prof.enabled) prof.close(stream);   // moe_act (glu + cast)
             mx_stage(prof, &prof.moe_down, stream, [&]{
-            kernels::launch_mxfp4_moe_down_decode_bf16(
+            kernels::quant::mxfp4_moe_down_decode_bf16(
                 d_mxfp4_route_act_fp16.data(), d_topk_idx.data(),
                 layer.expert_down_packed_ptrs.data(),
                 layer.expert_down_scale_ptrs.data(),
@@ -1377,12 +1377,12 @@ void mixtral_forward_paged(
                 // hidden state to do what an epilogue could. Under TP the
                 // all-reduce has to see the combine's output alone, so that
                 // path keeps the two apart.
-                kernels::launch_token_batched_weighted_sum_add_bf16(
+                kernels::moe::token_batched_weighted_sum_add_bf16(
                     ws.y.data(), d_mxfp4_route_out.data(),
                     static_cast<const float*>(d_topk_w.data()),
                     N, top_k, H, stream);
             } else {
-                kernels::launch_token_batched_weighted_sum_bf16(
+                kernels::moe::token_batched_weighted_sum_bf16(
                     d_mxfp4_moe_out.data(), d_mxfp4_route_out.data(),
                     static_cast<const float*>(d_topk_w.data()),
                     N, top_k, H, stream);
@@ -1538,7 +1538,7 @@ void mixtral_forward_paged(
                     d_expert_out.data(), Ne, H, Ip);
                 if (expert.b_down && tp_is_leader) kernels::norm::add_bias_bf16(
                     d_expert_out.data(), expert.b_down->data(), Ne, H, stream);
-                kernels::launch_scatter_add_weighted_bf16(
+                kernels::moe::scatter_add_weighted_bf16(
                     moe_target, d_expert_out.data(),
                     d_expert_idx.data(), d_expert_w.data(),
                     Ne, H, stream);
@@ -1554,13 +1554,13 @@ void mixtral_forward_paged(
                     throw std::runtime_error(
                         "mixtral/gpt_oss: incomplete MXFP4 expert backend");
                 }
-                kernels::launch_dequant_mxfp4_to_bf16(
+                kernels::quant::dequant_mxfp4_to_bf16(
                     static_cast<const std::uint8_t*>(expert.w_gate_up->data()),
                     static_cast<const std::uint8_t*>(
                         expert.w_gate_up_scale->data()),
                     w.mxfp4_gate_up_bf16_scratch.data(),
                     2 * I, H, stream);
-                kernels::launch_dequant_mxfp4_to_bf16(
+                kernels::quant::dequant_mxfp4_to_bf16(
                     static_cast<const std::uint8_t*>(
                         expert.w_down_packed->data()),
                     static_cast<const std::uint8_t*>(
@@ -1613,7 +1613,7 @@ void mixtral_forward_paged(
 
             // Scatter into ws.y (TP=1) or moe_target scratch (TP>1) with
             // routing weight, residual-add style.
-            kernels::launch_scatter_add_weighted_bf16(
+            kernels::moe::scatter_add_weighted_bf16(
                 moe_target, d_expert_out.data(),
                 d_expert_idx.data(), d_expert_w.data(),
                 Ne, H, stream);

@@ -438,12 +438,12 @@ pub enum OpKind {
     /// [`DynAxis::PerToken`] — the `dyn` value everything expert-indexed
     /// consumes) and the routing weights (`[Tokens, k]` f32). One op
     /// because it is one launch in the hand-written MoE pass
-    /// (`launch_topk_softmax_bf16`: top-k + softmax + renormalize).
+    /// (`kernels::moe::topk_softmax_bf16`: top-k + softmax + renormalize).
     TopK { k: u32 },
     /// Per-token combine of the k routed expert outputs:
     /// `out[t] = sum_j w[t, j] * x[t, j, :]`, collapsing `[Tokens, k, d]`
     /// to `[Tokens, d]`. The hand-written MoE pass's
-    /// `launch_token_batched_weighted_sum_bf16` (the prefill path's
+    /// `kernels::moe::token_batched_weighted_sum_bf16` (the prefill path's
     /// per-expert `scatter_add_weighted` loop is a lowering of the same
     /// combine, chosen with the grouped GEMM it follows).
     WeightedSum { k: u32 },
@@ -1295,7 +1295,7 @@ impl TraceBuilder {
     /// Router top-k: `(indices, weights)`, both `[Tokens, k]`. The indices
     /// are the trace's first `dyn` value ([`DynAxis::PerToken`]); the
     /// weights are already softmaxed and renormalized, because the launch
-    /// this op mirrors (`launch_topk_softmax_bf16`) does all three.
+    /// this op mirrors (`kernels::moe::topk_softmax_bf16`) does all three.
     pub fn topk(&mut self, logits: ValueId, k: u32) -> (ValueId, ValueId) {
         let rows = self.values[logits as usize].shape.0[0];
         let out = self.push(

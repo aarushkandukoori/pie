@@ -111,7 +111,7 @@ void Qwen35MoeModel::body(Workspace& ws,
         } else if (in.has_write_desc &&
                    (in.w_page_d == nullptr || in.w_off_d == nullptr)) {
             fallback_reason = "write descriptors missing";
-        } else if (ops::flashinfer_cutlass_moe_enabled() &&
+        } else if (kernels::moe::flashinfer_cutlass_moe_enabled() &&
                    moe_ws_.cutlass_max_rows > 0 &&
                    in.total_tokens <= moe_ws_.cutlass_max_rows) {
             fallback_reason = "fire fits the fused CUTLASS leg";

@@ -59,13 +59,13 @@ GoKernel resolve_go_kernel(std::string_view k) {
     if (k == "launch_attention_sink_rescale_bf16")
         return GoKernel::AttnSinkRescale;
     if (k == "rope::rope_yarn_original_bf16") return GoKernel::RopeYarnOriginal;
-    if (k == "launch_topk_softmax_bf16") return GoKernel::TopkSoftmax;
-    if (k == "launch_bf16_to_fp16") return GoKernel::Bf16ToFp16;
-    if (k == "launch_mxfp4_moe_gate_up_decode_bf16")
+    if (k == "moe::topk_softmax_bf16") return GoKernel::TopkSoftmax;
+    if (k == "quant::bf16_to_fp16") return GoKernel::Bf16ToFp16;
+    if (k == "quant::mxfp4_moe_gate_up_decode_bf16")
         return GoKernel::Mxfp4GateUp;
-    if (k == "launch_mxfp4_moe_down_decode_bf16") return GoKernel::Mxfp4Down;
+    if (k == "quant::mxfp4_moe_down_decode_bf16") return GoKernel::Mxfp4Down;
     if (k == "mlp::gpt_oss_glu_bf16") return GoKernel::GptOssGlu;
-    if (k == "launch_token_batched_weighted_sum_bf16")
+    if (k == "moe::token_batched_weighted_sum_bf16")
         return GoKernel::WeightedSum;
     if (k == "norm::residual_add_bf16") return GoKernel::ResidualAdd;
     throw std::runtime_error(
@@ -480,7 +480,7 @@ bool gpt_oss_forward_declared(
                     fwd_cfg.yarn_original_max_position, stream);
                 break;
             case GoKernel::TopkSoftmax:
-                kernels::launch_topk_softmax_bf16(
+                kernels::moe::topk_softmax_bf16(
                     ws.gate.data(), d_topk_idx.data(), d_topk_w.data(),
                     N, num_experts, top_k, stream);
                 break;
@@ -494,17 +494,17 @@ bool gpt_oss_forward_declared(
                 // silently wrong the day a layer states one of them
                 // twice.
                 if (plan.value(plan.outputs(op)[0]).rank == 2) {
-                    kernels::launch_bf16_to_fp16(
+                    kernels::quant::bf16_to_fp16(
                         ws.norm_y.data(), d_act_fp16.data(),
                         static_cast<std::size_t>(N) * H, stream);
                 } else {
-                    kernels::launch_bf16_to_fp16(
+                    kernels::quant::bf16_to_fp16(
                         d_route_gate.data(), d_route_act_fp16.data(),
                         static_cast<std::size_t>(routes) * I, stream);
                 }
                 break;
             case GoKernel::Mxfp4GateUp:
-                kernels::launch_mxfp4_moe_gate_up_decode_bf16(
+                kernels::quant::mxfp4_moe_gate_up_decode_bf16(
                     d_act_fp16.data(), d_topk_idx.data(),
                     layer.expert_gate_up_packed_ptrs.data(),
                     layer.expert_gate_up_scale_ptrs.data(),
@@ -521,7 +521,7 @@ bool gpt_oss_forward_declared(
                     stream, /*limit=*/cfg.swiglu_limit);
                 break;
             case GoKernel::Mxfp4Down:
-                kernels::launch_mxfp4_moe_down_decode_bf16(
+                kernels::quant::mxfp4_moe_down_decode_bf16(
                     d_route_act_fp16.data(), d_topk_idx.data(),
                     layer.expert_down_packed_ptrs.data(),
                     layer.expert_down_scale_ptrs.data(),
@@ -529,7 +529,7 @@ bool gpt_oss_forward_declared(
                     d_route_out.data(), N, top_k, H, I, stream);
                 break;
             case GoKernel::WeightedSum:
-                kernels::launch_token_batched_weighted_sum_bf16(
+                kernels::moe::token_batched_weighted_sum_bf16(
                     d_moe_out.data(), d_route_out.data(),
                     static_cast<const float*>(d_topk_w.data()),
                     N, top_k, H, stream);

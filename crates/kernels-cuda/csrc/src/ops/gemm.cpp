@@ -1811,14 +1811,14 @@ void gemm_fp8_dequant_then_bf16_fallback(
     }
 
     if (scale_kind == QuantMeta::Kind::PerGroup && group_size > 0) {
-        kernels::launch_dequant_fp8_e4m3_to_bf16_per_group(
+        kernels::quant::dequant_fp8_e4m3_to_bf16_per_group(
             static_cast<const std::uint8_t*>(w_fp8),
             bf16_w,
             static_cast<const float*>(w_scale_fp32_dev),
             N, K, group_size, fill_stream);
         CUDA_CHECK(cudaGetLastError());
     } else if (scale_kind == QuantMeta::Kind::PerChannel) {
-        kernels::launch_dequant_fp8_e4m3_to_bf16_per_channel(
+        kernels::quant::dequant_fp8_e4m3_to_bf16_per_channel(
             static_cast<const std::uint8_t*>(w_fp8),
             bf16_w,
             static_cast<const float*>(w_scale_fp32_dev),
@@ -1829,7 +1829,7 @@ void gemm_fp8_dequant_then_bf16_fallback(
         CUDA_CHECK(cudaMemcpyAsync(&scale, w_scale_fp32_dev, sizeof(float),
                                    cudaMemcpyDeviceToHost, fill_stream));
         CUDA_CHECK(cudaStreamSynchronize(fill_stream));
-        kernels::launch_dequant_fp8_e4m3_to_bf16(
+        kernels::quant::dequant_fp8_e4m3_to_bf16(
             static_cast<const std::uint8_t*>(w_fp8),
             bf16_w, scale, weight_elems, fill_stream);
         CUDA_CHECK(cudaGetLastError());
@@ -2260,7 +2260,7 @@ void gemm_act_x_w(
         const std::size_t weight_bf16_bytes =
             static_cast<std::size_t>(N) * static_cast<std::size_t>(K) * 2;
         void* bf16_w = ctx.dequant.ensure(weight_bf16_bytes);
-        kernels::launch_dequant_mxfp4_to_bf16(
+        kernels::quant::dequant_mxfp4_to_bf16(
             static_cast<const std::uint8_t*>(w.data),
             static_cast<const std::uint8_t*>(w.scale_data),
             bf16_w, N, K, stream);

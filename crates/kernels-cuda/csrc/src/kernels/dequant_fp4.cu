@@ -5,7 +5,7 @@
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 namespace {
 
@@ -362,7 +362,7 @@ __global__ void mxfp4_moe_down_decode_kernel(
 
 }  // namespace
 
-void launch_dequant_mxfp4_to_bf16(
+void dequant_mxfp4_to_bf16(
     const std::uint8_t* packed, const std::uint8_t* block_scale,
     void* out, int out_dim, int in_dim, cudaStream_t stream)
 {
@@ -398,7 +398,7 @@ constexpr int kMxfp4DownRows = 4;  // four warps, one output row each
 //
 // Here a block owns (expert, row slab) and walks the expert's own route list,
 // loading each weight group once and applying it to up to `kTok` tokens. The
-// route list comes from `launch_moe_bucket_exact`, which already groups routes
+// route list comes from `kernels::moe::moe_bucket_exact`, which already groups routes
 // by expert; `counts` is its per-expert histogram and the block recovers its
 // slice with an exclusive prefix over it (num_experts is 32-128, so this is
 // cheaper than a second kernel and keeps the whole path device-side).
@@ -557,7 +557,7 @@ __global__ void mxfp4_moe_gate_up_decode_grouped_kernel(
     }
 }
 
-void launch_mxfp4_moe_gate_up_decode_bf16(
+void mxfp4_moe_gate_up_decode_bf16(
     const void* act_fp16,
     const std::int32_t* topk_idx,
     const std::uint8_t* const* gate_up_packed,
@@ -590,7 +590,7 @@ void launch_mxfp4_moe_gate_up_decode_bf16(
         top_k, hidden, intermediate);
 }
 
-void launch_mxfp4_moe_gate_up_decode_grouped_bf16(
+void mxfp4_moe_gate_up_decode_grouped_bf16(
     const void* act_fp16,
     const std::int32_t* sorted_route_ids,
     const std::int32_t* counts,
@@ -647,7 +647,7 @@ void launch_mxfp4_moe_gate_up_decode_grouped_bf16(
             top_k, hidden, intermediate, num_experts);
 }
 
-void launch_mxfp4_moe_down_decode_bf16(
+void mxfp4_moe_down_decode_bf16(
     const void* act_fp16,
     const std::int32_t* topk_idx,
     const std::uint8_t* const* down_packed,
@@ -674,4 +674,4 @@ void launch_mxfp4_moe_down_decode_bf16(
         hidden, intermediate);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

@@ -5,7 +5,7 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::moe {
 
 // Which gated/ungated epilogue the fused MoE runs. Each value costs one
 // more CUTLASS grouped-GEMM instantiation, so the set is declared in
@@ -78,4 +78,4 @@ bool flashinfer_cutlass_moe_bf16(
     int tp_rank,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::moe

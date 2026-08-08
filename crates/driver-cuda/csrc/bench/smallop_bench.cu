@@ -158,7 +158,7 @@ bool verify() {
             // caches its choice in a function-local static, so flipping
             // PIE_TOPK_WARP here would run the block form twice and the
             // comparison would pass without comparing anything.
-            pie_cuda_driver::kernels::launch_topk_softmax_bf16_form(
+            pie_cuda_driver::kernels::moe::topk_softmax_bf16_form(
                 d, di[form], dw[form], rows, E, K, /*use_warp=*/form == 1,
                 nullptr);
             CHECK(cudaDeviceSynchronize());
@@ -368,29 +368,29 @@ int main() {
         return 1;
     }
     bench("topk_softmax (block, old)", [&](cudaStream_t s) {
-        pie_cuda_driver::kernels::launch_topk_softmax_bf16_form(
+        pie_cuda_driver::kernels::moe::topk_softmax_bf16_form(
             logits, idx, wt, N, E, K, /*use_warp=*/false, s);
     });
     bench("topk_softmax (warp, new)", [&](cudaStream_t s) {
-        pie_cuda_driver::kernels::launch_topk_softmax_bf16_form(
+        pie_cuda_driver::kernels::moe::topk_softmax_bf16_form(
             logits, idx, wt, N, E, K, /*use_warp=*/true, s);
     });
     // Qwen3.6-35B-A3B and gemma-4-26B-A4B route through bigger expert pools,
     // where the block form had more parallelism to lose.
     bench("topk_softmax E=256 K=8 (block)", [&](cudaStream_t s) {
-        pie_cuda_driver::kernels::launch_topk_softmax_bf16_form(
+        pie_cuda_driver::kernels::moe::topk_softmax_bf16_form(
             big_logits, idx, wt, N, 256, 8, /*use_warp=*/false, s);
     });
     bench("topk_softmax E=256 K=8 (warp)", [&](cudaStream_t s) {
-        pie_cuda_driver::kernels::launch_topk_softmax_bf16_form(
+        pie_cuda_driver::kernels::moe::topk_softmax_bf16_form(
             big_logits, idx, wt, N, 256, 8, /*use_warp=*/true, s);
     });
     bench("topk_softmax E=128 K=8 (block)", [&](cudaStream_t s) {
-        pie_cuda_driver::kernels::launch_topk_softmax_bf16_form(
+        pie_cuda_driver::kernels::moe::topk_softmax_bf16_form(
             big_logits, idx, wt, N, 128, 8, /*use_warp=*/false, s);
     });
     bench("topk_softmax E=128 K=8 (warp)", [&](cudaStream_t s) {
-        pie_cuda_driver::kernels::launch_topk_softmax_bf16_form(
+        pie_cuda_driver::kernels::moe::topk_softmax_bf16_form(
             big_logits, idx, wt, N, 128, 8, /*use_warp=*/true, s);
     });
     if (!bench_rope_write_kv()) {

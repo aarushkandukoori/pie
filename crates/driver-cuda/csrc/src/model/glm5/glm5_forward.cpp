@@ -182,14 +182,14 @@ Glm5Workspace Glm5Workspace::allocate(
     if (routed_I > 0 && cfg.num_experts > 0) {
         // Sized for both extremes because the block is chosen per forward:
         // the minimum block yields the most blocks, this one the most rows.
-        const int block = kernels::moe_aligned_block(routes, cfg.num_experts);
+        const int block = kernels::moe::moe_aligned_block(routes, cfg.num_experts);
         const int active_expert_cap = std::min(cfg.num_experts, routes);
         const int max_blocks =
-            (routes + active_expert_cap * (kernels::kMoeAlignedBlockMin - 1) +
-             kernels::kMoeAlignedBlockMin - 1) /
-            kernels::kMoeAlignedBlockMin;
+            (routes + active_expert_cap * (kernels::moe::kMoeAlignedBlockMin - 1) +
+             kernels::moe::kMoeAlignedBlockMin - 1) /
+            kernels::moe::kMoeAlignedBlockMin;
         const int aligned_rows =
-            std::max(max_blocks * kernels::kMoeAlignedBlockMin,
+            std::max(max_blocks * kernels::moe::kMoeAlignedBlockMin,
                      ((routes + active_expert_cap * (block - 1) + block - 1) /
                       block) * block);
         ws.aligned_block_size  = block;
@@ -214,10 +214,10 @@ Glm5Workspace Glm5Workspace::allocate(
     // GEMM wastes the most work (`max_blocks` provisions for worst-case routing
     // skew and every block runs unconditionally).
     if (routed_I > 0 && cfg.num_experts > 0 && Ktop > 0 &&
-        ops::flashinfer_cutlass_moe_enabled() && glm5_moe_gate_up_swapped()) {
-        ws.cutlass_max_rows = std::min(N, ops::flashinfer_cutlass_moe_max_rows());
-        const std::size_t bytes = ops::flashinfer_cutlass_moe_workspace_bytes(
-            ops::MoeActivation::Swiglu, ws.cutlass_max_rows, H, routed_I,
+        kernels::moe::flashinfer_cutlass_moe_enabled() && glm5_moe_gate_up_swapped()) {
+        ws.cutlass_max_rows = std::min(N, kernels::moe::flashinfer_cutlass_moe_max_rows());
+        const std::size_t bytes = kernels::moe::flashinfer_cutlass_moe_workspace_bytes(
+            kernels::moe::MoeActivation::Swiglu, ws.cutlass_max_rows, H, routed_I,
             cfg.num_experts, Ktop, /*tp_size=*/1, /*tp_rank=*/0);
         if (bytes > 0) {
             ws.cutlass_ws = DeviceTensor::allocate(
@@ -584,16 +584,16 @@ void glm5_forward_paged(
         // only above that, where it is unambiguously better.
         const bool gemv_ok =
             Lw.moe_gate_up_proj != nullptr && ws.aligned_block_size > 0 &&
-            total_tokens <= ops::moe_gemv_max_tokens(kGlm5MoeGemvMaxTokens) &&
+            total_tokens <= kernels::moe::moe_gemv_max_tokens(kGlm5MoeGemvMaxTokens) &&
             (H % 8) == 0 && (routed_I % 8) == 0;
         const bool fused_moe_fits =
             !gemv_ok &&
             Lw.moe_gate_up_proj != nullptr && !ws.cutlass_ws.empty() &&
             total_tokens <= ws.cutlass_max_rows &&
-            total_tokens >= ops::flashinfer_cutlass_moe_min_rows();
+            total_tokens >= kernels::moe::flashinfer_cutlass_moe_min_rows();
         if (fused_moe_fits &&
-            ops::flashinfer_cutlass_moe_bf16(
-                ops::MoeActivation::Swiglu,
+            kernels::moe::flashinfer_cutlass_moe_bf16(
+                kernels::moe::MoeActivation::Swiglu,
                 static_cast<const std::uint16_t*>(ws.norm_y.data()),
                 static_cast<const std::int32_t*>(ws.topk_idx.data()),
                 static_cast<const float*>(ws.topk_weights.data()),
@@ -612,7 +612,7 @@ void glm5_forward_paged(
             // weight reuse, so one warp per output row beats a batched GEMM
             // whose tiling assumes an M worth filling.
             const int routes = total_tokens * K;
-            kernels::launch_moe_gate_up_decode_gemv_bf16(
+            kernels::moe::moe_gate_up_decode_gemv_bf16(
                 static_cast<const std::int32_t*>(ws.topk_idx.data()),
                 ws.norm_y.data(), Lw.moe_gate_up_proj->data(),
                 ws.aligned_gate_up.data(),
@@ -621,19 +621,19 @@ void glm5_forward_paged(
                 ws.aligned_gate_up.data(), ws.aligned_act.data(),
                 routes, routed_I, stream,
                 /*gate_second=*/glm5_moe_gate_up_swapped());
-            kernels::launch_moe_down_decode_gemv_bf16(
+            kernels::moe::moe_down_decode_gemv_bf16(
                 static_cast<const std::int32_t*>(ws.topk_idx.data()),
                 ws.aligned_act.data(), Lw.moe_down_proj->data(),
                 ws.expert_out.data(),
                 total_tokens, K, H, routed_I, stream);
-            kernels::launch_token_batched_weighted_sum_bf16(
+            kernels::moe::token_batched_weighted_sum_bf16(
                 ws.moe_out.data(), ws.expert_out.data(),
                 static_cast<const float*>(ws.topk_weights.data()),
                 total_tokens, K, H, stream);
         } else if (Lw.moe_gate_up_proj != nullptr && ws.aligned_block_size > 0) {
             const int routes = total_tokens * K;
             const int block = std::min(ws.aligned_block_size,
-                                       kernels::moe_aligned_block(routes, E));
+                                       kernels::moe::moe_aligned_block(routes, E));
             const int active_expert_cap = std::min(E, routes);
             const int max_blocks =
                 (routes + active_expert_cap * (block - 1) + block - 1) / block;
@@ -643,19 +643,19 @@ void glm5_forward_paged(
                 throw std::runtime_error("glm5: aligned MoE scratch too small");
             }
 
-            kernels::launch_moe_align_decode(
+            kernels::moe::moe_align_decode(
                 static_cast<const std::int32_t*>(ws.topk_idx.data()),
                 static_cast<std::int32_t*>(ws.aligned_route_ids.data()),
                 static_cast<std::int32_t*>(ws.aligned_expert_ids.data()),
                 /*route_to_aligned_row=*/nullptr,
                 routes, E, block, max_blocks, /*num_tokens_past_padded=*/nullptr, stream);
-            kernels::launch_gather_moe_aligned_inputs_bf16(
+            kernels::moe::gather_moe_aligned_inputs_bf16(
                 ws.norm_y.data(),
                 static_cast<const std::int32_t*>(ws.aligned_route_ids.data()),
                 ws.aligned_expert_in.data(),
                 routes, aligned_rows, K, H,
                 /*shared_row_begin=*/-1, total_tokens, stream);
-            kernels::launch_build_moe_ptrs_aligned_bf16(
+            kernels::moe::build_moe_ptrs_aligned_bf16(
                 static_cast<const std::int32_t*>(ws.aligned_expert_ids.data()),
                 Lw.moe_gate_up_proj->data(), Lw.moe_down_proj->data(),
                 ws.aligned_expert_in.data(), ws.aligned_gate_up.data(),
@@ -683,13 +683,13 @@ void glm5_forward_paged(
                 reinterpret_cast<const void* const*>(ws.a_dn_ptrs.data()),
                 reinterpret_cast<void* const*>(ws.c_dn_ptrs.data()),
                 block, H, routed_I, max_blocks);
-            kernels::launch_reorder_moe_aligned_output_bf16(
+            kernels::moe::reorder_moe_aligned_output_bf16(
                 ws.aligned_out.data(),
                 static_cast<const std::int32_t*>(ws.aligned_route_ids.data()),
                 ws.expert_out.data(),
                 routes, aligned_rows, H,
                 /*shared_row_begin=*/-1, total_tokens, nullptr, stream);
-            kernels::launch_token_batched_weighted_sum_bf16(
+            kernels::moe::token_batched_weighted_sum_bf16(
                 ws.moe_out.data(), ws.expert_out.data(),
                 static_cast<const float*>(ws.topk_weights.data()),
                 total_tokens, K, H, stream);
@@ -753,7 +753,7 @@ void glm5_forward_paged(
                 ws.expert_gate.data(),
                 make_expert_weight_view(Ew.down_proj, Ew.down_quant),
                 ws.expert_out.data(), Ne, H, routed_I);
-            kernels::launch_scatter_add_weighted_bf16(
+            kernels::moe::scatter_add_weighted_bf16(
                 ws.moe_out.data(), ws.expert_out.data(),
                 static_cast<const std::int32_t*>(ws.route_idx.data()),
                 static_cast<const float*>(ws.route_w.data()),

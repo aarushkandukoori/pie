@@ -8,7 +8,7 @@
 #include <type_traits>
 #include <mma.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::moe {
 
 namespace {
 
@@ -35,7 +35,7 @@ __global__ void scatter_add_weighted_bf16_kernel(
 
 }  // namespace
 
-void launch_scatter_add_weighted_bf16(
+void scatter_add_weighted_bf16(
     void* out, const void* src,
     const std::int32_t* dst_idx, const float* row_weights,
     int num_routed, int hidden, cudaStream_t stream)
@@ -64,7 +64,7 @@ __global__ void scalar_weighted_add_bf16_kernel(
 
 }  // namespace
 
-void launch_scalar_weighted_add_bf16(
+void scalar_weighted_add_bf16(
     void* out, const void* src, float weight, int n, cudaStream_t stream)
 {
     if (n <= 0) return;
@@ -98,7 +98,7 @@ __global__ void build_dual_bf16_gemm_ptrs_kernel(
 
 }  // namespace
 
-void launch_build_dual_bf16_gemm_ptrs(
+void build_dual_bf16_gemm_ptrs(
     const void* act,
     const void* w0,
     const void* w1,
@@ -142,7 +142,7 @@ __global__ void batched_weighted_sum_bf16_kernel(
 
 }  // namespace
 
-void launch_batched_weighted_sum_bf16(
+void batched_weighted_sum_bf16(
     void* out, const void* src, const float* weights,
     int batch, int hidden, cudaStream_t stream)
 {
@@ -268,7 +268,7 @@ __global__ void token_batched_weighted_sum_add_bf16_vec_kernel(
 }  // namespace
 
 
-void launch_token_batched_weighted_sum_bf16(
+void token_batched_weighted_sum_bf16(
     void* out, const void* src, const float* weights,
     int num_tokens, int top_k, int hidden, cudaStream_t stream)
 {
@@ -292,7 +292,7 @@ void launch_token_batched_weighted_sum_bf16(
         dstp, srcp, weights, top_k, hidden);
 }
 
-void launch_token_batched_weighted_sum_add_bf16(
+void token_batched_weighted_sum_add_bf16(
     void* out, const void* src, const float* weights,
     int num_tokens, int top_k, int hidden, cudaStream_t stream)
 {
@@ -345,7 +345,7 @@ __global__ void token_batched_weighted_sum_aligned_bf16_kernel(
 
 }  // namespace
 
-void launch_token_batched_weighted_sum_aligned_bf16(
+void token_batched_weighted_sum_aligned_bf16(
     void* out,
     const void* aligned_out,
     const float* weights,
@@ -405,7 +405,7 @@ __global__ void build_moe_ptrs_decode_bf16_kernel(
     weights_out[k] = topk_w[k];
 }
 
-void launch_build_moe_ptrs_decode_bf16(
+void build_moe_ptrs_decode_bf16(
     const std::int32_t* topk_idx,
     const float*        topk_w,
     const void* gate_up_base, const void* down_base, const void* norm_x,
@@ -475,7 +475,7 @@ __global__ void build_moe_ptrs_decode_batched_bf16_kernel(
 
 }  // namespace
 
-void launch_build_moe_ptrs_decode_batched_bf16(
+void build_moe_ptrs_decode_batched_bf16(
     const std::int32_t* topk_idx,
     const float*        topk_w,
     const void* gate_up_base, const void* down_base, const void* norm_x,
@@ -677,7 +677,7 @@ __global__ void moe_decode_gemv_bf16_kernel(
 
 // Sweep entry point for the microbenchmark: the unroll depth and warps per
 // block, chosen explicitly. Not for engine use.
-bool launch_moe_decode_gemv_tuned(
+bool moe_decode_gemv_tuned(
     const std::int32_t* topk_idx, const void* act, const void* weight_base,
     void* out, int routes, int top_k, int K, int N, long long expert_stride,
     int warps, int unroll, cudaStream_t stream)
@@ -708,7 +708,7 @@ bool launch_moe_decode_gemv_tuned(
     return false;
 }
 
-void launch_moe_gate_up_decode_gemv_bf16(
+void moe_gate_up_decode_gemv_bf16(
     const std::int32_t* topk_idx,
     const void* norm_x,
     const void* gate_up_base,
@@ -736,7 +736,7 @@ void launch_moe_gate_up_decode_gemv_bf16(
             top_k, H, N, static_cast<long long>(N) * H);
 }
 
-void launch_moe_down_decode_gemv_bf16(
+void moe_down_decode_gemv_bf16(
     const std::int32_t* topk_idx,
     const void* expert_act,
     const void* down_base,
@@ -761,7 +761,7 @@ void launch_moe_down_decode_gemv_bf16(
             top_k, I_moe, H, static_cast<long long>(H) * I_moe);
 }
 
-void launch_moe_gate_up_decode_wmma_bf16(
+void moe_gate_up_decode_wmma_bf16(
     const std::int32_t* topk_idx,
     const void* norm_x,
     const void* gate_up_base,
@@ -788,7 +788,7 @@ void launch_moe_gate_up_decode_wmma_bf16(
         top_k, H, N, static_cast<long long>(N) * H);
 }
 
-void launch_moe_down_decode_wmma_bf16(
+void moe_down_decode_wmma_bf16(
     const std::int32_t* topk_idx,
     const void* expert_act,
     const void* down_base,
@@ -1160,7 +1160,7 @@ __global__ void reorder_moe_aligned_output_bf16_kernel(
 
 }  // namespace
 
-void launch_moe_align_decode(
+void moe_align_decode(
     const std::int32_t* topk_idx,
     std::int32_t* sorted_route_ids,
     std::int32_t* expert_ids,
@@ -1208,7 +1208,7 @@ __global__ void add_moe_route_bias_bf16_kernel(
 
 }  // namespace
 
-void launch_add_moe_route_bias_bf16(
+void add_moe_route_bias_bf16(
     void* out, const void* bias, const std::int32_t* topk_idx,
     int num_routes, int cols, int out_stride, cudaStream_t stream)
 {
@@ -1239,7 +1239,7 @@ __global__ void transpose_expert_scales_u8_kernel(
 
 }  // namespace
 
-void launch_transpose_expert_scales_u8(
+void transpose_expert_scales_u8(
     const void* src, void* dst, int num_experts, int n, int k_groups,
     cudaStream_t stream)
 {
@@ -1253,7 +1253,7 @@ void launch_transpose_expert_scales_u8(
         static_cast<std::uint8_t*>(dst), n, k_groups);
 }
 
-void launch_moe_bucket_exact(
+void moe_bucket_exact(
     const std::int32_t* topk_idx,
     std::int32_t* sorted_route_ids,
     std::int32_t* route_to_sorted_row,
@@ -1271,7 +1271,7 @@ void launch_moe_bucket_exact(
         num_routes, num_experts);
 }
 
-void launch_gather_moe_aligned_inputs_bf16(
+void gather_moe_aligned_inputs_bf16(
     const void* norm_x,
     const std::int32_t* sorted_route_ids,
     void* aligned_in,
@@ -1307,7 +1307,7 @@ void launch_gather_moe_aligned_inputs_bf16(
         shared_row_begin, num_tokens);
 }
 
-void launch_build_moe_ptrs_aligned_bf16(
+void build_moe_ptrs_aligned_bf16(
     const std::int32_t* expert_ids,
     const void* gate_up_base,
     const void* down_base,
@@ -1355,7 +1355,7 @@ void launch_build_moe_ptrs_aligned_bf16(
         static_cast<const __nv_bfloat16*>(shared_down_base));
 }
 
-void launch_reorder_moe_aligned_output_bf16(
+void reorder_moe_aligned_output_bf16(
     const void* aligned_out,
     const std::int32_t* sorted_route_ids,
     void* route_out,
@@ -1392,4 +1392,4 @@ void launch_reorder_moe_aligned_output_bf16(
         shared_row_begin, num_tokens, sdst);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::moe

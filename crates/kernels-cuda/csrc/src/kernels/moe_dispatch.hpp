@@ -14,12 +14,12 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::moe {
 
 // `out[dst_idx[i]] += src[i] * row_weights[i]` for i ∈ [0, num_routed).
 // Per-row RMW; safe because the per-expert calls are sequential — there
 // are no concurrent writers to a given row across expert iterations.
-void launch_scatter_add_weighted_bf16(
+void scatter_add_weighted_bf16(
     void* out,                          // [N, hidden] bf16, in-place
     const void* src,                    // [num_routed, hidden] bf16
     const std::int32_t* dst_idx,        // [num_routed] i32
@@ -33,7 +33,7 @@ void launch_scatter_add_weighted_bf16(
 // processed, every per-expert contribution writes to the same single
 // destination row, so the indexed scatter degenerates to a flat
 // fma-on-row. Saves an expert_idx D2H copy + the gather kernel.
-void launch_scalar_weighted_add_bf16(
+void scalar_weighted_add_bf16(
     void*       out,    // bf16, in-place
     const void* src,    // bf16
     float       weight,
@@ -51,7 +51,7 @@ void launch_scalar_weighted_add_bf16(
 // `batch` is small (=top_k=8 on Qwen3.6-MoE), `hidden` is the model's
 // hidden_size. Single launch replaces top_k separate scalar-weighted
 // adds.
-void launch_batched_weighted_sum_bf16(
+void batched_weighted_sum_bf16(
     void*       out,
     const void* src,
     const float* weights,
@@ -65,7 +65,7 @@ void launch_batched_weighted_sum_bf16(
 //     src     : [num_tokens * top_k, hidden] bf16
 //     weights : [num_tokens * top_k] fp32
 //     out     : [num_tokens, hidden] bf16
-void launch_token_batched_weighted_sum_bf16(
+void token_batched_weighted_sum_bf16(
     void*       out,
     const void* src,
     const float* weights,
@@ -74,7 +74,7 @@ void launch_token_batched_weighted_sum_bf16(
     int hidden,
     cudaStream_t stream);
 
-void launch_token_batched_weighted_sum_add_bf16(
+void token_batched_weighted_sum_add_bf16(
     void*       out,
     const void* src,
     const float* weights,
@@ -86,7 +86,7 @@ void launch_token_batched_weighted_sum_add_bf16(
 // Fused combine for aligned MoE output. `route_to_aligned_row[route]`
 // maps the original route id (`token * top_k + k`) to its row in
 // `aligned_out`; accumulation still proceeds in top-k order for each token.
-void launch_token_batched_weighted_sum_aligned_bf16(
+void token_batched_weighted_sum_aligned_bf16(
     void* out,
     const void* aligned_out,
     const float* weights,
@@ -116,7 +116,7 @@ void launch_token_batched_weighted_sum_aligned_bf16(
 //     weights_out     : [top_k] fp32 — `topk_w` copied through
 //     stride_gu       : 2 * I_moe * H (bf16 elements per expert in gate_up_proj)
 //     stride_dn       : H * I_moe       (bf16 elements per expert in down_proj)
-void launch_build_moe_ptrs_decode_bf16(
+void build_moe_ptrs_decode_bf16(
     const std::int32_t* topk_idx,
     const float*        topk_w,
     const void*         gate_up_base,
@@ -136,10 +136,10 @@ void launch_build_moe_ptrs_decode_bf16(
     int H, int I_moe,
     cudaStream_t stream);
 
-// Multi-token decode equivalent of `launch_build_moe_ptrs_decode_bf16`.
+// Multi-token decode equivalent of `build_moe_ptrs_decode_bf16`.
 // Produces `num_tokens * top_k` pointer triples, treating each routed
 // token/expert pair as one M=1 batched-GEMM item.
-void launch_build_moe_ptrs_decode_batched_bf16(
+void build_moe_ptrs_decode_batched_bf16(
     const std::int32_t* topk_idx,
     const float*        topk_w,
     const void*         gate_up_base,
@@ -168,12 +168,12 @@ void launch_build_moe_ptrs_decode_batched_bf16(
 // chosen explicitly. Shapes for the sweep must come from a decode trace of the
 // model -- a hand-picked set already produced a confident number for a shape
 // that never runs, and cost two models a regression.
-bool launch_moe_decode_gemv_tuned(
+bool moe_decode_gemv_tuned(
     const std::int32_t* topk_idx, const void* act, const void* weight_base,
     void* out, int routes, int top_k, int K, int N, long long expert_stride,
     int warps, int unroll, cudaStream_t stream);
 
-void launch_moe_gate_up_decode_gemv_bf16(
+void moe_gate_up_decode_gemv_bf16(
     const std::int32_t* topk_idx,
     const void* norm_x,
     const void* gate_up_base,
@@ -184,7 +184,7 @@ void launch_moe_gate_up_decode_gemv_bf16(
     int I_moe,
     cudaStream_t stream);
 
-void launch_moe_down_decode_gemv_bf16(
+void moe_down_decode_gemv_bf16(
     const std::int32_t* topk_idx,
     const void* expert_act,
     const void* down_base,
@@ -198,7 +198,7 @@ void launch_moe_down_decode_gemv_bf16(
 // Tensor-core decode kernels for the sparse MoE hot path. Each routed
 // token/expert pair is treated as a 1-row GEMM, but computed with BF16 WMMA
 // tiles to avoid the overhead of many tiny cuBLAS batched GEMMs.
-void launch_moe_gate_up_decode_wmma_bf16(
+void moe_gate_up_decode_wmma_bf16(
     const std::int32_t* topk_idx,
     const void* norm_x,
     const void* gate_up_base,
@@ -209,7 +209,7 @@ void launch_moe_gate_up_decode_wmma_bf16(
     int I_moe,
     cudaStream_t stream);
 
-void launch_moe_down_decode_wmma_bf16(
+void moe_down_decode_wmma_bf16(
     const std::int32_t* topk_idx,
     const void* expert_act,
     const void* down_base,
@@ -224,7 +224,7 @@ void launch_moe_down_decode_wmma_bf16(
 // one cublasGemmBatchedEx call:
 //   out0 = act @ w0^T
 //   out1 = act @ w1^T
-void launch_build_dual_bf16_gemm_ptrs(
+void build_dual_bf16_gemm_ptrs(
     const void* act,
     const void* w0,
     const void* w1,
@@ -272,7 +272,7 @@ inline int moe_aligned_block(int routes, int num_experts) {
     return block;
 }
 
-void launch_moe_align_decode(
+void moe_align_decode(
     const std::int32_t* topk_idx,
     std::int32_t* sorted_route_ids,
     std::int32_t* expert_ids,
@@ -289,8 +289,8 @@ void launch_moe_align_decode(
     std::int32_t* num_tokens_past_padded,
     cudaStream_t stream);
 
-// `launch_moe_bucket_exact` is the same expert-bucketing setup as
-// `launch_moe_align_decode`, this does not pad to fixed-size expert blocks.
+// `moe_bucket_exact` is the same expert-bucketing setup as
+// `moe_align_decode`, this does not pad to fixed-size expert blocks.
 // It writes sorted route ids, the inverse route->sorted-row map, and exact
 // per-expert counts. The host may copy only `counts_out[num_experts]` to build
 // cuBLAS grouped shapes while route metadata stays on device.
@@ -301,7 +301,7 @@ void launch_moe_align_decode(
 // packed weights are padded to a 128 multiple, so the two strides disagree and
 // the epilogue cannot be used. This applies the bias afterwards, reading the
 // route's expert from `topk_idx` and the bias row at its own stride.
-void launch_add_moe_route_bias_bf16(
+void add_moe_route_bias_bf16(
     void* out,                        // [num_routes, out_stride] bf16
     const void* bias,                 // [num_experts, bias_stride] bf16
     const std::int32_t* topk_idx,     // [num_routes]
@@ -317,7 +317,7 @@ void launch_add_moe_route_bias_bf16(
 // step along K advances a whole row of N: the layout is K-major. GPT-OSS
 // publishes `[E, I_native, H/32]`, which is the transpose of that, so feeding
 // it straight through produces plausible-looking garbage rather than an error.
-void launch_transpose_expert_scales_u8(
+void transpose_expert_scales_u8(
     const void* src,
     void* dst,
     int num_experts,
@@ -325,7 +325,7 @@ void launch_transpose_expert_scales_u8(
     int k_groups,
     cudaStream_t stream);
 
-void launch_moe_bucket_exact(
+void moe_bucket_exact(
     const std::int32_t* topk_idx,
     std::int32_t* sorted_route_ids,
     std::int32_t* route_to_sorted_row,
@@ -344,7 +344,7 @@ void launch_moe_bucket_exact(
 // shared_row_begin` (every token visits the shared expert exactly once) and
 // so are not described by `sorted_route_ids` at all. Pass
 // `shared_row_begin < 0` to disable.
-void launch_gather_moe_aligned_inputs_bf16(
+void gather_moe_aligned_inputs_bf16(
     const void* norm_x,
     const std::int32_t* sorted_route_ids,
     void* aligned_in,
@@ -356,7 +356,7 @@ void launch_gather_moe_aligned_inputs_bf16(
     int num_tokens,
     cudaStream_t stream);
 
-void launch_build_moe_ptrs_aligned_bf16(
+void build_moe_ptrs_aligned_bf16(
     const std::int32_t* expert_ids,
     const void* gate_up_base,
     const void* down_base,
@@ -387,7 +387,7 @@ void launch_build_moe_ptrs_aligned_bf16(
 // Rows at or after `shared_row_begin` are the folded shared expert and go to
 // `shared_out[token]` instead, still unscaled — the caller applies the
 // sigmoid scalar gate exactly as it did for the standalone path.
-void launch_reorder_moe_aligned_output_bf16(
+void reorder_moe_aligned_output_bf16(
     const void* aligned_out,
     const std::int32_t* sorted_route_ids,
     void* route_out,
@@ -399,4 +399,4 @@ void launch_reorder_moe_aligned_output_bf16(
     void* shared_out,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::moe

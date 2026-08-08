@@ -225,14 +225,14 @@ DsV4Workspace DsV4Workspace::allocate(
         const int routes = N * K;
         // Sized for both extremes because the block is chosen per forward:
         // the minimum block yields the most blocks, this one the most rows.
-        const int block = kernels::moe_aligned_block(routes, E);
+        const int block = kernels::moe::moe_aligned_block(routes, E);
         const int active_expert_cap = std::min(E, routes);
         const int max_blocks =
-            (routes + active_expert_cap * (kernels::kMoeAlignedBlockMin - 1) +
-             kernels::kMoeAlignedBlockMin - 1) /
-            kernels::kMoeAlignedBlockMin;
+            (routes + active_expert_cap * (kernels::moe::kMoeAlignedBlockMin - 1) +
+             kernels::moe::kMoeAlignedBlockMin - 1) /
+            kernels::moe::kMoeAlignedBlockMin;
         const int aligned_rows =
-            std::max(max_blocks * kernels::kMoeAlignedBlockMin,
+            std::max(max_blocks * kernels::moe::kMoeAlignedBlockMin,
                      ((routes + active_expert_cap * (block - 1) + block - 1) /
                       block) * block);
         ws.aligned_block_size = block;
@@ -949,7 +949,7 @@ void dsv4_forward_paged(
                                 static_cast<const char*>(
                                     qm.scale->data()) + scale_off));
 
-                        kernels::launch_dequant_fp8_e4m3_to_bf16_per_group(
+                        kernels::quant::dequant_fp8_e4m3_to_bf16_per_group(
                             fp8_ptr, dequant_buf, sc_ptr,
                             o_lora, per_group_dim, gs, stream);
                     } else if (Lw.wo_a_quant.has_value() &&
@@ -959,7 +959,7 @@ void dsv4_forward_paged(
                         const auto* sc_ptr =
                             static_cast<const float*>(
                                 qm.scale->data()) + global_g * o_lora;
-                        kernels::launch_dequant_fp8_e4m3_to_bf16_per_channel(
+                        kernels::quant::dequant_fp8_e4m3_to_bf16_per_channel(
                             fp8_ptr, dequant_buf, sc_ptr,
                             o_lora, per_group_dim, stream);
                     } else {
@@ -975,7 +975,7 @@ void dsv4_forward_paged(
                                 cudaMemcpyDeviceToHost, stream));
                             CUDA_CHECK(cudaStreamSynchronize(stream));
                         }
-                        kernels::launch_dequant_fp8_e4m3_to_bf16(
+                        kernels::quant::dequant_fp8_e4m3_to_bf16(
                             fp8_ptr, dequant_buf, scale_val,
                             static_cast<std::size_t>(o_lora) *
                                 per_group_dim,
@@ -1122,7 +1122,7 @@ void dsv4_forward_paged(
 
         // MoE routing
         if (Lw.is_hash_layer && Lw.tid2eid != nullptr) {
-            kernels::launch_hash_route_lookup(
+            kernels::moe::hash_route_lookup(
                 token_ids,
                 static_cast<const std::int64_t*>(Lw.tid2eid->data()),
                 ws.router_logits.data(),
@@ -1133,7 +1133,7 @@ void dsv4_forward_paged(
                 cfg.routed_scaling_factor,
                 stream);
         } else {
-            kernels::launch_topk_sqrtsoftplus_bf16(
+            kernels::moe::topk_sqrtsoftplus_bf16(
                 ws.router_logits.data(),
                 static_cast<std::int32_t*>(ws.topk_idx.data()),
                 static_cast<float*>(ws.topk_weights.data()),
@@ -1172,14 +1172,14 @@ void dsv4_forward_paged(
             // bytes than the GEMMs that consume it -- which is why the stacks
             // are the default.
             if (stacked && ws.aligned_block_size > 0 &&
-                N <= ops::moe_gemv_max_tokens(kDsV4MoeGemvMaxTokens) &&
+                N <= kernels::moe::moe_gemv_max_tokens(kDsV4MoeGemvMaxTokens) &&
                 (H % 8) == 0 &&
                 (local_moe_I % 8) == 0) {
                 // Decode: at M=1 the routed GEMMs stream weights with no reuse,
                 // so a warp-per-output-row GEMV beats a batched GEMM whose
                 // tiling assumes an M worth filling.
                 const int routes = N * K;
-                kernels::launch_moe_gate_up_decode_gemv_bf16(
+                kernels::moe::moe_gate_up_decode_gemv_bf16(
                     static_cast<const std::int32_t*>(ws.topk_idx.data()),
                     ws.norm_y.data(), Lw.moe_gate_up_bf16->data(),
                     ws.aligned_gate_up.data(),
@@ -1187,12 +1187,12 @@ void dsv4_forward_paged(
                 dsv4_chunked_swiglu(ws.aligned_gate_up.data(),
                     ws.aligned_act.data(), routes, local_moe_I,
                     cfg.swiglu_limit, stream);
-                kernels::launch_moe_down_decode_gemv_bf16(
+                kernels::moe::moe_down_decode_gemv_bf16(
                     static_cast<const std::int32_t*>(ws.topk_idx.data()),
                     ws.aligned_act.data(), Lw.moe_down_bf16->data(),
                     ws.expert_out.data(),
                     N, K, H, local_moe_I, stream);
-                kernels::launch_token_batched_weighted_sum_bf16(
+                kernels::moe::token_batched_weighted_sum_bf16(
                     ws.moe_out.data(), ws.expert_out.data(),
                     static_cast<const float*>(ws.topk_weights.data()),
                     N, K, H, stream);
@@ -1202,7 +1202,7 @@ void dsv4_forward_paged(
                 // stream sync, and the reduction is deterministic.
                 const int routes = N * K;
                 const int block = std::min(ws.aligned_block_size,
-                                           kernels::moe_aligned_block(routes, E));
+                                           kernels::moe::moe_aligned_block(routes, E));
                 const int active_expert_cap = std::min(E, routes);
                 const int max_blocks =
                     (routes + active_expert_cap * (block - 1) + block - 1) / block;
@@ -1212,19 +1212,19 @@ void dsv4_forward_paged(
                     throw std::runtime_error("dsv4: aligned MoE scratch too small");
                 }
 
-                kernels::launch_moe_align_decode(
+                kernels::moe::moe_align_decode(
                     static_cast<const std::int32_t*>(ws.topk_idx.data()),
                     static_cast<std::int32_t*>(ws.aligned_route_ids.data()),
                     static_cast<std::int32_t*>(ws.aligned_expert_ids.data()),
                     /*route_to_aligned_row=*/nullptr,
                     routes, E, block, max_blocks, /*num_tokens_past_padded=*/nullptr, stream);
-                kernels::launch_gather_moe_aligned_inputs_bf16(
+                kernels::moe::gather_moe_aligned_inputs_bf16(
                     ws.norm_y.data(),
                     static_cast<const std::int32_t*>(ws.aligned_route_ids.data()),
                     ws.aligned_expert_in.data(),
                     routes, aligned_rows, K, H,
                     /*shared_row_begin=*/-1, N, stream);
-                kernels::launch_build_moe_ptrs_aligned_bf16(
+                kernels::moe::build_moe_ptrs_aligned_bf16(
                     static_cast<const std::int32_t*>(ws.aligned_expert_ids.data()),
                     Lw.moe_gate_up_bf16->data(), Lw.moe_down_bf16->data(),
                     ws.aligned_expert_in.data(), ws.aligned_gate_up.data(),
@@ -1251,13 +1251,13 @@ void dsv4_forward_paged(
                     reinterpret_cast<const void* const*>(ws.a_dn_ptrs.data()),
                     reinterpret_cast<void* const*>(ws.c_dn_ptrs.data()),
                     block, H, local_moe_I, max_blocks);
-                kernels::launch_reorder_moe_aligned_output_bf16(
+                kernels::moe::reorder_moe_aligned_output_bf16(
                     ws.aligned_out.data(),
                     static_cast<const std::int32_t*>(ws.aligned_route_ids.data()),
                     ws.expert_out.data(),
                     routes, aligned_rows, H,
                     /*shared_row_begin=*/-1, N, nullptr, stream);
-                kernels::launch_token_batched_weighted_sum_bf16(
+                kernels::moe::token_batched_weighted_sum_bf16(
                     ws.moe_out.data(), ws.expert_out.data(),
                     static_cast<const float*>(ws.topk_weights.data()),
                     N, K, H, stream);
@@ -1322,15 +1322,15 @@ void dsv4_forward_paged(
                 } else {
                     const auto& ew = Lw.experts[static_cast<std::size_t>(e)];
                     if (!ew.w1 || !ew.w1_scale) continue;
-                    kernels::launch_dequant_mxfp4_to_bf16(
+                    kernels::quant::dequant_mxfp4_to_bf16(
                         static_cast<const std::uint8_t*>(ew.w1->data()),
                         static_cast<const std::uint8_t*>(ew.w1_scale->data()),
                         ws.expert_gate_w.data(), local_moe_I, H, stream);
-                    kernels::launch_dequant_mxfp4_to_bf16(
+                    kernels::quant::dequant_mxfp4_to_bf16(
                         static_cast<const std::uint8_t*>(ew.w3->data()),
                         static_cast<const std::uint8_t*>(ew.w3_scale->data()),
                         ws.expert_up_w.data(), local_moe_I, H, stream);
-                    kernels::launch_dequant_mxfp4_to_bf16(
+                    kernels::quant::dequant_mxfp4_to_bf16(
                         static_cast<const std::uint8_t*>(ew.w2->data()),
                         static_cast<const std::uint8_t*>(ew.w2_scale->data()),
                         ws.expert_down_w.data(), H, local_moe_I, stream);
@@ -1376,7 +1376,7 @@ void dsv4_forward_paged(
                     ops::WeightView::raw(w_down, DType::BF16),
                     ws.expert_out.data(), Ne, H, local_moe_I);
 
-                kernels::launch_scatter_add_weighted_bf16(
+                kernels::moe::scatter_add_weighted_bf16(
                     ws.moe_out.data(), ws.expert_out.data(),
                     static_cast<const std::int32_t*>(ws.route_idx.data()),
                     static_cast<const float*>(ws.route_w.data()),

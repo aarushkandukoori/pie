@@ -5,7 +5,7 @@
 
 #include <algorithm>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 namespace {
 
@@ -125,7 +125,7 @@ __device__ __forceinline__ void wna16_act_pairs(const float4& xv,
 // five shuffles with no barrier at all.
 //
 // The activation arrives as fp16 (staged once per MoE layer by
-// `launch_bf16_to_fp16`, which costs one ~2 us launch against the ~15 us per
+// `bf16_to_fp16`, which costs one ~2 us launch against the ~15 us per
 // layer this saves) so that the whole inner loop is `__hfma2`: two MACs per
 // instruction, no format conversion anywhere. The group scale multiplies the
 // word's partial sum instead of every product, which is exact for the same
@@ -262,7 +262,7 @@ __global__ void wna16_down_decode_kernel(
 
 }  // namespace
 
-void launch_dequant_wna16_int4b8_to_bf16(
+void dequant_wna16_int4b8_to_bf16(
     const std::int32_t* packed,
     const void* scale_bf16,
     void* out_bf16,
@@ -287,7 +287,7 @@ void launch_dequant_wna16_int4b8_to_bf16(
         group_size);
 }
 
-void launch_wna16_gate_up_decode_bf16(
+void wna16_gate_up_decode_bf16(
     const void* act_fp16,
     const std::int32_t* topk_idx,
     const std::int32_t* const* gate_packed,
@@ -318,7 +318,7 @@ void launch_wna16_gate_up_decode_bf16(
         top_k, hidden, intermediate, group_size);
 }
 
-void launch_wna16_down_decode_bf16(
+void wna16_down_decode_bf16(
     const void* act_fp16,
     const std::int32_t* topk_idx,
     const std::int32_t* const* down_packed,
@@ -377,7 +377,7 @@ __global__ void bf16_to_fp16_kernel(const __nv_bfloat16* __restrict__ in,
     }
 }
 
-void launch_bf16_to_fp16(const void* in_bf16, void* out_fp16,
+void bf16_to_fp16(const void* in_bf16, void* out_fp16,
                          std::size_t count, cudaStream_t stream) {
     if (count == 0) return;
     constexpr int BS = 256;
@@ -391,4 +391,4 @@ void launch_bf16_to_fp16(const void* in_bf16, void* out_fp16,
         static_cast<__half*>(out_fp16), n_vec8, n);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

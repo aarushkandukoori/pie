@@ -15,9 +15,9 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::moe {
 
-void launch_topk_softmax_bf16(
+void topk_softmax_bf16(
     const void* logits,        // [N, num_experts] bf16
     std::int32_t* topk_idx,    // [N, K] i32 — expert indices
     float* topk_w,             // [N, K] fp32 — renormalized routing weights
@@ -33,7 +33,7 @@ void launch_topk_softmax_bf16(
 // comparison passes without having compared anything. `use_warp` is honoured
 // only where the warp form applies (K <= 8 and num_experts <= 128); outside
 // that range both values give the block form.
-void launch_topk_softmax_bf16_form(
+void topk_softmax_bf16_form(
     const void* logits,
     std::int32_t* topk_idx,
     float* topk_w,
@@ -49,7 +49,7 @@ void launch_topk_softmax_bf16_form(
 // one block per token -- and folding the projection in drags it down to that
 // same one block, from the 32 the standalone GEMV gets. Trading 32 SMs for a
 // saved launch is not a trade. gpt-oss measured 291 -> 134 tok/s.
-void launch_router_topk_softmax_bf16(
+void router_topk_softmax_bf16(
     const void* act,            // [N, hidden] bf16
     const void* router_weight,  // [num_experts, hidden] bf16
     const void* router_bias,    // [num_experts] bf16, or null
@@ -65,7 +65,7 @@ void launch_router_topk_softmax_bf16(
 // the renormalised top-K weights. Multiplies `topk_w[n, k] *=
 // per_expert_scale[topk_idx[n, k]]` in place. `per_expert_scale` is
 // stored bf16 in the ckpt; we read it bf16 → fp32.
-void launch_apply_per_expert_scale_bf16(
+void apply_per_expert_scale_bf16(
     const std::int32_t* topk_idx,        // [N, K]
     float* topk_w,                       // [N, K] in/out
     const void* per_expert_scale_bf16,   // [num_experts] bf16
@@ -80,7 +80,7 @@ void launch_apply_per_expert_scale_bf16(
 //            routed_scaling_factor.
 //
 // This covers the published Nano-Omni config where n_group=topk_group=1.
-void launch_topk_sigmoid_bias_bf16(
+void topk_sigmoid_bias_bf16(
     const void* logits,                  // [N, num_experts] bf16
     const float* correction_bias,        // [num_experts] fp32
     std::int32_t* topk_idx,              // [N, K]
@@ -92,7 +92,7 @@ void launch_topk_sigmoid_bias_bf16(
     float routed_scaling_factor,
     cudaStream_t stream);
 
-void launch_topk_sigmoid_bias_fp32(
+void topk_sigmoid_bias_fp32(
     const float* logits,                 // [N, num_experts] fp32
     const float* correction_bias,        // [num_experts] fp32
     std::int32_t* topk_idx,              // [N, K]
@@ -104,4 +104,4 @@ void launch_topk_sigmoid_bias_fp32(
     float routed_scaling_factor,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::moe

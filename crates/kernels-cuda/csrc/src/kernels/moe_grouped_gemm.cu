@@ -3,7 +3,7 @@
 #include <cuda_bf16.h>
 #include <mma.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::moe {
 
 namespace {
 
@@ -101,7 +101,7 @@ bool moe_grouped_gemm_bf16_supported(int M, int N, int K) {
            (N % kNTile) == 0 && (K % kFrag) == 0;
 }
 
-void launch_moe_grouped_gemm_bf16(
+void moe_grouped_gemm_bf16(
     const void* a,
     const void* weight_base,
     void* c,
@@ -120,4 +120,4 @@ void launch_moe_grouped_gemm_bf16(
         static_cast<__nv_bfloat16*>(c), expert_ids, N, K);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::moe

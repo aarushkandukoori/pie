@@ -169,19 +169,19 @@ void run_shape(const Shape& sh, const std::vector<int>& batch_sizes) {
 
     using namespace pie_cuda_driver;
     auto per_route = [&](cudaStream_t s) {
-      kernels::launch_mxfp4_moe_gate_up_decode_bf16(
+      kernels::quant::mxfp4_moe_gate_up_decode_bf16(
           d_act, static_cast<const std::int32_t*>(d_topk),
           static_cast<const std::uint8_t* const*>(d_w_ptrs),
           static_cast<const std::uint8_t* const*>(d_s_ptrs),
           nullptr, nullptr, d_gate, d_up, N, K, H, Ip, s);
     };
     auto grouped = [&](cudaStream_t s) {
-      kernels::launch_moe_bucket_exact(
+      kernels::moe::moe_bucket_exact(
           static_cast<const std::int32_t*>(d_topk),
           static_cast<std::int32_t*>(d_sorted),
           static_cast<std::int32_t*>(d_r2r),
           static_cast<std::int32_t*>(d_counts), routes, E, s);
-      kernels::launch_mxfp4_moe_gate_up_decode_grouped_bf16(
+      kernels::quant::mxfp4_moe_gate_up_decode_grouped_bf16(
           d_act, static_cast<const std::int32_t*>(d_sorted),
           static_cast<const std::int32_t*>(d_counts),
           static_cast<const std::uint8_t* const*>(d_w_ptrs),
@@ -207,7 +207,7 @@ void run_shape(const Shape& sh, const std::vector<int>& batch_sizes) {
       void* d_out = dalloc(std::size_t(routes) * Ip * 2);
       void* d_out2 = dalloc(std::size_t(routes) * Ip * 2);
       void* d_ws = dalloc(marlin_moe::marlin_moe_workspace_bytes(Ip, block));
-      kernels::launch_moe_align_decode(
+      kernels::moe::moe_align_decode(
           static_cast<const std::int32_t*>(d_topk),
           static_cast<std::int32_t*>(d_msorted),
           static_cast<std::int32_t*>(d_mexpert), nullptr, routes, E, block,

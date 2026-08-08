@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::moe {
 
 // Grouped GEMM over the MoE decode's aligned expert blocks:
 //
@@ -22,7 +22,7 @@ namespace pie_cuda_driver::kernels {
 // launched. Paying for the other two thirds cost 9.2 ms of a 41 ms step.
 //
 // Requires M == 16 (one WMMA tile) and N, K multiples of 16.
-void launch_moe_grouped_gemm_bf16(
+void moe_grouped_gemm_bf16(
     const void* a,                     // [max_blocks * M, K] bf16
     const void* weight_base,           // [num_experts, N, K] bf16
     void* c,                           // [max_blocks * M, N] bf16
@@ -33,7 +33,7 @@ void launch_moe_grouped_gemm_bf16(
     int K,
     cudaStream_t stream);
 
-// True when `launch_moe_grouped_gemm_bf16` supports this shape.
+// True when `moe_grouped_gemm_bf16` supports this shape.
 bool moe_grouped_gemm_bf16_supported(int M, int N, int K);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::moe

@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 namespace {
 
@@ -168,7 +168,7 @@ void validate_row_select(
 
 }  // namespace
 
-void launch_mxfp4_weight_to_gptq_w4(
+void mxfp4_weight_to_gptq_w4(
     const void* raw_mxfp4,
     void*       gptq_w4_out,
     int         source_rows,
@@ -183,7 +183,7 @@ void launch_mxfp4_weight_to_gptq_w4(
     cudaStream_t stream)
 {
     validate_row_select(
-        "launch_mxfp4_weight_to_gptq_w4",
+        "mxfp4_weight_to_gptq_w4",
         source_rows, source_row_offset, selected_rows, valid_rows, row_select);
     if (source_k <= 0 || target_k <= 0 || source_stride_k <= 0 ||
         source_col_offset < 0 || source_k % 8 != 0 || target_k % 8 != 0 ||
@@ -191,7 +191,7 @@ void launch_mxfp4_weight_to_gptq_w4(
         target_k < source_k ||
         static_cast<long long>(source_col_offset) + source_k > source_stride_k) {
         throw std::runtime_error(
-            "launch_mxfp4_weight_to_gptq_w4: source/target K, stride, "
+            "mxfp4_weight_to_gptq_w4: source/target K, stride, "
             "and column offset must be divisible by 8; target K must cover "
             "source K; and the source slice must fit in the source stride");
     }
@@ -207,7 +207,7 @@ void launch_mxfp4_weight_to_gptq_w4(
         source_stride_k, source_col_offset, source_k, target_k, row_select);
 }
 
-void launch_mxfp4_scales_to_marlin_e8m0(
+void mxfp4_scales_to_marlin_e8m0(
     const void* raw_e8m0,
     void*       marlin_e8m0,
     int         source_rows,
@@ -222,7 +222,7 @@ void launch_mxfp4_scales_to_marlin_e8m0(
     cudaStream_t stream)
 {
     validate_row_select(
-        "launch_mxfp4_scales_to_marlin_e8m0",
+        "mxfp4_scales_to_marlin_e8m0",
         source_rows, source_row_offset, selected_rows, valid_rows, row_select);
     if (source_groups <= 0 || target_groups <= 0 ||
         source_stride_groups <= 0 || source_group_offset < 0 ||
@@ -230,7 +230,7 @@ void launch_mxfp4_scales_to_marlin_e8m0(
         static_cast<long long>(source_group_offset) + source_groups >
             source_stride_groups) {
         throw std::runtime_error(
-            "launch_mxfp4_scales_to_marlin_e8m0: source/target groups, "
+            "mxfp4_scales_to_marlin_e8m0: source/target groups, "
             "stride, and group offset must be positive; target groups must "
             "cover source groups; and the source slice must fit in stride");
     }
@@ -239,7 +239,7 @@ void launch_mxfp4_scales_to_marlin_e8m0(
         static_cast<std::size_t>(selected_rows);
     if (total % 64 != 0) {
         throw std::runtime_error(
-            "launch_mxfp4_scales_to_marlin_e8m0: scale layout requires total "
+            "mxfp4_scales_to_marlin_e8m0: scale layout requires total "
             "scale count divisible by 64");
     }
     constexpr int BLOCK = 256;
@@ -252,7 +252,7 @@ void launch_mxfp4_scales_to_marlin_e8m0(
         target_groups, row_select);
 }
 
-void launch_bf16_row_map_to_dense(
+void bf16_row_map_to_dense(
     const void* raw_bf16,
     void*       out_bf16,
     int         batch,
@@ -264,11 +264,11 @@ void launch_bf16_row_map_to_dense(
     cudaStream_t stream)
 {
     validate_row_select(
-        "launch_bf16_row_map_to_dense",
+        "bf16_row_map_to_dense",
         source_rows, source_row_offset, selected_rows, valid_rows, row_select);
     if (batch <= 0) {
         throw std::runtime_error(
-            "launch_bf16_row_map_to_dense: batch must be positive");
+            "bf16_row_map_to_dense: batch must be positive");
     }
     const std::size_t total =
         static_cast<std::size_t>(batch) *
@@ -282,4 +282,4 @@ void launch_bf16_row_map_to_dense(
         row_select);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

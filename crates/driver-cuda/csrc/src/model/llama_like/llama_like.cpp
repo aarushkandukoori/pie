@@ -322,7 +322,7 @@ struct LoraFireState {
                 Lane out{&lane, nullptr, nullptr};
                 out.a_bf16 = arena.alloc(l_elems * 2);
                 lanes.push_back(out);
-                kernels::launch_cast_fp32_to_bf16(
+                kernels::quant::cast_fp32_to_bf16(
                     lane.a, out.a_bf16, l_elems, stream);
                 continue;
             }
@@ -355,9 +355,9 @@ struct LoraFireState {
             out.a_bf16 = arena.alloc(a_elems * 2);
             out.b_bf16 = arena.alloc(b_elems * 2);
             lanes.push_back(out);
-            kernels::launch_cast_fp32_to_bf16(
+            kernels::quant::cast_fp32_to_bf16(
                 lane.a, out.a_bf16, a_elems, stream);
-            kernels::launch_cast_fp32_to_bf16(
+            kernels::quant::cast_fp32_to_bf16(
                 lane.b, out.b_bf16, b_elems, stream);
         }
 
@@ -723,13 +723,13 @@ struct LoraFireState {
                 static_cast<const std::uint16_t*>(lane.a_bf16) +
                 static_cast<std::size_t>(layer) * v.d_out;
             if ((v.sites_bits & kLoraSiteQ) != 0) {
-                kernels::launch_scale_rows_bf16(
+                kernels::quant::scale_rows_bf16(
                     bf16_row(q_out,
                              static_cast<int>(v.token_start), Hq),
                     l_l, t, static_cast<int>(v.d_out), stream);
             }
             if ((v.sites_bits & kLoraSiteV) != 0) {
-                kernels::launch_scale_rows_bf16(
+                kernels::quant::scale_rows_bf16(
                     bf16_row(v_out,
                              static_cast<int>(v.token_start), Hk),
                     l_l, t, static_cast<int>(v.d_out), stream);

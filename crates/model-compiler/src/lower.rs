@@ -768,7 +768,7 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
                 // GEMM is that op's lowering. It used to be a refusal
                 // because no text stated the kernel; `moe_mlp_body_cuda`'s
                 // general leg does now.
-                Semantic::Kernels(&["launch_moe_grouped_gemm_bf16"])
+                Semantic::Kernels(&["moe::moe_grouped_gemm_bf16"])
             }
         }
 
@@ -800,13 +800,13 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // The router. One launch, and the semantic reading takes the
         // softmax form -- a text that wants the sigmoid or sqrt-softplus
         // router states it as a `Launch` instead.
-        TopK { .. } => Semantic::Kernels(&["launch_topk_softmax_bf16"]),
+        TopK { .. } => Semantic::Kernels(&["moe::topk_softmax_bf16"]),
         // The combine, in its TOKEN-BATCHED form. The two other forms --
         // the per-expert scatter-add and the fused +residual -- are what a
         // CUDA text states as launches when its binding takes them; this
         // is the reading a SEMANTIC trace gets, the same way `Swiglu`'s
         // unpacked form is.
-        WeightedSum { .. } => Semantic::Kernels(&["launch_token_batched_weighted_sum_bf16"]),
+        WeightedSum { .. } => Semantic::Kernels(&["moe::token_batched_weighted_sum_bf16"]),
         // The shared expert's landing: `sigmoid(x·g)` scaling the shared
         // output onto the routed sum, one launch.
         SigmoidGateAdd => Semantic::Kernels(&["mlp::sigmoid_dot_scalar_gate_add_bf16"]),

@@ -546,7 +546,7 @@ void moe_layer(
             throw std::runtime_error(
                 "nemotron_h: CUDA router currently supports n_group=topk_group=1");
         }
-        kernels::launch_topk_sigmoid_bias_fp32(
+        kernels::moe::topk_sigmoid_bias_fp32(
             nem_ws.router_logits.data(),
             static_cast<const float*>(Lw.router_correction_bias->data()),
             nem_ws.topk_idx.data(),
@@ -558,14 +558,14 @@ void moe_layer(
     profile_cuda_stage(profile, profile ? &profile->moe_routed_ms : nullptr,
         stream, [&] {
         const int routes = N * K;
-        if (ops::flashinfer_cutlass_moe_enabled() &&
+        if (kernels::moe::flashinfer_cutlass_moe_enabled() &&
             !is_pure_decode &&
             Lw.expert_up_packed != nullptr &&
             Lw.expert_down_packed != nullptr &&
             !nem_ws.flashinfer_moe_workspace.empty() &&
             !nem_ws.flashinfer_moe_map.empty()) {
-            const bool ran = ops::flashinfer_cutlass_moe_bf16(
-                ops::MoeActivation::Relu2,
+            const bool ran = kernels::moe::flashinfer_cutlass_moe_bf16(
+                kernels::moe::MoeActivation::Relu2,
                 static_cast<const std::uint16_t*>(ws.norm_x.data()),
                 nem_ws.topk_idx.data(),
                 nem_ws.topk_weights.data(),
@@ -610,7 +610,7 @@ void moe_layer(
                 reinterpret_cast<const void* const*>(nem_ws.a_down_ptrs.data()),
                 reinterpret_cast<void* const*>(nem_ws.c_down_ptrs.data()),
                 /*M=*/1, /*N=*/H, /*K=*/I, routes);
-            kernels::launch_token_batched_weighted_sum_bf16(
+            kernels::moe::token_batched_weighted_sum_bf16(
                 ws.norm_y.data(), nem_ws.expert_out.data(),
                 nem_ws.route_weights.data(), N, K, H, stream);
         } else {
@@ -619,7 +619,7 @@ void moe_layer(
                 std::int32_t* route_to_sorted_row =
                     sorted_route_ids + routes;
                 std::int32_t* counts_d = route_to_sorted_row + routes;
-                kernels::launch_moe_bucket_exact(
+                kernels::moe::moe_bucket_exact(
                     nem_ws.topk_idx.data(),
                     sorted_route_ids,
                     route_to_sorted_row,
@@ -679,7 +679,7 @@ void moe_layer(
                 }
 
                 if (offset > 0) {
-                    kernels::launch_gather_moe_aligned_inputs_bf16(
+                    kernels::moe::gather_moe_aligned_inputs_bf16(
                         ws.norm_x.data(), sorted_route_ids,
                         nem_ws.expert_in.data(), routes, offset,
                         K, H, /*shared_row_begin=*/-1,
@@ -722,7 +722,7 @@ void moe_layer(
                             Ne, H, I);
                     }
 
-                    kernels::launch_token_batched_weighted_sum_aligned_bf16(
+                    kernels::moe::token_batched_weighted_sum_aligned_bf16(
                         ws.norm_y.data(), nem_ws.expert_out.data(),
                         nem_ws.topk_weights.data(), route_to_sorted_row,
                         N, K, H, stream);
@@ -740,11 +740,11 @@ void moe_layer(
                 std::int32_t* expert_ids = sorted_route_ids + aligned_rows;
                 std::int32_t* route_to_aligned_row = expert_ids + max_blocks;
 
-                kernels::launch_moe_align_decode(
+                kernels::moe::moe_align_decode(
                     nem_ws.topk_idx.data(), sorted_route_ids, expert_ids,
                     route_to_aligned_row,
                     routes, E, block_size, max_blocks, /*num_tokens_past_padded=*/nullptr, stream);
-                kernels::launch_gather_moe_aligned_inputs_bf16(
+                kernels::moe::gather_moe_aligned_inputs_bf16(
                     ws.norm_x.data(), sorted_route_ids,
                     nem_ws.expert_in.data(), routes, aligned_rows,
                     K, H, /*shared_row_begin=*/-1,
@@ -777,7 +777,7 @@ void moe_layer(
                     reinterpret_cast<const void* const*>(nem_ws.a_down_ptrs.data()),
                     reinterpret_cast<void* const*>(nem_ws.c_down_ptrs.data()),
                     block_size, H, I, max_blocks);
-                kernels::launch_token_batched_weighted_sum_aligned_bf16(
+                kernels::moe::token_batched_weighted_sum_aligned_bf16(
                     ws.norm_y.data(), nem_ws.expert_out.data(),
                     nem_ws.topk_weights.data(), route_to_aligned_row,
                     N, K, H, stream);
@@ -850,7 +850,7 @@ void moe_layer(
                     nem_ws.expert_act.data(),
                     Lw.expert_down[static_cast<std::size_t>(e)]->data(),
                     nem_ws.expert_out.data(), Ne, H, I);
-                kernels::launch_scatter_add_weighted_bf16(
+                kernels::moe::scatter_add_weighted_bf16(
                     ws.norm_y.data(), nem_ws.expert_out.data(),
                     expert_idx_d, expert_w_d,
                     Ne, H, stream);
@@ -971,10 +971,10 @@ NemotronHWorkspace NemotronHWorkspace::allocate(
     ws.b_down_ptrs = DeviceBuffer<const std::uint16_t*>::alloc(routes);
     ws.c_down_ptrs = DeviceBuffer<std::uint16_t*>::alloc(routes);
     ws.route_weights = DeviceBuffer<float>::alloc(routes);
-    if (ops::flashinfer_cutlass_moe_enabled()) {
+    if (kernels::moe::flashinfer_cutlass_moe_enabled()) {
         ws.flashinfer_moe_workspace_bytes =
-            ops::flashinfer_cutlass_moe_workspace_bytes(
-            ops::MoeActivation::Relu2,
+            kernels::moe::flashinfer_cutlass_moe_workspace_bytes(
+            kernels::moe::MoeActivation::Relu2,
                 static_cast<int>(N), static_cast<int>(H),
                 static_cast<int>(I), static_cast<int>(E),
                 static_cast<int>(K), T, 0);
@@ -1038,9 +1038,9 @@ std::size_t nemotron_h_workspace_bytes(
     bytes += u16(N * Is);
     bytes += u16(N * H);
     bytes += routes * (6 * sizeof(void*) + sizeof(float));
-    if (ops::flashinfer_cutlass_moe_enabled()) {
-        bytes += ops::flashinfer_cutlass_moe_workspace_bytes(
-            ops::MoeActivation::Relu2,
+    if (kernels::moe::flashinfer_cutlass_moe_enabled()) {
+        bytes += kernels::moe::flashinfer_cutlass_moe_workspace_bytes(
+            kernels::moe::MoeActivation::Relu2,
             static_cast<int>(N), static_cast<int>(H), static_cast<int>(I),
             static_cast<int>(E), static_cast<int>(K), T, 0);
         bytes += i32(routes);

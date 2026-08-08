@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::moe {
 
 namespace {
 
@@ -108,7 +108,7 @@ __global__ void hash_route_lookup_kernel(
 
 }  // namespace
 
-void launch_topk_sqrtsoftplus_bf16(
+void topk_sqrtsoftplus_bf16(
     const void* logits,
     std::int32_t* topk_idx,
     float* topk_w,
@@ -128,7 +128,7 @@ void launch_topk_sqrtsoftplus_bf16(
         renormalize, routed_scaling_factor);
 }
 
-void launch_hash_route_lookup(
+void hash_route_lookup(
     const std::int32_t* token_ids,
     const std::int64_t* tid2eid,
     const void* logits,
@@ -153,4 +153,4 @@ void launch_hash_route_lookup(
         renormalize, routed_scaling_factor);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::moe

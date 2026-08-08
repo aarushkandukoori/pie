@@ -3,7 +3,7 @@
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 namespace {
 
@@ -57,7 +57,7 @@ __global__ void cast_e8m0_to_fp32_kernel(
 
 }  // namespace
 
-void launch_cast_fp16_to_bf16(
+void cast_fp16_to_bf16(
     const void* src_fp16, void* dst_bf16,
     std::size_t n, cudaStream_t stream)
 {
@@ -68,7 +68,7 @@ void launch_cast_fp16_to_bf16(
         static_cast<__nv_bfloat16*>(dst_bf16), n);
 }
 
-void launch_cast_fp32_to_bf16(
+void cast_fp32_to_bf16(
     const void* src_fp32, void* dst_bf16,
     std::size_t n, cudaStream_t stream)
 {
@@ -79,7 +79,7 @@ void launch_cast_fp32_to_bf16(
         static_cast<__nv_bfloat16*>(dst_bf16), n);
 }
 
-void launch_cast_bf16_to_fp32(
+void cast_bf16_to_fp32(
     const void* src_bf16, void* dst_fp32,
     std::size_t n, cudaStream_t stream)
 {
@@ -90,7 +90,7 @@ void launch_cast_bf16_to_fp32(
         static_cast<float*>(dst_fp32), n);
 }
 
-void launch_cast_e8m0_to_fp32(
+void cast_e8m0_to_fp32(
     const void* src_e8m0, void* dst_fp32,
     std::size_t n, cudaStream_t stream)
 {
@@ -142,7 +142,7 @@ __global__ void scale_fp16_kernel(
 
 }  // namespace
 
-void launch_scale_bf16(
+void scale_bf16(
     const void* src_bf16, void* dst_bf16,
     std::size_t n, float factor, cudaStream_t stream)
 {
@@ -153,7 +153,7 @@ void launch_scale_bf16(
         static_cast<__nv_bfloat16*>(dst_bf16), n, factor);
 }
 
-void launch_scale_fp32(
+void scale_fp32(
     const void* src_fp32, void* dst_fp32,
     std::size_t n, float factor, cudaStream_t stream)
 {
@@ -164,7 +164,7 @@ void launch_scale_fp32(
         static_cast<float*>(dst_fp32), n, factor);
 }
 
-void launch_scale_fp16(
+void scale_fp16(
     const void* src_fp16, void* dst_fp16,
     std::size_t n, float factor, cudaStream_t stream)
 {
@@ -209,7 +209,7 @@ __global__ void marlin_permute_scales_per_group_kernel(
 
 }  // namespace
 
-void launch_marlin_permute_scales_bf16(
+void marlin_permute_scales_bf16(
     void* bf16_scales,
     int groups, int size_n, int group_size, int size_k,
     cudaStream_t stream)
@@ -276,7 +276,7 @@ __global__ void awq_dequant_to_bf16_kernel(
 
 }  // namespace
 
-void launch_awq_dequant_to_bf16(
+void awq_dequant_to_bf16(
     const void* qweight_in,
     const void* qzeros_in,
     const void* scales_in,
@@ -345,7 +345,7 @@ __global__ void gptq_dequant_to_bf16_kernel(
 
 }  // namespace
 
-void launch_gptq_dequant_to_bf16(
+void gptq_dequant_to_bf16(
     const void* qweight_in,
     const void* qzeros_in,
     const void* scales_in,
@@ -388,7 +388,7 @@ __global__ void scale_rows_bf16_kernel(
 
 }  // namespace
 
-void launch_scale_rows_bf16(
+void scale_rows_bf16(
     void*         buf_bf16,
     const void*   l_bf16,
     int           rows,
@@ -405,4 +405,4 @@ void launch_scale_rows_bf16(
         rows, width);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

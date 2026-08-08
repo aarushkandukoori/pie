@@ -1199,7 +1199,7 @@ Gemma4MoeMlpWorkspace Gemma4MoeMlpWorkspace::allocate(
     ws.c_dn_ptrs    = DeviceBuffer<std::uint16_t*>::alloc(top_k);
     ws.batch_weights = DeviceBuffer<float>::alloc(top_k);
 
-    if (ops::flashinfer_cutlass_moe_enabled()) {
+    if (kernels::moe::flashinfer_cutlass_moe_enabled()) {
         // Sized for decode rather than for the prefill high-water mark: the
         // runner's workspace holds the permuted activations, so it scales
         // with rows * top_k * hidden, and Gemma-4's top_k is 8. A prefill-wide
@@ -1207,8 +1207,8 @@ Gemma4MoeMlpWorkspace Gemma4MoeMlpWorkspace::allocate(
         // off at decode-sized batches; anything larger falls back to the
         // host-routed walk.
         ws.cutlass_max_rows = std::min(max_tokens, kGemma4FusedMoeMaxRows);
-        const std::size_t bytes = ops::flashinfer_cutlass_moe_workspace_bytes(
-            ops::MoeActivation::Geglu, ws.cutlass_max_rows, hidden,
+        const std::size_t bytes = kernels::moe::flashinfer_cutlass_moe_workspace_bytes(
+            kernels::moe::MoeActivation::Geglu, ws.cutlass_max_rows, hidden,
             moe_intermediate, num_experts, top_k,
             /*tp_size=*/1, /*tp_rank=*/0);
         if (bytes > 0) {
@@ -1824,12 +1824,12 @@ void gemma4_moe_block(
         moe_ws.router_x.data(), Lw.router_proj->data(),
         moe_ws.router_logits.data(), N, E, H);
     // Steps 4+5: softmax over E → top-K → renormalise.
-    kernels::launch_topk_softmax_bf16(
+    kernels::moe::topk_softmax_bf16(
         moe_ws.router_logits.data(),
         moe_ws.topk_idx.data(), moe_ws.topk_weights.data(),
         N, E, K, stream);
     // Step 6: per-expert scalar gain on the chosen weights.
-    kernels::launch_apply_per_expert_scale_bf16(
+    kernels::moe::apply_per_expert_scale_bf16(
         moe_ws.topk_idx.data(), moe_ws.topk_weights.data(),
         Lw.router_per_expert_scale->data(),
         N, K, stream);
@@ -1855,9 +1855,9 @@ void gemma4_moe_block(
     // grouped GEMM's tiling to amortise. `kGemma4MoeGemvMaxTokens` is where
     // that stops being true.
     const bool gemv_preferred =
-        gemv_ok && N <= ops::moe_gemv_max_tokens(kGemma4MoeGemvMaxTokens);
+        gemv_ok && N <= kernels::moe::moe_gemv_max_tokens(kGemma4MoeGemvMaxTokens);
     const auto dispatch_gemv = [&]() {
-        kernels::launch_moe_gate_up_decode_gemv_bf16(
+        kernels::moe::moe_gate_up_decode_gemv_bf16(
             moe_ws.topk_idx.data(),
             moe_ws.moe_input.data(),
             Lw.moe_gate_up_proj->data(),
@@ -1875,7 +1875,7 @@ void gemma4_moe_block(
             moe_ws.expert_gate_up.data(),
             moe_ws.expert_act.data(),
             routes, Im, stream, /*gate_second=*/gemma4_moe_gate_up_swapped());
-        kernels::launch_moe_down_decode_gemv_bf16(
+        kernels::moe::moe_down_decode_gemv_bf16(
             moe_ws.topk_idx.data(),
             moe_ws.expert_act.data(),
             Lw.moe_down_proj->data(),
@@ -1883,7 +1883,7 @@ void gemma4_moe_block(
             N, K, H, Im, stream);
         // Writes (does not accumulate) the top-k weighted sum, so `moe_out`
         // needs no zeroing on this path.
-        kernels::launch_token_batched_weighted_sum_bf16(
+        kernels::moe::token_batched_weighted_sum_bf16(
             moe_ws.moe_out.data(),
             moe_ws.expert_out.data(),
             moe_ws.topk_weights.data(),
@@ -1902,8 +1902,8 @@ void gemma4_moe_block(
     // the host walk -- which is what keeps a captured fire legal.
     if (!moe_ws.cutlass_ws.empty() && !gemma4_moe_force_general_path() &&
         N > 0 && N <= moe_ws.cutlass_max_rows &&
-        ops::flashinfer_cutlass_moe_bf16(
-            ops::MoeActivation::Geglu,
+        kernels::moe::flashinfer_cutlass_moe_bf16(
+            kernels::moe::MoeActivation::Geglu,
             static_cast<const std::uint16_t*>(moe_ws.moe_input.data()),
             moe_ws.topk_idx.data(),
             moe_ws.topk_weights.data(),
@@ -2001,7 +2001,7 @@ void gemma4_moe_block(
             moe_ws.expert_act.data(), down_w,
             moe_ws.expert_out.data(), Ne, H, Im);
 
-        kernels::launch_scatter_add_weighted_bf16(
+        kernels::moe::scatter_add_weighted_bf16(
             moe_ws.moe_out.data(), moe_ws.expert_out.data(),
             moe_ws.expert_idx.data(), moe_ws.expert_w.data(),
             Ne, H, stream);

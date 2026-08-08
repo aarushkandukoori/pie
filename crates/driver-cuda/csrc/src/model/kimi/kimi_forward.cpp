@@ -278,13 +278,13 @@ void dequant_expert_w4(
     cudaStream_t stream)
 {
     constexpr int group = 32;
-    kernels::launch_dequant_wna16_int4b8_to_bf16(
+    kernels::quant::dequant_wna16_int4b8_to_bf16(
         static_cast<const std::int32_t*>(e.gate_packed->data()),
         e.gate_scale->data(), ws.expert_gate_w.data(), I, H, group, stream);
-    kernels::launch_dequant_wna16_int4b8_to_bf16(
+    kernels::quant::dequant_wna16_int4b8_to_bf16(
         static_cast<const std::int32_t*>(e.up_packed->data()),
         e.up_scale->data(), ws.expert_up_w.data(), I, H, group, stream);
-    kernels::launch_dequant_wna16_int4b8_to_bf16(
+    kernels::quant::dequant_wna16_int4b8_to_bf16(
         static_cast<const std::int32_t*>(e.down_packed->data()),
         e.down_scale->data(), ws.expert_down_w.data(), H, I, group, stream);
 }
@@ -379,14 +379,14 @@ KimiWorkspace KimiWorkspace::allocate(
         // `block` is picked per forward from that batch's route count, so the
         // scratch has to cover both extremes: the smallest block produces the
         // most blocks, the largest produces the most padded rows.
-        const int block = kernels::moe_aligned_block(routes, E);
+        const int block = kernels::moe::moe_aligned_block(routes, E);
         const int active_expert_cap = std::min(E, routes);
         const int max_blocks =
-            (routes + active_expert_cap * (kernels::kMoeAlignedBlockMin - 1) +
-             kernels::kMoeAlignedBlockMin - 1) /
-            kernels::kMoeAlignedBlockMin;
+            (routes + active_expert_cap * (kernels::moe::kMoeAlignedBlockMin - 1) +
+             kernels::moe::kMoeAlignedBlockMin - 1) /
+            kernels::moe::kMoeAlignedBlockMin;
         const int aligned_rows =
-            std::max(max_blocks * kernels::kMoeAlignedBlockMin,
+            std::max(max_blocks * kernels::moe::kMoeAlignedBlockMin,
                      ((routes + active_expert_cap * (block - 1) + block - 1) /
                       block) * block);
         ws.aligned_block_size = block;
@@ -405,10 +405,10 @@ KimiWorkspace KimiWorkspace::allocate(
         }
     }
     if (routed_I > 0 && cfg.num_experts > 0 && Ktop > 0 &&
-        ops::flashinfer_cutlass_moe_enabled() && kimi_moe_gate_up_swapped()) {
-        ws.cutlass_max_rows = std::min(N, ops::flashinfer_cutlass_moe_max_rows());
-        const std::size_t bytes = ops::flashinfer_cutlass_moe_workspace_bytes(
-            ops::MoeActivation::Swiglu, ws.cutlass_max_rows, H, routed_I,
+        kernels::moe::flashinfer_cutlass_moe_enabled() && kimi_moe_gate_up_swapped()) {
+        ws.cutlass_max_rows = std::min(N, kernels::moe::flashinfer_cutlass_moe_max_rows());
+        const std::size_t bytes = kernels::moe::flashinfer_cutlass_moe_workspace_bytes(
+            kernels::moe::MoeActivation::Swiglu, ws.cutlass_max_rows, H, routed_I,
             cfg.num_experts, Ktop, /*tp_size=*/1, /*tp_rank=*/0);
         if (bytes > 0) {
             ws.cutlass_ws = DeviceTensor::allocate(
@@ -847,7 +847,7 @@ void kimi_forward_paged(
         // `routes > 4 * active_experts` predicts. The traffic model still gates
         // the compiled-in default; `PIE_MOE_GEMV_MAX_TOKENS=0` retires the GEMV.
         const int routes = total_tokens * K;
-        const int gemv_max = ops::moe_gemv_max_tokens(kKimiMoeGemvMaxTokens);
+        const int gemv_max = kernels::moe::moe_gemv_max_tokens(kKimiMoeGemvMaxTokens);
         const bool want_batched =
             Lw.moe_gate_up_bf16 != nullptr && kimi_ws.aligned_block_size > 0 &&
             total_tokens > gemv_max &&
@@ -863,10 +863,10 @@ void kimi_forward_paged(
         bool fused_moe_ran = false;
         if (want_batched && !kimi_ws.cutlass_ws.empty() &&
             total_tokens <= kimi_ws.cutlass_max_rows &&
-            total_tokens >= ops::flashinfer_cutlass_moe_min_rows()) {
+            total_tokens >= kernels::moe::flashinfer_cutlass_moe_min_rows()) {
             profile_cuda_stage(&profile, &profile.moe_prefill_ms, stream, [&] {
-                fused_moe_ran = ops::flashinfer_cutlass_moe_bf16(
-                    ops::MoeActivation::Swiglu,
+                fused_moe_ran = kernels::moe::flashinfer_cutlass_moe_bf16(
+                    kernels::moe::MoeActivation::Swiglu,
                     static_cast<const std::uint16_t*>(kimi_ws.norm_y.data()),
                     static_cast<const std::int32_t*>(kimi_ws.topk_idx.data()),
                     static_cast<const float*>(kimi_ws.topk_weights.data()),
@@ -886,7 +886,7 @@ void kimi_forward_paged(
         } else if (want_batched) {
             profile_cuda_stage(&profile, &profile.moe_prefill_ms, stream, [&] {
                 const int block = std::min(kimi_ws.aligned_block_size,
-                                           kernels::moe_aligned_block(routes, E));
+                                           kernels::moe::moe_aligned_block(routes, E));
                 const int active_expert_cap = std::min(E, routes);
                 const int max_blocks =
                     (routes + active_expert_cap * (block - 1) + block - 1) / block;
@@ -896,19 +896,19 @@ void kimi_forward_paged(
                         static_cast<int>(kimi_ws.aligned_expert_in.shape()[0])) {
                     throw std::runtime_error("kimi: aligned MoE scratch too small");
                 }
-                kernels::launch_moe_align_decode(
+                kernels::moe::moe_align_decode(
                     static_cast<const std::int32_t*>(kimi_ws.topk_idx.data()),
                     static_cast<std::int32_t*>(kimi_ws.aligned_route_ids.data()),
                     static_cast<std::int32_t*>(kimi_ws.aligned_expert_ids.data()),
                     /*route_to_aligned_row=*/nullptr,
                     routes, E, block, max_blocks, /*num_tokens_past_padded=*/nullptr, stream);
-                kernels::launch_gather_moe_aligned_inputs_bf16(
+                kernels::moe::gather_moe_aligned_inputs_bf16(
                     kimi_ws.norm_y.data(),
                     static_cast<const std::int32_t*>(kimi_ws.aligned_route_ids.data()),
                     kimi_ws.aligned_expert_in.data(),
                     routes, aligned_rows, K, H,
                     /*shared_row_begin=*/-1, total_tokens, stream);
-                kernels::launch_build_moe_ptrs_aligned_bf16(
+                kernels::moe::build_moe_ptrs_aligned_bf16(
                     static_cast<const std::int32_t*>(kimi_ws.aligned_expert_ids.data()),
                     Lw.moe_gate_up_bf16->data(), Lw.moe_down_bf16->data(),
                     kimi_ws.aligned_expert_in.data(), kimi_ws.aligned_gate_up.data(),
@@ -936,23 +936,23 @@ void kimi_forward_paged(
                     reinterpret_cast<const void* const*>(kimi_ws.a_dn_ptrs.data()),
                     reinterpret_cast<void* const*>(kimi_ws.c_dn_ptrs.data()),
                     block, H, routed_I, max_blocks);
-                kernels::launch_reorder_moe_aligned_output_bf16(
+                kernels::moe::reorder_moe_aligned_output_bf16(
                     kimi_ws.aligned_out.data(),
                     static_cast<const std::int32_t*>(kimi_ws.aligned_route_ids.data()),
                     kimi_ws.expert_out.data(),
                     routes, aligned_rows, H,
                     /*shared_row_begin=*/-1, total_tokens, nullptr, stream);
-                kernels::launch_token_batched_weighted_sum_bf16(
+                kernels::moe::token_batched_weighted_sum_bf16(
                     kimi_ws.moe_out.data(), kimi_ws.expert_out.data(),
                     static_cast<const float*>(kimi_ws.topk_weights.data()),
                     total_tokens, K, H, stream);
             });
         } else if (is_pure_decode && !force_prefill_moe) {
             profile_cuda_stage(&profile, &profile.moe_gate_up_ms, stream, [&] {
-                kernels::launch_bf16_to_fp16(
+                kernels::quant::bf16_to_fp16(
                     kimi_ws.norm_y.data(), kimi_ws.norm_y_fp16.data(),
                     static_cast<std::size_t>(total_tokens) * H, stream);
-                kernels::launch_wna16_gate_up_decode_bf16(
+                kernels::quant::wna16_gate_up_decode_bf16(
                     kimi_ws.norm_y_fp16.data(),
                     static_cast<const std::int32_t*>(kimi_ws.topk_idx.data()),
                     Lw.expert_gate_packed_ptrs.data(),
@@ -967,13 +967,13 @@ void kimi_forward_paged(
                 kernels::mlp::swiglu_bf16(
                     kimi_ws.expert_gate.data(), kimi_ws.expert_up.data(),
                     kimi_ws.expert_gate.data(), routes * routed_I, stream);
-                kernels::launch_bf16_to_fp16(
+                kernels::quant::bf16_to_fp16(
                     kimi_ws.expert_gate.data(),
                     kimi_ws.expert_act_fp16.data(),
                     static_cast<std::size_t>(routes) * routed_I, stream);
             });
             profile_cuda_stage(&profile, &profile.moe_down_ms, stream, [&] {
-                kernels::launch_wna16_down_decode_bf16(
+                kernels::quant::wna16_down_decode_bf16(
                     kimi_ws.expert_act_fp16.data(),
                     static_cast<const std::int32_t*>(kimi_ws.topk_idx.data()),
                     Lw.expert_down_packed_ptrs.data(),
@@ -982,7 +982,7 @@ void kimi_forward_paged(
                     total_tokens, K, H, routed_I, 32, stream);
             });
             profile_cuda_stage(&profile, &profile.moe_weighted_sum_ms, stream, [&] {
-                kernels::launch_token_batched_weighted_sum_bf16(
+                kernels::moe::token_batched_weighted_sum_bf16(
                     kimi_ws.moe_out.data(), kimi_ws.expert_out.data(),
                     static_cast<const float*>(kimi_ws.topk_weights.data()),
                     total_tokens, K, H, stream);
@@ -1043,7 +1043,7 @@ void kimi_forward_paged(
                     kimi_ws.expert_gate.data(),
                     ops::WeightView::raw(kimi_ws.expert_down_w.data(), DType::BF16),
                     kimi_ws.expert_out.data(), Ne, H, routed_I);
-                kernels::launch_scatter_add_weighted_bf16(
+                kernels::moe::scatter_add_weighted_bf16(
                     kimi_ws.moe_out.data(), kimi_ws.expert_out.data(),
                     static_cast<const std::int32_t*>(kimi_ws.route_idx.data()),
                     static_cast<const float*>(kimi_ws.route_w.data()),

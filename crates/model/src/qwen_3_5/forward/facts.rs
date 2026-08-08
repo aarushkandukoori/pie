@@ -365,7 +365,7 @@ pub struct Qwen35CudaFacts {
     #[serde(default)]
     pub verify_stash: bool,
     /// `Qwen3_5MoeMlpWorkspace::cutlass_max_rows` — `min(max_tokens, 512)`
-    /// when `ops::flashinfer_cutlass_moe_enabled()` sized a workspace,
+    /// when `kernels::moe::flashinfer_cutlass_moe_enabled()` sized a workspace,
     /// else 0. Zero means the fused leg does not exist on this
     /// deployment; non-zero is the ROW BOUND of the MoE text, and fires
     /// above it decline rather than the declaration guessing which of
