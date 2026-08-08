@@ -22,9 +22,9 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
-void launch_pad_head_dim_bf16(
+void pad_head_dim_bf16(
     const void* packed,        // [N, num_heads, head_dim]
     void*       padded,        // [N, num_heads, head_dim_padded]
     int         num_tokens,
@@ -33,7 +33,7 @@ void launch_pad_head_dim_bf16(
     int         head_dim_padded,
     cudaStream_t stream);
 
-void launch_strip_head_dim_bf16(
+void strip_head_dim_bf16(
     const void* padded,        // [N, num_heads, head_dim_padded]
     void*       packed,        // [N, num_heads, head_dim]
     int         num_tokens,
@@ -42,4 +42,4 @@ void launch_strip_head_dim_bf16(
     int         head_dim_padded,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

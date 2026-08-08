@@ -5,7 +5,7 @@
 #include "cuda_check.hpp"
 #include "kernels/rope_device.cuh"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 // 32 KB of shared would cap this far higher; every MLA model here uses 64.
 constexpr int kMaxRopePairs = 128;
@@ -259,7 +259,7 @@ bool mla_prepare_supported(int qk_rope_head_dim) {
            qk_rope_head_dim / 2 <= kMaxRopePairs;
 }
 
-void launch_mla_prepare_bf16(
+void mla_prepare_bf16(
     MlaCacheLayerView layer,
     const void* kv_a,
     const void* kv_a_norm_weight,
@@ -323,7 +323,7 @@ void launch_mla_prepare_bf16(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_write_mla_to_pages_bf16(
+void write_mla_to_pages_bf16(
     void* ckv_pages,
     void* kpe_pages,
     const void* ckv_curr,
@@ -352,7 +352,7 @@ void launch_write_mla_to_pages_bf16(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_write_mla_to_pages(
+void write_mla_to_pages(
     MlaCacheLayerView layer,
     const void* ckv_curr,
     const void* kpe_curr,
@@ -365,11 +365,11 @@ void launch_write_mla_to_pages(
     cudaStream_t stream,
     const std::uint8_t* row_valid)
 {
-    launch_write_mla_to_pages_bf16(
+    write_mla_to_pages_bf16(
         layer.ckv_pages, layer.kpe_pages, ckv_curr, kpe_curr,
         qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
         total_tokens, num_requests, layer.page_size, layer.kv_lora_rank,
         layer.qk_rope_head_dim, stream, row_valid);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

@@ -102,7 +102,7 @@ std::size_t kimi_workspace_bytes(
     int tp_size);
 
 struct KimiPlanState {
-    ops::MlaPlanCachePtr mla_plan;
+    kernels::attn::MlaPlanCachePtr mla_plan;
 };
 
 void prepare_kimi_mla_plan(
@@ -129,7 +129,7 @@ void kimi_forward_paged(
     KimiWorkspace& kimi_ws,
     MlaCache& mla_cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     void* logits_out,
     const std::int32_t* token_ids,
     const std::int32_t* positions,

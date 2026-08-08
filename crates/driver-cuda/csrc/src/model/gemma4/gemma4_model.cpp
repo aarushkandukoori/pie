@@ -77,7 +77,7 @@ void Gemma4Model::prepare(AttentionWorkspace& attn_ws,
 void Gemma4Model::body(Workspace& ws,
                        KvCache& kv,
                        AttentionWorkspace& attn_ws,
-                       ops::CublasHandle& cublas,
+                       kernels::gemm::CublasHandle& cublas,
                        const ForwardFn::ForwardInputs& in) {
     // Multimodal: assemble the per-fire vision inputs (no-op when text-only or
     // no images in this fire).

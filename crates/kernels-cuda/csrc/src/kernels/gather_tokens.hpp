@@ -17,7 +17,7 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 // One entry of the gather plan (mirrors the runtime `GatherOp`, but over
 // PHYSICAL page ids — the host resolves slot id → page id before launch).
@@ -63,4 +63,4 @@ void launch_gather_tokens_bf16_layers(
     int head_dim,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

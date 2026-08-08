@@ -28,7 +28,7 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 // `prefix`, `out` : [T, H] bf16 (may alias)
 // `blocks`        : [B, block_rows, H] bf16 block-major; ignored when `B == 0`
@@ -40,7 +40,7 @@ namespace pie_cuda_driver::kernels {
 //
 // With `B == 0` the softmax is over a single row and `out == prefix`, which is
 // what the tail blend of a model with no open blocks means.
-void launch_attn_res_blend_bf16(
+void attn_res_blend_bf16(
     const void* prefix,
     const void* blocks,
     const void* norm_weight,
@@ -51,4 +51,4 @@ void launch_attn_res_blend_bf16(
     float eps,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

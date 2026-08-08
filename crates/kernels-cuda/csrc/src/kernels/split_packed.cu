@@ -4,7 +4,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -521,7 +521,7 @@ __global__ void split_qkv_devwin_kernel(
     }
 }
 
-void launch_split_qkv_bf16_devwin(
+void split_qkv_bf16_devwin(
     const void* packed,
     void* q_out, void* k_out, void* v_out,
     const std::uint32_t* win_d,
@@ -541,7 +541,7 @@ void launch_split_qkv_bf16_devwin(
         win_d, q_dim, kv_dim);
 }
 
-void launch_split_qkv_bf16(
+void split_qkv_bf16(
     const void* packed,
     void* q_out, void* k_out, void* v_out,
     int n_tokens, int q_dim, int kv_dim,
@@ -560,7 +560,7 @@ void launch_split_qkv_bf16(
         q_dim, kv_dim);
 }
 
-void launch_split_gate_up_bf16(
+void split_gate_up_bf16(
     const void* packed,
     void* gate_out, void* up_out,
     int n_tokens, int inter,
@@ -710,7 +710,7 @@ static void qkv_decode_fused_dispatch(
     }
 }
 
-void launch_qkv_decode_qk_norm_rope_write_kv_bf16(
+void qkv_decode_qk_norm_rope_write_kv_bf16(
     const void* packed,
     void* q_out,
     void* k_pages,
@@ -744,7 +744,7 @@ void launch_qkv_decode_qk_norm_rope_write_kv_bf16(
         page_size, hnd_layout, theta, eps, stream);
 }
 
-void launch_qkv_decode_qk_norm_rope_write_kv_bf16_devwin(
+void qkv_decode_qk_norm_rope_write_kv_bf16_devwin(
     const void* packed,
     void* q_out,
     void* k_pages,
@@ -779,7 +779,7 @@ void launch_qkv_decode_qk_norm_rope_write_kv_bf16_devwin(
         page_size, hnd_layout, theta, eps, stream);
 }
 
-void launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
+void qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
     const void* packed,
     void* q_out,
     void* k_pages,
@@ -818,4 +818,4 @@ void launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
             theta, eps);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

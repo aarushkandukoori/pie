@@ -145,7 +145,7 @@ void kimi_k3_forward_paged(
     MlaCache& mla_cache,
     RecurrentStateCache& kda_cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     void* logits_out,
     const std::int32_t* token_ids,
     const std::int32_t* positions,

@@ -36,7 +36,7 @@
 #undef launchMHA
 #undef launchMHAFlashInfer
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -327,7 +327,7 @@ std::uint8_t xqa_decode_graph_layout(int max_pages_per_seq) {
     return static_cast<std::uint8_t>(48 + std::min(log2_bucket, 15));
 }
 
-void launch_attention_xqa_decode_bf16(
+void attention_xqa_decode_bf16(
     const void* q,
     void* k_pages,
     void* v_pages,
@@ -361,7 +361,7 @@ void launch_attention_xqa_decode_bf16(
         max_pages_per_seq,
         workspace,
         stream);
-    launch_attention_xqa_decode_bf16_prepared(
+    attention_xqa_decode_bf16_prepared(
         q,
         k_pages,
         v_pages,
@@ -422,7 +422,7 @@ void prepare_attention_xqa_decode_bf16(
     CUDA_CHECK(cudaPeekAtLastError());
 }
 
-void launch_attention_xqa_decode_bf16_prepared(
+void attention_xqa_decode_bf16_prepared(
     const void* q,
     void* k_pages,
     void* v_pages,
@@ -588,4 +588,4 @@ void launch_attention_xqa_decode_bf16_prepared(
         stream);
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

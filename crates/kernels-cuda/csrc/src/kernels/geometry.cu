@@ -1,6 +1,6 @@
 #include "geometry.hpp"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 namespace {
 
@@ -84,4 +84,4 @@ void launch_resolve_slot_to_block(
       pages, slot_to_block, num_slots, count, page_indices);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

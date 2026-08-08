@@ -16,7 +16,7 @@
 #include "cuda_check.hpp"
 #include "ops/attention_mla_naive.cuh"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 namespace {
 
 using DTypeQ = __nv_bfloat16;
@@ -308,4 +308,4 @@ void dispatch_attention_mla_bf16(
     }
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

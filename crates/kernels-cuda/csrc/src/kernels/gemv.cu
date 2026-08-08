@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <type_traits>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::gemm {
 
 namespace {
 
@@ -325,7 +325,7 @@ bool aligned16(const void* p) {
 
 }  // namespace
 
-bool launch_gemv_bf16(
+bool gemv_bf16(
     const void* weight,
     const void* act,
     const void* bias,
@@ -425,7 +425,7 @@ bool launch_gemv_bf16(
 }
 
 // Sweep entry point for the fused QKV GEMV. Shapes must come from a model.
-bool launch_gemv3_bf16_tuned(
+bool gemv3_bf16_tuned(
     const void* w0, const void* w1, const void* w2,
     const void* act, void* o0, void* o1, void* o2,
     int n0, int n1, int n2, int K, int warps, int unroll,
@@ -458,7 +458,7 @@ bool launch_gemv3_bf16_tuned(
     return false;
 }
 
-bool launch_gemv3_bf16(
+bool gemv3_bf16(
     const void* w0, const void* w1, const void* w2,
     const void* b0, const void* b1, const void* b2,
     void* o0, void* o1, void* o2,
@@ -529,7 +529,7 @@ bool launch_gemv3_bf16(
 // an H100; this exposes the combinations so B200 can be measured rather than
 // assumed. `warps`/`unroll` outside the instantiated set fall back to the
 // shipping <4,4>.
-bool launch_gemv_bf16_tuned(
+bool gemv_bf16_tuned(
     const void* weight, const void* act, const void* bias, void* out,
     int N, int K, int warps, int unroll, cudaStream_t stream)
 {
@@ -564,7 +564,7 @@ bool launch_gemv_bf16_tuned(
 // Qwen3.6-35B-A3B's decode step (270 calls at 4.12 us). The row-per-warp
 // kernel's unroll depth turned out to want a different value on Blackwell, so
 // this one is worth measuring rather than inheriting too.
-bool launch_gemv_splitk_tuned(
+bool gemv_splitk_tuned(
     const void* weight, const void* act, const void* bias, void* out,
     int N, int K, int warps, int unroll, cudaStream_t stream)
 {
@@ -593,4 +593,4 @@ bool launch_gemv_splitk_tuned(
     return false;
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::gemm

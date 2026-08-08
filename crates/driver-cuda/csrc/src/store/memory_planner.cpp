@@ -308,7 +308,7 @@ CudaMemoryPlan plan_cuda_memory(
     // here, so "none of the above" would wrongly include them.
     bool prefill_graph_capable,
     const pie_cuda_driver::KvCacheFormat& kv_format,
-    const pie_cuda_driver::ops::RuntimeQuantScratchSpec& runtime_quant_scratch_base,
+    const pie_cuda_driver::kernels::gemm::RuntimeQuantScratchSpec& runtime_quant_scratch_base,
     bool verbose)
 {
     int dev_id = 0;
@@ -641,7 +641,7 @@ CudaMemoryPlan plan_cuda_memory(
             auto quant_scratch_spec = runtime_quant_scratch_base;
             quant_scratch_spec.max_tokens = static_cast<std::size_t>(N);
             const std::size_t runtime_quant_scratch_bytes =
-                pie_cuda_driver::ops::runtime_quant_scratch_bytes(
+                pie_cuda_driver::kernels::gemm::runtime_quant_scratch_bytes(
                     quant_scratch_spec);
             arena += runtime_quant_scratch_bytes;
             arena = align_up(arena, 2ull * 1024 * 1024);

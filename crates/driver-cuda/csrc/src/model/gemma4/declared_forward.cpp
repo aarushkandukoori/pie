@@ -61,23 +61,23 @@ enum class G4Kernel {
 };
 
 G4Kernel resolve_g4_kernel(std::string_view k) {
-    if (k == "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16")
+    if (k == "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16")
         return G4Kernel::QkvPackedPost;
     if (k == "rope::qk_rmsnorm_rope_bf16_rounded")
         return G4Kernel::QkRmsnormRopeRounded;
     if (k == "rope::rope_bf16") return G4Kernel::RopeQOnly;
     if (k == "rope::rope_partial_bf16") return G4Kernel::RopeQOnlyPartial;
     if (k == "norm::rmsnorm_no_scale_bf16") return G4Kernel::RmsnormNoScale;
-    if (k == "launch_write_kv_to_pages") return G4Kernel::WriteKvToPages;
-    if (k == "dispatch_attention_flashinfer_decode")
+    if (k == "attn::write_kv_to_pages") return G4Kernel::WriteKvToPages;
+    if (k == "attn::dispatch_attention_flashinfer_decode")
         return G4Kernel::AttnFlashinferDecode;
     // gemma-4's prefill fires the PLAN-FREE wrapper, not the dispatch
     // llama_like states — one call apart in C++, a whole contract apart
     // in the declaration, so the symbols differ and this registry has
     // only the one gemma-4 actually says.
-    if (k == "ops::launch_attention_flashinfer_prefill")
+    if (k == "attn::attention_flashinfer_prefill")
         return G4Kernel::AttnFlashinferPrefill;
-    if (k == "ops::launch_attention_naive_paged")
+    if (k == "attn::attention_naive_paged")
         return G4Kernel::AttnNaivePaged;
     if (k == "mlp::geglu_tanh_bf16") return G4Kernel::GegluTanh;
     if (k == "mlp::chunked_geglu_tanh_bf16") return G4Kernel::ChunkedGegluTanh;
@@ -87,7 +87,7 @@ G4Kernel resolve_g4_kernel(std::string_view k) {
     if (k == "norm::scalar_mul_bf16") return G4Kernel::ScalarMul;
     if (k == "layout::transpose_bf16_nld_to_lnd")
         return G4Kernel::TransposeNldToLnd;
-    if (k == "launch_logit_softcap_bf16") return G4Kernel::LogitSoftcap;
+    if (k == "attn::logit_softcap_bf16") return G4Kernel::LogitSoftcap;
     if (k == "norm::residual_add_bf16") return G4Kernel::ResidualAdd;
     if (k == "pie_lora_qkv_correction") return G4Kernel::LoraQkvCorrection;
     throw std::runtime_error(
@@ -251,7 +251,7 @@ bool gemma4_forward_declared(
     Gemma4MoeMlpWorkspace& moe_ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,
@@ -357,7 +357,7 @@ bool gemma4_forward_declared(
 
     const auto gemm = [&](const void* act, std::string_view weight, void* out,
                           int m, int n, int k, float beta) {
-        ops::gemm_act_x_wt_bf16(cublas.handle(), act, require(w, weight).data(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(), act, require(w, weight).data(),
                                 out, m, n, k, beta);
     };
 
@@ -456,7 +456,7 @@ bool gemma4_forward_declared(
             break;
         }
         case PieForwardOpKind::SplitQkv:
-            kernels::launch_split_qkv_bf16(
+            kernels::attn::split_qkv_bf16(
                 ws.qkv_fused.data(), ws.q.data(), ws.k.data(), ws.v.data(),
                 N, cur_hq, cur_hk, stream);
             break;
@@ -540,7 +540,7 @@ bool gemma4_forward_declared(
                 break;
             case G4Kernel::QkvPackedPost: {
                 auto kv_view = cache.layer_view(cur_layer);
-                kernels::launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
+                kernels::attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
                     ws.qkv_fused.data(), ws.q.data(),
                     kv_view.k_pages, kv_view.v_pages,
                     require(w, aux(0)).data(), require(w, aux(1)).data(),
@@ -582,7 +582,7 @@ bool gemma4_forward_declared(
                 // It was passed as nullptr on an assumption, and the
                 // kernel dereferenced it — the illegal access this
                 // drive faulted with on its first live fire.
-                kernels::launch_write_kv_to_pages(
+                kernels::attn::write_kv_to_pages(
                     kv_view, ws.k.data(), ws.v.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, N, R, stream, row_valid_d);
@@ -590,21 +590,21 @@ bool gemma4_forward_declared(
             }
             case G4Kernel::AttnFlashinferDecode: {
                 auto kv_view = cache.layer_view(cur_layer);
-                ops::DecodePlanCache* p =
+                kernels::attn::DecodePlanCache* p =
                     (cur_full ? moe_ws.decode_plan_full
                               : moe_ws.decode_plan_sliding).get();
-                ops::DecodePlanCachePtr owned;
+                kernels::attn::DecodePlanCachePtr owned;
                 if (p == nullptr) {
-                    owned = ops::make_decode_plan();
+                    owned = kernels::attn::make_decode_plan();
                     p = owned.get();
-                    ops::plan_attention_flashinfer_decode(
+                    kernels::attn::plan_attention_flashinfer_decode(
                         *p, kv_page_indptr_h, R, cfg.num_attention_heads,
                         cur_hk / cur_d, cur_d, cache.page_size(), attn_ws,
                         stream, /*enable_cuda_graph=*/true,
                         /*full_attention_variant=*/cur_full,
                         cache.hnd_layout());
                 }
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *p, ws.q.data(), kv_view, ws.attn_out.data(),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
                     attn_ws, stream,
@@ -672,13 +672,13 @@ bool gemma4_forward_declared(
                 break;
             }
             case G4Kernel::LogitSoftcap:
-                kernels::launch_logit_softcap_bf16(
+                kernels::attn::logit_softcap_bf16(
                     ws.logits.data(), fwd_cfg.final_logit_softcap,
                     static_cast<std::size_t>(lm_head_rows) * V, stream);
                 break;
             case G4Kernel::AttnFlashinferPrefill: {
                 auto kv_view = cache.layer_view(cur_layer);
-                ops::launch_attention_flashinfer_prefill(
+                kernels::attn::attention_flashinfer_prefill(
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
@@ -692,7 +692,7 @@ bool gemma4_forward_declared(
                 // `num_pages_in_batch` is the host indptr's LAST entry —
                 // the fire's page count, not the layer's and not the
                 // cache's.
-                ops::launch_attention_naive_paged(
+                kernels::attn::attention_naive_paged(
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, N, R,

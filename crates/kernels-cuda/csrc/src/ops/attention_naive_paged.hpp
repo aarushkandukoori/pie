@@ -21,7 +21,7 @@
 
 #include "kernels/kv_cache_view.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 // `q`             [total_tokens, num_q_heads, head_dim]   bf16
 // `k_pages`/      [num_pages, page_size, num_kv_heads, head_dim]
@@ -33,7 +33,7 @@ namespace pie_cuda_driver::ops {
 // `kv_last_page_lens_d` [R] device   — last-page valid token count
 // `sm_scale`           softmax scale; pass `-1.f` for `1/sqrt(head_dim)`
 // `window_left`        non-negative enables sliding window
-void launch_attention_naive_paged_bf16(
+void attention_naive_paged_bf16(
     const void* q,
     const void* k_pages, const void* v_pages,
     void* o,
@@ -53,7 +53,7 @@ void launch_attention_naive_paged_bf16(
     float logits_soft_cap = 0.f,
     float* lse_out = nullptr);
 
-void launch_attention_naive_paged_decode(
+void attention_naive_paged_decode(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -68,7 +68,7 @@ void launch_attention_naive_paged_decode(
     float logits_soft_cap = 0.f,
     float* lse_out = nullptr);
 
-void launch_attention_naive_paged(
+void attention_naive_paged(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -86,7 +86,7 @@ void launch_attention_naive_paged(
     float logits_soft_cap = 0.f,
     float* lse_out = nullptr);
 
-void launch_attention_naive_paged_custom(
+void attention_naive_paged_custom(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -104,7 +104,7 @@ void launch_attention_naive_paged_custom(
     float logits_soft_cap = 0.f,
     float* lse_out = nullptr);
 
-void launch_attention_naive_paged(
+void attention_naive_paged(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -120,4 +120,4 @@ void launch_attention_naive_paged(
     int window_left = -1,
     float sm_scale = -1.f);
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

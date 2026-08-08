@@ -6,7 +6,7 @@
 
 #include "ops/attention_workspace.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 // FlashInfer XQA decode specializations currently compiled into Pie.
 // This is a torch-free wrapper over FlashInfer's csrc/xqa decode kernel.
@@ -36,7 +36,7 @@ void xqa_decode_bf16_warmup_current_device(int head_group_ratio,
 // Back-compat wrapper for the original GQA=5 specialization.
 void xqa_decode_bf16_gqa5_warmup_current_device();
 
-void launch_attention_xqa_decode_bf16(
+void attention_xqa_decode_bf16(
     const void* q,
     void* k_pages,
     void* v_pages,
@@ -64,7 +64,7 @@ void prepare_attention_xqa_decode_bf16(
     AttentionWorkspace& workspace,
     cudaStream_t stream);
 
-void launch_attention_xqa_decode_bf16_prepared(
+void attention_xqa_decode_bf16_prepared(
     const void* q,
     void* k_pages,
     void* v_pages,
@@ -79,4 +79,4 @@ void launch_attention_xqa_decode_bf16_prepared(
     cudaStream_t stream,
     float sm_scale = -1.f);
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

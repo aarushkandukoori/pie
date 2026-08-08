@@ -55,7 +55,7 @@
 #include "ops/attention_flashinfer_hopper.hpp"
 #include "ops/attention_score_capture.cuh"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 // Deliberately a *named* namespace even though everything in it is private to
 // the attention translation units: AttnHd's member definitions appear in every
@@ -854,4 +854,4 @@ cudaError_t AttnHd<HEAD_DIM>::prefill_custom(
 #define PIE_ATTN_HEAD_DIM(HD) extern template struct AttnHd<HD>;
 #include "kernels.def"
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

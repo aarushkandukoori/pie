@@ -8,7 +8,7 @@
 // architecture where that unit is stubbed out. That reasoning held on sm_80
 // and sm_90 and is false on sm_100: the DECODE KV-split path
 // (`use_full_split` in mixtral.cpp, and the two sliding-window sites in
-// gemma4.cpp) calls `dispatch_attention_flashinfer_decode_bf16` -- which is
+// gemma4.cpp) calls `kernels::attn::dispatch_attention_flashinfer_decode_bf16` -- which is
 // built on every architecture -- and then merges. On Blackwell the dispatch
 // succeeded and the merge threw, poisoning the driver on the first fire and
 // taking gpt-oss and gemma-4 down with it.
@@ -26,7 +26,7 @@
 
 #include "cuda_check.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 void merge_attention_states_bf16(
     const void* v, const float* s,
@@ -44,4 +44,4 @@ void merge_attention_states_bf16(
         static_cast<std::uint32_t>(head_dim), stream)));
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

@@ -54,7 +54,7 @@ struct Qwen3LayerWeights {
     // of 3 / 2 narrow gemms — pulls the matmul out of cuBLAS's small-M
     // `gemvx` fallback and into the tensor-core gemm path. The packed
     // gemm output is then sliced into per-projection workspaces via
-    // `kernels::launch_split_qkv_bf16` / `launch_split_gate_up_bf16`.
+    // `kernels::attn::split_qkv_bf16` / `kernels::attn::split_gate_up_bf16`.
     //
     //   qkv_proj_fused      : [num_q_heads*head_dim + 2*num_kv_heads*head_dim,
     //                         hidden]
@@ -62,7 +62,7 @@ struct Qwen3LayerWeights {
     //
     // Null when (a) the model is loaded into per-rank q/k/v slices under
     // TP > 1, (b) the projections are quantized (fp8 / int4 paths route
-    // through `gemm_act_x_w` with per-weight `QuantMeta` and aren't fused
+    // through `kernels::gemm::act_x_w` with per-weight `QuantMeta` and aren't fused
     // yet), or (c) the bind helper for this arch hasn't opted in. Forward
     // code must keep the unfused fallback for these cases.
     const DeviceTensor* qkv_proj_fused      = nullptr;
@@ -70,7 +70,7 @@ struct Qwen3LayerWeights {
 
     // Optional QuantMeta companions for each weight. Null when the
     // weight is plain bf16 (the common case). When set, the forward
-    // pass routes the corresponding GEMM through ops::gemm_act_x_w with
+    // pass routes the corresponding GEMM through kernels::gemm::act_x_w with
     // a quantized WeightView (FP8 / INT4 / etc.). Bind functions
     // populate these by calling `engine.quant_meta(weight_name)` after
     // resolving each pointer. The QuantMeta value lives in the engine's

@@ -263,7 +263,7 @@ bool bench_rope_write_kv() {
         // Reference: the two kernels the engine runs today.
         kernels::rope::rope_bf16(q[0], k[0], (const std::int32_t*)dpos, f.N, f.hq,
                             f.hkv, f.d, 10000.f, nullptr);
-        K::launch_write_kv_to_pages_bf16(
+        kernels::attn::write_kv_to_pages_bf16(
             kp[0], vp[0], k[0], v, (const std::uint32_t*)dqo,
             (const std::uint32_t*)dpi, (const std::uint32_t*)dpp,
             (const std::uint32_t*)dll, f.N, f.R, f.page_size, f.hkv, f.d,
@@ -297,7 +297,7 @@ bool bench_rope_write_kv() {
             bench("  rope + write_kv (2 kernels)", [&](cudaStream_t st) {
                 kernels::rope::rope_bf16(q[0], k[0], (const std::int32_t*)dpos, f.N,
                                     f.hq, f.hkv, f.d, 10000.f, st);
-                K::launch_write_kv_to_pages_bf16(
+                kernels::attn::write_kv_to_pages_bf16(
                     kp[0], vp[0], k[0], v, (const std::uint32_t*)dqo,
                     (const std::uint32_t*)dpi, (const std::uint32_t*)dpp,
                     (const std::uint32_t*)dll, f.N, f.R, f.page_size, f.hkv,

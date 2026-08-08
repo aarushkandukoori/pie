@@ -223,8 +223,8 @@ Run run_batch(const std::vector<Req>& reqs, int window, bool capture,
 
     auto ws = AttentionWorkspace::allocate(256ull * 1024 * 1024,
                                            64ull * 1024 * 1024);
-    auto plan = ops::make_prefill_plan();
-    ops::plan_attention_flashinfer_prefill_bf16(
+    auto plan = kernels::attn::make_prefill_plan();
+    kernels::attn::plan_attention_flashinfer_prefill_bf16(
         *plan, qo_indptr_h.data(), kv_page_indptr_h.data(),
         kv_last_page_lens_h.data(), total_tokens, R, HQ, HKV, D, PAGE, ws,
         /*stream=*/nullptr, /*enable_cuda_graph=*/false, /*window_left=*/-1,
@@ -232,12 +232,12 @@ Run run_batch(const std::vector<Req>& reqs, int window, bool capture,
         /*causal_mask=*/true, /*custom_mask=*/false,
         /*wants_prefill_score=*/capture);
     if (capture) {
-        ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+        kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
             *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws,
             /*stream=*/nullptr, d_scores, d_folded, d_sindptr, window_arg,
             logits_soft_cap);
     } else {
-        ops::dispatch_attention_flashinfer_prefill_bf16(
+        kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
             *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws,
             /*stream=*/nullptr);
     }
@@ -248,12 +248,12 @@ Run run_batch(const std::vector<Req>& reqs, int window, bool capture,
         // being timed is the whole tap, not just the variant's extra store.
         auto launch = [&] {
             if (capture) {
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws,
                     nullptr, d_scores, d_folded, d_sindptr, window_arg,
                     logits_soft_cap);
             } else {
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws,
                     nullptr);
             }

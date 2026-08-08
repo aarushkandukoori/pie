@@ -66,11 +66,11 @@ fn the_check_is_not_vacuous() {
         outputs: vec![],
         layer: Some(0),
     };
-    let xqa = "launch_attention_xqa_decode_bf16_prepared";
+    let xqa = "attn::attention_xqa_decode_bf16_prepared";
     let problems = check_plan(&plan_of(vec![
         peel,
         launch(xqa),
-        launch("dispatch_attention_flashinfer_decode"),
+        launch("attn::dispatch_attention_flashinfer_decode"),
     ]));
     assert_eq!(problems.len(), 1, "{problems:#?}");
     assert!(problems[0].contains("whole"), "{}", problems[0]);
@@ -113,11 +113,18 @@ fn the_metal_table_admits_its_rows_and_refuses_the_rest() {
     assert!(problems[0].contains("metal"), "{}", problems[0]);
 
     // And the other half, without which the above would also pass on a table
-    // that refuses everything: a declared row goes through.
+    // that refuses everything: a declared entrypoint goes through.
+    //
+    // Spelled from `entrypoints()` rather than from `symbol`, because a Metal
+    // row's symbol is a BASE and a base is not something a text can launch —
+    // every point of every axis contributes text, so `attn_gate` names a
+    // kernel and `attn_gate_bfloat16` names the dispatch.
     let declared = KERNELS_METAL
         .first()
-        .expect("Metal's table declares at least one kernel");
-    let mut ok = plan_of(vec![launch(declared.symbol)]);
+        .expect("Metal's table declares at least one kernel")
+        .entrypoints();
+    let declared = declared.first().expect("and that kernel has an entrypoint");
+    let mut ok = plan_of(vec![launch(declared)]);
     ok.family = "llama_like.metal.decode".to_string();
     assert_eq!(check_plan(&ok), Vec::<String>::new());
 }
@@ -176,6 +183,8 @@ fn the_table_is_exactly_the_dsl_surface() {
                 // One line per family as step 3 lands; when the last
                 // `launch_` is gone the first five entries can go too.
                 "rope::",
+                "gemm::",
+                "attn::",
                 "moe::",
                 "quant::",
                 "layout::",
@@ -235,7 +244,7 @@ fn the_depth_axis_derives_from_the_layer_tag() {
         plan.ops.iter().filter(|op| plan.depth_prefix_plan(op)).all(|op| matches!(
             &op.kind,
             OpKind::Launch { kernel, .. }
-                if kernel == "dispatch_attention_flashinfer_decode"
+                if kernel == "attn::dispatch_attention_flashinfer_decode"
         )),
         "only the planned decode dispatch swaps"
     );

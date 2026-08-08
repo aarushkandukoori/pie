@@ -28,7 +28,7 @@
     } while (0)
 #endif
 
-namespace pie_cuda_driver::ops::mla_naive {
+namespace pie_cuda_driver::kernels::attn::mla_naive {
 
 inline bool mla_mma_supported(int kv_lora_rank, int qk_rope_head_dim, int num_heads);
 inline void launch_mla_mma_paged_raw(
@@ -733,4 +733,4 @@ inline void launch_mla_mma_paged_raw(
     PIE_MLA_NAIVE_CHECK(cudaGetLastError());
 }
 
-}  // namespace pie_cuda_driver::ops::mla_naive
+}  // namespace pie_cuda_driver::kernels::attn::mla_naive

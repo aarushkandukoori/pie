@@ -572,9 +572,9 @@ std::optional<QuantMeta> LoadedModel::quant_meta(const std::string& name) const 
     return weights_.quant_meta(name);
 }
 
-ops::RuntimeQuantScratchSpec runtime_quant_scratch_spec(const LoadedModel& engine,
+kernels::gemm::RuntimeQuantScratchSpec runtime_quant_scratch_spec(const LoadedModel& engine,
                                                        std::size_t max_tokens) {
-    ops::RuntimeQuantScratchSpec spec;
+    kernels::gemm::RuntimeQuantScratchSpec spec;
     spec.max_tokens = max_tokens;
 
     const auto& store = engine.weight_store();

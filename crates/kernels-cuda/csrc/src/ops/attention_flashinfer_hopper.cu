@@ -18,7 +18,7 @@
 
 #include "cuda_check.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -361,7 +361,7 @@ void dispatch_attention_flashinfer_prefill_sm90_bf16(
     CUDA_CHECK(status);
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn
 
 // `merge_attention_states_bf16` used to live here. It moved to
 // `attention_merge_states.cu` because its callers are not sm90-only: the

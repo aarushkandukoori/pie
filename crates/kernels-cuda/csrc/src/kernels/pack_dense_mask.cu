@@ -5,7 +5,7 @@
 // validity mask over the LOGICAL grid `[LANES, STRIDE]` bool (index
 // `lane*STRIDE + col`). The port contract stays this dense logical-grid bool
 // (physical layout is driver-internal). But FlashInfer's custom-mask prefill
-// (`launch_attention_flashinfer_prefill_custom_bf16`, `MaskMode::kCustom`) wants
+// (`attention_flashinfer_prefill_custom_bf16`, `MaskMode::kCustom`) wants
 // a BIT-PACKED `[qo_len × kv_len]` bitmap per request (bit `q·kv_len + j`,
 // `packed[bit/8] >> (bit%8) & 1`) with a per-request BYTE offset `mask_indptr`
 // (mirrors `brle::decode` + `masked_attention_parity.cu`).
@@ -34,7 +34,7 @@
 #include "cuda_check.hpp"
 #include "kernels/pack_dense_mask.hpp"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 // One block per lane. Each thread packs a strided subset of the lane's
 // `qo_len·klen` bits. `mask_dense` is [TOTAL_Q, STRIDE] with one byte per cell
@@ -84,7 +84,7 @@ __global__ void pack_dense_mask_kernel(
 // `mask_indptr` (device, [LANES+1]) is the per-lane byte-offset CSR = prefix-sum
 // of ceil(qo_len[l]·klen[l]/8) — built on the host from the same klen/qo_indptr
 // the attention call uses.
-void launch_pack_dense_mask(
+void pack_dense_mask(
     const std::uint8_t* kvm_dense,
     const std::uint32_t* klen,
     const std::uint32_t* qo_indptr,
@@ -157,7 +157,7 @@ __global__ void pack_structured_mask_kernel(
     }
 }
 
-void launch_pack_structured_mask(
+void pack_structured_mask(
     const std::uint32_t* positions,
     const std::uint32_t* klen,
     const std::uint32_t* qo_indptr,
@@ -173,4 +173,4 @@ void launch_pack_structured_mask(
     CUDA_CHECK(cudaGetLastError());
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

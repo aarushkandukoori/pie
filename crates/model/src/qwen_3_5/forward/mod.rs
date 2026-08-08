@@ -53,16 +53,16 @@ use model_compiler::trace::{
 /// | trace op                       | hand-written kernel(s)                      |
 /// |--------------------------------|---------------------------------------------|
 /// | Rmsnorm(mlp_norm)              | kernels::norm::rmsnorm_gemma_bf16                   |
-/// | Matmul(router)                 | ops::gemm_act_x_wt_bf16 (router logits)     |
+/// | Matmul(router)                 | kernels::gemm::act_x_wt_bf16 (router logits)     |
 /// | TopK                           | kernels::moe::topk_softmax_bf16                    |
 /// | Matmul(expert.{e}.gate_up, sel)| grouped GEMM (batched/aligned/CUTLASS)      |
 /// | Swiglu                         | kernels::mlp::chunked_swiglu_bf16 over N*k rows    |
 /// | Matmul(expert.{e}.down, sel)   | grouped GEMM (batched/aligned/CUTLASS)      |
 /// | WeightedSum                    | kernels::moe::token_batched_weighted_sum_bf16      |
-/// | Matmul(shared_expert.gate_up)  | ops::gemm_act_x_w                           |
+/// | Matmul(shared_expert.gate_up)  | kernels::gemm::act_x_w                           |
 /// | Swiglu                         | kernels::mlp::chunked_swiglu_bf16                  |
-/// | Matmul(shared_expert.down)     | ops::gemm_act_x_w                           |
-/// | Matmul(shared_expert_gate)     | ops::gemm_act_x_w ([Tokens, 1] logit)       |
+/// | Matmul(shared_expert.down)     | kernels::gemm::act_x_w                           |
+/// | Matmul(shared_expert_gate)     | kernels::gemm::act_x_w ([Tokens, 1] logit)       |
 /// | SigmoidGateAdd                 | kernels::mlp::sigmoid_scalar_gate_add_bf16         |
 /// | ResidualAdd                    | kernels::norm::residual_add_bf16                    |
 ///
@@ -380,15 +380,15 @@ fn moe_mlp_body_cuda(
 /// | trace op                | hand-written kernel(s)                          |
 /// |-------------------------|--------------------------------------------------|
 /// | Rmsnorm(attn_norm)      | kernels::norm::rmsnorm_gemma_bf16                        |
-/// | Matmul(in_proj_qkv)     | ops::gemm_act_x_w                                |
-/// | Matmul(in_proj_z)       | ops::gemm_act_x_w                                |
-/// | Matmul(in_proj_a)       | ops::gemm_act_x_w                                |
-/// | Matmul(in_proj_b)       | ops::gemm_act_x_w                                |
+/// | Matmul(in_proj_qkv)     | kernels::gemm::act_x_w                                |
+/// | Matmul(in_proj_z)       | kernels::gemm::act_x_w                                |
+/// | Matmul(in_proj_a)       | kernels::gemm::act_x_w                                |
+/// | Matmul(in_proj_b)       | kernels::gemm::act_x_w                                |
 /// | CausalConv1d            | launch_causal_conv1d_update[_batched]_bf16       |
 /// | GdnPrep                 | kernels::ssm::qwen_gdn_post_conv_prep_bf16              |
 /// | GatedDelta              | launch_recurrent_gated_delta_step_* (decode)     |
 /// | RmsnormGated            | kernels::norm::rmsnorm_gated_fp32_in_bf16                |
-/// | Matmul(o_proj)+res      | ops::gemm_act_x_w beta=1                         |
+/// | Matmul(o_proj)+res      | kernels::gemm::act_x_w beta=1                         |
 ///
 /// With the fused binding (`fused_in_proj`, `PIE_QWEN35_FUSED_GDN_PROJ`)
 /// the four projections become two matmuls + two [`SplitGdn`] launches
@@ -683,22 +683,22 @@ fn gdn_attn_body_cuda(
 /// | trace op                  | hand-written kernel(s)                       |
 /// |---------------------------|-----------------------------------------------|
 /// | Rmsnorm(attn_norm)        | kernels::norm::rmsnorm_gemma_bf16                     |
-/// | Matmul(q_proj) [2×-wide]  | ops::gemm_act_x_w → [N, 2·Hq]                 |
-/// | Matmul(k_proj)            | ops::gemm_act_x_w → [N, Hk]                   |
-/// | Matmul(v_proj)            | ops::gemm_act_x_w → [N, Hk]                   |
+/// | Matmul(q_proj) [2×-wide]  | kernels::gemm::act_x_w → [N, 2·Hq]                 |
+/// | Matmul(k_proj)            | kernels::gemm::act_x_w → [N, Hk]                   |
+/// | Matmul(v_proj)            | kernels::gemm::act_x_w → [N, Hk]                   |
 /// | SplitQGate                | kernels::layout::split_q_gate_bf16 (per-head q‖gate)    |
 /// | RmsnormPerHead(q, Gemma)  | kernels::norm::rmsnorm_gemma_bf16 over N·Hq rows of d |
 /// | RmsnormPerHead(k, Gemma)  | kernels::norm::rmsnorm_gemma_bf16 over N·Hkv rows of d|
 /// | Rope(partial)             | kernels::rope::rope_partial_bf16 (rotary_dim chans)   |
-/// | KvAppend                  | launch_write_kv_to_pages / _explicit          |
+/// | KvAppend                  | kernels::attn::write_kv_to_pages / _explicit          |
 /// | Attention                 | dispatch_attention_flashinfer_{decode,prefill}|
 /// | SigmoidGateMul            | kernels::mlp::sigmoid_gate_inplace_bf16              |
-/// | Matmul(o_proj)+res        | ops::gemm_act_x_w beta=1                      |
+/// | Matmul(o_proj)+res        | kernels::gemm::act_x_w beta=1                      |
 ///
 /// With the fused binding (`fused_qkv`, `PIE_QWEN35_FUSED_FULL_ATTN_QGKV`)
 /// the three projections become Matmul(qgkv) + [`SplitQkv`] whose "q" leg
 /// is the 2×-wide `[query | gate]` bank (`use_fused_qgkv`:
-/// `launch_split_qkv_bf16(packed, qg, k, v, N, 2*Hq, Hk)`) — the
+/// `kernels::attn::split_qkv_bf16(packed, qg, k, v, N, 2*Hq, Hk)`) — the
 /// [`SplitQGate`] de-interleave still follows, exactly as in the
 /// hand-written body. `KvAppend`/`Attention` mark the layer's KV cache
 /// ([`model_compiler::trace::StateStore::KvCache`] via
@@ -797,7 +797,7 @@ fn full_attn_body(t: &Trace, l: u32, facts: &Qwen35FullAttnFacts, y: &Val) -> Va
     // Projections: q is 2× wide (per-head [query | gate]). The fused
     // binding packs [2q | k | v] into one bank (`qkv_proj.fused`, joined
     // behind PIE_QWEN35_FUSED_FULL_ATTN_QGKV); the split widths mirror the
-    // driver's launch_split_qkv_bf16(N, 2*Hq, Hk).
+    // driver's kernels::attn::split_qkv_bf16(N, 2*Hq, Hk).
     let (qg, k, v) = if facts.fused_qkv {
         split_qkv(&matmul(&x, &w.qgkv), 2 * facts.q_width(), facts.kv_width())
     } else {
@@ -1031,7 +1031,7 @@ fn dense_mlp_body_cuda(
 /// Mirrors `qwen3_5_forward.cpp::qwen3_5_forward_paged`'s walk: embed
 /// (`kernels::layout::embed_bf16`) → per layer {pre-attn norm + attention body,
 /// pre-MLP norm + MLP body} → final norm (`kernels::norm::rmsnorm_gemma_bf16`) →
-/// lm_head (`gemm_act_x_w`). The compact-logit gather, the state-only and
+/// lm_head (`kernels::gemm::act_x_w`). The compact-logit gather, the state-only and
 /// commit-advance fires, MTP and the verify/rs-buffer services are
 /// per-fire services around this one pass, not ops of it.
 pub fn qwen3_5_hybrid(facts: &Qwen35HybridFacts) -> ForwardPlan {

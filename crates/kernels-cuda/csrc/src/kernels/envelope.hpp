@@ -30,7 +30,7 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 // The envelopes are stored bf16, half of what f32 cost, and the narrowing is
 // EXACT rather than a tolerated approximation: every envelope entry is the min
@@ -137,4 +137,4 @@ void launch_envelope_update_appended_bf16(
     int head_dim,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

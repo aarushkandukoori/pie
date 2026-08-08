@@ -3,7 +3,7 @@
 #include <cuda_bf16.h>
 #include <math_constants.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 namespace {
 
 constexpr int kBlock = 256;
@@ -148,7 +148,7 @@ __global__ void index_topk_mask_kernel(
 
 }  // namespace
 
-void launch_dsa_index_knorm_rope_bf16(
+void dsa_index_knorm_rope_bf16(
     void* idx_k, const void* k_norm_weight, const void* k_norm_bias,
     const std::int32_t* positions, int tokens, int head_dim, int rope_dim,
     float theta, float eps, cudaStream_t stream)
@@ -161,7 +161,7 @@ void launch_dsa_index_knorm_rope_bf16(
         positions, head_dim, rope_dim, theta, eps);
 }
 
-void launch_dsa_index_q_rope_bf16(
+void dsa_index_q_rope_bf16(
     void* idx_q, const std::int32_t* positions, int tokens, int n_heads,
     int head_dim, int rope_dim, float theta, cudaStream_t stream)
 {
@@ -173,7 +173,7 @@ void launch_dsa_index_q_rope_bf16(
         n_heads, head_dim, rope_dim, theta);
 }
 
-void launch_dsa_index_topk_mask(
+void dsa_index_topk_mask(
     const void* idx_q, const void* idx_k, const void* idx_w,
     std::uint8_t* mask, int tokens, int n_heads, int head_dim, int topk,
     cudaStream_t stream)
@@ -187,4 +187,4 @@ void launch_dsa_index_topk_mask(
         mask, tokens, n_heads, head_dim, topk);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

@@ -254,7 +254,7 @@ void glm5_forward_paged(
     MlaCache& mla_cache,
     DsaCache& dsa_cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     void* logits_out,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
@@ -362,11 +362,11 @@ void glm5_forward_paged(
                 total_tokens, H, eps, stream);
         }
 
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_x.data(),
             make_weight_view(Lw.q_a_proj, Lw.q_a_proj_quant),
             ws.q_a.data(), total_tokens, q_lora, H);
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_x.data(),
             make_weight_view(Lw.kv_a_proj_with_mqa, Lw.kv_a_proj_with_mqa_quant),
             ws.kv_a_mqa.data(), total_tokens, kv_lora + q_rope, H);
@@ -374,7 +374,7 @@ void glm5_forward_paged(
         kernels::norm::rmsnorm_bf16(
             ws.q_a.data(), Lw.q_a_norm->data(), ws.q_a.data(),
             total_tokens, q_lora, eps, stream);
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.q_a.data(),
             make_weight_view(Lw.q_b_proj, Lw.q_b_proj_quant),
             ws.q_b.data(), total_tokens, heads * (q_nope + q_rope), q_lora);
@@ -388,27 +388,27 @@ void glm5_forward_paged(
         // ── DSA lightning-indexer: build top-k mask for this layer ───────
         if (use_indexer && Lw.idx_wq_b != nullptr) {
             // q_idx = wq_b(q_a_normed); k_idx = wk(norm_x); w = weights_proj(norm_x)
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.q_a.data(),
                 make_weight_view(Lw.idx_wq_b, Lw.idx_wq_b_quant),
                 ws.idx_q.data(), total_tokens, idx_nh * idx_hd, q_lora);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.norm_x.data(),
                 make_weight_view(Lw.idx_wk, Lw.idx_wk_quant),
                 ws.idx_k.data(), total_tokens, idx_hd, H);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.norm_x.data(),
                 make_weight_view(Lw.idx_weights_proj, std::nullopt),
                 ws.idx_w.data(), total_tokens, idx_nh, H);
-            kernels::launch_dsa_index_knorm_rope_bf16(
+            kernels::attn::dsa_index_knorm_rope_bf16(
                 ws.idx_k.data(), Lw.idx_k_norm_weight->data(),
                 Lw.idx_k_norm_bias->data(), positions,
                 total_tokens, idx_hd, q_rope, cfg.rope_theta, /*eps=*/1e-6f,
                 stream);
-            kernels::launch_dsa_index_q_rope_bf16(
+            kernels::attn::dsa_index_q_rope_bf16(
                 ws.idx_q.data(), positions,
                 total_tokens, idx_nh, idx_hd, q_rope, cfg.rope_theta, stream);
-            kernels::launch_dsa_index_topk_mask(
+            kernels::attn::dsa_index_topk_mask(
                 ws.idx_q.data(), ws.idx_k.data(), ws.idx_w.data(),
                 static_cast<std::uint8_t*>(ws.idx_mask.data()),
                 total_tokens, idx_nh, idx_hd, idx_topk, stream);
@@ -418,13 +418,13 @@ void glm5_forward_paged(
 
         auto layer_view = mla_cache.layer_view(li);
         const bool fuse_prepare =
-            kernels::mla_prepare_supported(q_rope) && !act_dump_enabled();
+            kernels::attn::mla_prepare_supported(q_rope) && !act_dump_enabled();
         if (fuse_prepare) {
             // GLM-5.1+ sets `rope_interleave=true` (config.json), i.e. the
             // GPT-J adjacent-pair convention (dims 2i, 2i+1), not the half/half
             // (NeoX) pairing used by Llama/Kimi. Using the wrong pairing
             // scrambles the rotary subspace for every position > 0.
-            kernels::launch_mla_prepare_bf16(
+            kernels::attn::mla_prepare_bf16(
                 layer_view,
                 ws.kv_a_mqa.data(), Lw.kv_a_norm->data(), ws.q_b.data(),
                 ws.kv_c.data(), ws.k_pe.data(),
@@ -435,12 +435,12 @@ void glm5_forward_paged(
                 /*kv_a_row_stride=*/0, /*yarn=*/nullptr, stream, row_valid_d);
         } else {
 
-        kernels::launch_kimi_split_kv_a_norm_bf16(
+        kernels::attn::kimi_split_kv_a_norm_bf16(
             ws.kv_a_mqa.data(), Lw.kv_a_norm->data(),
             ws.kv_c.data(), ws.k_pe.data(),
             total_tokens, kv_lora, q_rope, eps, stream);
 
-        kernels::launch_kimi_split_q_b_bf16(
+        kernels::attn::kimi_split_q_b_bf16(
             ws.q_b.data(), ws.q_nope.data(), ws.q_pe.data(),
             total_tokens, heads, q_nope, q_rope, stream);
 
@@ -454,7 +454,7 @@ void glm5_forward_paged(
             total_tokens, heads, 1, q_rope, cfg.rope_theta, stream,
             /*interleaved=*/true);
 
-        kernels::launch_write_mla_to_pages(
+        kernels::attn::write_mla_to_pages(
             layer_view, ws.kv_c.data(), ws.k_pe.data(),
             qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
             total_tokens, num_requests, stream, row_valid_d);
@@ -463,7 +463,7 @@ void glm5_forward_paged(
         // The kimi_mla kernels read kv_b in BF16, which is what the contract
         // publishes it as -- an FP8 checkpoint is dequantized by the loader.
         const void* kv_b_bf16 = Lw.kv_b_proj->data();
-        ops::mla_absorb_q_to_latent_bf16(cublas.handle(),
+        kernels::gemm::mla_absorb_q_to_latent_bf16(cublas.handle(),
             ws.q_nope.data(), kv_b_bf16,
             ws.q_nope_latent.data(),
             total_tokens, heads, q_nope, v_dim, kv_lora);
@@ -471,7 +471,7 @@ void glm5_forward_paged(
         if (!mla_plan.mla_plan) {
             throw std::runtime_error("glm5: MLA plan missing; prepare hook did not run");
         }
-        ops::dispatch_attention_mla_bf16(
+        kernels::attn::dispatch_attention_mla_bf16(
             *mla_plan.mla_plan,
             ws.q_nope_latent.data(),
             ws.q_pe.data(),
@@ -483,7 +483,7 @@ void glm5_forward_paged(
             /*lse_out=*/nullptr,
             qo_indptr, kv_page_indptr, kv_last_page_lens,
             idx_mask_ptr, idx_mask_stride);
-        ops::mla_absorb_latent_to_v_bf16(cublas.handle(),
+        kernels::gemm::mla_absorb_latent_to_v_bf16(cublas.handle(),
             ws.attn_latent.data(), kv_b_bf16,
             ws.attn_v.data(),
             total_tokens, heads, q_nope, v_dim, kv_lora);
@@ -495,12 +495,12 @@ void glm5_forward_paged(
             static_cast<std::uint32_t>(li), stream);
 
         if (T == 1) {
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.attn_v.data(),
                 make_weight_view(Lw.o_proj, Lw.o_proj_quant),
                 ws.y.data(), total_tokens, H, heads * v_dim, /*beta=*/1.f);
         } else {
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.attn_v.data(),
                 make_weight_view(Lw.o_proj, Lw.o_proj_quant),
                 ws.norm_x.data(), total_tokens, H, heads * v_dim);
@@ -519,11 +519,11 @@ void glm5_forward_paged(
             total_tokens, H, eps, stream);
 
         if (!Lw.is_moe) {
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.norm_y.data(),
                 make_weight_view(Lw.dense_gate_proj, Lw.dense_gate_quant),
                 ws.gate.data(), total_tokens, dense_I, H);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.norm_y.data(),
                 make_weight_view(Lw.dense_up_proj, Lw.dense_up_quant),
                 ws.up.data(), total_tokens, dense_I, H);
@@ -531,12 +531,12 @@ void glm5_forward_paged(
                 ws.gate.data(), ws.up.data(), ws.gate.data(),
                 total_tokens * dense_I, stream);
             if (T == 1) {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.gate.data(),
                     make_weight_view(Lw.dense_down_proj, Lw.dense_down_quant),
                     ws.y.data(), total_tokens, H, dense_I, /*beta=*/1.f);
             } else {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.gate.data(),
                     make_weight_view(Lw.dense_down_proj, Lw.dense_down_quant),
                     ws.norm_x.data(), total_tokens, H, dense_I);
@@ -551,11 +551,11 @@ void glm5_forward_paged(
 
         // ── MoE router ──────────────────────────────────────────────
         // The router is BF16 and quantization-free on GLM-5.1.
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_y.data(), *Lw.router,
             ws.router_logits.data(), total_tokens, E, H);
         // noaux_tc + sigmoid scoring with optional per-expert correction bias.
-        kernels::launch_topk_sigmoid_bf16(
+        kernels::attn::topk_sigmoid_bf16(
             ws.router_logits.data(),
             static_cast<std::int32_t*>(ws.topk_idx.data()),
             static_cast<float*>(ws.topk_weights.data()),
@@ -669,7 +669,7 @@ void glm5_forward_paged(
                 max_blocks, block, H, routed_I,
                 /*routed_blocks=*/max_blocks, nullptr, nullptr, stream);
 
-            ops::gemm_batched_act_x_wt_bf16(cublas.handle(),
+            kernels::gemm::batched_act_x_wt_bf16(cublas.handle(),
                 reinterpret_cast<const void* const*>(ws.b_gu_ptrs.data()),
                 reinterpret_cast<const void* const*>(ws.a_gu_ptrs.data()),
                 reinterpret_cast<void* const*>(ws.c_gu_ptrs.data()),
@@ -678,7 +678,7 @@ void glm5_forward_paged(
                 ws.aligned_gate_up.data(), ws.aligned_act.data(),
                 aligned_rows, routed_I, stream,
                 /*gate_second=*/glm5_moe_gate_up_swapped());
-            ops::gemm_batched_act_x_wt_bf16(cublas.handle(),
+            kernels::gemm::batched_act_x_wt_bf16(cublas.handle(),
                 reinterpret_cast<const void* const*>(ws.b_dn_ptrs.data()),
                 reinterpret_cast<const void* const*>(ws.a_dn_ptrs.data()),
                 reinterpret_cast<void* const*>(ws.c_dn_ptrs.data()),
@@ -738,18 +738,18 @@ void glm5_forward_paged(
                 static_cast<const std::int32_t*>(ws.route_idx.data()),
                 static_cast<std::uint16_t*>(ws.expert_in.data()),
                 Ne, H, stream);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.expert_in.data(),
                 make_expert_weight_view(Ew.gate_proj, Ew.gate_quant),
                 ws.expert_gate.data(), Ne, routed_I, H);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.expert_in.data(),
                 make_expert_weight_view(Ew.up_proj, Ew.up_quant),
                 ws.expert_up.data(), Ne, routed_I, H);
             kernels::mlp::swiglu_bf16(
                 ws.expert_gate.data(), ws.expert_up.data(),
                 ws.expert_gate.data(), Ne * routed_I, stream);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.expert_gate.data(),
                 make_expert_weight_view(Ew.down_proj, Ew.down_quant),
                 ws.expert_out.data(), Ne, H, routed_I);
@@ -763,18 +763,18 @@ void glm5_forward_paged(
 
         // ── Shared experts ──────────────────────────────────────────
         if (shared_I > 0 && Lw.shared_gate_proj != nullptr) {
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.norm_y.data(),
                 make_expert_weight_view(Lw.shared_gate_proj, Lw.shared_gate_quant),
                 ws.shared_gate.data(), total_tokens, shared_I, H);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.norm_y.data(),
                 make_expert_weight_view(Lw.shared_up_proj, Lw.shared_up_quant),
                 ws.shared_up.data(), total_tokens, shared_I, H);
             kernels::mlp::swiglu_bf16(
                 ws.shared_gate.data(), ws.shared_up.data(),
                 ws.shared_act.data(), total_tokens * shared_I, stream);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.shared_act.data(),
                 make_expert_weight_view(Lw.shared_down_proj, Lw.shared_down_quant),
                 ws.shared_out.data(), total_tokens, H, shared_I);
@@ -837,7 +837,7 @@ void glm5_forward_paged(
             "glm5: sharded lm_head not supported in first-pass forward");
     }
     act_dump_bf16("final_norm", ws.norm_y.data(), rows, H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(), *w.lm_head, logits_out,
         rows, V, H);
     act_dump_bf16("logits", logits_out, rows, V, stream);

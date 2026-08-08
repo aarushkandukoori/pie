@@ -18,7 +18,7 @@
 //!   / its chunked twin.
 //!
 //! * **An attention-residual BLOCK that spans layers.**
-//!   `launch_attn_res_blend_bf16` blends a block's accumulated prefix
+//!   `kernels::attn::attn_res_blend_bf16` blends a block's accumulated prefix
 //!   back in every `attn_res_block` layers. It is the one statement here
 //!   whose operands are not this layer's — and the reason the block size
 //!   is a fact rather than a loop bound.
@@ -141,7 +141,7 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
                 let q_b = matmul(&q_a_n, &w.q_b_proj);
                 let kv_a = matmul(&x, &w.kv_a_proj);
                 // The split pair, NOT the fused prepare: this family's
-                // MLA carries no rope, and `launch_mla_prepare_bf16` does
+                // MLA carries no rope, and `kernels::attn::mla_prepare_bf16` does
                 // the rope as part of what it fuses.
                 let (kv_c, k_pe) = dsl::cuda::kimi_split_kv_a_norm(
                     &kv_a,

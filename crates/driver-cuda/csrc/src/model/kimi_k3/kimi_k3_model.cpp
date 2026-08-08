@@ -49,7 +49,7 @@ void KimiK3Model::prepare(AttentionWorkspace& attn_ws,
 void KimiK3Model::body(Workspace& ws,
                        KvCache& /*kv*/,
                        AttentionWorkspace& attn_ws,
-                       ops::CublasHandle& cublas,
+                       kernels::gemm::CublasHandle& cublas,
                        const ForwardFn::ForwardInputs& in) {
     kimi_k3_forward_paged(
         weights_, hf_config_, fwd_cfg_, mla_plan_, ws_, mla_cache_, kda_cache_,

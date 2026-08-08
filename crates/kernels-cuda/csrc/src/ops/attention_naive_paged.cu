@@ -12,7 +12,7 @@
 
 #include "kernels/kv_paged.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -448,7 +448,7 @@ __global__ void naive_paged_decode_kernel(
 
 }  // namespace
 
-void launch_attention_naive_paged_bf16(
+void attention_naive_paged_bf16(
     const void* q,
     const void* k_pages, const void* v_pages,
     void* o,
@@ -467,7 +467,7 @@ void launch_attention_naive_paged_bf16(
     float* lse_out)
 {
     if (num_requests <= 0 || total_tokens <= 0) return;
-    check_head_dim_supported(head_dim, "launch_attention_naive_paged_bf16");
+    check_head_dim_supported(head_dim, "attention_naive_paged_bf16");
     // We launch one block per (request, qo_offset, q_head) — qo_offset
     // is bounded by the largest single-request qo_len. We don't have
     // that bound on hand at the host side, so use `total_tokens` as
@@ -496,7 +496,7 @@ void launch_attention_naive_paged_bf16(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_attention_naive_paged_decode(
+void attention_naive_paged_decode(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -512,7 +512,7 @@ void launch_attention_naive_paged_decode(
     float* lse_out)
 {
     if (num_requests <= 0) return;
-    check_head_dim_supported(kv_layer.head_dim, "launch_attention_naive_paged_decode");
+    check_head_dim_supported(kv_layer.head_dim, "attention_naive_paged_decode");
     dim3 grid(num_requests, num_q_heads);
     dim3 block(BLOCK);
     const std::size_t smem = (kv_layer.head_dim + BLOCK) * sizeof(float);
@@ -540,7 +540,7 @@ void launch_attention_naive_paged_decode(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_attention_naive_paged(
+void attention_naive_paged(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -560,7 +560,7 @@ void launch_attention_naive_paged(
 {
     (void)num_pages_in_batch;
     if (num_requests <= 0 || total_tokens <= 0) return;
-    check_head_dim_supported(kv_layer.head_dim, "launch_attention_naive_paged");
+    check_head_dim_supported(kv_layer.head_dim, "attention_naive_paged");
     dim3 grid(num_requests, total_tokens, num_q_heads);
     dim3 block(BLOCK);
     const std::size_t smem = (kv_layer.head_dim + BLOCK) * sizeof(float);
@@ -591,7 +591,7 @@ void launch_attention_naive_paged(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_attention_naive_paged_custom(
+void attention_naive_paged_custom(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -610,7 +610,7 @@ void launch_attention_naive_paged_custom(
     float* lse_out)
 {
     if (num_requests <= 0 || total_tokens <= 0) return;
-    check_head_dim_supported(kv_layer.head_dim, "launch_attention_naive_paged_custom");
+    check_head_dim_supported(kv_layer.head_dim, "attention_naive_paged_custom");
     dim3 grid(num_requests, total_tokens, num_q_heads);
     dim3 block(BLOCK);
     const std::size_t smem = (kv_layer.head_dim + BLOCK) * sizeof(float);
@@ -641,7 +641,7 @@ void launch_attention_naive_paged_custom(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_attention_naive_paged(
+void attention_naive_paged(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -657,9 +657,9 @@ void launch_attention_naive_paged(
     int window_left,
     float sm_scale)
 {
-    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+    dequant_kv_cache_layer_to_bf16_active(
         kv_layer, kv_page_indices_d, num_pages_in_batch, stream);
-    launch_attention_naive_paged_bf16(
+    attention_naive_paged_bf16(
         q,
         kv_layer.k_bf16_pages,
         kv_layer.v_bf16_pages,
@@ -669,4 +669,4 @@ void launch_attention_naive_paged(
         kv_layer.head_dim, kv_layer.page_size, stream, window_left, sm_scale);
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

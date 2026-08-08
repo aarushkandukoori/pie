@@ -351,7 +351,7 @@ void mixtral_forward_paged(
     Workspace& ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,
@@ -423,10 +423,10 @@ void mixtral_forward_paged(
     kernels::layout::embed_bf16(
         token_ids, w.embed->data(), ws.y.data(), N, H, V, stream);
 
-    ops::DecodePlanCachePtr decode_plan;
+    kernels::attn::DecodePlanCachePtr decode_plan;
     if (use_decode_path) {
-        decode_plan = ops::make_decode_plan();
-        ops::plan_attention_flashinfer_decode(
+        decode_plan = kernels::attn::make_decode_plan();
+        kernels::attn::plan_attention_flashinfer_decode(
             *decode_plan, kv_page_indptr_h, R,
             num_q_heads_local, num_kv_heads_local, d,
             cache.page_size(), attn_ws, stream,
@@ -476,7 +476,7 @@ void mixtral_forward_paged(
             static_cast<std::size_t>(R) * keep_max);
         win_indptr = DeviceBuffer<std::uint32_t>::alloc(
             static_cast<std::size_t>(R) + 1);
-        kernels::launch_build_window_page_view(
+        kernels::attn::build_window_page_view(
             kv_page_indices, kv_page_indptr, keep_max,
             win_indptr.data(), win_indices.data(), R, stream);
     }
@@ -506,7 +506,7 @@ void mixtral_forward_paged(
         const int n = (v != nullptr) ? std::atoi(v) : 16;
         return (n >= 1 && n <= 128) ? n : 16;
     }();
-    ops::DecodePlanCachePtr split_plan;
+    kernels::attn::DecodePlanCachePtr split_plan;
     DeviceBuffer<std::uint32_t> split_indptr, split_indices, split_last;
     DeviceBuffer<std::uint16_t> split_partial;
     DeviceBuffer<float> split_lse, split_lse_merged;
@@ -517,7 +517,7 @@ void mixtral_forward_paged(
                             : fwd_cfg.sliding_window;
         if (w_l < 0) { has_full_layer = true; break; }
     }
-    // The split's partials are folded by `merge_attention_states_bf16`. That
+    // The split's partials are folded by `kernels::attn::merge_attention_states_bf16`. That
     // used to live in the sm90 TU and be a THROWING STUB elsewhere, so this
     // site asked `merge_attention_states_supported()` before taking the
     // split -- a guard added here after a gpt-oss decode on an L40S threw
@@ -556,13 +556,13 @@ void mixtral_forward_paged(
             static_cast<std::size_t>(splits) +
             std::min<std::size_t>(max_req_pages,
                                   static_cast<std::size_t>(cache.num_pages())));
-        kernels::launch_build_full_split_view(
+        kernels::attn::build_full_split_view(
             kv_page_indptr, kv_last_page_lens, splits, page_size,
             split_indptr.data(), split_indices.data(), split_last.data(),
             kv_page_indices, stream);
-        split_plan = ops::make_decode_plan();
+        split_plan = kernels::attn::make_decode_plan();
         // Past the primary plan's descriptor, which is sized for R.
-        ops::set_decode_plan_int_base(*split_plan, 1u << 20);
+        kernels::attn::set_decode_plan_int_base(*split_plan, 1u << 20);
         // The descriptor is page-count independent, so the counts handed to
         // the planner only have to be a well-formed indptr over `splits`
         // requests; the real ranges reach the LAUNCH, from the device.
@@ -570,7 +570,7 @@ void mixtral_forward_paged(
         for (int i = 0; i <= splits; ++i) {
             plan_indptr_h[i] = static_cast<std::uint32_t>(i);
         }
-        ops::plan_attention_flashinfer_decode(
+        kernels::attn::plan_attention_flashinfer_decode(
             *split_plan, plan_indptr_h.data(), splits,
             num_q_heads_local, num_kv_heads_local, d, page_size,
             attn_ws, stream, /*enable_cuda_graph=*/true,
@@ -786,7 +786,7 @@ void mixtral_forward_paged(
         // own to work with and cuBLAS is the better answer.
         const bool fused_qkv_gemv =
             N == 1 &&
-            kernels::launch_gemv3_bf16(
+            kernels::gemm::gemv3_bf16(
                 layer.q_proj->data(), layer.k_proj->data(),
                 layer.v_proj->data(),
                 layer.q_bias ? layer.q_bias->data() : nullptr,
@@ -795,15 +795,15 @@ void mixtral_forward_paged(
                 ws.q.data(), ws.k.data(), ws.v.data(),
                 ws.norm_x.data(), Hq, Hk, Hk, H, stream);
         if (!fused_qkv_gemv) {
-        ops::gemm_act_x_wt_bias_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bias_bf16(cublas.handle(),
             ws.norm_x.data(), layer.q_proj->data(),
             layer.q_bias ? layer.q_bias->data() : nullptr,
             ws.q.data(), N, Hq, H, stream);
-        ops::gemm_act_x_wt_bias_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bias_bf16(cublas.handle(),
             ws.norm_x.data(), layer.k_proj->data(),
             layer.k_bias ? layer.k_bias->data() : nullptr,
             ws.k.data(), N, Hk, H, stream);
-        ops::gemm_act_x_wt_bias_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bias_bf16(cublas.handle(),
             ws.norm_x.data(), layer.v_proj->data(),
             layer.v_bias ? layer.v_bias->data() : nullptr,
             ws.v.data(), N, Hk, H, stream);
@@ -878,7 +878,7 @@ void mixtral_forward_paged(
             static_cast<std::uint32_t>(L), stream);
 
         if (!fused_rope_kv) {
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 N, R, stream, row_valid_d);
@@ -892,7 +892,7 @@ void mixtral_forward_paged(
         const bool use_full_split =
             use_decode_path && !split_indices.empty() && layer_window < 0;
         if (use_full_split) {
-            ops::dispatch_attention_flashinfer_decode_bf16(
+            kernels::attn::dispatch_attention_flashinfer_decode_bf16(
                 *split_plan, ws.q.data(),
                 kv_view.k_pages, kv_view.v_pages,
                 split_partial.data(), split_indices.data(),
@@ -900,7 +900,7 @@ void mixtral_forward_paged(
                 attn_ws, stream, /*window_left=*/-1,
                 /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
                 split_lse.data(), /*broadcast_q=*/true);
-            ops::merge_attention_states_bf16(
+            kernels::attn::merge_attention_states_bf16(
                 split_partial.data(), split_lse.data(),
                 ws.attn_out.data(), split_lse_merged.data(),
                 kMixtralFullSplits, 1, num_q_heads_local, d, stream);
@@ -913,7 +913,7 @@ void mixtral_forward_paged(
             // planner run competes for offset 0 of the shared int workspace.
             const bool trimmed =
                 !win_indices.empty() && layer_window == trim_window;
-            ops::dispatch_attention_flashinfer_decode(
+            kernels::attn::dispatch_attention_flashinfer_decode(
                 *decode_plan,
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 trimmed ? win_indices.data() : kv_page_indices,
@@ -925,7 +925,7 @@ void mixtral_forward_paged(
                 /*sm_scale=*/-1.f,
                 layer_lse);
         } else if (custom_mask_d) {
-            ops::launch_attention_flashinfer_prefill_custom(
+            kernels::attn::attention_flashinfer_prefill_custom(
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 custom_mask_d, custom_mask_indptr_d,
@@ -935,7 +935,7 @@ void mixtral_forward_paged(
                 /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
                 layer_lse);
         } else {
-            ops::launch_attention_flashinfer_prefill(
+            kernels::attn::attention_flashinfer_prefill(
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 qo_indptr_h, kv_page_indptr_h,
@@ -951,7 +951,7 @@ void mixtral_forward_paged(
         if (layer.attn_sinks != nullptr) {
             // On a split layer each slice's lse is a partial; the total the
             // sink extension needs is the one MergeStates just folded.
-            kernels::launch_attention_sink_rescale_bf16(
+            kernels::attn::attention_sink_rescale_bf16(
                 ws.attn_out.data(),
                 use_full_split ? split_lse_merged.data() : layer_lse,
                 layer.attn_sinks->data(),
@@ -974,12 +974,12 @@ void mixtral_forward_paged(
             // beta = 1 accumulates into the residual and the bias rides the
             // same epilogue, so what used to be a GEMM plus an `add_bias` plus
             // a `residual_add` is one kernel.
-            ops::gemm_act_x_wt_bias_bf16(cublas.handle(),
+            kernels::gemm::act_x_wt_bias_bf16(cublas.handle(),
                 ws.attn_out.data(), layer.o_proj->data(),
                 layer.o_bias ? layer.o_bias->data() : nullptr,
                 ws.y.data(), N, H, Hq, stream, /*beta=*/1.f);
         } else {
-            ops::gemm_act_x_wt_bias_bf16(cublas.handle(),
+            kernels::gemm::act_x_wt_bias_bf16(cublas.handle(),
                 ws.attn_out.data(), layer.o_proj->data(),
                 (layer.o_bias && tp_is_leader) ? layer.o_bias->data() : nullptr,
                 ws.norm_x.data(), N, H, Hq, stream);
@@ -1005,7 +1005,7 @@ void mixtral_forward_paged(
         // — its allocation is `[max_tokens, intermediate]` which is
         // always ≥ [N, num_experts] for any production config (E ≤ 64,
         // I ≥ 4096).
-        ops::gemm_act_x_wt_bias_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bias_bf16(cublas.handle(),
             ws.norm_y.data(), layer.router->data(),
             layer.router_bias ? layer.router_bias->data() : nullptr,
             ws.gate.data(), N, num_experts, H, stream);
@@ -1503,12 +1503,12 @@ void mixtral_forward_paged(
                     throw std::runtime_error(
                         "mixtral/gpt_oss: incomplete native MXFP4 expert backend");
                 }
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     d_expert_in.data(),
                     ops::WeightView::mxfp4_marlin(
                         *expert.w_gate_mxfp4, *expert.w_gate_mxfp4_scale),
                     d_expert_gate.data(), Ne, Ip, H);
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     d_expert_in.data(),
                     ops::WeightView::mxfp4_marlin(
                         *expert.w_up_mxfp4, *expert.w_up_mxfp4_scale),
@@ -1531,7 +1531,7 @@ void mixtral_forward_paged(
                         d_expert_gate.data(),
                         static_cast<std::size_t>(Ne) * Ip, stream);
                 }
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     d_expert_gate.data(),
                     ops::WeightView::mxfp4_marlin(
                         *expert.w_down_mxfp4, *expert.w_down_mxfp4_scale),
@@ -1580,10 +1580,10 @@ void mixtral_forward_paged(
                 up_w = expert.w_up->data();
                 down_w = expert.w_down->data();
             }
-            ops::gemm_act_x_wt_bf16(cublas.handle(),
+            kernels::gemm::act_x_wt_bf16(cublas.handle(),
                 d_expert_in.data(), gate_w,
                 d_expert_gate.data(), Ne, I, H);
-            ops::gemm_act_x_wt_bf16(cublas.handle(),
+            kernels::gemm::act_x_wt_bf16(cublas.handle(),
                 d_expert_in.data(), up_w,
                 d_expert_up.data(), Ne, I, H);
             if (expert.b_gate) kernels::norm::add_bias_bf16(
@@ -1602,7 +1602,7 @@ void mixtral_forward_paged(
                     d_expert_gate.data(),
                     static_cast<std::size_t>(Ne) * I, stream);
             }
-            ops::gemm_act_x_wt_bf16(cublas.handle(),
+            kernels::gemm::act_x_wt_bf16(cublas.handle(),
                 d_expert_gate.data(), down_w,
                 d_expert_out.data(), Ne, H, I);
             // b_down is replicated across ranks; only the leader applies
@@ -1648,7 +1648,7 @@ void mixtral_forward_paged(
         kernels::norm::rmsnorm_bf16(
             ws.norm_x.data(), w.final_norm->data(), ws.norm_y.data(),
             num_logit_rows, H, eps, stream);
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_y.data(), w.lm_head->data(), ws.logits.data(),
             lm_head_rows, V, H);
         if (prof.enabled) prof.close(stream);
@@ -1657,7 +1657,7 @@ void mixtral_forward_paged(
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), w.final_norm->data(), ws.norm_x.data(),
         N, H, eps, stream);
-    ops::gemm_act_x_wt_bf16(cublas.handle(),
+    kernels::gemm::act_x_wt_bf16(cublas.handle(),
         ws.norm_x.data(), w.lm_head->data(), ws.logits.data(),
         N, V, H);
     if (prof.enabled) prof.close(stream);

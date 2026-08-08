@@ -5,9 +5,9 @@
 
 #include "kernels/mla_cache_view.hpp"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
-void launch_write_mla_to_pages_bf16(
+void write_mla_to_pages_bf16(
     void* ckv_pages,                               // [pages, page_size, kv_lora_rank]
     void* kpe_pages,                               // [pages, page_size, qk_rope_head_dim]
     const void* ckv_curr,                          // [total_tokens, kv_lora_rank]
@@ -24,7 +24,7 @@ void launch_write_mla_to_pages_bf16(
     cudaStream_t stream,
     const std::uint8_t* row_valid = nullptr);
 
-void launch_write_mla_to_pages(
+void write_mla_to_pages(
     MlaCacheLayerView layer,
     const void* ckv_curr,
     const void* kpe_curr,
@@ -37,7 +37,7 @@ void launch_write_mla_to_pages(
     cudaStream_t stream,
     const std::uint8_t* row_valid = nullptr);
 
-// True when `launch_mla_prepare_bf16` can serve this head dim.
+// True when `mla_prepare_bf16` can serve this head dim.
 bool mla_prepare_supported(int qk_rope_head_dim);
 
 // Original-YaRN rope scaling (DeepSeek-V2/V3, Kimi). Pass nullptr for plain
@@ -54,7 +54,7 @@ struct YarnOriginalParams {
 // Produces byte-identical kv_c / k_pe / q_nope / q_pe and page contents; it
 // exists purely to delete three launches per layer. Handles the interleaved
 // and NeoX pairings, with or without original-YaRN scaling.
-void launch_mla_prepare_bf16(
+void mla_prepare_bf16(
     MlaCacheLayerView layer,
     const void* kv_a,                    // [total_tokens, kv_a_row_stride]
     const void* kv_a_norm_weight,        // [kv_lora_rank]
@@ -80,4 +80,4 @@ void launch_mla_prepare_bf16(
     cudaStream_t stream,
     const std::uint8_t* row_valid = nullptr);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

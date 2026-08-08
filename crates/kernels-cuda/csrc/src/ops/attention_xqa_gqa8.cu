@@ -163,7 +163,7 @@ void launch_attention_xqa_decode_bf16_gqa8(
         throw std::runtime_error("xqa gqa8 decode: unsupported scale");
     }
     if (num_requests <= 0) return;
-    prepare_attention_xqa_decode_bf16(
+    kernels::attn::prepare_attention_xqa_decode_bf16(
         kv_page_indices_d,
         kv_page_indptr_d,
         kv_last_page_lens_d,
@@ -232,7 +232,7 @@ void launch_attention_xqa_decode_bf16_gqa8_prepared(
         return;
     }
 
-    const int page_bucket = xqa_decode_page_bucket(max_pages_per_seq);
+    const int page_bucket = kernels::attn::xqa_decode_page_bucket(max_pages_per_seq);
     const std::size_t page_table_bytes =
         static_cast<std::size_t>(num_requests) * page_bucket *
         sizeof(std::int32_t);

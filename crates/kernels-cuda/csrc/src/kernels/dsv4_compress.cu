@@ -5,7 +5,7 @@
 
 #include "cuda_check.hpp"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -304,7 +304,7 @@ __global__ void compressed_attn_kernel(
 
 }  // namespace
 
-void launch_average_pool_bf16(
+void average_pool_bf16(
     const void* input,
     void* output,
     int N,
@@ -322,7 +322,7 @@ void launch_average_pool_bf16(
         N, dim, ratio);
 }
 
-void launch_add_ape_f32(
+void add_ape_f32(
     void* data,
     const float* ape,
     int N_compressed,
@@ -339,7 +339,7 @@ void launch_add_ape_f32(
         N_compressed, dim, ratio);
 }
 
-void launch_gated_softmax_pool_bf16(
+void gated_softmax_pool_bf16(
     const void* kv,
     const void* score,
     void* output,
@@ -359,7 +359,7 @@ void launch_gated_softmax_pool_bf16(
         N, dim, ratio);
 }
 
-void launch_combine_attn_outputs_bf16(
+void combine_attn_outputs_bf16(
     const void* o1, const float* lse1,
     const void* o2, const float* lse2,
     void* o_out, float* lse_out,
@@ -376,7 +376,7 @@ void launch_combine_attn_outputs_bf16(
         num_heads, head_dim);
 }
 
-void launch_attention_compressed_bf16(
+void attention_compressed_bf16(
     const void* q,
     const void* comp_kv,
     void* o,
@@ -491,7 +491,7 @@ __global__ void dsv4_compress_gather_kernel(
 
 }  // namespace
 
-void launch_dsv4_compress_gather_bf16(
+void dsv4_compress_gather_bf16(
     const void* kv_proj,
     const void* score_proj,
     const float* ape,
@@ -757,7 +757,7 @@ __global__ void compressed_attn_paged_kernel(
 
 }  // namespace
 
-void launch_dsv4_compress_gather_paged_bf16(
+void dsv4_compress_gather_paged_bf16(
     const void* state_kv,
     const void* state_score,
     const float* ape,
@@ -783,7 +783,7 @@ void launch_dsv4_compress_gather_paged_bf16(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_dsv4_boundary_meta_decode(
+void dsv4_boundary_meta_decode(
     const std::int32_t* positions,
     std::int32_t* out_pos,
     std::int32_t* out_req,
@@ -800,7 +800,7 @@ void launch_dsv4_boundary_meta_decode(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_dsv4_store_comp_entries_bf16(
+void dsv4_store_comp_entries_bf16(
     const void* entries,
     void* comp_kv_pages,
     const std::int32_t* boundary_pos,
@@ -821,7 +821,7 @@ void launch_dsv4_store_comp_entries_bf16(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_attention_compressed_paged_bf16(
+void attention_compressed_paged_bf16(
     const void* q,
     const void* comp_kv_pages,
     void* o,
@@ -852,4 +852,4 @@ void launch_attention_compressed_paged_bf16(
     CUDA_CHECK(cudaGetLastError());
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

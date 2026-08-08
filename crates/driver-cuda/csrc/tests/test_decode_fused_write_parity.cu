@@ -4,7 +4,7 @@
 // The standalone BatchDecode attention parity test proved the R>1 attention
 // read is per-request correct given correct KV/Q. So the concurrent-decode
 // corruption is in the KV/Q *production* — and the Qwen3 decode produces both
-// via `launch_qkv_decode_qk_norm_rope_write_kv_bf16` (fused_decode_qkv_post),
+// via `kernels::attn::qkv_decode_qk_norm_rope_write_kv_bf16` (fused_decode_qkv_post),
 // NOT the `resolve_dst` path already verified. This test isolates that fused
 // kernel: run it for R=4 requests (distinct packed QKV + distinct rope
 // positions + disjoint pages), then run each request ALONE (R=1), and assert
@@ -245,7 +245,7 @@ int main() {
     if (!all_ok) {
         ++g_failures;
         std::printf("\nFUSED decode kernel DIVERGES R=4 vs R=1 — the concurrent-decode "
-                    "bug is in launch_qkv_decode_qk_norm_rope_write_kv_bf16.\n");
+                    "bug is in kernels::attn::qkv_decode_qk_norm_rope_write_kv_bf16.\n");
     } else {
         std::printf("\nFused decode kernel: R=4 == R=1 for q_out + written K/V. "
                     "Per-request correct.\n");

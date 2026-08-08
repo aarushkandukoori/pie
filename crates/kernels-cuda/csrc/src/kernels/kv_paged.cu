@@ -7,7 +7,7 @@
 #include "cuda_check.hpp"
 #include "kernels/envelope.hpp"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -645,7 +645,7 @@ __global__ void dequant_fp4_pages_active_kernel(
 
 }  // namespace
 
-void launch_write_kv_to_pages_bf16(
+void write_kv_to_pages_bf16(
     void* k_pages, void* v_pages,
     const void* k_curr, const void* v_curr,
     const std::uint32_t* qo_indptr,
@@ -688,7 +688,7 @@ void launch_write_kv_to_pages_bf16(
     }
 }
 
-void launch_write_kv_to_pages(
+void write_kv_to_pages(
     KvCacheLayerView layer,
     const void* k_curr,
     const void* v_curr,
@@ -715,7 +715,7 @@ void launch_write_kv_to_pages(
             "native bf16 cache");
     }
     if (layer.is_native_bf16()) {
-        launch_write_kv_to_pages_bf16(
+        write_kv_to_pages_bf16(
             layer.k_pages, layer.v_pages, k_curr, v_curr,
             qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
             total_tokens, num_requests, page_size, num_kv_heads, head_dim,
@@ -725,7 +725,7 @@ void launch_write_kv_to_pages(
         // orders the refresh after the write. Opt-in -- `has_envelopes()` is
         // false unless a program declared it needs them.
         if (layer.has_envelopes() && !layer.hnd_layout && total_tokens > 0) {
-            launch_envelope_update_appended_bf16(
+            kernels::layout::launch_envelope_update_appended_bf16(
                 static_cast<const std::uint16_t*>(layer.k_pages),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 layer.k_env_min, layer.k_env_max, num_requests,
@@ -799,7 +799,7 @@ void launch_write_kv_to_pages(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_write_kv_to_pages_at_positions_bf16(
+void write_kv_to_pages_at_positions_bf16(
     KvCacheLayerView layer,
     const void* k_curr,
     const void* v_curr,
@@ -888,7 +888,7 @@ __global__ void write_kv_explicit_devwin_kernel(
     }
 }
 
-void launch_write_kv_explicit_bf16_devwin(
+void write_kv_explicit_bf16_devwin(
     KvCacheLayerView layer,
     const void* k_curr,
     const void* v_curr,
@@ -933,7 +933,7 @@ void launch_write_kv_explicit_bf16_devwin(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_write_kv_to_pages_bf16_devwin(
+void write_kv_to_pages_bf16_devwin(
     KvCacheLayerView layer,
     const void* k_curr,
     const void* v_curr,
@@ -985,7 +985,7 @@ void launch_write_kv_to_pages_bf16_devwin(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_write_kv_explicit_bf16(
+void write_kv_explicit_bf16(
     KvCacheLayerView layer,
     const void* k_curr,                 // [LANES, h_kv, d]
     const void* v_curr,
@@ -1020,12 +1020,12 @@ void launch_write_kv_explicit_bf16(
     }
     CUDA_CHECK(cudaGetLastError());
     // Quest maintenance rides this append too. The CSR-derived path in
-    // `launch_write_kv_to_pages` cannot be reused: there is no page list here,
+    // `write_kv_to_pages` cannot be reused: there is no page list here,
     // only the per-token descriptor the program wrote. Opt-in on
     // `has_envelopes()`, same stream, so the refresh is ordered after the
     // write it describes.
     if (layer.has_envelopes() && !layer.hnd_layout) {
-        launch_envelope_merge_written_bf16(
+        kernels::layout::launch_envelope_merge_written_bf16(
             static_cast<const std::uint16_t*>(k_curr),
             w_page, w_off, row_valid, layer.k_env_min, layer.k_env_max,
             B, layer.num_kv_heads, layer.head_dim, stream);
@@ -1033,7 +1033,7 @@ void launch_write_kv_explicit_bf16(
     }
 }
 
-void launch_copy_kv_cells_bf16(
+void copy_kv_cells_bf16(
     KvCacheLayerView layer,
     const std::uint32_t* dst_page,      // [N] PHYSICAL page id per cell
     const std::uint32_t* dst_off,       // [N] offset-in-page per cell
@@ -1064,7 +1064,7 @@ void launch_copy_kv_cells_bf16(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_dequant_kv_cache_layer_to_bf16_active(
+void dequant_kv_cache_layer_to_bf16_active(
     KvCacheLayerView layer,
     const std::uint32_t* kv_page_indices,
     int num_pages_in_batch,
@@ -1172,7 +1172,7 @@ __global__ void build_window_page_view_kernel(
 
 }  // namespace
 
-void launch_build_window_page_view(
+void build_window_page_view(
     const std::uint32_t* src_indices,
     const std::uint32_t* src_indptr,
     int keep_pages,
@@ -1233,7 +1233,7 @@ __global__ void build_full_split_view_kernel(
 
 }  // namespace
 
-void launch_build_full_split_view(
+void build_full_split_view(
     const std::uint32_t* src_indptr,
     const std::uint32_t* src_last_page_len,
     int splits,
@@ -1251,4 +1251,4 @@ void launch_build_full_split_view(
     CUDA_CHECK(cudaGetLastError());
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

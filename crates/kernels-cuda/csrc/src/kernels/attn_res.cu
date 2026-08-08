@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -102,7 +102,7 @@ __global__ void attn_res_blend_kernel(
 
 }  // namespace
 
-void launch_attn_res_blend_bf16(
+void attn_res_blend_bf16(
     const void* prefix, const void* blocks, const void* norm_weight,
     const void* proj_weight, void* out, int T, int B, int H, int block_rows,
     float eps, cudaStream_t stream)
@@ -117,4 +117,4 @@ void launch_attn_res_blend_bf16(
         block_rows > 0 ? block_rows : T, eps);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

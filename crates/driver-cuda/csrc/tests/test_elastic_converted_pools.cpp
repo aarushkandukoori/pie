@@ -65,7 +65,7 @@ int main() {
         auto pool = make_pool();
         pie_cuda_driver::CudaArenaAllocator allocator(
             pool, "test-runtime-quant", false);
-        const pie_cuda_driver::ops::RuntimeQuantScratchSpec spec{
+        const pie_cuda_driver::kernels::gemm::RuntimeQuantScratchSpec spec{
             .max_tokens = 4,
             .max_weight_rows = 128,
             .max_weight_cols = 128,
@@ -77,12 +77,12 @@ int main() {
             quant_context);
         {
             pie_cuda_driver::ScopedCudaArenaAllocator scoped(allocator);
-            pie_cuda_driver::ops::reserve_runtime_quant_scratch(
+            pie_cuda_driver::kernels::gemm::reserve_runtime_quant_scratch(
                 spec, true);
         }
         check(
             allocator.allocated_bytes() ==
-                pie_cuda_driver::ops::runtime_quant_scratch_bytes(spec),
+                pie_cuda_driver::kernels::gemm::runtime_quant_scratch_bytes(spec),
             "runtime-quant scratch must reserve in the workspace arena");
         check(
             allocator.committed_bytes() == 0,

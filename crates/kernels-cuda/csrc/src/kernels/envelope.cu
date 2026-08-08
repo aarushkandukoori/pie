@@ -6,7 +6,7 @@
 #include <cuda_bf16.h>
 #include <math_constants.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 namespace {
 
@@ -523,4 +523,4 @@ void launch_envelope_update_appended_bf16(
         num_requests, page_size, num_kv_heads, head_dim);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

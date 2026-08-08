@@ -31,7 +31,7 @@
 #include "marlin_wrapper.hpp"
 #endif
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::gemm {
 
 namespace {
 
@@ -541,7 +541,7 @@ bool run_dense_tactic(cublasHandle_t handle, const DenseTactic& t,
             cudaStream_t stream = nullptr;
             return (beta == 0.f || beta == 1.f) && M == 1 &&
                    cublas_stream(handle, stream) &&
-                   kernels::launch_gemv_bf16(W, act, bias, y, N, K, stream,
+                   kernels::gemm::gemv_bf16(W, act, bias, y, N, K, stream,
                                              beta);
         }
         case GemmKind::Lt: {
@@ -742,7 +742,7 @@ struct DenseGemmTuner {
     std::mutex mu;
     std::unordered_map<std::uint64_t, DenseTactic> chosen;
     std::unordered_map<std::uint64_t, int> seen;
-    TuningCache disk{"dense_gemm.txt", dense_cache_signature()};
+    ops::TuningCache disk{"dense_gemm.txt", dense_cache_signature()};
 
     static DenseGemmTuner& instance() {
         return per_device_singleton<DenseGemmTuner>();
@@ -757,10 +757,10 @@ constexpr std::size_t kMaxTunedShapes = 1024;
 
 std::uint64_t dense_key(int M, int N, int K, float beta) {
     std::uint64_t h = 0;
-    h = tuning_hash(h, static_cast<std::uint64_t>(M));
-    h = tuning_hash(h, static_cast<std::uint64_t>(N));
-    h = tuning_hash(h, static_cast<std::uint64_t>(K));
-    h = tuning_hash(h, beta == 0.f ? 0u : 1u);
+    h = ops::tuning_hash(h, static_cast<std::uint64_t>(M));
+    h = ops::tuning_hash(h, static_cast<std::uint64_t>(N));
+    h = ops::tuning_hash(h, static_cast<std::uint64_t>(K));
+    h = ops::tuning_hash(h, beta == 0.f ? 0u : 1u);
     return h;
 }
 
@@ -959,7 +959,7 @@ void gemm_bf16_impl(
     cudaStream_t gemv_stream = nullptr;
     if (M == 1 && beta == 0.f &&
         cublas_stream(handle, gemv_stream) &&
-        kernels::launch_gemv_bf16(W, act, nullptr, y, N, K, gemv_stream)) {
+        kernels::gemm::gemv_bf16(W, act, nullptr, y, N, K, gemv_stream)) {
         if (path_trace) std::fprintf(stderr, "[gemm-path]   -> gemv\n");
         return;
     }
@@ -1326,9 +1326,9 @@ void validate_quant_weight_view(const char* api, const WeightView& w, int N, int
     // PerTensor → 1 scale; PerChannel → N; PerGroup → N×ceil(K/gs),
     // except 2D block-scaled FP8 (DeepSeek) which is ceil(N/gs)×ceil(K/gs).
     std::size_t expected_scales = 1;
-    if (w.quant_kind == QuantMeta::Kind::PerChannel) {
+    if (w.quant_kind == ops::QuantMeta::Kind::PerChannel) {
         expected_scales = static_cast<std::size_t>(N);
-    } else if (w.quant_kind == QuantMeta::Kind::PerGroup && w.group_size > 0) {
+    } else if (w.quant_kind == ops::QuantMeta::Kind::PerGroup && w.group_size > 0) {
         if (w.dtype == DType::FP8_E4M3) {
             // 2D block-scaled FP8: scales are [ceil(N/gs), ceil(K/gs)]
             expected_scales =
@@ -1361,7 +1361,7 @@ void check_lt(cublasStatus_t s, const char* expr) {
     }
 }
 
-#define LT_CHECK(EXPR) ::pie_cuda_driver::ops::check_lt((EXPR), #EXPR)
+#define LT_CHECK(EXPR) ::pie_cuda_driver::kernels::gemm::check_lt((EXPR), #EXPR)
 
 // Tiny RAII wrappers — we only need the three descriptor types for one
 // matmul, so the boilerplate stays inline.
@@ -1629,7 +1629,7 @@ void reserve_runtime_quant_scratch(
     }
 }
 
-void gemm_grouped_act_x_wt_bf16(
+void grouped_act_x_wt_bf16(
     cublasHandle_t handle,
     const void* const* act_ptrs_host,
     const void* const* W_ptrs_host,
@@ -1769,7 +1769,7 @@ class DequantWeightCache {
 void gemm_fp8_dequant_then_bf16_fallback(
     cublasHandle_t cublas_handle,
     const void* act, const void* w_fp8, const void* w_scale_fp32_dev,
-    QuantMeta::Kind scale_kind,
+    ops::QuantMeta::Kind scale_kind,
     void* y,
     int M, int N, int K,
     float beta,
@@ -1810,14 +1810,14 @@ void gemm_fp8_dequant_then_bf16_fallback(
         bf16_w = ctx.dequant.ensure(weight_elems * 2);
     }
 
-    if (scale_kind == QuantMeta::Kind::PerGroup && group_size > 0) {
+    if (scale_kind == ops::QuantMeta::Kind::PerGroup && group_size > 0) {
         kernels::quant::dequant_fp8_e4m3_to_bf16_per_group(
             static_cast<const std::uint8_t*>(w_fp8),
             bf16_w,
             static_cast<const float*>(w_scale_fp32_dev),
             N, K, group_size, fill_stream);
         CUDA_CHECK(cudaGetLastError());
-    } else if (scale_kind == QuantMeta::Kind::PerChannel) {
+    } else if (scale_kind == ops::QuantMeta::Kind::PerChannel) {
         kernels::quant::dequant_fp8_e4m3_to_bf16_per_channel(
             static_cast<const std::uint8_t*>(w_fp8),
             bf16_w,
@@ -1852,7 +1852,7 @@ void gemm_int8_dequant_then_bf16_fallback(
     const std::size_t weight_elems =
         static_cast<std::size_t>(N) * static_cast<std::size_t>(K);
     void* bf16_w = ctx.dequant.ensure(weight_elems * 2);
-    kernels::launch_dequant_int8_to_bf16_per_channel(
+    kernels::quant::launch_dequant_int8_to_bf16_per_channel(
         static_cast<const std::int8_t*>(w_int8),
         bf16_w,
         w_scale_inv,
@@ -1909,7 +1909,7 @@ bool gemm_fp8_blockwise_w8a8_impl(
         static_cast<std::size_t>(M) * static_cast<std::size_t>(k_blocks) *
         sizeof(float));
 
-    kernels::quantize_bf16_to_fp8_e4m3_per_token_group(
+    kernels::quant::quantize_bf16_to_fp8_e4m3_per_token_group(
         act, static_cast<std::uint8_t*>(act_fp8),
         static_cast<float*>(act_scale), M, K, 128, stream);
 
@@ -1957,7 +1957,7 @@ bool gemm_fp8_blockwise_w8a8_impl(
 void gemm_fp8_e4m3_w_bf16_act_impl(
     cublasHandle_t cublas_handle,
     const void* act, const void* w_fp8, const void* w_scale_fp32_dev,
-    QuantMeta::Kind scale_kind,
+    ops::QuantMeta::Kind scale_kind,
     void* y,
     int M, int N, int K,
     float beta,
@@ -1966,22 +1966,22 @@ void gemm_fp8_e4m3_w_bf16_act_impl(
 {
     if (!w_scale_fp32_dev) {
         throw std::runtime_error(
-            "gemm_act_x_w[FP8_E4M3]: scale pointer is null — "
+            "act_x_w[FP8_E4M3]: scale pointer is null — "
             "weight_scale_inv must be attached to the materialized WeightStore "
             "as an FP32 device tensor before calling FP8 GEMM");
     }
     auto& ctx = LtCtx::instance();
     ctx.ensure_init();
 
-    if (scale_kind == QuantMeta::Kind::PerGroup &&
+    if (scale_kind == ops::QuantMeta::Kind::PerGroup &&
         gemm_fp8_blockwise_w8a8_impl(act, w_fp8, w_scale_fp32_dev, y,
                                      M, N, K, beta, stream, group_size)) {
         return;
     }
 
     if (!ctx.fp8_native_supported ||
-        scale_kind == QuantMeta::Kind::PerChannel ||
-        scale_kind == QuantMeta::Kind::PerGroup) {
+        scale_kind == ops::QuantMeta::Kind::PerChannel ||
+        scale_kind == ops::QuantMeta::Kind::PerGroup) {
         gemm_fp8_dequant_then_bf16_fallback(
             cublas_handle, act, w_fp8, w_scale_fp32_dev, scale_kind, y,
             M, N, K, beta, stream, group_size);
@@ -2082,7 +2082,7 @@ void gemm_int8_w_bf16_act_impl(
     auto* acc_int32 = static_cast<std::int32_t*>(
         ctx.int32_acc.ensure(acc_bytes));
 
-    kernels::quantize_bf16_to_int8_per_token(
+    kernels::quant::quantize_bf16_to_int8_per_token(
         act_bf16, act_int8, act_scale, M, K, stream);
 
     // Stage 2: cublasGemmEx INT8.
@@ -2119,13 +2119,13 @@ void gemm_int8_w_bf16_act_impl(
     // residual-add — same trick as marlin. For beta=0 dequant straight
     // into y_bf16.
     if (beta == 0.f) {
-        kernels::dequant_int32_w8a8_to_bf16(
+        kernels::quant::dequant_int32_w8a8_to_bf16(
             acc_int32, act_scale, w_scale_inv, y_bf16, M, N, stream);
     } else {
         const std::size_t mn_bytes =
             static_cast<std::size_t>(M) * static_cast<std::size_t>(N) * 2;
         void* dq_dst = ctx.dequant.ensure(mn_bytes);
-        kernels::dequant_int32_w8a8_to_bf16(
+        kernels::quant::dequant_int32_w8a8_to_bf16(
             acc_int32, act_scale, w_scale_inv, dq_dst, M, N, stream);
         kernels::norm::residual_add_bf16(
             y_bf16, dq_dst,
@@ -2136,7 +2136,7 @@ void gemm_int8_w_bf16_act_impl(
 
 }  // namespace
 
-void gemm_act_x_w(
+void act_x_w(
     cublasHandle_t handle,
     const void* act,
     WeightView w,
@@ -2165,10 +2165,10 @@ void gemm_act_x_w(
         cublasGetStream(handle, &stream);
         if (w.scale_dtype != DType::FP32) {
             throw std::runtime_error(
-                "gemm_act_x_w[FP8_E4M3]: scale must be FP32 (got " +
+                "act_x_w[FP8_E4M3]: scale must be FP32 (got " +
                 std::string(dtype_name(w.scale_dtype)) + ")");
         }
-        validate_quant_weight_view("gemm_act_x_w[FP8_E4M3]", w, N, K);
+        validate_quant_weight_view("act_x_w[FP8_E4M3]", w, N, K);
         gemm_fp8_e4m3_w_bf16_act_impl(handle, act, w.data, w.scale_data,
                                       w.quant_kind,
                                       y, M, N, K, beta, stream,
@@ -2181,15 +2181,15 @@ void gemm_act_x_w(
         cublasGetStream(handle, &stream);
         if (w.scale_dtype != DType::FP32) {
             throw std::runtime_error(
-                "gemm_act_x_w[INT8 W8A8]: scale must be FP32 (got " +
+                "act_x_w[INT8 W8A8]: scale must be FP32 (got " +
                 std::string(dtype_name(w.scale_dtype)) + ")");
         }
-        if (w.quant_kind != QuantMeta::Kind::PerChannel) {
+        if (w.quant_kind != ops::QuantMeta::Kind::PerChannel) {
             throw std::runtime_error(
-                "gemm_act_x_w[INT8 W8A8]: only PerChannel weight scale "
+                "act_x_w[INT8 W8A8]: only PerChannel weight scale "
                 "supported (per-tensor / per-group not yet wired)");
         }
-        validate_quant_weight_view("gemm_act_x_w[INT8 W8A8]", w, N, K);
+        validate_quant_weight_view("act_x_w[INT8 W8A8]", w, N, K);
         gemm_int8_w_bf16_act_impl(
             handle, act, w.data,
             static_cast<const float*>(w.scale_data),
@@ -2203,7 +2203,7 @@ void gemm_act_x_w(
         // symmetric), no act-order. The dispatcher relies on the loader
         // having pre-repacked the weight into marlin's tile layout (via
         // `gptq_marlin_repack`) and stored the per-group scales as the
-        // QuantMeta side-tensor.
+        // ops::QuantMeta side-tensor.
         cudaStream_t stream = nullptr;
         cublasGetStream(handle, &stream);
         // marlin always overwrites C. For the beta=1 residual-add
@@ -2229,7 +2229,7 @@ void gemm_act_x_w(
         return;
 #else
         throw std::runtime_error(
-            "gemm_act_x_w[INT4_PACKED]: GPTQ/AWQ W4A16 needs the vendored "
+            "act_x_w[INT4_PACKED]: GPTQ/AWQ W4A16 needs the vendored "
             "marlin kernels, which are not built by default because they "
             "dominate CUDA build time. Reconfigure with "
             "-DPIE_CUDA_BUILD_MARLIN=ON (or PIE_CUDA_BUILD_MARLIN=1).");
@@ -2241,15 +2241,15 @@ void gemm_act_x_w(
         cublasGetStream(handle, &stream);
         if (w.scale_dtype != DType::UINT8) {
             throw std::runtime_error(
-                "gemm_act_x_w[MXFP4]: scale must be raw E8M0 bytes (got " +
+                "act_x_w[MXFP4]: scale must be raw E8M0 bytes (got " +
                 std::string(dtype_name(w.scale_dtype)) + ")");
         }
-        if (w.quant_kind != QuantMeta::Kind::PerGroup || w.group_size != 32) {
+        if (w.quant_kind != ops::QuantMeta::Kind::PerGroup || w.group_size != 32) {
             throw std::runtime_error(
-                "gemm_act_x_w[MXFP4]: expected per-group scales with "
+                "act_x_w[MXFP4]: expected per-group scales with "
                 "group_size=32");
         }
-        validate_quant_weight_view("gemm_act_x_w[MXFP4]", w, N, K);
+        validate_quant_weight_view("act_x_w[MXFP4]", w, N, K);
 
         // Dequant MXFP4 → bf16 in a scratch buffer, then bf16 GEMM.
         // Reuse the LtCtx dequant scratch (auto-grows monotonically). Cost is
@@ -2268,7 +2268,7 @@ void gemm_act_x_w(
         gemm_bf16_impl(handle, act, bf16_w, y, M, N, K, beta);
         return;
     }
-    unsupported("gemm_act_x_w", act_dtype, w.dtype, y_dtype);
+    unsupported("act_x_w", act_dtype, w.dtype, y_dtype);
 }
 
 bool lm_head_argmax_supported(WeightView w) {
@@ -2309,7 +2309,7 @@ bool lm_head_argmax_chunked(
         // A slab is rows [base, base+width) of W, which are contiguous, and
         // lands in `slab` as a tightly packed [M, width] -- so the slab's row
         // stride is `width`, not `chunk`, on the ragged final iteration.
-        gemm_act_x_w(
+        act_x_w(
             handle, act,
             WeightView::raw(
                 weight_rows + static_cast<std::size_t>(base) *
@@ -2324,7 +2324,7 @@ bool lm_head_argmax_chunked(
     return true;
 }
 
-void gemm_act_x_wt_bf16_out_fp32(
+void act_x_wt_bf16_out_fp32(
     cublasHandle_t handle,
     const void* act,
     const void* W,
@@ -2336,7 +2336,7 @@ void gemm_act_x_wt_bf16_out_fp32(
     gemm_bf16_out_fp32_impl(handle, act, W, y, M, N, K);
 }
 
-void gemm_act_x_wt_bf16_cublas(
+void act_x_wt_bf16_cublas(
     cublasHandle_t handle,
     const void* act, const void* W, void* y,
     int M, int N, int K,
@@ -2353,13 +2353,13 @@ void gemm_act_x_wt_bf16_cublas(
     cudaStream_t gemv_stream = nullptr;
     if (M == 1 && beta == 0.f &&
         cublas_stream(handle, gemv_stream) &&
-        kernels::launch_gemv_bf16(W, act, nullptr, y, N, K, gemv_stream)) {
+        kernels::gemm::gemv_bf16(W, act, nullptr, y, N, K, gemv_stream)) {
         return;
     }
     gemm_bf16_cublas_impl(handle, act, W, y, M, N, K, beta);
 }
 
-void gemm_act_x_wt_bias_bf16(
+void act_x_wt_bias_bf16(
     cublasHandle_t handle,
     const void* act, const void* W, const void* bias, void* y,
     int M, int N, int K,
@@ -2394,7 +2394,7 @@ void gemm_act_x_wt_bias_bf16(
     }
 }
 
-void gemm_batched_act_x_w(
+void batched_act_x_w(
     cublasHandle_t handle,
     const void* const* act_ptrs_dev,
     const void* const* w_ptrs_dev,
@@ -2412,7 +2412,7 @@ void gemm_batched_act_x_w(
                                M, N, K, batch_count, beta);
         return;
     }
-    unsupported("gemm_batched_act_x_w", act_dtype, w_dtype, y_dtype);
+    unsupported("batched_act_x_w", act_dtype, w_dtype, y_dtype);
 }
 
 
@@ -2467,4 +2467,4 @@ void mla_absorb_latent_to_v_bf16(
     check(status, "mla_absorb_latent_to_v_bf16");
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::gemm

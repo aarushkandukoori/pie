@@ -700,16 +700,16 @@ mod tests {
     /// | trace op            | hand-written kernel(s)                          |
     /// |---------------------|-------------------------------------------------|
     /// | Rmsnorm(attn_norm)  | kernels::norm::rmsnorm_bf16                              |
-    /// | Matmul(qkv)         | ops::gemm_act_x_w (qkv_proj_fused)               |
-    /// | SplitQkv            | launch_split_qkv_bf16                            |
+    /// | Matmul(qkv)         | kernels::gemm::act_x_w (qkv_proj_fused)               |
+    /// | SplitQkv            | kernels::attn::split_qkv_bf16                            |
     /// | RmsnormPerHead x2 + Rope | kernels::rope::qk_rmsnorm_rope_bf16 (fused pair)    |
-    /// | KvAppend            | launch_write_kv_to_pages                         |
+    /// | KvAppend            | kernels::attn::write_kv_to_pages                         |
     /// | Attention           | dispatch_attention_flashinfer_{decode,prefill}   |
-    /// | Matmul(o_proj)+res  | ops::gemm_act_x_w beta=1                         |
+    /// | Matmul(o_proj)+res  | kernels::gemm::act_x_w beta=1                         |
     /// | Rmsnorm(mlp_norm)   | kernels::norm::rmsnorm_bf16                              |
-    /// | Matmul(gate_up)     | ops::gemm_act_x_w                                |
+    /// | Matmul(gate_up)     | kernels::gemm::act_x_w                                |
     /// | Swiglu              | (silu-and-mul kernel)                            |
-    /// | Matmul(down)+res    | ops::gemm_act_x_w beta=1                         |
+    /// | Matmul(down)+res    | kernels::gemm::act_x_w beta=1                         |
     #[test]
     fn qwen3_layer_op_sequence() {
         let plan = llama_like(&LlamaLikeFacts::qwen3_0_6b());

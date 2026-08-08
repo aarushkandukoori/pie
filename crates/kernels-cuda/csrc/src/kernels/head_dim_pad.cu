@@ -2,7 +2,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -45,7 +45,7 @@ __global__ void strip_head_dim_bf16_kernel(
 
 }  // namespace
 
-void launch_pad_head_dim_bf16(
+void pad_head_dim_bf16(
     const void* packed, void* padded,
     int num_tokens, int num_heads, int head_dim, int head_dim_padded,
     cudaStream_t stream)
@@ -59,7 +59,7 @@ void launch_pad_head_dim_bf16(
         num_heads, head_dim, head_dim_padded);
 }
 
-void launch_strip_head_dim_bf16(
+void strip_head_dim_bf16(
     const void* padded, void* packed,
     int num_tokens, int num_heads, int head_dim, int head_dim_padded,
     cudaStream_t stream)
@@ -73,4 +73,4 @@ void launch_strip_head_dim_bf16(
         num_heads, head_dim, head_dim_padded);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

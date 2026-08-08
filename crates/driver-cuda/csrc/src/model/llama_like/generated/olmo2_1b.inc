@@ -20,7 +20,7 @@ const LlamaLikePlanState& plan_state,
 Workspace& ws,
 KvCache& cache,
 AttentionWorkspace& attn_ws,
-ops::CublasHandle& cublas,
+kernels::gemm::CublasHandle& cublas,
 const std::int32_t* token_ids,
 const std::int32_t* positions,
 const std::uint32_t* qo_indptr,
@@ -155,15 +155,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].q_proj, "layer.0.q_proj"), w.layers[0].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].k_proj, "layer.0.k_proj"), w.layers[0].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].v_proj, "layer.0.v_proj"), w.layers[0].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -216,7 +216,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(0);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -227,7 +227,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(0);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -302,7 +302,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -317,7 +317,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(0);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -337,7 +337,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -362,7 +362,7 @@ std::uint32_t declared_full_depth_rows)
                              0 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[0]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -378,7 +378,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(0);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -396,7 +396,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(0);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -445,7 +445,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -460,7 +460,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(0);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -480,7 +480,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -493,7 +493,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -510,7 +510,7 @@ std::uint32_t declared_full_depth_rows)
                      0 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[0]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -531,7 +531,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -541,13 +541,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -578,15 +578,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].q_proj, "layer.1.q_proj"), w.layers[1].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].k_proj, "layer.1.k_proj"), w.layers[1].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].v_proj, "layer.1.v_proj"), w.layers[1].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -639,7 +639,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(1);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -650,7 +650,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(1);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -725,7 +725,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -740,7 +740,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(1);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -760,7 +760,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -785,7 +785,7 @@ std::uint32_t declared_full_depth_rows)
                              1 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[1]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -801,7 +801,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(1);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -819,7 +819,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(1);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -868,7 +868,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -883,7 +883,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(1);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -903,7 +903,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -916,7 +916,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -933,7 +933,7 @@ std::uint32_t declared_full_depth_rows)
                      1 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[1]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -954,7 +954,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -964,13 +964,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -1001,15 +1001,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].q_proj, "layer.2.q_proj"), w.layers[2].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].k_proj, "layer.2.k_proj"), w.layers[2].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].v_proj, "layer.2.v_proj"), w.layers[2].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -1062,7 +1062,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(2);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -1073,7 +1073,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(2);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -1148,7 +1148,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -1163,7 +1163,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(2);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -1183,7 +1183,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -1208,7 +1208,7 @@ std::uint32_t declared_full_depth_rows)
                              2 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[2]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -1224,7 +1224,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(2);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -1242,7 +1242,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(2);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -1291,7 +1291,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -1306,7 +1306,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(2);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -1326,7 +1326,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -1339,7 +1339,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -1356,7 +1356,7 @@ std::uint32_t declared_full_depth_rows)
                      2 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[2]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -1377,7 +1377,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -1387,13 +1387,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -1424,15 +1424,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].q_proj, "layer.3.q_proj"), w.layers[3].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].k_proj, "layer.3.k_proj"), w.layers[3].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].v_proj, "layer.3.v_proj"), w.layers[3].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -1485,7 +1485,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(3);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -1496,7 +1496,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(3);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -1571,7 +1571,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -1586,7 +1586,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(3);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -1606,7 +1606,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -1631,7 +1631,7 @@ std::uint32_t declared_full_depth_rows)
                              3 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[3]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -1647,7 +1647,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(3);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -1665,7 +1665,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(3);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -1714,7 +1714,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -1729,7 +1729,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(3);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -1749,7 +1749,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -1762,7 +1762,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -1779,7 +1779,7 @@ std::uint32_t declared_full_depth_rows)
                      3 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[3]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -1800,7 +1800,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -1810,13 +1810,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -1847,15 +1847,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].q_proj, "layer.4.q_proj"), w.layers[4].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].k_proj, "layer.4.k_proj"), w.layers[4].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].v_proj, "layer.4.v_proj"), w.layers[4].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -1908,7 +1908,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(4);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -1919,7 +1919,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(4);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -1994,7 +1994,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -2009,7 +2009,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(4);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -2029,7 +2029,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -2054,7 +2054,7 @@ std::uint32_t declared_full_depth_rows)
                              4 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[4]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -2070,7 +2070,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(4);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -2088,7 +2088,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(4);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -2137,7 +2137,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -2152,7 +2152,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(4);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -2172,7 +2172,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -2185,7 +2185,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -2202,7 +2202,7 @@ std::uint32_t declared_full_depth_rows)
                      4 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[4]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -2223,7 +2223,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -2233,13 +2233,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -2270,15 +2270,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].q_proj, "layer.5.q_proj"), w.layers[5].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].k_proj, "layer.5.k_proj"), w.layers[5].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].v_proj, "layer.5.v_proj"), w.layers[5].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -2331,7 +2331,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(5);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -2342,7 +2342,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(5);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -2417,7 +2417,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -2432,7 +2432,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(5);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -2452,7 +2452,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -2477,7 +2477,7 @@ std::uint32_t declared_full_depth_rows)
                              5 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[5]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -2493,7 +2493,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(5);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -2511,7 +2511,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(5);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -2560,7 +2560,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -2575,7 +2575,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(5);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -2595,7 +2595,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -2608,7 +2608,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -2625,7 +2625,7 @@ std::uint32_t declared_full_depth_rows)
                      5 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[5]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -2646,7 +2646,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -2656,13 +2656,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -2693,15 +2693,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].q_proj, "layer.6.q_proj"), w.layers[6].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].k_proj, "layer.6.k_proj"), w.layers[6].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].v_proj, "layer.6.v_proj"), w.layers[6].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -2754,7 +2754,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(6);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -2765,7 +2765,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(6);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -2840,7 +2840,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -2855,7 +2855,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(6);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -2875,7 +2875,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -2900,7 +2900,7 @@ std::uint32_t declared_full_depth_rows)
                              6 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[6]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -2916,7 +2916,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(6);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -2934,7 +2934,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(6);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -2983,7 +2983,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -2998,7 +2998,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(6);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -3018,7 +3018,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -3031,7 +3031,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -3048,7 +3048,7 @@ std::uint32_t declared_full_depth_rows)
                      6 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[6]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -3069,7 +3069,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -3079,13 +3079,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -3116,15 +3116,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].q_proj, "layer.7.q_proj"), w.layers[7].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].k_proj, "layer.7.k_proj"), w.layers[7].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].v_proj, "layer.7.v_proj"), w.layers[7].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -3177,7 +3177,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(7);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -3188,7 +3188,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(7);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -3263,7 +3263,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -3278,7 +3278,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(7);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -3298,7 +3298,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -3323,7 +3323,7 @@ std::uint32_t declared_full_depth_rows)
                              7 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[7]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -3339,7 +3339,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(7);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -3357,7 +3357,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(7);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -3406,7 +3406,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -3421,7 +3421,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(7);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -3441,7 +3441,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -3454,7 +3454,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -3471,7 +3471,7 @@ std::uint32_t declared_full_depth_rows)
                      7 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[7]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -3492,7 +3492,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -3502,13 +3502,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -3539,15 +3539,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].q_proj, "layer.8.q_proj"), w.layers[8].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].k_proj, "layer.8.k_proj"), w.layers[8].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].v_proj, "layer.8.v_proj"), w.layers[8].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -3600,7 +3600,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(8);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -3611,7 +3611,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(8);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -3686,7 +3686,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -3701,7 +3701,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(8);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -3721,7 +3721,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -3746,7 +3746,7 @@ std::uint32_t declared_full_depth_rows)
                              8 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[8]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -3762,7 +3762,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(8);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -3780,7 +3780,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(8);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -3829,7 +3829,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -3844,7 +3844,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(8);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -3864,7 +3864,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -3877,7 +3877,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -3894,7 +3894,7 @@ std::uint32_t declared_full_depth_rows)
                      8 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[8]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -3915,7 +3915,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -3925,13 +3925,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -3962,15 +3962,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].q_proj, "layer.9.q_proj"), w.layers[9].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].k_proj, "layer.9.k_proj"), w.layers[9].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].v_proj, "layer.9.v_proj"), w.layers[9].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -4023,7 +4023,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(9);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -4034,7 +4034,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(9);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -4109,7 +4109,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -4124,7 +4124,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(9);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -4144,7 +4144,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -4169,7 +4169,7 @@ std::uint32_t declared_full_depth_rows)
                              9 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[9]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -4185,7 +4185,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(9);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -4203,7 +4203,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(9);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -4252,7 +4252,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -4267,7 +4267,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(9);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -4287,7 +4287,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -4300,7 +4300,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -4317,7 +4317,7 @@ std::uint32_t declared_full_depth_rows)
                      9 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[9]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -4338,7 +4338,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -4348,13 +4348,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -4385,15 +4385,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].q_proj, "layer.10.q_proj"), w.layers[10].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].k_proj, "layer.10.k_proj"), w.layers[10].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].v_proj, "layer.10.v_proj"), w.layers[10].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -4446,7 +4446,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(10);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -4457,7 +4457,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(10);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -4532,7 +4532,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -4547,7 +4547,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(10);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -4567,7 +4567,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -4592,7 +4592,7 @@ std::uint32_t declared_full_depth_rows)
                              10 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[10]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -4608,7 +4608,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(10);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -4626,7 +4626,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(10);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -4675,7 +4675,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -4690,7 +4690,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(10);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -4710,7 +4710,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -4723,7 +4723,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -4740,7 +4740,7 @@ std::uint32_t declared_full_depth_rows)
                      10 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[10]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -4761,7 +4761,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -4771,13 +4771,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -4808,15 +4808,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].q_proj, "layer.11.q_proj"), w.layers[11].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].k_proj, "layer.11.k_proj"), w.layers[11].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].v_proj, "layer.11.v_proj"), w.layers[11].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -4869,7 +4869,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(11);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -4880,7 +4880,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(11);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -4955,7 +4955,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -4970,7 +4970,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(11);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -4990,7 +4990,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -5015,7 +5015,7 @@ std::uint32_t declared_full_depth_rows)
                              11 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[11]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -5031,7 +5031,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(11);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -5049,7 +5049,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(11);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -5098,7 +5098,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -5113,7 +5113,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(11);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -5133,7 +5133,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -5146,7 +5146,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -5163,7 +5163,7 @@ std::uint32_t declared_full_depth_rows)
                      11 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[11]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -5184,7 +5184,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -5194,13 +5194,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -5231,15 +5231,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].q_proj, "layer.12.q_proj"), w.layers[12].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].k_proj, "layer.12.k_proj"), w.layers[12].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].v_proj, "layer.12.v_proj"), w.layers[12].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -5292,7 +5292,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(12);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -5303,7 +5303,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(12);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -5378,7 +5378,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -5393,7 +5393,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(12);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -5413,7 +5413,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -5438,7 +5438,7 @@ std::uint32_t declared_full_depth_rows)
                              12 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[12]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -5454,7 +5454,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(12);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -5472,7 +5472,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(12);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -5521,7 +5521,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -5536,7 +5536,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(12);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -5556,7 +5556,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -5569,7 +5569,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -5586,7 +5586,7 @@ std::uint32_t declared_full_depth_rows)
                      12 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[12]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -5607,7 +5607,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -5617,13 +5617,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -5654,15 +5654,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].q_proj, "layer.13.q_proj"), w.layers[13].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].k_proj, "layer.13.k_proj"), w.layers[13].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].v_proj, "layer.13.v_proj"), w.layers[13].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -5715,7 +5715,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(13);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -5726,7 +5726,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(13);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -5801,7 +5801,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -5816,7 +5816,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(13);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -5836,7 +5836,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -5861,7 +5861,7 @@ std::uint32_t declared_full_depth_rows)
                              13 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[13]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -5877,7 +5877,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(13);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -5895,7 +5895,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(13);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -5944,7 +5944,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -5959,7 +5959,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(13);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -5979,7 +5979,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -5992,7 +5992,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -6009,7 +6009,7 @@ std::uint32_t declared_full_depth_rows)
                      13 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[13]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -6030,7 +6030,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -6040,13 +6040,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -6077,15 +6077,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].q_proj, "layer.14.q_proj"), w.layers[14].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].k_proj, "layer.14.k_proj"), w.layers[14].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].v_proj, "layer.14.v_proj"), w.layers[14].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -6138,7 +6138,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(14);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -6149,7 +6149,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(14);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -6224,7 +6224,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -6239,7 +6239,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(14);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -6259,7 +6259,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -6284,7 +6284,7 @@ std::uint32_t declared_full_depth_rows)
                              14 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[14]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -6300,7 +6300,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(14);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -6318,7 +6318,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(14);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -6367,7 +6367,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -6382,7 +6382,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(14);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -6402,7 +6402,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -6415,7 +6415,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -6432,7 +6432,7 @@ std::uint32_t declared_full_depth_rows)
                      14 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[14]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -6453,7 +6453,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -6463,13 +6463,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -6500,15 +6500,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].q_proj, "layer.15.q_proj"), w.layers[15].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].k_proj, "layer.15.k_proj"), w.layers[15].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].v_proj, "layer.15.v_proj"), w.layers[15].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -6561,7 +6561,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(15);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -6572,7 +6572,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(15);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -6647,7 +6647,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -6662,7 +6662,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(15);
-                        ops::dispatch_attention_flashinfer_decode_capture(
+                        kernels::attn::dispatch_attention_flashinfer_decode_capture(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -6682,7 +6682,7 @@ std::uint32_t declared_full_depth_rows)
                                 "attn_page_mask was written but this layer does "
                                 "not take the paged decode path");
                         }
-                        if (!ops::decode_plan_is_page_count_independent(
+                        if (!kernels::attn::decode_plan_is_page_count_independent(
                                 *plan_state.decode_plan)) {
                             throw std::runtime_error(
                                 "attn_page_mask requires a page-count-independent "
@@ -6707,7 +6707,7 @@ std::uint32_t declared_full_depth_rows)
                              15 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[15]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
@@ -6723,7 +6723,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(15);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -6741,7 +6741,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(15);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -6790,7 +6790,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -6805,7 +6805,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(15);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *plan_state.decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -6825,7 +6825,7 @@ std::uint32_t declared_full_depth_rows)
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *plan_state.decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -6838,7 +6838,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             }
-            const ops::DecodePlanCache* depth_dp = band_j >= 0
+            const kernels::attn::DecodePlanCache* depth_dp = band_j >= 0
                 ? plan_state.depth_band_plans[band_j].get()
                 : depth_tail
                 ? plan_state.depth_prefix_decode_plan.get()
@@ -6855,7 +6855,7 @@ std::uint32_t declared_full_depth_rows)
                      15 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                         ? fwd_cfg.per_layer_window_left[15]
                         : fwd_cfg.sliding_window;
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
@@ -6876,7 +6876,7 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -6886,13 +6886,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -6930,7 +6930,7 @@ std::uint32_t declared_full_depth_rows)
                 N, H, eps, stream);
             lm_head_input = ws.norm_y.data();
         }
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             lm_head_input, ops::WeightView(*require(w.lm_head, "lm_head")),
             ws.logits.data(), lm_head_rows, V, H);
     }
@@ -6944,7 +6944,7 @@ const LlamaLikePlanState& plan_state,
 Workspace& ws,
 KvCache& cache,
 AttentionWorkspace& attn_ws,
-ops::CublasHandle& cublas,
+kernels::gemm::CublasHandle& cublas,
 const std::int32_t* token_ids,
 const std::int32_t* positions,
 const std::uint32_t* qo_indptr,
@@ -7079,15 +7079,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].q_proj, "layer.0.q_proj"), w.layers[0].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].k_proj, "layer.0.k_proj"), w.layers[0].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].v_proj, "layer.0.v_proj"), w.layers[0].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -7140,7 +7140,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(0);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -7151,7 +7151,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(0);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -7213,7 +7213,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(0);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -7222,7 +7222,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(0);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -7240,7 +7240,7 @@ std::uint32_t declared_full_depth_rows)
                              0 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[0]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -7258,7 +7258,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(0);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -7276,7 +7276,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(0);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -7313,7 +7313,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(0);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -7334,7 +7334,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(0);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -7354,7 +7354,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(0);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -7375,7 +7375,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -7385,13 +7385,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -7422,15 +7422,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].q_proj, "layer.1.q_proj"), w.layers[1].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].k_proj, "layer.1.k_proj"), w.layers[1].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].v_proj, "layer.1.v_proj"), w.layers[1].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -7483,7 +7483,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(1);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -7494,7 +7494,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(1);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -7556,7 +7556,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(1);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -7565,7 +7565,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(1);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -7583,7 +7583,7 @@ std::uint32_t declared_full_depth_rows)
                              1 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[1]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -7601,7 +7601,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(1);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -7619,7 +7619,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(1);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -7656,7 +7656,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(1);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -7677,7 +7677,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(1);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -7697,7 +7697,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(1);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -7718,7 +7718,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -7728,13 +7728,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -7765,15 +7765,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].q_proj, "layer.2.q_proj"), w.layers[2].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].k_proj, "layer.2.k_proj"), w.layers[2].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].v_proj, "layer.2.v_proj"), w.layers[2].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -7826,7 +7826,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(2);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -7837,7 +7837,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(2);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -7899,7 +7899,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(2);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -7908,7 +7908,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(2);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -7926,7 +7926,7 @@ std::uint32_t declared_full_depth_rows)
                              2 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[2]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -7944,7 +7944,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(2);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -7962,7 +7962,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(2);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -7999,7 +7999,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(2);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -8020,7 +8020,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(2);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -8040,7 +8040,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(2);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -8061,7 +8061,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -8071,13 +8071,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -8108,15 +8108,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].q_proj, "layer.3.q_proj"), w.layers[3].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].k_proj, "layer.3.k_proj"), w.layers[3].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].v_proj, "layer.3.v_proj"), w.layers[3].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -8169,7 +8169,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(3);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -8180,7 +8180,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(3);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -8242,7 +8242,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(3);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -8251,7 +8251,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(3);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -8269,7 +8269,7 @@ std::uint32_t declared_full_depth_rows)
                              3 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[3]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -8287,7 +8287,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(3);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -8305,7 +8305,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(3);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -8342,7 +8342,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(3);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -8363,7 +8363,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(3);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -8383,7 +8383,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(3);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -8404,7 +8404,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -8414,13 +8414,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -8451,15 +8451,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].q_proj, "layer.4.q_proj"), w.layers[4].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].k_proj, "layer.4.k_proj"), w.layers[4].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].v_proj, "layer.4.v_proj"), w.layers[4].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -8512,7 +8512,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(4);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -8523,7 +8523,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(4);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -8585,7 +8585,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(4);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -8594,7 +8594,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(4);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -8612,7 +8612,7 @@ std::uint32_t declared_full_depth_rows)
                              4 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[4]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -8630,7 +8630,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(4);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -8648,7 +8648,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(4);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -8685,7 +8685,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(4);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -8706,7 +8706,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(4);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -8726,7 +8726,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(4);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -8747,7 +8747,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -8757,13 +8757,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -8794,15 +8794,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].q_proj, "layer.5.q_proj"), w.layers[5].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].k_proj, "layer.5.k_proj"), w.layers[5].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].v_proj, "layer.5.v_proj"), w.layers[5].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -8855,7 +8855,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(5);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -8866,7 +8866,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(5);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -8928,7 +8928,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(5);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -8937,7 +8937,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(5);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -8955,7 +8955,7 @@ std::uint32_t declared_full_depth_rows)
                              5 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[5]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -8973,7 +8973,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(5);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -8991,7 +8991,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(5);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -9028,7 +9028,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(5);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -9049,7 +9049,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(5);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -9069,7 +9069,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(5);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -9090,7 +9090,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -9100,13 +9100,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -9137,15 +9137,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].q_proj, "layer.6.q_proj"), w.layers[6].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].k_proj, "layer.6.k_proj"), w.layers[6].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].v_proj, "layer.6.v_proj"), w.layers[6].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -9198,7 +9198,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(6);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -9209,7 +9209,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(6);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -9271,7 +9271,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(6);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -9280,7 +9280,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(6);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -9298,7 +9298,7 @@ std::uint32_t declared_full_depth_rows)
                              6 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[6]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -9316,7 +9316,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(6);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -9334,7 +9334,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(6);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -9371,7 +9371,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(6);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -9392,7 +9392,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(6);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -9412,7 +9412,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(6);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -9433,7 +9433,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -9443,13 +9443,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -9480,15 +9480,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].q_proj, "layer.7.q_proj"), w.layers[7].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].k_proj, "layer.7.k_proj"), w.layers[7].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].v_proj, "layer.7.v_proj"), w.layers[7].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -9541,7 +9541,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(7);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -9552,7 +9552,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(7);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -9614,7 +9614,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(7);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -9623,7 +9623,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(7);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -9641,7 +9641,7 @@ std::uint32_t declared_full_depth_rows)
                              7 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[7]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -9659,7 +9659,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(7);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -9677,7 +9677,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(7);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -9714,7 +9714,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(7);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -9735,7 +9735,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(7);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -9755,7 +9755,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(7);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -9776,7 +9776,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -9786,13 +9786,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -9823,15 +9823,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].q_proj, "layer.8.q_proj"), w.layers[8].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].k_proj, "layer.8.k_proj"), w.layers[8].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].v_proj, "layer.8.v_proj"), w.layers[8].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -9884,7 +9884,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(8);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -9895,7 +9895,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(8);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -9957,7 +9957,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(8);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -9966,7 +9966,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(8);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -9984,7 +9984,7 @@ std::uint32_t declared_full_depth_rows)
                              8 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[8]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -10002,7 +10002,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(8);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -10020,7 +10020,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(8);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -10057,7 +10057,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(8);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -10078,7 +10078,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(8);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -10098,7 +10098,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(8);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -10119,7 +10119,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -10129,13 +10129,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -10166,15 +10166,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].q_proj, "layer.9.q_proj"), w.layers[9].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].k_proj, "layer.9.k_proj"), w.layers[9].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].v_proj, "layer.9.v_proj"), w.layers[9].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -10227,7 +10227,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(9);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -10238,7 +10238,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(9);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -10300,7 +10300,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(9);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -10309,7 +10309,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(9);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -10327,7 +10327,7 @@ std::uint32_t declared_full_depth_rows)
                              9 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[9]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -10345,7 +10345,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(9);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -10363,7 +10363,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(9);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -10400,7 +10400,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(9);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -10421,7 +10421,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(9);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -10441,7 +10441,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(9);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -10462,7 +10462,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -10472,13 +10472,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -10509,15 +10509,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].q_proj, "layer.10.q_proj"), w.layers[10].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].k_proj, "layer.10.k_proj"), w.layers[10].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].v_proj, "layer.10.v_proj"), w.layers[10].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -10570,7 +10570,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(10);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -10581,7 +10581,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(10);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -10643,7 +10643,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(10);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -10652,7 +10652,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(10);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -10670,7 +10670,7 @@ std::uint32_t declared_full_depth_rows)
                              10 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[10]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -10688,7 +10688,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(10);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -10706,7 +10706,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(10);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -10743,7 +10743,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(10);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -10764,7 +10764,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(10);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -10784,7 +10784,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(10);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -10805,7 +10805,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -10815,13 +10815,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -10852,15 +10852,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].q_proj, "layer.11.q_proj"), w.layers[11].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].k_proj, "layer.11.k_proj"), w.layers[11].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].v_proj, "layer.11.v_proj"), w.layers[11].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -10913,7 +10913,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(11);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -10924,7 +10924,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(11);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -10986,7 +10986,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(11);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -10995,7 +10995,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(11);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -11013,7 +11013,7 @@ std::uint32_t declared_full_depth_rows)
                              11 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[11]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -11031,7 +11031,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(11);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -11049,7 +11049,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(11);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -11086,7 +11086,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(11);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -11107,7 +11107,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(11);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -11127,7 +11127,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(11);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -11148,7 +11148,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -11158,13 +11158,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -11195,15 +11195,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].q_proj, "layer.12.q_proj"), w.layers[12].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].k_proj, "layer.12.k_proj"), w.layers[12].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].v_proj, "layer.12.v_proj"), w.layers[12].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -11256,7 +11256,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(12);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -11267,7 +11267,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(12);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -11329,7 +11329,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(12);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -11338,7 +11338,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(12);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -11356,7 +11356,7 @@ std::uint32_t declared_full_depth_rows)
                              12 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[12]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -11374,7 +11374,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(12);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -11392,7 +11392,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(12);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -11429,7 +11429,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(12);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -11450,7 +11450,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(12);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -11470,7 +11470,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(12);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -11491,7 +11491,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -11501,13 +11501,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -11538,15 +11538,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].q_proj, "layer.13.q_proj"), w.layers[13].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].k_proj, "layer.13.k_proj"), w.layers[13].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].v_proj, "layer.13.v_proj"), w.layers[13].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -11599,7 +11599,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(13);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -11610,7 +11610,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(13);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -11672,7 +11672,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(13);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -11681,7 +11681,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(13);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -11699,7 +11699,7 @@ std::uint32_t declared_full_depth_rows)
                              13 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[13]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -11717,7 +11717,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(13);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -11735,7 +11735,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(13);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -11772,7 +11772,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(13);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -11793,7 +11793,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(13);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -11813,7 +11813,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(13);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -11834,7 +11834,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -11844,13 +11844,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -11881,15 +11881,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].q_proj, "layer.14.q_proj"), w.layers[14].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].k_proj, "layer.14.k_proj"), w.layers[14].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].v_proj, "layer.14.v_proj"), w.layers[14].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -11942,7 +11942,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(14);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -11953,7 +11953,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(14);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -12015,7 +12015,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(14);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -12024,7 +12024,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(14);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -12042,7 +12042,7 @@ std::uint32_t declared_full_depth_rows)
                              14 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[14]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -12060,7 +12060,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(14);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -12078,7 +12078,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(14);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -12115,7 +12115,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(14);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -12136,7 +12136,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(14);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -12156,7 +12156,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(14);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -12177,7 +12177,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -12187,13 +12187,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -12224,15 +12224,15 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].q_proj, "layer.15.q_proj"), w.layers[15].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].k_proj, "layer.15.k_proj"), w.layers[15].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].v_proj, "layer.15.v_proj"), w.layers[15].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -12285,7 +12285,7 @@ std::uint32_t declared_full_depth_rows)
     if (has_write_desc) {
         {
             auto kv_view = cache.layer_view(15);
-            kernels::launch_write_kv_explicit_bf16(
+            kernels::attn::write_kv_explicit_bf16(
                 kv_view,
                 bf16_row(ws.k.data(), 0, Hk),
                 bf16_row(ws.v.data(), 0, Hk),
@@ -12296,7 +12296,7 @@ std::uint32_t declared_full_depth_rows)
     } else {
         {
             auto kv_view = cache.layer_view(15);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
@@ -12358,7 +12358,7 @@ std::uint32_t declared_full_depth_rows)
             if (split > 0) {
                 {
                     auto kv_view = cache.layer_view(15);
-                    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                    kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                         kv_view, kv_page_indices, kv_page_indptr_h[split], stream);
                 }
                 if (!plan_state.prefill_plan) {
@@ -12367,7 +12367,7 @@ std::uint32_t declared_full_depth_rows)
                 }
                 {
                     auto kv_view = cache.layer_view(15);
-                    ops::dispatch_attention_flashinfer_prefill_bf16(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                         *plan_state.prefill_plan,
                         ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                         ws.attn_out.data(),
@@ -12385,7 +12385,7 @@ std::uint32_t declared_full_depth_rows)
                              15 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                                 ? fwd_cfg.per_layer_window_left[15]
                                 : fwd_cfg.sliding_window;
-                        ops::dispatch_attention_flashinfer_decode(
+                        kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
                             bf16_row(ws.attn_out.data(), mid_row, Hq),
@@ -12403,7 +12403,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(15);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.mask_decode_plan,
                     bf16_row(ws.q.data(), split_rows, Hq), kv_view,
                     bf16_row(ws.attn_out.data(), split_rows, Hq),
@@ -12421,7 +12421,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(15);
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -12458,7 +12458,7 @@ std::uint32_t declared_full_depth_rows)
         }
         {
             auto kv_view = cache.layer_view(15);
-            kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+            kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                 kv_view, kv_page_indices, kv_page_indptr_h[R], stream);
         }
         if (hooks != nullptr && hooks->wants_attn_score) {
@@ -12479,7 +12479,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(15);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -12499,7 +12499,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(15);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *plan_state.prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
@@ -12520,7 +12520,7 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -12530,13 +12530,13 @@ std::uint32_t declared_full_depth_rows)
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -12574,7 +12574,7 @@ std::uint32_t declared_full_depth_rows)
                 N, H, eps, stream);
             lm_head_input = ws.norm_y.data();
         }
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             lm_head_input, ops::WeightView(*require(w.lm_head, "lm_head")),
             ws.logits.data(), lm_head_rows, V, H);
     }
@@ -12588,7 +12588,7 @@ const LlamaLikePlanState& plan_state,
 Workspace& ws,
 KvCache& cache,
 AttentionWorkspace& attn_ws,
-ops::CublasHandle& cublas,
+kernels::gemm::CublasHandle& cublas,
 const std::int32_t* token_ids,
 const std::int32_t* positions,
 const std::uint32_t* qo_indptr,
@@ -12712,15 +12712,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::layout::embed_bf16(
         token_ids, require(w.embed, "embed")->data(), ws.y.data(),
         N, H, V, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].q_proj, "layer.0.q_proj"), w.layers[0].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].k_proj, "layer.0.k_proj"), w.layers[0].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].v_proj, "layer.0.v_proj"), w.layers[0].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -12736,7 +12736,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(0);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -12765,7 +12765,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(0);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -12781,7 +12781,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -12791,13 +12791,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -12807,15 +12807,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].q_proj, "layer.1.q_proj"), w.layers[1].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].k_proj, "layer.1.k_proj"), w.layers[1].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].v_proj, "layer.1.v_proj"), w.layers[1].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -12831,7 +12831,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(1);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -12860,7 +12860,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(1);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -12876,7 +12876,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -12886,13 +12886,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -12902,15 +12902,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].q_proj, "layer.2.q_proj"), w.layers[2].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].k_proj, "layer.2.k_proj"), w.layers[2].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].v_proj, "layer.2.v_proj"), w.layers[2].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -12926,7 +12926,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(2);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -12955,7 +12955,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(2);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -12971,7 +12971,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -12981,13 +12981,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -12997,15 +12997,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].q_proj, "layer.3.q_proj"), w.layers[3].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].k_proj, "layer.3.k_proj"), w.layers[3].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].v_proj, "layer.3.v_proj"), w.layers[3].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13021,7 +13021,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(3);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13050,7 +13050,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(3);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13066,7 +13066,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13076,13 +13076,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13092,15 +13092,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].q_proj, "layer.4.q_proj"), w.layers[4].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].k_proj, "layer.4.k_proj"), w.layers[4].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].v_proj, "layer.4.v_proj"), w.layers[4].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13116,7 +13116,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(4);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13145,7 +13145,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(4);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13161,7 +13161,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13171,13 +13171,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13187,15 +13187,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].q_proj, "layer.5.q_proj"), w.layers[5].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].k_proj, "layer.5.k_proj"), w.layers[5].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].v_proj, "layer.5.v_proj"), w.layers[5].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13211,7 +13211,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(5);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13240,7 +13240,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(5);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13256,7 +13256,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13266,13 +13266,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13282,15 +13282,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].q_proj, "layer.6.q_proj"), w.layers[6].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].k_proj, "layer.6.k_proj"), w.layers[6].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].v_proj, "layer.6.v_proj"), w.layers[6].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13306,7 +13306,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(6);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13335,7 +13335,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(6);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13351,7 +13351,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13361,13 +13361,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13377,15 +13377,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].q_proj, "layer.7.q_proj"), w.layers[7].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].k_proj, "layer.7.k_proj"), w.layers[7].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].v_proj, "layer.7.v_proj"), w.layers[7].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13401,7 +13401,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(7);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13430,7 +13430,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(7);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13446,7 +13446,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13456,13 +13456,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13472,15 +13472,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].q_proj, "layer.8.q_proj"), w.layers[8].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].k_proj, "layer.8.k_proj"), w.layers[8].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].v_proj, "layer.8.v_proj"), w.layers[8].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13496,7 +13496,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(8);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13525,7 +13525,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(8);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13541,7 +13541,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13551,13 +13551,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13567,15 +13567,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].q_proj, "layer.9.q_proj"), w.layers[9].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].k_proj, "layer.9.k_proj"), w.layers[9].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].v_proj, "layer.9.v_proj"), w.layers[9].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13591,7 +13591,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(9);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13620,7 +13620,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(9);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13636,7 +13636,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13646,13 +13646,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13662,15 +13662,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].q_proj, "layer.10.q_proj"), w.layers[10].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].k_proj, "layer.10.k_proj"), w.layers[10].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].v_proj, "layer.10.v_proj"), w.layers[10].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13686,7 +13686,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(10);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13715,7 +13715,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(10);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13731,7 +13731,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13741,13 +13741,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13757,15 +13757,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].q_proj, "layer.11.q_proj"), w.layers[11].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].k_proj, "layer.11.k_proj"), w.layers[11].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].v_proj, "layer.11.v_proj"), w.layers[11].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13781,7 +13781,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(11);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13810,7 +13810,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(11);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13826,7 +13826,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13836,13 +13836,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13852,15 +13852,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].q_proj, "layer.12.q_proj"), w.layers[12].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].k_proj, "layer.12.k_proj"), w.layers[12].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].v_proj, "layer.12.v_proj"), w.layers[12].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13876,7 +13876,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(12);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -13905,7 +13905,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(12);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -13921,7 +13921,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -13931,13 +13931,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -13947,15 +13947,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].q_proj, "layer.13.q_proj"), w.layers[13].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].k_proj, "layer.13.k_proj"), w.layers[13].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].v_proj, "layer.13.v_proj"), w.layers[13].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -13971,7 +13971,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(13);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -14000,7 +14000,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(13);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -14016,7 +14016,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -14026,13 +14026,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -14042,15 +14042,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].q_proj, "layer.14.q_proj"), w.layers[14].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].k_proj, "layer.14.k_proj"), w.layers[14].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].v_proj, "layer.14.v_proj"), w.layers[14].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -14066,7 +14066,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(14);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -14095,7 +14095,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(14);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -14111,7 +14111,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -14121,13 +14121,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -14137,15 +14137,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].q_proj, "layer.15.q_proj"), w.layers[15].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].k_proj, "layer.15.k_proj"), w.layers[15].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].v_proj, "layer.15.v_proj"), w.layers[15].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -14161,7 +14161,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(15);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -14190,7 +14190,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(15);
-        ops::dispatch_attention_flashinfer_prefill_custom(
+        kernels::attn::dispatch_attention_flashinfer_prefill_custom(
             *plan_state.mask_decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
@@ -14206,7 +14206,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -14216,13 +14216,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -14258,7 +14258,7 @@ std::uint32_t declared_full_depth_rows,
                 N, H, eps, stream);
             lm_head_input = ws.norm_y.data();
         }
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             lm_head_input, ops::WeightView(*require(w.lm_head, "lm_head")),
             ws.logits.data(), lm_head_rows, V, H);
     }
@@ -14271,15 +14271,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::layout::embed_bf16(
         token_ids, require(w.embed, "embed")->data(), ws.y.data(),
         N, H, V, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].q_proj, "layer.0.q_proj"), w.layers[0].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].k_proj, "layer.0.k_proj"), w.layers[0].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[0].v_proj, "layer.0.v_proj"), w.layers[0].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -14295,7 +14295,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(0);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -14324,7 +14324,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -14348,7 +14348,7 @@ std::uint32_t declared_full_depth_rows,
              0 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[0]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -14365,7 +14365,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -14375,13 +14375,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -14391,15 +14391,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].q_proj, "layer.1.q_proj"), w.layers[1].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].k_proj, "layer.1.k_proj"), w.layers[1].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[1].v_proj, "layer.1.v_proj"), w.layers[1].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -14415,7 +14415,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(1);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -14444,7 +14444,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -14468,7 +14468,7 @@ std::uint32_t declared_full_depth_rows,
              1 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[1]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -14485,7 +14485,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -14495,13 +14495,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -14511,15 +14511,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].q_proj, "layer.2.q_proj"), w.layers[2].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].k_proj, "layer.2.k_proj"), w.layers[2].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[2].v_proj, "layer.2.v_proj"), w.layers[2].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -14535,7 +14535,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(2);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -14564,7 +14564,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -14588,7 +14588,7 @@ std::uint32_t declared_full_depth_rows,
              2 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[2]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -14605,7 +14605,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -14615,13 +14615,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -14631,15 +14631,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].q_proj, "layer.3.q_proj"), w.layers[3].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].k_proj, "layer.3.k_proj"), w.layers[3].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[3].v_proj, "layer.3.v_proj"), w.layers[3].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -14655,7 +14655,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(3);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -14684,7 +14684,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -14708,7 +14708,7 @@ std::uint32_t declared_full_depth_rows,
              3 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[3]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -14725,7 +14725,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -14735,13 +14735,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -14751,15 +14751,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].q_proj, "layer.4.q_proj"), w.layers[4].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].k_proj, "layer.4.k_proj"), w.layers[4].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[4].v_proj, "layer.4.v_proj"), w.layers[4].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -14775,7 +14775,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(4);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -14804,7 +14804,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -14828,7 +14828,7 @@ std::uint32_t declared_full_depth_rows,
              4 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[4]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -14845,7 +14845,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -14855,13 +14855,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -14871,15 +14871,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].q_proj, "layer.5.q_proj"), w.layers[5].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].k_proj, "layer.5.k_proj"), w.layers[5].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[5].v_proj, "layer.5.v_proj"), w.layers[5].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -14895,7 +14895,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(5);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -14924,7 +14924,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -14948,7 +14948,7 @@ std::uint32_t declared_full_depth_rows,
              5 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[5]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -14965,7 +14965,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -14975,13 +14975,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -14991,15 +14991,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].q_proj, "layer.6.q_proj"), w.layers[6].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].k_proj, "layer.6.k_proj"), w.layers[6].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[6].v_proj, "layer.6.v_proj"), w.layers[6].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -15015,7 +15015,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(6);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -15044,7 +15044,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -15068,7 +15068,7 @@ std::uint32_t declared_full_depth_rows,
              6 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[6]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -15085,7 +15085,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -15095,13 +15095,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -15111,15 +15111,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].q_proj, "layer.7.q_proj"), w.layers[7].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].k_proj, "layer.7.k_proj"), w.layers[7].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[7].v_proj, "layer.7.v_proj"), w.layers[7].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -15135,7 +15135,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(7);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -15164,7 +15164,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -15188,7 +15188,7 @@ std::uint32_t declared_full_depth_rows,
              7 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[7]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -15205,7 +15205,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -15215,13 +15215,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -15231,15 +15231,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].q_proj, "layer.8.q_proj"), w.layers[8].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].k_proj, "layer.8.k_proj"), w.layers[8].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[8].v_proj, "layer.8.v_proj"), w.layers[8].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -15255,7 +15255,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(8);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -15284,7 +15284,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -15308,7 +15308,7 @@ std::uint32_t declared_full_depth_rows,
              8 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[8]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -15325,7 +15325,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -15335,13 +15335,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -15351,15 +15351,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].q_proj, "layer.9.q_proj"), w.layers[9].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].k_proj, "layer.9.k_proj"), w.layers[9].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[9].v_proj, "layer.9.v_proj"), w.layers[9].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -15375,7 +15375,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(9);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -15404,7 +15404,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -15428,7 +15428,7 @@ std::uint32_t declared_full_depth_rows,
              9 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[9]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -15445,7 +15445,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -15455,13 +15455,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -15471,15 +15471,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].q_proj, "layer.10.q_proj"), w.layers[10].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].k_proj, "layer.10.k_proj"), w.layers[10].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[10].v_proj, "layer.10.v_proj"), w.layers[10].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -15495,7 +15495,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(10);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -15524,7 +15524,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -15548,7 +15548,7 @@ std::uint32_t declared_full_depth_rows,
              10 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[10]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -15565,7 +15565,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -15575,13 +15575,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -15591,15 +15591,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].q_proj, "layer.11.q_proj"), w.layers[11].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].k_proj, "layer.11.k_proj"), w.layers[11].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[11].v_proj, "layer.11.v_proj"), w.layers[11].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -15615,7 +15615,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(11);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -15644,7 +15644,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -15668,7 +15668,7 @@ std::uint32_t declared_full_depth_rows,
              11 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[11]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -15685,7 +15685,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -15695,13 +15695,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -15711,15 +15711,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].q_proj, "layer.12.q_proj"), w.layers[12].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].k_proj, "layer.12.k_proj"), w.layers[12].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[12].v_proj, "layer.12.v_proj"), w.layers[12].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -15735,7 +15735,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(12);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -15764,7 +15764,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -15788,7 +15788,7 @@ std::uint32_t declared_full_depth_rows,
              12 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[12]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -15805,7 +15805,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -15815,13 +15815,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -15831,15 +15831,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].q_proj, "layer.13.q_proj"), w.layers[13].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].k_proj, "layer.13.k_proj"), w.layers[13].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[13].v_proj, "layer.13.v_proj"), w.layers[13].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -15855,7 +15855,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(13);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -15884,7 +15884,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -15908,7 +15908,7 @@ std::uint32_t declared_full_depth_rows,
              13 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[13]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -15925,7 +15925,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -15935,13 +15935,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -15951,15 +15951,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].q_proj, "layer.14.q_proj"), w.layers[14].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].k_proj, "layer.14.k_proj"), w.layers[14].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[14].v_proj, "layer.14.v_proj"), w.layers[14].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -15975,7 +15975,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(14);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -16004,7 +16004,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -16028,7 +16028,7 @@ std::uint32_t declared_full_depth_rows,
              14 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[14]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -16045,7 +16045,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -16055,13 +16055,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -16071,15 +16071,15 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].q_proj, "layer.15.q_proj"), w.layers[15].q_proj_quant),
         ws.q.data(), N, Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].k_proj, "layer.15.k_proj"), w.layers[15].k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         make_weight_view(require(w.layers[15].v_proj, "layer.15.v_proj"), w.layers[15].v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -16095,7 +16095,7 @@ std::uint32_t declared_full_depth_rows,
         cfg.rope_theta, stream);
     {
         auto kv_view = cache.layer_view(15);
-        kernels::launch_write_kv_explicit_bf16(
+        kernels::attn::write_kv_explicit_bf16(
             kv_view,
             bf16_row(ws.k.data(), 0, Hk),
             bf16_row(ws.v.data(), 0, Hk),
@@ -16124,7 +16124,7 @@ std::uint32_t declared_full_depth_rows,
                 "attn_page_mask was written but this layer does "
                 "not take the paged decode path");
         }
-        if (!ops::decode_plan_is_page_count_independent(
+        if (!kernels::attn::decode_plan_is_page_count_independent(
                 *plan_state.decode_plan)) {
             throw std::runtime_error(
                 "attn_page_mask requires a page-count-independent "
@@ -16148,7 +16148,7 @@ std::uint32_t declared_full_depth_rows,
              15 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
                 ? fwd_cfg.per_layer_window_left[15]
                 : fwd_cfg.sliding_window;
-        ops::dispatch_attention_flashinfer_decode(
+        kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
@@ -16165,7 +16165,7 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
@@ -16175,13 +16175,13 @@ std::uint32_t declared_full_depth_rows,
     kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.y.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
@@ -16217,7 +16217,7 @@ std::uint32_t declared_full_depth_rows,
                 N, H, eps, stream);
             lm_head_input = ws.norm_y.data();
         }
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             lm_head_input, ops::WeightView(*require(w.lm_head, "lm_head")),
             ws.logits.data(), lm_head_rows, V, H);
     }

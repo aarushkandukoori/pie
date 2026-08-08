@@ -546,7 +546,7 @@ impl Lowerer<'_> {
             self.emit(at, "layout::gather_bf16_rows", op, &out)?;
         }
         self.emit(at, "norm::rmsnorm_bf16", op, &out)?;
-        self.emit(at, "gemm_act_x_w", op, &out)?;
+        self.emit(at, "gemm::act_x_w", op, &out)?;
         Ok(())
     }
 
@@ -737,9 +737,9 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // what asks for it, so the lowering states it rather than the
         // driver deriving it from a window pointer.
         SplitQkv { .. } => Semantic::Kernels(if peel_tail {
-            &["launch_split_qkv_bf16_devwin"]
+            &["attn::split_qkv_bf16_devwin"]
         } else {
-            &["launch_split_qkv_bf16"]
+            &["attn::split_qkv_bf16"]
         }),
 
         // Partial rope IS a different kernel, and the trace already says
@@ -762,7 +762,7 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // shape, chosen per fire.
         Matmul { selector, .. } => {
             if selector.is_none() {
-                Semantic::Kernels(&["gemm_act_x_w"])
+                Semantic::Kernels(&["gemm::act_x_w"])
             } else {
                 // A selector makes the weight per-token, and the grouped
                 // GEMM is that op's lowering. It used to be a refusal

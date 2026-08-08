@@ -81,7 +81,7 @@ void ForwardFn::invoke_prepare(AttentionWorkspace& aws,
 void ForwardFn::invoke_body(model::Workspace& ws,
                             KvCache& kv,
                             AttentionWorkspace& aws,
-                            ops::CublasHandle& cublas,
+                            kernels::gemm::CublasHandle& cublas,
                             const ForwardInputs& in) {
     if (model) {
         if (in.stage_hooks == nullptr) {
@@ -122,7 +122,7 @@ std::uint64_t ForwardFn::invoke_lora_stage(model::Workspace& ws,
 bool ForwardFn::invoke_supergraph_body(model::Workspace& ws,
                                        KvCache& kv,
                                        AttentionWorkspace& aws,
-                                       ops::CublasHandle& cublas,
+                                       kernels::gemm::CublasHandle& cublas,
                                        const ForwardInputs& in,
                                        batch::SupergraphBuilder& sg) {
     return model != nullptr &&
@@ -295,7 +295,7 @@ class CudaStreamOwner {
 
     class CublasStreamScope {
       public:
-        explicit CublasStreamScope(ops::CublasHandle& handle)
+        explicit CublasStreamScope(kernels::gemm::CublasHandle& handle)
             : handle_(handle), previous_(handle.stream()) {}
         void bind(cudaStream_t stream) {
             handle_.set_stream(stream);
@@ -315,7 +315,7 @@ class CudaStreamOwner {
         }
 
       private:
-        ops::CublasHandle& handle_;
+        kernels::gemm::CublasHandle& handle_;
         cudaStream_t previous_ = nullptr;
         bool active_ = true;
 };

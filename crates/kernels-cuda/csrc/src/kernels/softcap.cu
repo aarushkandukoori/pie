@@ -2,7 +2,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -22,7 +22,7 @@ __global__ void logit_softcap_bf16_kernel(
 
 }  // namespace
 
-void launch_logit_softcap_bf16(
+void logit_softcap_bf16(
     void* x, float cap, std::size_t n, cudaStream_t stream)
 {
     if (n == 0 || !(cap > 0.f)) return;
@@ -31,4 +31,4 @@ void launch_logit_softcap_bf16(
         static_cast<__nv_bfloat16*>(x), 1.f / cap, cap, n);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

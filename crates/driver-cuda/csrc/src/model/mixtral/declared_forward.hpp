@@ -59,7 +59,7 @@ bool gpt_oss_forward_declared(
     Workspace& ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,

@@ -5,7 +5,7 @@
 
 #include "cuda_check.hpp"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 namespace {
 
@@ -559,4 +559,4 @@ void quantize_bf16_to_fp8_e4m3_per_token_group(
     CUDA_CHECK(cudaGetLastError());
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

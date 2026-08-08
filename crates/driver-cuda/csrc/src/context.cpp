@@ -1476,7 +1476,7 @@ int Context::Impl::load_model(
     kv_cache_ = &kv_cache;
     swap_pool_ = &swap_pool;
 
-    auto* cublas_p = own_emplace<ops::CublasHandle>();
+    auto* cublas_p = own_emplace<kernels::gemm::CublasHandle>();
     auto& cublas = *cublas_p;
     auto runtime_quant_scratch = runtime_quant_scratch_base;
     runtime_quant_scratch.max_tokens = static_cast<std::size_t>(max_workspace_tokens);
@@ -1484,7 +1484,7 @@ int Context::Impl::load_model(
         runtime_quant_context_.reset();
         {
             ScopedCudaArenaAllocator arena(*workspace_allocator_);
-            ops::reserve_runtime_quant_scratch(runtime_quant_scratch, true);
+            kernels::gemm::reserve_runtime_quant_scratch(runtime_quant_scratch, true);
         }
         CUDA_CHECK(cudaDeviceSynchronize());
     }
@@ -1528,7 +1528,7 @@ int Context::Impl::load_model(
         fwd_cfg.emit_logits = true;
         fwd_cfg.use_xqa_decode =
             xqa_decode_enabled_by_env() &&
-            ops::xqa_decode_bf16_supported(
+            kernels::attn::xqa_decode_bf16_supported(
                 local_q_heads, local_kv_heads, hf.head_dim_kernel,
                 mem_plan.kv_page_size, hf.sliding_window,
                 0.f, -1.f) &&
@@ -1537,7 +1537,7 @@ int Context::Impl::load_model(
             fwd_cfg.force_prefill_path = false;
             if (local_q_heads > 0 && local_kv_heads > 0 &&
                 local_q_heads % local_kv_heads == 0) {
-                ops::xqa_decode_bf16_warmup_current_device(
+                kernels::attn::xqa_decode_bf16_warmup_current_device(
                     local_q_heads / local_kv_heads, mem_plan.kv_page_size);
             }
         }
@@ -2190,7 +2190,7 @@ int Context::Impl::load_model(
         // (`descriptor_resolve.hpp` reads the bool cells; `pack_dense_mask`
         // packs them into flashinfer's ragged custom-mask CSR; the body's
         // custom-mask arm and the generated supergraph's
-        // `dispatch_attention_flashinfer_prefill_custom` execute it).
+        // `kernels::attn::dispatch_attention_flashinfer_prefill_custom` execute it).
         //
         // It was withheld for a year-of-the-tree's worth of good reason: the
         // runtime used to route masked device-carried decode into the
@@ -2848,7 +2848,7 @@ int Context::Impl::copy_kv(const PieKvCopyDesc& copy, PieCompletion completion) 
             auto d_src_off = pie_cuda_driver::DeviceBuffer<std::uint32_t>::from_host(src_offs);
             cudaStream_t stream = completion_stream;
             for (int l = 0; l < kv_cache_->num_layers(); ++l) {
-                pie_cuda_driver::kernels::launch_copy_kv_cells_bf16(
+                pie_cuda_driver::kernels::attn::copy_kv_cells_bf16(
                     kv_cache_->layer_view(l),
                     d_dst_page.data(), d_dst_off.data(),
                     d_src_page.data(), d_src_off.data(),

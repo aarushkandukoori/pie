@@ -197,7 +197,7 @@ pub struct Qwen35FullAttnFacts {
     /// matmuls; with the join enabled it writes Matmul(qgkv) + SplitQkv
     /// whose "q" leg is the 2×-wide `[query | gate]` bank
     /// (`full_attn_layer_body`'s `use_fused_qgkv` branch:
-    /// `launch_split_qkv_bf16(packed, qg, k, v, N, 2*Hq, Hk)`).
+    /// `kernels::attn::split_qkv_bf16(packed, qg, k, v, N, 2*Hq, Hk)`).
     pub fused_qkv: bool,
     /// qwen3.5 folds `(1 + w)` on every norm of this block — the
     /// pre-attention norm AND the per-head q/k norms

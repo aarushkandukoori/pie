@@ -33,7 +33,7 @@ MixtralModel::MixtralModel(MixtralWeights weights,
 void MixtralModel::body(Workspace& ws,
                         KvCache& kv,
                         AttentionWorkspace& attn_ws,
-                        ops::CublasHandle& cublas,
+                        kernels::gemm::CublasHandle& cublas,
                         const ForwardFn::ForwardInputs& in) {
     // The declared drive gets the fire first. It answers false for
     // anything outside the decode class — a prefill, a masked or hooked

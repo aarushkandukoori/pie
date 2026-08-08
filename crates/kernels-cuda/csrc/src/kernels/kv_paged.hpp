@@ -14,9 +14,9 @@
 
 #include "kernels/kv_cache_view.hpp"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
-void launch_write_kv_to_pages_bf16(
+void write_kv_to_pages_bf16(
     void* k_pages,                                 // NHD: [pages, page_size, h_kv, d]; HND: [pages, h_kv, page_size, d]
     void* v_pages,
     const void* k_curr,                            // [total_tokens, h_kv, d]
@@ -37,7 +37,7 @@ void launch_write_kv_to_pages_bf16(
     // their K/V — the hook-free fast prefix). Indexing stays absolute.
     int first_token = 0);
 
-void launch_write_kv_to_pages(
+void write_kv_to_pages(
     KvCacheLayerView layer,
     const void* k_curr,                            // [total_tokens, h_kv, d]
     const void* v_curr,
@@ -59,7 +59,7 @@ void launch_write_kv_to_pages(
 // replays across row splits (the host form bakes the split as
 // `first_token` + a split-dependent grid). Indexing stays absolute.
 // Native-bf16 cache only; envelope maintenance not wired (throws).
-void launch_write_kv_to_pages_bf16_devwin(
+void write_kv_to_pages_bf16_devwin(
     KvCacheLayerView layer,
     const void* k_curr,                            // [n_max, h_kv, d]
     const void* v_curr,
@@ -73,7 +73,7 @@ void launch_write_kv_to_pages_bf16_devwin(
     cudaStream_t stream,
     const std::uint8_t* row_valid = nullptr);
 
-void launch_write_kv_to_pages_at_positions_bf16(
+void write_kv_to_pages_at_positions_bf16(
     KvCacheLayerView layer,
     const void* k_curr,                            // [total_tokens, h_kv, d]
     const void* v_curr,
@@ -86,7 +86,7 @@ void launch_write_kv_to_pages_at_positions_bf16(
     int num_requests,
     cudaStream_t stream);
 
-void launch_dequant_kv_cache_layer_to_bf16_active(
+void dequant_kv_cache_layer_to_bf16_active(
     KvCacheLayerView layer,
     const std::uint32_t* kv_page_indices,
     int num_pages_in_batch,
@@ -104,7 +104,7 @@ void launch_dequant_kv_cache_layer_to_bf16_active(
 // device memory so a captured launch replays across row splits; grid
 // is the full lane count, out-of-window rows early-out. Envelope
 // (quest) maintenance is not wired on this variant yet.
-void launch_write_kv_explicit_bf16_devwin(
+void write_kv_explicit_bf16_devwin(
     KvCacheLayerView layer,
     const void* k_curr,
     const void* v_curr,
@@ -115,7 +115,7 @@ void launch_write_kv_explicit_bf16_devwin(
     cudaStream_t stream,
     const std::uint8_t* row_valid = nullptr);
 
-void launch_write_kv_explicit_bf16(
+void write_kv_explicit_bf16(
     KvCacheLayerView layer,
     const void* k_curr,                 // [LANES, h_kv, d]
     const void* v_curr,
@@ -131,7 +131,7 @@ void launch_write_kv_explicit_bf16(
 // stored POST-RoPE (slot = pure storage; positions live in the per-beam mask).
 // Caller guarantees DISJOINT src/dst spans (in-place two-pointer) so one pass
 // needs no scratch. Invoke per layer to move all layers. Native-bf16 KV.
-void launch_copy_kv_cells_bf16(
+void copy_kv_cells_bf16(
     KvCacheLayerView layer,
     const std::uint32_t* dst_page,      // [N] physical page id per cell
     const std::uint32_t* dst_off,       // [N] offset-in-page per cell
@@ -162,7 +162,7 @@ void launch_copy_kv_cells_bf16(
 //
 // `dst_indices` must hold `R * keep_pages` entries -- the worst case, which
 // depends only on the batch shape.
-void launch_build_window_page_view(
+void build_window_page_view(
     const std::uint32_t* src_indices,   // [src_indptr[R]] physical page ids
     const std::uint32_t* src_indptr,    // [R+1] device
     int keep_pages,
@@ -190,7 +190,7 @@ void launch_build_window_page_view(
 // Everything is read from device memory for the same reason the window trim is:
 // one captured graph serves every context length, so a host-computed boundary
 // is a boundary frozen at capture time.
-void launch_build_full_split_view(
+void build_full_split_view(
     const std::uint32_t* src_indptr,        // [2] device (single request)
     const std::uint32_t* src_last_page_len, // [1] device
     int splits,
@@ -201,4 +201,4 @@ void launch_build_full_split_view(
     const std::uint32_t* src_indices,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

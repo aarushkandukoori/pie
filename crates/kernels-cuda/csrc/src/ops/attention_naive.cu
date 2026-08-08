@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -394,7 +394,7 @@ __global__ void attn_mtp_paged_history_kernel(
 
 }  // namespace
 
-void launch_attention_naive_bf16(
+void attention_naive_bf16(
     const void* q, const void* k, const void* v,
     void* o,
     int num_tokens,
@@ -418,7 +418,7 @@ void launch_attention_naive_bf16(
         num_tokens, num_q_heads, num_kv_heads, head_dim, scale);
 }
 
-void launch_attention_mtp_history_bf16(
+void attention_mtp_history_bf16(
     const void* q,
     const void* k_history,
     const void* v_history,
@@ -446,7 +446,7 @@ void launch_attention_mtp_history_bf16(
         num_q_heads, num_kv_heads, head_dim, scale);
 }
 
-void launch_attention_mtp_paged_history_bf16(
+void attention_mtp_paged_history_bf16(
     const void* q,
     const void* k_pages,
     const void* v_pages,
@@ -472,7 +472,7 @@ void launch_attention_mtp_paged_history_bf16(
 {
     if (num_tokens <= 0 || history_steps <= 0) return;
     if (max_global_tokens <= 0) {
-        launch_attention_mtp_history_bf16(
+        attention_mtp_history_bf16(
             q, k_history, v_history, o, num_tokens, history_steps,
             history_stride, num_q_heads, num_kv_heads, head_dim, stream);
         return;
@@ -481,7 +481,7 @@ void launch_attention_mtp_paged_history_bf16(
     // contexts should use a FlashInfer-backed MTP decode path; until then,
     // fall back to local draft history instead of failing the launch.
     if (max_global_tokens + history_steps > 8192) {
-        launch_attention_mtp_history_bf16(
+        attention_mtp_history_bf16(
             q, k_history, v_history, o, num_tokens, history_steps,
             history_stride, num_q_heads, num_kv_heads, head_dim, stream);
         return;
@@ -505,7 +505,7 @@ void launch_attention_mtp_paged_history_bf16(
         global_cache_uses_prefix_position);
 }
 
-void launch_mtp_shift_hidden_bf16(
+void mtp_shift_hidden_bf16(
     const void* target_hidden,
     const void* pending_hidden,
     const std::uint32_t* qo_indptr,
@@ -528,7 +528,7 @@ void launch_mtp_shift_hidden_bf16(
         total_tokens, num_requests, hidden_size);
 }
 
-void launch_mtp_update_pending_hidden_bf16(
+void mtp_update_pending_hidden_bf16(
     const void* target_hidden,
     void* pending_hidden,
     const std::uint32_t* qo_indptr,
@@ -546,4 +546,4 @@ void launch_mtp_update_pending_hidden_bf16(
         qo_indptr, slot_ids, num_requests, hidden_size);
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

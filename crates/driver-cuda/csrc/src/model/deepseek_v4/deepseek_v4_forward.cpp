@@ -278,7 +278,7 @@ void dsv4_forward_paged(
     KvCache& kv_cache,
     DsV4CompressCache& comp_cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     void* logits_out,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
@@ -436,7 +436,7 @@ void dsv4_forward_paged(
             std::int32_t* base =
                 meta_d + static_cast<std::size_t>(comp_meta_slices_used) * N;
             comp_meta_slices_used += 3;
-            kernels::launch_dsv4_boundary_meta_decode(
+            kernels::attn::dsv4_boundary_meta_decode(
                 static_cast<const std::int32_t*>(positions),
                 base, base + N, base + 2 * N, N, ratio, stream, row_valid_d);
             // The compressed attention wants a token->request map; in pure
@@ -657,7 +657,7 @@ void dsv4_forward_paged(
         prof_end("pre_layers");
         prof_beg();
         // Q path: wq_a → q_norm → wq_b
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_x.data(), make_weight_view(Lw.wq_a, Lw.wq_a_quant), ws.q_a.data(),
             N, q_lora, H);
 
@@ -667,7 +667,7 @@ void dsv4_forward_paged(
 
         act_dump_bf16(act_dump_layer_tag("q_a", li).c_str(),
             ws.q_a.data(), N, q_lora, stream);
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.q_a.data(), make_weight_view(Lw.wq_b, Lw.wq_b_quant), ws.q.data(),
             N, num_heads * head_dim, q_lora);
         act_dump_bf16(act_dump_layer_tag("q_b", li).c_str(),
@@ -684,7 +684,7 @@ void dsv4_forward_paged(
             ws.q.data(), N, num_heads, head_dim, eps, stream);
 
         // KV path: wkv → kv_norm
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_x.data(), make_weight_view(Lw.wkv, Lw.wkv_quant), ws.kv.data(),
             N, head_dim, H);
 
@@ -706,7 +706,7 @@ void dsv4_forward_paged(
         {
             // SWA attention on ALL layers (every layer has a sliding window).
             auto lv = kv_cache.layer_view(li);
-            kernels::launch_write_kv_to_pages_bf16(
+            kernels::attn::write_kv_to_pages_bf16(
                 lv.k_pages, lv.v_pages,
                 ws.kv.data(), ws.kv.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -714,7 +714,7 @@ void dsv4_forward_paged(
                 1, head_dim, false, stream, row_valid_d);
 
             if (swa_use_flashinfer) {
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *ws.swa_plan,
                     ws.q.data(), lv.k_pages, lv.v_pages, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -723,11 +723,11 @@ void dsv4_forward_paged(
                     static_cast<float*>(ws.attn_lse.data()));
                 // FlashInfer emits `m + log2(d)`; the compressed-attention
                 // LSE this is merged with is a natural log.
-                kernels::launch_lse_log2_to_ln(
+                kernels::attn::lse_log2_to_ln(
                     static_cast<float*>(ws.attn_lse.data()),
                     N * num_heads, stream);
             } else {
-                ops::launch_attention_naive_paged_bf16(
+                kernels::attn::attention_naive_paged_bf16(
                     ws.q.data(), lv.k_pages, lv.v_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -757,19 +757,19 @@ void dsv4_forward_paged(
                 const int comp_page_size = comp_cache.page_size();
 
                 // Step 1: project hidden states through compressor.wkv/wgate.
-                ops::gemm_act_x_wt_bf16(cublas.handle(),
+                kernels::gemm::act_x_wt_bf16(cublas.handle(),
                     ws.norm_x.data(), Lw.compressor.wkv->data(),
                     ws.comp_kv_proj.data(),
                     N, proj_dim, H);
 
-                ops::gemm_act_x_wt_bf16(cublas.handle(),
+                kernels::gemm::act_x_wt_bf16(cublas.handle(),
                     ws.norm_x.data(), Lw.compressor.wgate->data(),
                     ws.comp_score_proj.data(),
                     N, proj_dim, H);
 
                 // Step 2: persist this batch's state. The KV page writer works
                 // verbatim with kv/score standing in for k/v.
-                kernels::launch_write_kv_to_pages_bf16(
+                kernels::attn::write_kv_to_pages_bf16(
                     comp_cache.state_kv(li), comp_cache.state_score(li),
                     ws.comp_kv_proj.data(), ws.comp_score_proj.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -780,7 +780,7 @@ void dsv4_forward_paged(
                 if (cb.count > 0) {
                     // Step 3: pool each new window into one entry, RMSNorm it,
                     // and RoPE it at (position / ratio) * ratio.
-                    kernels::launch_dsv4_compress_gather_paged_bf16(
+                    kernels::attn::dsv4_compress_gather_paged_bf16(
                         comp_cache.state_kv(li), comp_cache.state_score(li),
                         Lw.compressor.ape != nullptr
                             ? static_cast<const float*>(Lw.compressor.ape->data())
@@ -812,7 +812,7 @@ void dsv4_forward_paged(
                         rope_yarn_factor, cfg.rope_beta_fast, cfg.rope_beta_slow,
                         cfg.rope_original_max_position);
 
-                    kernels::launch_dsv4_store_comp_entries_bf16(
+                    kernels::attn::dsv4_store_comp_entries_bf16(
                         ws.comp_kv.data(), comp_cache.comp_kv(li),
                         cb.pos_d, cb.req_d, kv_page_indices, kv_page_indptr,
                         cb.count, head_dim, comp_page_size, stream);
@@ -821,7 +821,7 @@ void dsv4_forward_paged(
                 // Step 4: attend to every entry this request has produced,
                 // then merge with the sliding-window attention by LSE.
                 const float sm_scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
-                kernels::launch_attention_compressed_paged_bf16(
+                kernels::attn::attention_compressed_paged_bf16(
                     ws.q.data(), comp_cache.comp_kv(li),
                     ws.comp_attn_out.data(),
                     static_cast<float*>(ws.comp_attn_lse.data()),
@@ -830,7 +830,7 @@ void dsv4_forward_paged(
                     N, num_heads, head_dim, comp_ratio, comp_page_size,
                     sm_scale, stream);
 
-                kernels::launch_combine_attn_outputs_bf16(
+                kernels::attn::combine_attn_outputs_bf16(
                     ws.attn_out.data(),
                     static_cast<const float*>(ws.attn_lse.data()),
                     ws.comp_attn_out.data(),
@@ -1037,7 +1037,7 @@ void dsv4_forward_paged(
                 ws.attn_out.data(), N, num_heads * head_dim, stream);
             act_dump_bf16(act_dump_layer_tag("wo_a_out", li).c_str(),
                 ws.wo_a_out.data(), N, out_dim, stream);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.wo_a_out.data(),
                 make_weight_view(Lw.wo_b, Lw.wo_b_quant),
                 ws.y.data(),
@@ -1116,7 +1116,7 @@ void dsv4_forward_paged(
         prof_beg();
         // ── FFN (MoE) block ──────────────────────────────────────────
         // Router
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_y.data(), ops::WeightView(*Lw.router), ws.router_logits.data(),
             N, E, H);
 
@@ -1238,7 +1238,7 @@ void dsv4_forward_paged(
                     max_blocks, block, H, local_moe_I,
                     /*routed_blocks=*/max_blocks, nullptr, nullptr, stream);
 
-                ops::gemm_batched_act_x_wt_bf16(cublas.handle(),
+                kernels::gemm::batched_act_x_wt_bf16(cublas.handle(),
                     reinterpret_cast<const void* const*>(ws.b_gu_ptrs.data()),
                     reinterpret_cast<const void* const*>(ws.a_gu_ptrs.data()),
                     reinterpret_cast<void* const*>(ws.c_gu_ptrs.data()),
@@ -1246,7 +1246,7 @@ void dsv4_forward_paged(
                 dsv4_chunked_swiglu(ws.aligned_gate_up.data(),
                     ws.aligned_act.data(), aligned_rows, local_moe_I,
                     cfg.swiglu_limit, stream);
-                ops::gemm_batched_act_x_wt_bf16(cublas.handle(),
+                kernels::gemm::batched_act_x_wt_bf16(cublas.handle(),
                     reinterpret_cast<const void* const*>(ws.b_dn_ptrs.data()),
                     reinterpret_cast<const void* const*>(ws.a_dn_ptrs.data()),
                     reinterpret_cast<void* const*>(ws.c_dn_ptrs.data()),
@@ -1351,11 +1351,11 @@ void dsv4_forward_paged(
                     static_cast<std::uint16_t*>(ws.expert_in.data()),
                     Ne, H, stream);
 
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.expert_in.data(),
                     ops::WeightView::raw(w_gate, DType::BF16),
                     ws.expert_gate.data(), Ne, local_moe_I, H);
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.expert_in.data(),
                     ops::WeightView::raw(w_up, DType::BF16),
                     ws.expert_up.data(), Ne, local_moe_I, H);
@@ -1371,7 +1371,7 @@ void dsv4_forward_paged(
                         ws.expert_gate.data(),
                         static_cast<std::size_t>(Ne) * local_moe_I, stream);
                 }
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.expert_gate.data(),
                     ops::WeightView::raw(w_down, DType::BF16),
                     ws.expert_out.data(), Ne, H, local_moe_I);
@@ -1407,10 +1407,10 @@ void dsv4_forward_paged(
         prof_beg();
         // Shared expert (sharded by TP)
         if (Lw.shared_w1 != nullptr) {
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.norm_y.data(), make_weight_view(Lw.shared_w1, Lw.shared_w1_quant), ws.shared_gate.data(),
                 N, local_shared_I, H);
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.norm_y.data(), make_weight_view(Lw.shared_w3, Lw.shared_w3_quant), ws.shared_up.data(),
                 N, local_shared_I, H);
             if (cfg.swiglu_limit > 0.f) {
@@ -1424,7 +1424,7 @@ void dsv4_forward_paged(
                     ws.shared_act.data(),
                     static_cast<std::size_t>(N) * local_shared_I, stream);
             }
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 ws.shared_act.data(), make_weight_view(Lw.shared_w2, Lw.shared_w2_quant), ws.shared_out.data(),
                 N, H, local_shared_I);
             act_dump_bf16(act_dump_layer_tag("shared_out", li).c_str(),
@@ -1518,7 +1518,7 @@ void dsv4_forward_paged(
 
     if (fwd_cfg.emit_logits) {
         const int local_vocab = static_cast<int>(w.lm_head->shape()[0]);
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_y.data(), ops::WeightView(*w.lm_head), logits_out,
             rows, local_vocab, H);
         act_dump_bf16("logits", logits_out, rows, local_vocab, stream);

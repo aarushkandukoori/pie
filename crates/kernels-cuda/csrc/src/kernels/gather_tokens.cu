@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <stdexcept>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 namespace {
 
@@ -109,4 +109,4 @@ void launch_gather_tokens_bf16_layers(
            page_size, num_kv_heads, head_dim, stream);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

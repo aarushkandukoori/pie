@@ -146,7 +146,7 @@ pub fn gpt_oss_cuda(
             let normed = rmsnorm(&y, &w.attn_norm);
 
             // The q/k/v biases FOLD INTO the projection's epilogue
-            // (`gemm_act_x_wt_bias_bf16`): at decode these route to the
+            // (`kernels::gemm::act_x_wt_bias_bf16`): at decode these route to the
             // warp-per-row GEMV, which absorbs the bias for free. Stating
             // them as separate AddBias ops — which this text did until a
             // census of its own golden was read against the driver — is
@@ -169,7 +169,7 @@ pub fn gpt_oss_cuda(
             // `attn.qv`'s position rule is that the correction lands on the
             // BASE projection, not on base + bias. When `attention_bias` is
             // set this family folds the bias into the GEMM's own epilogue
-            // (`gemm_act_x_wt_bias_bf16`), so there is no point in the trace
+            // (`kernels::gemm::act_x_wt_bias_bf16`), so there is no point in the trace
             // where the base projection exists as a value: the first thing
             // that exists is already base + bias.
             //

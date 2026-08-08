@@ -7,7 +7,7 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 struct StructuredMaskParams {
     std::uint32_t kind = 0;  // StructuredMaskKind numeric value
@@ -24,7 +24,7 @@ struct StructuredMaskParams {
 // `mask_indptr[LANES]` bytes. Bit layout matches `brle::decode`: bit
 // `q·kv_len + j` (q the within-lane query row), `packed[bit/8] >> (bit%8) & 1`.
 // Decode is the `qo_len==1` case (q=0, query row == lane).
-void launch_pack_dense_mask(
+void pack_dense_mask(
     const std::uint8_t* kvm_dense,        // [TOTAL_Q, STRIDE] bytes (0/1)
     const std::uint32_t* klen,            // [LANES] physical span per lane
     const std::uint32_t* qo_indptr,       // [LANES+1] query-row CSR
@@ -36,7 +36,7 @@ void launch_pack_dense_mask(
 
 // Materialize causal/sliding/sink descriptors directly into FlashInfer's
 // packed custom-mask ABI. No dense byte-per-cell tensor is created.
-void launch_pack_structured_mask(
+void pack_structured_mask(
     const std::uint32_t* positions,       // [TOTAL_Q] absolute query positions
     const std::uint32_t* klen,            // [B] physical key span
     const std::uint32_t* qo_indptr,       // [B+1]
@@ -46,4 +46,4 @@ void launch_pack_structured_mask(
     int B,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

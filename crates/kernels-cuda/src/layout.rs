@@ -17,7 +17,7 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(concat_rows "layout::concat_bf16_rows"),
     // Splits a packed gate/up bank by HALVES, where `deinterleave_rows`
     // splits by parity. Same shape, different layout, checkpoint decides.
-    kernel!(split_gate_up "launch_split_gate_up_bf16"),
+    kernel!(split_gate_up "attn::split_gate_up_bf16"),
     // gpt-oss interleaves gate and up ROW BY ROW, so splitting them is a
     // parity deinterleave and not a slice. Weight-shaped, no token extent.
     kernel!(deinterleave_rows "layout::deinterleave_rows_bf16"),

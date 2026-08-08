@@ -3,7 +3,7 @@
 #include <cuda_bf16.h>
 #include <math.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 namespace {
 
@@ -105,4 +105,4 @@ void quantize_bf16_to_mxfp4_e2m1_per_block(
         W_packed, W_scale_e8m0, cols);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

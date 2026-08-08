@@ -6,7 +6,7 @@
 // mis-attribution INSIDE the R>1 BatchDecode kernel/dispatch. This test isolates
 // the attention READ path from all model/scheduler/KV-write machinery: it
 // hand-builds R distinct requests' paged KV (disjoint pages, distinct random
-// content + distinct seq-lens), runs ONE batched `dispatch_attention_flashinfer_decode_bf16`
+// content + distinct seq-lens), runs ONE batched `kernels::attn::dispatch_attention_flashinfer_decode_bf16`
 // (R>1), and compares each request's output to the SAME request run alone (R=1).
 //
 // A correct kernel gives request r the identical output whether batched or
@@ -138,12 +138,12 @@ std::vector<float> run_batch(const std::vector<Req>& reqs, int first, int R, boo
     RT(cudaMemcpy(d_klpl, kv_last_page_lens_h.data(), kv_last_page_lens_h.size()*4, cudaMemcpyHostToDevice));
 
     auto ws = AttentionWorkspace::allocate(256ull*1024*1024, 32ull*1024*1024);
-    auto plan = ops::make_decode_plan();
-    ops::plan_attention_flashinfer_decode(
+    auto plan = kernels::attn::make_decode_plan();
+    kernels::attn::plan_attention_flashinfer_decode(
         *plan, kv_page_indptr_h.data(), R, HQ, HKV, D, PAGE,
         ws, /*stream=*/nullptr, /*enable_cuda_graph=*/false,
         /*full_attention_variant=*/full_attn, /*hnd_layout=*/false);
-    ops::dispatch_attention_flashinfer_decode_bf16(
+    kernels::attn::dispatch_attention_flashinfer_decode_bf16(
         *plan, d_q, d_k, d_v, d_o,
         d_kpi, d_kpp, d_klpl, ws, /*stream=*/nullptr);
     RT(cudaDeviceSynchronize());

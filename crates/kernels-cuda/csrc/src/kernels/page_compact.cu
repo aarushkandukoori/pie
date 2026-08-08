@@ -2,7 +2,7 @@
 
 #include "kernels/page_compact.hpp"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 namespace {
 
 constexpr int kBlock = 256;
@@ -123,7 +123,7 @@ __global__ void k_scan_and_scatter(
 
 }  // namespace
 
-void launch_compact_page_csr(
+void compact_page_csr(
     const std::uint32_t* page_indices_in,
     const std::uint32_t* page_indptr_in,
     const std::uint32_t* last_page_lens_in,
@@ -145,4 +145,4 @@ void launch_compact_page_csr(
         last_page_lens_out, page_indices_out);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

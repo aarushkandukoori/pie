@@ -6,8 +6,8 @@
 // matching file here -- CMakeLists.txt checks the two agree.
 #include "ops/attention_flashinfer_common.cuh"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 template struct AttnHd<256>;
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

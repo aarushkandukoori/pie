@@ -7,7 +7,7 @@
 
 #include "ops/attention_workspace.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 struct HopperPrefillPlan {
     std::int64_t qo_tile_indices_offset = 0;
@@ -82,4 +82,4 @@ void merge_attention_states_bf16(
     int num_index_sets, int seq_len, int num_heads, int head_dim,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

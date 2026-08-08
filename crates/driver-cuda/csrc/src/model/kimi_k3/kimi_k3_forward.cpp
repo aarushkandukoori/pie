@@ -332,7 +332,7 @@ void kimi_k3_forward_paged(
     MlaCache& mla_cache,
     RecurrentStateCache& kda_cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     void* logits_out,
     const std::int32_t* token_ids,
     const std::int32_t* /*positions*/,
@@ -447,7 +447,7 @@ void kimi_k3_forward_paged(
         // ── AttnRes: blend, then maybe open a block ─────────────────
         const void* layer_in = ws.y.data();
         if (bs > 0 && open_blocks > 0) {
-            kernels::launch_attn_res_blend_bf16(
+            kernels::attn::attn_res_blend_bf16(
                 ws.y.data(), ws.blocks.data(), Lw.attn_res_norm->data(),
                 Lw.attn_res_proj->data(), ws.hidden.data(),
                 total_tokens, open_blocks, H, block_rows, eps, stream);
@@ -475,11 +475,11 @@ void kimi_k3_forward_paged(
         // ── Attention ──────────────────────────────────────────────
         if (Lw.kind == KimiK3LayerWeights::Kind::Kda) {
             prof.begin("kda_qkv_proj", stream);
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_q_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_q_proj,
                               ws.kda_q.data(), total_tokens, W, H);
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_k_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_k_proj,
                               ws.kda_k.data(), total_tokens, W, H);
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_v_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_v_proj,
                               ws.kda_v.data(), total_tokens, W, H);
             prof.end(stream);
 
@@ -533,11 +533,11 @@ void kimi_k3_forward_paged(
                           ws.kda_vc.data(), total_tokens, W, stream);
             // Decay gate: the rank-`head_dim` bottleneck first, then out to
             // every head channel.
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_f_a_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_f_a_proj,
                               ws.kda_f_a.data(), total_tokens, kda_dim, H);
-            ops::gemm_act_x_w(cublas.handle(), ws.kda_f_a.data(), *Lw.kda_f_b_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.kda_f_a.data(), *Lw.kda_f_b_proj,
                               ws.kda_g_raw.data(), total_tokens, W, kda_dim);
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_b_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_b_proj,
                               ws.kda_beta_raw.data(), total_tokens, kda_heads, H);
             kernels::ssm::kda_gate_beta_bf16(
                 ws.kda_g_raw.data(), ws.kda_beta_raw.data(),
@@ -613,7 +613,7 @@ void kimi_k3_forward_paged(
                          static_cast<const float*>(ws.kda_o.data()),
                          total_tokens, W, stream);
             prof.begin("kda_gate_out_proj", stream);
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_g_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.kda_g_proj,
                               ws.kda_gproj.data(), total_tokens, W, H);
             kernels::ssm::kda_o_norm_gated_bf16(
                 static_cast<const float*>(ws.kda_o.data()), ws.kda_gproj.data(),
@@ -621,14 +621,14 @@ void kimi_k3_forward_paged(
                 kda_dim, eps, stream);
             act_dump_bf16(act_dump_layer_tag("attn_v", li).c_str(),
                           ws.kda_q.data(), total_tokens, W, stream);
-            ops::gemm_act_x_w(cublas.handle(), ws.kda_q.data(), *Lw.kda_o_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.kda_q.data(), *Lw.kda_o_proj,
                               ws.attn_out.data(), total_tokens, H, W);
             prof.end(stream);
         } else {
             prof.begin("mla", stream);
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.q_a_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_x.data(), *Lw.q_a_proj,
                               ws.q_a.data(), total_tokens, q_lora, H);
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(),
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_x.data(),
                               *Lw.kv_a_proj_with_mqa, ws.kv_a_mqa.data(),
                               total_tokens, kv_lora + q_rope, H);
             kernels::norm::rmsnorm_bf16(ws.q_a.data(), Lw.q_a_norm->data(),
@@ -636,16 +636,16 @@ void kimi_k3_forward_paged(
                                          eps, stream);
             act_dump_bf16(act_dump_layer_tag("q_a", li).c_str(), ws.q_a.data(),
                           total_tokens, q_lora, stream);
-            ops::gemm_act_x_w(cublas.handle(), ws.q_a.data(), *Lw.q_b_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.q_a.data(), *Lw.q_b_proj,
                               ws.q_b.data(), total_tokens,
                               mla_heads * (q_nope + q_rope), q_lora);
             act_dump_bf16(act_dump_layer_tag("q_b", li).c_str(), ws.q_b.data(),
                           total_tokens, mla_heads * (q_nope + q_rope), stream);
 
-            kernels::launch_kimi_split_kv_a_norm_bf16(
+            kernels::attn::kimi_split_kv_a_norm_bf16(
                 ws.kv_a_mqa.data(), Lw.kv_a_norm->data(), ws.kv_c.data(),
                 ws.k_pe.data(), total_tokens, kv_lora, q_rope, eps, stream);
-            kernels::launch_kimi_split_q_b_bf16(
+            kernels::attn::kimi_split_q_b_bf16(
                 ws.q_b.data(), ws.q_nope.data(), ws.q_pe.data(), total_tokens,
                 mla_heads, q_nope, q_rope, stream);
             act_dump_bf16(act_dump_layer_tag("kv_c", li).c_str(), ws.kv_c.data(),
@@ -655,12 +655,12 @@ void kimi_k3_forward_paged(
             // untouched. There is deliberately no `kernels::rope::rope_bf16` here --
             // KDA supplies this model's only position signal.
             auto layer_view = mla_cache.layer_view(Lw.kv_layer);
-            kernels::launch_write_mla_to_pages(
+            kernels::attn::write_mla_to_pages(
                 layer_view, ws.kv_c.data(), ws.k_pe.data(), qo_indptr,
                 kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 total_tokens, num_requests, stream, row_valid_d);
 
-            ops::mla_absorb_q_to_latent_bf16(
+            kernels::gemm::mla_absorb_q_to_latent_bf16(
                 cublas.handle(), ws.q_nope.data(), Lw.kv_b_proj->data(),
                 ws.q_nope_latent.data(), total_tokens, mla_heads, q_nope, v_dim,
                 kv_lora);
@@ -668,18 +668,18 @@ void kimi_k3_forward_paged(
                 throw std::runtime_error(
                     "kimi_k3: MLA plan missing; the prepare hook did not run");
             }
-            ops::dispatch_attention_mla_bf16(
+            kernels::attn::dispatch_attention_mla_bf16(
                 *mla_plan.mla_plan, ws.q_nope_latent.data(), ws.q_pe.data(),
                 layer_view, ws.attn_latent.data(), kv_page_indices, attn_ws,
                 stream, /*lse_out=*/nullptr, qo_indptr, kv_page_indptr,
                 kv_last_page_lens);
-            ops::mla_absorb_latent_to_v_bf16(
+            kernels::gemm::mla_absorb_latent_to_v_bf16(
                 cublas.handle(), ws.attn_latent.data(), Lw.kv_b_proj->data(),
                 ws.attn_v.data(), total_tokens, mla_heads, q_nope, v_dim,
                 kv_lora);
 
             if (cfg.mla_output_gate) {
-                ops::gemm_act_x_w(cublas.handle(), ws.norm_x.data(),
+                kernels::gemm::act_x_w(cublas.handle(), ws.norm_x.data(),
                                   *Lw.mla_g_proj, ws.mla_gate.data(),
                                   total_tokens, mla_heads * v_dim, H);
                 kernels::mlp::sigmoid_gate_inplace_bf16(
@@ -689,7 +689,7 @@ void kimi_k3_forward_paged(
             act_dump_bf16(act_dump_layer_tag("attn_v", li).c_str(),
                           ws.attn_v.data(), total_tokens, mla_heads * v_dim,
                           stream);
-            ops::gemm_act_x_w(cublas.handle(), ws.attn_v.data(), *Lw.o_proj,
+            kernels::gemm::act_x_w(cublas.handle(), ws.attn_v.data(), *Lw.o_proj,
                               ws.attn_out.data(), total_tokens, H,
                               mla_heads * v_dim);
         }
@@ -718,7 +718,7 @@ void kimi_k3_forward_paged(
         // ── AttnRes: blend again before the MLP ────────────────────
         const void* mlp_in = ws.y.data();
         if (bs > 0 && open_blocks > 0) {
-            kernels::launch_attn_res_blend_bf16(
+            kernels::attn::attn_res_blend_bf16(
                 ws.y.data(), ws.blocks.data(), Lw.mlp_res_norm->data(),
                 Lw.mlp_res_proj->data(), ws.hidden.data(), total_tokens,
                 open_blocks, H, block_rows, eps, stream);
@@ -731,30 +731,30 @@ void kimi_k3_forward_paged(
         // ── MLP ────────────────────────────────────────────────────
         prof.begin("mlp", stream);
         if (!Lw.is_moe) {
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_y.data(),
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_y.data(),
                               *Lw.dense_gate_proj, ws.gate.data(), total_tokens,
                               dense_I, H);
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_y.data(),
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_y.data(),
                               *Lw.dense_up_proj, ws.up.data(), total_tokens,
                               dense_I, H);
             kernels::mlp::situ_bf16(ws.gate.data(), ws.up.data(),
                                       ws.gate.data(), total_tokens * dense_I,
                                       cfg.situ_beta, cfg.situ_linear_beta,
                                       stream);
-            ops::gemm_act_x_w(cublas.handle(), ws.gate.data(),
+            kernels::gemm::act_x_w(cublas.handle(), ws.gate.data(),
                               *Lw.dense_down_proj, ws.mlp_out.data(),
                               total_tokens, H, dense_I);
         } else {
             // Router reads the *full-width* hidden, before the latent
             // projection, and scores with sigmoid + noaux_tc.
-            ops::gemm_act_x_w(cublas.handle(), ws.norm_y.data(), *Lw.router,
+            kernels::gemm::act_x_w(cublas.handle(), ws.norm_y.data(), *Lw.router,
                               ws.router_logits.data(), total_tokens, E, H);
             // noaux_tc: score = sigmoid(logit), selected by
             // `score + e_score_correction_bias`, weighted by the *unbiased*
             // score, renormalised to sum 1. The reference computes the logits
             // in fp32; this GEMM is bf16, which is the one place K3's router
             // is coarser here than upstream.
-            kernels::launch_topk_sigmoid_bf16(
+            kernels::attn::topk_sigmoid_bf16(
                 ws.router_logits.data(),
                 static_cast<std::int32_t*>(ws.topk_idx.data()),
                 static_cast<float*>(ws.topk_weights.data()),
@@ -767,7 +767,7 @@ void kimi_k3_forward_paged(
             // Down into the latent, where the experts live.
             const void* expert_in = ws.norm_y.data();
             if (Lw.routed_down_proj != nullptr) {
-                ops::gemm_act_x_w(cublas.handle(), ws.norm_y.data(),
+                kernels::gemm::act_x_w(cublas.handle(), ws.norm_y.data(),
                                   *Lw.routed_down_proj, ws.latent_in.data(),
                                   total_tokens, latent, H);
                 expert_in = ws.latent_in.data();
@@ -891,7 +891,7 @@ void kimi_k3_forward_paged(
                 reinterpret_cast<void**>(ws.c_dn_ptrs.data()),
                 nblocks, block, latent, routed_I,
                 /*routed_blocks=*/nblocks, nullptr, nullptr, stream);
-            ops::gemm_batched_act_x_wt_bf16(
+            kernels::gemm::batched_act_x_wt_bf16(
                 cublas.handle(),
                 reinterpret_cast<const void* const*>(ws.b_gu_ptrs.data()),
                 reinterpret_cast<const void* const*>(ws.a_gu_ptrs.data()),
@@ -901,7 +901,7 @@ void kimi_k3_forward_paged(
                 ws.aligned_gate_up.data(), ws.aligned_act.data(), aligned_rows,
                 routed_I, cfg.situ_beta, cfg.situ_linear_beta,
                 kimi_k3_moe_gate_up_swapped(), stream);
-            ops::gemm_batched_act_x_wt_bf16(
+            kernels::gemm::batched_act_x_wt_bf16(
                 cublas.handle(),
                 reinterpret_cast<const void* const*>(ws.b_dn_ptrs.data()),
                 reinterpret_cast<const void* const*>(ws.a_dn_ptrs.data()),
@@ -933,7 +933,7 @@ void kimi_k3_forward_paged(
                     ws.latent_out.data(), total_tokens, latent, eps, stream);
             }
             if (Lw.routed_up_proj != nullptr) {
-                ops::gemm_act_x_w(cublas.handle(), ws.latent_out.data(),
+                kernels::gemm::act_x_w(cublas.handle(), ws.latent_out.data(),
                                   *Lw.routed_up_proj, ws.mlp_out.data(),
                                   total_tokens, H, latent);
             } else {
@@ -945,10 +945,10 @@ void kimi_k3_forward_paged(
 
             // The shared expert reads the pre-latent hidden.
             if (shared_I > 0 && Lw.shared_down_proj != nullptr) {
-                ops::gemm_act_x_w(cublas.handle(), ws.norm_y.data(),
+                kernels::gemm::act_x_w(cublas.handle(), ws.norm_y.data(),
                                   *Lw.shared_gate_proj, ws.gate.data(),
                                   total_tokens, shared_I, H);
-                ops::gemm_act_x_w(cublas.handle(), ws.norm_y.data(),
+                kernels::gemm::act_x_w(cublas.handle(), ws.norm_y.data(),
                                   *Lw.shared_up_proj, ws.up.data(),
                                   total_tokens, shared_I, H);
                 kernels::mlp::situ_bf16(ws.gate.data(), ws.up.data(),
@@ -956,7 +956,7 @@ void kimi_k3_forward_paged(
                                           total_tokens * shared_I,
                                           cfg.situ_beta, cfg.situ_linear_beta,
                                           stream);
-                ops::gemm_act_x_w(cublas.handle(), ws.gate.data(),
+                kernels::gemm::act_x_w(cublas.handle(), ws.gate.data(),
                                   *Lw.shared_down_proj, ws.shared_out.data(),
                                   total_tokens, H, shared_I);
                 if (T > 1 && tp != nullptr) {
@@ -988,7 +988,7 @@ void kimi_k3_forward_paged(
     prof.begin("tail_lm_head", stream);
     const void* final_in = ws.y.data();
     if (bs > 0 && open_blocks > 0) {
-        kernels::launch_attn_res_blend_bf16(
+        kernels::attn::attn_res_blend_bf16(
             ws.y.data(), ws.blocks.data(), w.output_res_norm->data(),
             w.output_res_proj->data(), ws.hidden.data(), total_tokens,
             open_blocks, H, block_rows, eps, stream);
@@ -1014,7 +1014,7 @@ void kimi_k3_forward_paged(
         throw std::runtime_error(
             "kimi_k3: sharded lm_head is not supported in this forward");
     }
-    ops::gemm_act_x_w(cublas.handle(), ws.norm_y.data(), *w.lm_head, logits_out,
+    kernels::gemm::act_x_w(cublas.handle(), ws.norm_y.data(), *w.lm_head, logits_out,
                       rows, V, H);
     act_dump_bf16("logits", logits_out, rows, V, stream);
     check_launch("lm_head", -1);

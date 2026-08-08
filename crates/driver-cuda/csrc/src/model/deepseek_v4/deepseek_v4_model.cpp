@@ -30,7 +30,7 @@ DsV4Model::DsV4Model(
 
     caps_.supports_compact_logits = true;
     // Pure-decode fires are fully device-side: the compressor boundary list
-    // is built by `launch_dsv4_boundary_meta_decode` (fixed length, `-1`
+    // is built by `kernels::attn::dsv4_boundary_meta_decode` (fixed length, `-1`
     // marks non-boundaries) instead of a host scan behind a D2H sync, and the
     // FlashInfer plan is built in `prepare()`. The prefill path still syncs,
     // but graphs are only captured for pure-decode shapes.
@@ -75,10 +75,10 @@ void DsV4Model::prepare(AttentionWorkspace& attn_ws,
         in.kv_page_indptr_h == nullptr || in.total_tokens <= 0) {
         return;   // fall back to the naive paged kernel in the body
     }
-    if (!ws_.swa_plan) ws_.swa_plan = ops::make_prefill_plan();
+    if (!ws_.swa_plan) ws_.swa_plan = kernels::attn::make_prefill_plan();
     const int window_left = hf_config_.dsv4_sliding_window > 0
         ? hf_config_.dsv4_sliding_window - 1 : -1;
-    ops::plan_attention_flashinfer_prefill_bf16(
+    kernels::attn::plan_attention_flashinfer_prefill_bf16(
         *ws_.swa_plan, in.qo_indptr_h, in.kv_page_indptr_h,
         /*kv_last_page_lens_h=*/nullptr,
         in.total_tokens, in.num_requests,
@@ -101,13 +101,13 @@ void DsV4Model::prepare(AttentionWorkspace& attn_ws,
 
 std::uint32_t DsV4Model::graph_layout() {
     if (!ws_.swa_plan_valid || !ws_.swa_plan) return 0;
-    return ops::prefill_plan_graph_layout(*ws_.swa_plan);
+    return kernels::attn::prefill_plan_graph_layout(*ws_.swa_plan);
 }
 
 void DsV4Model::body(Workspace& ws,
                      KvCache& kv,
                      AttentionWorkspace& attn_ws,
-                     ops::CublasHandle& cublas,
+                     kernels::gemm::CublasHandle& cublas,
                      const ForwardFn::ForwardInputs& in) {
     dsv4_forward_paged(
         weights_, hf_config_, fwd_cfg_, ws_, kv, comp_cache_, attn_ws, cublas,

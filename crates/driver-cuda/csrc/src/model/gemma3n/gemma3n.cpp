@@ -252,7 +252,7 @@ void gemma3n_forward_paged(
     Workspace& ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,
@@ -350,7 +350,7 @@ void gemma3n_forward_paged(
         ple_embed_buf.data(), std::sqrt(static_cast<float>(H_ple)),
         static_cast<std::size_t>(N) * L_total * H_ple, stream);
     // 2b. per_layer_model_projection @ ws.y → [N, L*H_ple], then * 1/sqrt(H).
-    ops::gemm_act_x_wt_bf16(cublas.handle(),
+    kernels::gemm::act_x_wt_bf16(cublas.handle(),
         ws.y.data(), w.ple_model_proj->data(), ple_proj_buf.data(),
         N, L_total * H_ple, H);
     kernels::norm::scalar_mul_bf16(
@@ -407,16 +407,16 @@ void gemma3n_forward_paged(
     for (int k = 1; k < K; ++k) {
         std::uint16_t* dst = static_cast<std::uint16_t*>(streams_in)
             + static_cast<std::size_t>(k) * N * H;
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.y.data(), w.altup_projections[k - 1]->data(), dst, N, H, H);
         kernels::norm::magnitude_rescale_bf16(
             dst, target_rms.data(), N, H, kAltupEps, stream);
     }
 
-    ops::DecodePlanCachePtr decode_plan;
+    kernels::attn::DecodePlanCachePtr decode_plan;
     if (use_decode_path) {
-        decode_plan = ops::make_decode_plan();
-        ops::plan_attention_flashinfer_decode(
+        decode_plan = kernels::attn::make_decode_plan();
+        kernels::attn::plan_attention_flashinfer_decode(
             *decode_plan, kv_page_indptr_h, R,
             num_q_heads_local, num_kv_heads_local, d,
             cache.page_size(), attn_ws, stream,
@@ -447,14 +447,14 @@ void gemma3n_forward_paged(
         kernels::norm::scalar_mul_bf16(
             router_in_buf.data(), router_scale,
             static_cast<std::size_t>(N) * H, stream);
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             router_in_buf.data(), layer.altup_modality_router->data(),
             modality_buf.data(), N, K, H);
         kernels::norm::tanh_bf16(modality_buf.data(), N * K, stream);
 
         // 2. all_coefs = prediction_coefs(modalities) → [N, K*K], then
         //    unpack/permute to fp32 [N, K, K].
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             modality_buf.data(), layer.altup_prediction_coefs->data(),
             pred_coefs_bf16.data(), N, K * K, K);
         kernels::norm::altup_unpack_predict_coefs(
@@ -481,10 +481,10 @@ void gemma3n_forward_paged(
             N, H, eps, stream);
 
         // Laurel: linear_left → linear_right → post_laurel_norm + norm_x → ws.up.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.laurel_left->data(), ws.gate.data(),
             N, laurel_rank, H);
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.gate.data(), layer.laurel_right->data(), ws.up.data(),
             N, H, laurel_rank);
         kernels::norm::rmsnorm_bf16(
@@ -495,12 +495,12 @@ void gemma3n_forward_paged(
             static_cast<std::size_t>(N) * H, stream);
 
         // Self-attention.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.q_proj->data(), ws.q.data(), N, Hq, H);
         if (!layer.is_shared) {
-            ops::gemm_act_x_wt_bf16(cublas.handle(),
+            kernels::gemm::act_x_wt_bf16(cublas.handle(),
                 ws.norm_x.data(), layer.k_proj->data(), ws.k.data(), N, Hk, H);
-            ops::gemm_act_x_wt_bf16(cublas.handle(),
+            kernels::gemm::act_x_wt_bf16(cublas.handle(),
                 ws.norm_x.data(), layer.v_proj->data(), ws.v.data(), N, Hk, H);
         }
         kernels::norm::rmsnorm_bf16(
@@ -529,7 +529,7 @@ void gemma3n_forward_paged(
                 N, num_q_heads_local, num_kv_heads_local, d,
                 layer_rope_theta, stream);
             auto kv_view_for_write = cache.layer_view(kv_layer);
-            kernels::launch_write_kv_to_pages(
+            kernels::attn::write_kv_to_pages(
                 kv_view_for_write, ws.k.data(), ws.v.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 N, R, stream);
@@ -554,14 +554,14 @@ void gemma3n_forward_paged(
         // flashinfer's default `1/sqrt(d)`.
         constexpr float gemma3n_sm_scale = 1.0f;
         if (use_decode_path) {
-            ops::dispatch_attention_flashinfer_decode(
+            kernels::attn::dispatch_attention_flashinfer_decode(
                 *decode_plan,
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 attn_ws, stream, layer_window,
                 /*logits_soft_cap=*/0.f, gemma3n_sm_scale);
         } else if (custom_mask_d) {
-            ops::launch_attention_flashinfer_prefill_custom(
+            kernels::attn::attention_flashinfer_prefill_custom(
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 custom_mask_d, custom_mask_indptr_d,
@@ -569,7 +569,7 @@ void gemma3n_forward_paged(
                 N, R, num_q_heads_local, attn_ws, stream,
                 /*window_left=*/-1, /*logits_soft_cap=*/0.f, gemma3n_sm_scale);
         } else {
-            ops::launch_attention_flashinfer_prefill(
+            kernels::attn::attention_flashinfer_prefill(
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 qo_indptr_h, kv_page_indptr_h,
@@ -585,7 +585,7 @@ void gemma3n_forward_paged(
 
         // o_proj → norm_x, post-attention norm → norm_y, residual. Under
         // TP this is row-parallel: all-reduce the partial before post-norm.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.attn_out.data(), layer.o_proj->data(), ws.norm_x.data(),
             N, H, Hq, /*beta=*/0.f);
         if (T > 1) {
@@ -609,9 +609,9 @@ void gemma3n_forward_paged(
         kernels::norm::rmsnorm_bf16(
             ws.y.data(), layer.mlp_norm_pre->data(), ws.norm_x.data(),
             N, H, eps, stream);
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.gate_proj->data(), ws.gate.data(), N, I, H);
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.up_proj->data(),   ws.up.data(),   N, I, H);
         if (layer.activation_sparsity > 0.f) {
             const float std_mult = gaussian_inverse_cdf(layer.activation_sparsity);
@@ -623,7 +623,7 @@ void gemma3n_forward_paged(
             ws.gate.data(), ws.up.data(), ws.gate.data(),
             N * I, stream);
         // down_proj is row-parallel under TP. Same pattern as attention-O.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.gate.data(), layer.down_proj->data(), ws.norm_x.data(),
             N, H, I, /*beta=*/0.f);
         if (T > 1) {
@@ -646,13 +646,13 @@ void gemma3n_forward_paged(
         kernels::norm::scalar_mul_bf16(
             router_in_buf.data(), router_scale,
             static_cast<std::size_t>(N) * H, stream);
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             router_in_buf.data(), layer.altup_modality_router->data(),
             modality_buf.data(), N, K, H);
         kernels::norm::tanh_bf16(modality_buf.data(), N * K, stream);
 
         // 2. correction_coefs(modalities) → [N, K], unpack to fp32 +1.0.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             modality_buf.data(), layer.altup_correction_coefs->data(),
             corr_coefs_bf16.data(), N, K, K);
         kernels::norm::altup_unpack_correct_coefs(
@@ -696,7 +696,7 @@ void gemma3n_forward_paged(
         }
 
         // Gate: per_layer_input_gate @ corrected_active → [N, H_ple].
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             corrected_active, layer.ple_input_gate->data(), ple_gate_buf.data(),
             N, H_ple, H);
 
@@ -711,7 +711,7 @@ void gemma3n_forward_paged(
             N * H_ple, stream);
 
         // per_layer_projection @ gated → [N, H], then post-norm.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ple_gate_buf.data(), layer.ple_projection->data(), ws.norm_x.data(),
             N, H, H_ple);
         kernels::norm::rmsnorm_bf16(
@@ -742,7 +742,7 @@ void gemma3n_forward_paged(
         std::uint16_t* slot = static_cast<std::uint16_t*>(streams_in)
             + static_cast<std::size_t>(k) * N * H;
         // out into streams_out[0] as scratch; copy back into slot.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             slot, w.altup_unembed_projections[k - 1]->data(),
             streams_out, N, H, H);
         kernels::norm::magnitude_rescale_bf16(
@@ -759,11 +759,11 @@ void gemma3n_forward_paged(
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), w.final_norm->data(), ws.norm_x.data(),
         N, H, eps, stream);
-    ops::gemm_act_x_wt_bf16(cublas.handle(),
+    kernels::gemm::act_x_wt_bf16(cublas.handle(),
         ws.norm_x.data(), w.lm_head->data(), ws.logits.data(),
         N, V, H);
     if (fwd_cfg.final_logit_softcap > 0.f) {
-        kernels::launch_logit_softcap_bf16(
+        kernels::attn::logit_softcap_bf16(
             ws.logits.data(), fwd_cfg.final_logit_softcap,
             static_cast<std::size_t>(N) * V, stream);
     }

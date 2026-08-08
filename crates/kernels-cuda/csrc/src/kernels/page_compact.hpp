@@ -4,7 +4,7 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 /// Compact a fire's paged-KV CSR down to the pages a page mask keeps.
 ///
@@ -40,7 +40,7 @@ namespace pie_cuda_driver::kernels {
 /// `page_indptr_in` is deliberate: the mask is written by the host, which on
 /// the decode-envelope path holds only a bound on that CSR, so the two must not
 /// share an addressing scheme.
-void launch_compact_page_csr(
+void compact_page_csr(
     const std::uint32_t* page_indices_in,
     const std::uint32_t* page_indptr_in,
     const std::uint32_t* last_page_lens_in,
@@ -56,4 +56,4 @@ void launch_compact_page_csr(
     std::uint32_t* last_page_lens_out,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

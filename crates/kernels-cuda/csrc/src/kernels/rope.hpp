@@ -43,7 +43,7 @@ void rope_bf16(
     bool interleaved = false);
 
 // RoPE that also lands K and V in the paged KV cache, replacing a following
-// `launch_write_kv_to_pages` on the same tensors. Only for a bf16 (native)
+// `kernels::attn::write_kv_to_pages` on the same tensors. Only for a bf16 (native)
 // cache -- quantised schemes have their own store path.
 //
 // Worth it because write_kv runs one block per current-step token, so at

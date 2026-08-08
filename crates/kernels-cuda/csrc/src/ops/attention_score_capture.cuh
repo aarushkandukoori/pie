@@ -28,7 +28,7 @@
 
 #include <flashinfer/attention/variants.cuh>
 
-namespace pie_cuda_driver::ops::fa2 {
+namespace pie_cuda_driver::kernels::attn::fa2 {
 
 /// Ragged score sink, bolted onto a FlashInfer decode params struct.
 ///
@@ -202,4 +202,4 @@ struct PieScoreCaptureWindow : Base {
         })
 };
 
-}  // namespace pie_cuda_driver::ops::fa2
+}  // namespace pie_cuda_driver::kernels::attn::fa2

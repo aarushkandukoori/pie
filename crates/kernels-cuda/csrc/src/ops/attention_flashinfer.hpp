@@ -13,7 +13,7 @@
 #include "kernels/kv_cache_view.hpp"
 #include "ops/attention_workspace.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 // Opaque cache of flashinfer's `DecodePlanInfo` plus the few scheduling
 // fields the dispatch needs. Lifecycle: created once (e.g. in
@@ -257,7 +257,7 @@ void dispatch_attention_flashinfer_decode_capture(
 // Folding is not a convenience: the paged layout carries one page list per
 // request, so an eviction policy cannot act on a per-head keep-set. Averaging
 // (not summing) keeps the result a distribution over the live prefix.
-void launch_attn_score_fold_heads(
+void attn_score_fold_heads(
     const float* scores,
     const std::int32_t* score_indptr_d,
     const std::uint32_t* kv_page_indptr_d,
@@ -375,7 +375,7 @@ void dispatch_attention_flashinfer_prefill_custom(
 // qo_indptr. Causal mask is hard-wired (DefaultAttention + MaskMode::kCausal).
 // `window_left` mirrors the decode entry point — non-negative enables
 // sliding-window attention.
-void launch_attention_flashinfer_prefill_bf16(
+void attention_flashinfer_prefill_bf16(
     const void* q,                                 // [total_tokens, h_q, d]
     void* k_pages, void* v_pages,                  // [num_pages, page_size, h_kv, d]
     void* o,                                       // [total_tokens, h_q, d]
@@ -400,7 +400,7 @@ void launch_attention_flashinfer_prefill_bf16(
     float* lse_out = nullptr,
     bool hnd_layout = false);
 
-void launch_attention_flashinfer_prefill(
+void attention_flashinfer_prefill(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -424,7 +424,7 @@ void launch_attention_flashinfer_prefill(
 // concatenation of all per-request bitmaps; `mask_indptr_d[r]` is the byte
 // offset of request r's mask. Each request's mask is `qo_len_r × kv_len_r`
 // bits, row-major (qo_idx × kv_len + kv_idx).
-void launch_attention_flashinfer_prefill_custom_bf16(
+void attention_flashinfer_prefill_custom_bf16(
     const void* q,
     void* k_pages, void* v_pages,
     void* o,
@@ -451,7 +451,7 @@ void launch_attention_flashinfer_prefill_custom_bf16(
     float* lse_out = nullptr,
     bool hnd_layout = false);
 
-void launch_attention_flashinfer_prefill_custom(
+void attention_flashinfer_prefill_custom(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -473,4 +473,4 @@ void launch_attention_flashinfer_prefill_custom(
     float sm_scale = -1.f,
     float* lse_out = nullptr);
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

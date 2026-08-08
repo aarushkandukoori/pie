@@ -12,7 +12,7 @@ Gemma3nModel::Gemma3nModel(Gemma3nWeights weights,
 void Gemma3nModel::body(Workspace& ws,
                         KvCache& kv,
                         AttentionWorkspace& attn_ws,
-                        ops::CublasHandle& cublas,
+                        kernels::gemm::CublasHandle& cublas,
                         const ForwardFn::ForwardInputs& in) {
     gemma3n_forward_paged(
         weights_, hf_config_, fwd_cfg_,

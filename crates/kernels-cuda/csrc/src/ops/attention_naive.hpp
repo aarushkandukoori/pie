@@ -16,9 +16,9 @@
 #include <cuda_runtime.h>
 #include <cstdint>
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
-void launch_attention_naive_bf16(
+void attention_naive_bf16(
     const void* q, const void* k, const void* v,
     void* o,
     int num_tokens,
@@ -27,7 +27,7 @@ void launch_attention_naive_bf16(
     int head_dim,
     cudaStream_t stream);
 
-void launch_attention_mtp_history_bf16(
+void attention_mtp_history_bf16(
     const void* q,
     const void* k_history,
     const void* v_history,
@@ -40,7 +40,7 @@ void launch_attention_mtp_history_bf16(
     int head_dim,
     cudaStream_t stream);
 
-void launch_attention_mtp_paged_history_bf16(
+void attention_mtp_paged_history_bf16(
     const void* q,
     const void* k_pages,
     const void* v_pages,
@@ -64,7 +64,7 @@ void launch_attention_mtp_paged_history_bf16(
     bool global_cache_uses_prefix_position,
     cudaStream_t stream);
 
-void launch_mtp_shift_hidden_bf16(
+void mtp_shift_hidden_bf16(
     const void* target_hidden,
     const void* pending_hidden,
     const std::uint32_t* qo_indptr,
@@ -75,7 +75,7 @@ void launch_mtp_shift_hidden_bf16(
     int hidden_size,
     cudaStream_t stream);
 
-void launch_mtp_update_pending_hidden_bf16(
+void mtp_update_pending_hidden_bf16(
     const void* target_hidden,
     void* pending_hidden,
     const std::uint32_t* qo_indptr,
@@ -84,4 +84,4 @@ void launch_mtp_update_pending_hidden_bf16(
     int hidden_size,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

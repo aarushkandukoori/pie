@@ -271,7 +271,7 @@ void check_update_appended(const char* name, int num_pages, int page_size,
 // The claim it has to earn is that merging fire by fire ends up where a full
 // recompute of the finished pages would. So this simulates a whole sequence --
 // a prefill fire followed by `decode_fires` one-token fires -- feeding each one
-// through the merge exactly as `launch_write_kv_explicit_bf16` does, and then
+// through the merge exactly as `kernels::attn::write_kv_explicit_bf16` does, and then
 // compares against `envelope_recompute` over the final live lengths.
 //
 // It also plants garbage in the envelopes of every page the sequence will use,

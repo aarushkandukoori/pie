@@ -4,7 +4,7 @@
 
 #include "kernels/transcode.cuh"
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 namespace {
 
@@ -76,4 +76,4 @@ void launch_transcode(
     throw std::runtime_error("launch_transcode: unsupported target encoder");
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

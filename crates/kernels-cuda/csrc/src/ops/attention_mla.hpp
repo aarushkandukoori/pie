@@ -9,7 +9,7 @@
 #include "kernels/mla_cache_view.hpp"
 #include "ops/attention_workspace.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 struct MlaPlanCache;
 struct MlaPlanCacheDeleter {
@@ -57,4 +57,4 @@ void dispatch_attention_mla_bf16(
     const std::uint8_t* index_mask = nullptr,
     int index_mask_stride = 0);
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

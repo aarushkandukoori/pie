@@ -56,7 +56,7 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(scatter_add_weighted "moe::scatter_add_weighted_bf16", whole = true),
     // The exception, and it is the router: a token's top-k reads only its own
     // logits row, so this one splits like any elementwise statement.
-    kernel!(topk_sigmoid "launch_topk_sigmoid_bf16"),
+    kernel!(topk_sigmoid "attn::topk_sigmoid_bf16"),
     // The router's top-k, then the decode GEMV leg's two routed
     // projections and its combine. The expert axis rides INSIDE the
     // value on this leg, so the whole branch stays a list of rectangles;

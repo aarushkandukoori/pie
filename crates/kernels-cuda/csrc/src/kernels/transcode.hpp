@@ -4,7 +4,7 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 // Extensible transcode dispatch (WEIGHT_LOADER_TODO.md A2.2). A transcode is a
 // (source decoder) x (target encoder) pair; the kernel keeps the decoded
@@ -48,4 +48,4 @@ void launch_transcode(
 // registered pairs; callers fall back to the decode->encode two-step otherwise.
 bool transcode_supported(TranscodeSource src, TranscodeTarget tgt);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

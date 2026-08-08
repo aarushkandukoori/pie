@@ -132,7 +132,7 @@ void run_pie(void* p) {
     __nv_bfloat16* w = c->w[c->it++ % c->w.size()];
     // The driver's own entry point: picks the row-per-warp or the K-split
     // form by `PIE_GEMV_SPLITK_MAX_ROWS`, exactly as the engine would.
-    pie_cuda_driver::kernels::launch_gemv_bf16(
+    pie_cuda_driver::kernels::gemm::gemv_bf16(
         w, c->x, /*bias=*/nullptr, c->y, c->n, c->k, /*stream=*/nullptr,
         /*beta=*/0.f);
 }
@@ -270,7 +270,7 @@ void sweep(const Shape& sh) {
         auto fn = [](void* p) {
             Arg* a = static_cast<Arg*>(p);
             __nv_bfloat16* w = a->c->w[a->c->it++ % a->c->w.size()];
-            pie_cuda_driver::kernels::launch_gemv_bf16_tuned(
+            pie_cuda_driver::kernels::gemm::gemv_bf16_tuned(
                 w, a->c->x, nullptr, a->c->y, a->c->n, a->c->k, a->w, a->u,
                 nullptr);
         };
@@ -307,7 +307,7 @@ void sweep_splitk(const Shape& sh) {
         auto fn = [](void* p) {
             Arg* a = static_cast<Arg*>(p);
             __nv_bfloat16* wt = a->c->w[a->c->it++ % a->c->w.size()];
-            pie_cuda_driver::kernels::launch_gemv_splitk_tuned(
+            pie_cuda_driver::kernels::gemm::gemv_splitk_tuned(
                 wt, a->c->x, nullptr, a->c->y, a->c->n, a->c->k, a->w, nullptr);
         };
         const float ms = time_ms(fn, &arg);

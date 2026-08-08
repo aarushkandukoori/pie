@@ -12,7 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 void DecodePlanCacheDeleter::operator()(DecodePlanCache* p) const noexcept {
     delete p;
@@ -844,7 +844,7 @@ __global__ void k_attn_score_fold_heads(
     }
 }
 
-void launch_attn_score_fold_heads(
+void attn_score_fold_heads(
     const float* scores,
     const std::int32_t* score_indptr_d,
     const std::uint32_t* kv_page_indptr_d,
@@ -858,7 +858,7 @@ void launch_attn_score_fold_heads(
     if (num_requests <= 0) return;
     if (scores == nullptr || folded == nullptr || score_indptr_d == nullptr) {
         throw std::invalid_argument(
-            "launch_attn_score_fold_heads: null score buffer");
+            "attn_score_fold_heads: null score buffer");
     }
     const dim3 grid(static_cast<unsigned>(num_requests), 64u);
     k_attn_score_fold_heads<<<grid, 256, 0, stream>>>(
@@ -884,7 +884,7 @@ void dispatch_attention_flashinfer_decode_capture(
     float sm_scale,
     float* lse_out)
 {
-    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+    dequant_kv_cache_layer_to_bf16_active(
         kv_layer, kv_page_indices_d, cache.num_pages_in_batch, stream);
     dispatch_attention_flashinfer_decode_capture_bf16(
         cache, q,
@@ -911,7 +911,7 @@ void dispatch_attention_flashinfer_decode(
     float sm_scale,
     float* lse_out)
 {
-    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+    dequant_kv_cache_layer_to_bf16_active(
         kv_layer, kv_page_indices_d, cache.num_pages_in_batch, stream);
     dispatch_attention_flashinfer_decode_bf16(
         cache, q,
@@ -1177,7 +1177,7 @@ void dispatch_attention_flashinfer_prefill_capture_bf16(
     CUDA_CHECK(cudaGetLastError());
 }
 
-void launch_attention_flashinfer_prefill_bf16(
+void attention_flashinfer_prefill_bf16(
     const void* q, void* k_pages, void* v_pages, void* o,
     const std::uint32_t* qo_indptr_d,
     const std::uint32_t* kv_page_indices_d,
@@ -1319,7 +1319,7 @@ void launch_attention_flashinfer_prefill_bf16(
     CUDA_CHECK(status);
 }
 
-void launch_attention_flashinfer_prefill(
+void attention_flashinfer_prefill(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -1340,9 +1340,9 @@ void launch_attention_flashinfer_prefill(
     float* lse_out)
 {
     const int num_pages_in_batch = kv_page_indptr_h[num_requests];
-    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+    dequant_kv_cache_layer_to_bf16_active(
         kv_layer, kv_page_indices_d, num_pages_in_batch, stream);
-    launch_attention_flashinfer_prefill_bf16(
+    attention_flashinfer_prefill_bf16(
         q,
         kv_layer.k_bf16_pages,
         kv_layer.v_bf16_pages,
@@ -1486,7 +1486,7 @@ void dispatch_attention_flashinfer_prefill_custom(
 {
     const int num_pages_in_batch =
         cache.num_requests > 0 ? cache.kv_h_buf[cache.num_requests] : 0;
-    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+    dequant_kv_cache_layer_to_bf16_active(
         kv_layer, kv_page_indices_d, num_pages_in_batch, stream);
     dispatch_attention_flashinfer_prefill_custom_bf16(
         cache, q, kv_layer.k_bf16_pages, kv_layer.v_bf16_pages, o,
@@ -1495,7 +1495,7 @@ void dispatch_attention_flashinfer_prefill_custom(
         logits_soft_cap, sm_scale, lse_out);
 }
 
-void launch_attention_flashinfer_prefill_custom_bf16(
+void attention_flashinfer_prefill_custom_bf16(
     const void* q, void* k_pages, void* v_pages, void* o,
     const std::uint32_t* qo_indptr_d,
     const std::uint32_t* kv_page_indices_d,
@@ -1633,7 +1633,7 @@ void launch_attention_flashinfer_prefill_custom_bf16(
     CUDA_CHECK(status);
 }
 
-void launch_attention_flashinfer_prefill_custom(
+void attention_flashinfer_prefill_custom(
     const void* q,
     KvCacheLayerView kv_layer,
     void* o,
@@ -1656,9 +1656,9 @@ void launch_attention_flashinfer_prefill_custom(
     float* lse_out)
 {
     const int num_pages_in_batch = kv_page_indptr_h[num_requests];
-    kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+    dequant_kv_cache_layer_to_bf16_active(
         kv_layer, kv_page_indices_d, num_pages_in_batch, stream);
-    launch_attention_flashinfer_prefill_custom_bf16(
+    attention_flashinfer_prefill_custom_bf16(
         q,
         kv_layer.k_bf16_pages,
         kv_layer.v_bf16_pages,
@@ -1671,4 +1671,4 @@ void launch_attention_flashinfer_prefill_custom(
         lse_out, kv_layer.hnd_layout);
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn

@@ -3,7 +3,7 @@
 #include <cuda_bf16.h>
 #include <cfloat>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -170,7 +170,7 @@ __global__ void topk_sigmoid_kernel(
 
 }  // namespace
 
-void launch_kimi_split_q_b_bf16(
+void kimi_split_q_b_bf16(
     const void* q_b,
     void* q_nope,
     void* q_pe,
@@ -189,7 +189,7 @@ void launch_kimi_split_q_b_bf16(
         total, heads, qk_nope_dim, qk_rope_dim);
 }
 
-void launch_kimi_split_kv_a_bf16(
+void kimi_split_kv_a_bf16(
     const void* kv_a,
     void* kv_c,
     void* k_pe,
@@ -207,7 +207,7 @@ void launch_kimi_split_kv_a_bf16(
         total, kv_lora_rank, qk_rope_dim);
 }
 
-void launch_kimi_split_kv_a_norm_bf16(
+void kimi_split_kv_a_norm_bf16(
     const void* kv_a,
     const void* norm_weight,
     void* kv_c,
@@ -231,7 +231,7 @@ void launch_kimi_split_kv_a_norm_bf16(
         kv_lora_rank, qk_rope_dim, stride, eps);
 }
 
-void launch_topk_sigmoid_bf16(
+void topk_sigmoid_bf16(
     const void* logits,
     std::int32_t* topk_idx,
     float* topk_w,
@@ -251,4 +251,4 @@ void launch_topk_sigmoid_bf16(
         renormalize, routed_scaling_factor);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

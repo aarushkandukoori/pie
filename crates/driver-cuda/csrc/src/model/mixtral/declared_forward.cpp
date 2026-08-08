@@ -50,13 +50,13 @@ enum class GoKernel {
 };
 
 GoKernel resolve_go_kernel(std::string_view k) {
-    if (k == "ops::gemm_act_x_wt_bias_bf16") return GoKernel::GemmBias;
-    if (k == "launch_write_kv_to_pages") return GoKernel::WriteKvToPages;
-    if (k == "dispatch_attention_flashinfer_decode")
+    if (k == "gemm::act_x_wt_bias_bf16") return GoKernel::GemmBias;
+    if (k == "attn::write_kv_to_pages") return GoKernel::WriteKvToPages;
+    if (k == "attn::dispatch_attention_flashinfer_decode")
         return GoKernel::AttnFlashinferDecode;
-    if (k == "ops::launch_attention_flashinfer_prefill")
+    if (k == "attn::attention_flashinfer_prefill")
         return GoKernel::AttnFlashinferPrefill;
-    if (k == "launch_attention_sink_rescale_bf16")
+    if (k == "attn::attention_sink_rescale_bf16")
         return GoKernel::AttnSinkRescale;
     if (k == "rope::rope_yarn_original_bf16") return GoKernel::RopeYarnOriginal;
     if (k == "moe::topk_softmax_bf16") return GoKernel::TopkSoftmax;
@@ -212,7 +212,7 @@ bool gpt_oss_forward_declared(
     Workspace& ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,
@@ -286,10 +286,10 @@ bool gpt_oss_forward_declared(
     // full/sliding split the way gemma-4 has).
     // The prefill dispatch builds its own plan on the way in, so only the
     // decode class owes one.
-    ops::DecodePlanCachePtr decode_plan;
+    kernels::attn::DecodePlanCachePtr decode_plan;
     if (decode_class) {
-    decode_plan = ops::make_decode_plan();
-    ops::plan_attention_flashinfer_decode(
+    decode_plan = kernels::attn::make_decode_plan();
+    kernels::attn::plan_attention_flashinfer_decode(
         *decode_plan, kv_page_indptr_h, R,
         cfg.num_attention_heads, cfg.num_key_value_heads, d,
         cache.page_size(), attn_ws, stream,
@@ -343,7 +343,7 @@ bool gpt_oss_forward_declared(
             if (nm.field == "o_proj") {
                 // beta=1: the residual folds into the projection, which
                 // is why `o_bias` is a separate add and q/k/v's are not.
-                ops::gemm_act_x_wt_bf16(
+                kernels::gemm::act_x_wt_bf16(
                     cublas.handle(), ws.attn_out.data(),
                     require(w, name).data(), ws.y.data(), N, H, Hq,
                     /*beta=*/1.f);
@@ -384,7 +384,7 @@ bool gpt_oss_forward_declared(
             }
             lm_head_rows = rows;
             (void)lm_head_rows;
-            ops::gemm_act_x_wt_bf16(
+            kernels::gemm::act_x_wt_bf16(
                 cublas.handle(), input, require(w, name).data(),
                 ws.logits.data(), rows, V, H, /*beta=*/0.f);
             break;
@@ -420,14 +420,14 @@ bool gpt_oss_forward_declared(
                 } else {
                     throw_drift("biased projection on '" + std::string(proj) + "'");
                 }
-                ops::gemm_act_x_wt_bias_bf16(
+                kernels::gemm::act_x_wt_bias_bf16(
                     cublas.handle(), in, require(w, proj).data(),
                     require(w, aux(1)).data(), out, N, cols, H, stream);
                 break;
             }
             case GoKernel::WriteKvToPages: {
                 auto kv_view = cache.layer_view(cur_layer);
-                kernels::launch_write_kv_to_pages(
+                kernels::attn::write_kv_to_pages(
                     kv_view, ws.k.data(), ws.v.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, N, R, stream, row_valid_d);
@@ -437,7 +437,7 @@ bool gpt_oss_forward_declared(
                 auto kv_view = cache.layer_view(cur_layer);
                 // The plan-free wrapper, and it takes the LSE in the same
                 // last slot the decode dispatch does.
-                ops::launch_attention_flashinfer_prefill(
+                kernels::attn::attention_flashinfer_prefill(
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
@@ -452,7 +452,7 @@ bool gpt_oss_forward_declared(
                 // The LSE is the second OUTPUT, and asking for it is the
                 // whole difference between this call and the one every
                 // other family makes.
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *decode_plan, ws.q.data(), kv_view, ws.attn_out.data(),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
                     attn_ws, stream,
@@ -462,7 +462,7 @@ bool gpt_oss_forward_declared(
                 break;
             }
             case GoKernel::AttnSinkRescale:
-                kernels::launch_attention_sink_rescale_bf16(
+                kernels::attn::attention_sink_rescale_bf16(
                     ws.attn_out.data(), d_lse.data(),
                     require(w, aux(0)).data(), N, cfg.num_attention_heads, d,
                     stream);

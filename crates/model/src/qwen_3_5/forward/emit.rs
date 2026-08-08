@@ -71,7 +71,7 @@ const PARAMS: &str = "\
     KvCache& cache,\n\
     RecurrentStateCache& state_cache,\n\
     AttentionWorkspace& attn_ws,\n\
-    ops::CublasHandle& cublas,\n\
+    kernels::gemm::CublasHandle& cublas,\n\
     const std::int32_t* token_ids,\n\
     const std::int32_t* positions,\n\
     const std::uint32_t* qo_indptr,\n\
@@ -292,9 +292,9 @@ fn emit_class_fn_impl(
     b.line("    }");
     }
     b.line("");
-    b.line("    const ops::DecodePlanCache* decode_plan =");
+    b.line("    const kernels::attn::DecodePlanCache* decode_plan =");
     b.line("        plan_state.decode_plan ? plan_state.decode_plan.get() : nullptr;");
-    b.line("    const ops::PrefillPlanCache* prefill_plan =");
+    b.line("    const kernels::attn::PrefillPlanCache* prefill_plan =");
     b.line("        (plan_state.use_prefill_plan && plan_state.prefill_plan)");
     b.line("            ? plan_state.prefill_plan.get()");
     b.line("            : nullptr;");
@@ -429,7 +429,7 @@ fn emit_op(
             let beta = if *beta_one { "1.f" } else { "0.f" };
             let raw = |member: &str, out: &str, width: &str| {
                 format!(
-                    "ops::gemm_act_x_w(cublas.handle(),\n    ws.norm_x.data(),\n    *require(w.layers[{layer}].{member}, \"{weight}\"),\n    {out}, N, {width}, H);"
+                    "kernels::gemm::act_x_w(cublas.handle(),\n    ws.norm_x.data(),\n    *require(w.layers[{layer}].{member}, \"{weight}\"),\n    {out}, N, {width}, H);"
                 )
             };
             match field {
@@ -440,7 +440,7 @@ fn emit_op(
                 "in_proj_a" => b.stmt(&raw("la_in_proj_a", "la.a.data()", "V_h")),
                 "in_proj_b" => b.stmt(&raw("la_in_proj_b", "la.b.data()", "V_h")),
                 "qgkv" => {
-                    b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.norm_x.data(),");
                     b.stmt(&format!(
                         "    ops::WeightView(*require(w.layers[{layer}].fa_qgkv_proj_fused, \"{weight}\")),"
@@ -448,7 +448,7 @@ fn emit_op(
                     b.stmt("    ws.gate_up_fused.data(), N, 2 * Hq + 2 * Hk, H);");
                 }
                 "q_proj" => {
-                    b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.norm_x.data(),");
                     b.stmt(&format!(
                         "    make_weight_view(require(w.layers[{layer}].fa_q_proj, \"{weight}\"), w.layers[{layer}].fa_q_proj_quant),"
@@ -456,7 +456,7 @@ fn emit_op(
                     b.stmt("    la.fa_qg_packed.data(), N, 2 * Hq, H);");
                 }
                 "k_proj" => {
-                    b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.norm_x.data(),");
                     b.stmt(&format!(
                         "    make_weight_view(require(w.layers[{layer}].fa_k_proj, \"{weight}\"), w.layers[{layer}].fa_k_proj_quant),"
@@ -464,7 +464,7 @@ fn emit_op(
                     b.stmt("    ws.k.data(), N, Hk, H);");
                 }
                 "v_proj" => {
-                    b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.norm_x.data(),");
                     b.stmt(&format!(
                         "    make_weight_view(require(w.layers[{layer}].fa_v_proj, \"{weight}\"), w.layers[{layer}].fa_v_proj_quant),"
@@ -473,14 +473,14 @@ fn emit_op(
                 }
                 "o_proj" => {
                     if is_full(layer) {
-                        b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                        b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                         b.stmt("    ws.attn_out.data(),");
                         b.stmt(&format!(
                             "    make_weight_view(require(w.layers[{layer}].fa_o_proj, \"{weight}\"), w.layers[{layer}].fa_o_proj_quant),"
                         ));
                         b.stmt(&format!("    ws.y.data(), N, H, Hq, {beta});"));
                     } else {
-                        b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                        b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                         b.stmt("    la.core_out_bf16.data(),");
                         b.stmt(&format!(
                             "    *require(w.layers[{layer}].la_out_proj, \"{weight}\"),"
@@ -496,7 +496,7 @@ fn emit_op(
                 // `gate_up_proj_fused != nullptr && !ws.gate_up_fused
                 // .empty()` per layer and branch on it at runtime.
                 "gate_up" if cuda.gate_up_fused => {
-                    b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.norm_x.data(),");
                     b.stmt(&format!(
                         "    ops::WeightView(*require(w.layers[{layer}].gate_up_proj_fused, \"{weight}\")),"
@@ -504,13 +504,13 @@ fn emit_op(
                     b.stmt("    ws.gate_up_fused.data(), N, 2 * I, H);");
                 }
                 "gate_up" => {
-                    b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.norm_x.data(),");
                     b.stmt(&format!(
                         "    make_weight_view(require(w.layers[{layer}].gate_proj, \"{weight}\"), w.layers[{layer}].gate_proj_quant),"
                     ));
                     b.stmt("    ws.gate.data(), N, I, H);");
-                    b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.norm_x.data(),");
                     b.stmt(&format!(
                         "    make_weight_view(require(w.layers[{layer}].up_proj, \"{weight}\"), w.layers[{layer}].up_proj_quant),"
@@ -518,7 +518,7 @@ fn emit_op(
                     b.stmt("    ws.up.data(), N, I, H);");
                 }
                 "down" => {
-                    b.stmt("ops::gemm_act_x_w(cublas.handle(),");
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.gate.data(),");
                     b.stmt(&format!(
                         "    make_weight_view(require(w.layers[{layer}].down_proj, \"{weight}\"), w.layers[{layer}].down_proj_quant),"
@@ -529,7 +529,7 @@ fn emit_op(
             }
         }
         OpKind::SplitQkv { .. } => {
-            b.stmt("kernels::launch_split_qkv_bf16(");
+            b.stmt("kernels::attn::split_qkv_bf16(");
             b.stmt("    ws.gate_up_fused.data(),");
             b.stmt("    la.fa_qg_packed.data(), ws.k.data(), ws.v.data(),");
             b.stmt("    N, 2 * Hq, Hk, stream);");
@@ -639,13 +639,13 @@ fn emit_op(
             b.stmt("        logit_row_indices_d,");
             b.stmt("        static_cast<std::uint16_t*>(ws.norm_y.data()),");
             b.stmt("        num_logit_rows, H, stream);");
-            b.stmt("    ops::gemm_act_x_w(cublas.handle(),");
+            b.stmt("    kernels::gemm::act_x_w(cublas.handle(),");
             b.stmt(&format!(
                 "        ws.norm_y.data(), *require({member}, \"{weight}\"),"
             ));
             b.stmt("        ws.logits.data(), num_logit_rows, cfg.vocab_size, H);");
             b.stmt("} else {");
-            b.stmt("    ops::gemm_act_x_w(cublas.handle(),");
+            b.stmt("    kernels::gemm::act_x_w(cublas.handle(),");
             b.stmt(&format!(
                 "        ws.norm_x.data(), *require({member}, \"{weight}\"),"
             ));
@@ -800,40 +800,40 @@ fn emit_launch(
             b.stmt("kernels::ssm::repeat_interleave_heads_fp32(");
             b.stmt(&format!("    {src}, {dst}, N, K_h, V_h, K_d, stream);"));
         }
-        "dispatch_attention_flashinfer_decode" => {
+        "attn::dispatch_attention_flashinfer_decode" => {
             b.stmt("if (decode_plan == nullptr) {");
             b.stmt("    throw std::runtime_error(");
             b.stmt("        \"generated qwen35: no decode plan\");");
             b.stmt("}");
             kv_view_pre(b);
-            b.stmt("  ops::dispatch_attention_flashinfer_decode(");
+            b.stmt("  kernels::attn::dispatch_attention_flashinfer_decode(");
             b.stmt("      *decode_plan,");
             b.stmt("      ws.q.data(), kv_view, ws.attn_out.data(),");
             b.stmt("      kv_page_indices, kv_page_indptr, kv_last_page_lens,");
             b.stmt("      attn_ws, stream); }");
         }
-        "dispatch_attention_flashinfer_prefill_bf16" => {
+        "attn::dispatch_attention_flashinfer_prefill_bf16" => {
             b.stmt("if (prefill_plan == nullptr) {");
             b.stmt("    throw std::runtime_error(");
             b.stmt("        \"generated qwen35: no prefill plan\");");
             b.stmt("}");
             kv_view_pre(b);
-            b.stmt("  ops::dispatch_attention_flashinfer_prefill_bf16(");
+            b.stmt("  kernels::attn::dispatch_attention_flashinfer_prefill_bf16(");
             b.stmt("      *prefill_plan,");
             b.stmt("      ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,");
             b.stmt("      ws.attn_out.data(),");
             b.stmt("      qo_indptr, kv_page_indices, kv_page_indptr,");
             b.stmt("      kv_last_page_lens, attn_ws, stream); }");
         }
-        "launch_write_kv_explicit_bf16" => {
+        "attn::write_kv_explicit_bf16" => {
             kv_view_pre(b);
-            b.stmt("  kernels::launch_write_kv_explicit_bf16(");
+            b.stmt("  kernels::attn::write_kv_explicit_bf16(");
             b.stmt("      kv_view, ws.k.data(), ws.v.data(),");
             b.stmt("      w_page_d, w_off_d, N, stream, row_valid_d); }");
         }
-        "launch_write_kv_to_pages" => {
+        "attn::write_kv_to_pages" => {
             kv_view_pre(b);
-            b.stmt("  kernels::launch_write_kv_to_pages(");
+            b.stmt("  kernels::attn::write_kv_to_pages(");
             b.stmt("      kv_view, ws.k.data(), ws.v.data(),");
             b.stmt("      qo_indptr, kv_page_indices, kv_page_indptr,");
             b.stmt("      kv_last_page_lens, N, R, stream); }");

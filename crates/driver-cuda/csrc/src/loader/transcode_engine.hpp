@@ -902,7 +902,7 @@ private:
         std::uint8_t* scale_dst)
     {
         const Fp8TileScale s = fp8_tile_scale(instr, source, full_shape, row_start, rows);
-        kernels::TranscodeParams p;
+        kernels::quant::TranscodeParams p;
         p.src = fp8_tile.data();
         p.src_scale = s.scale_dev;
         p.src_group_size = s.group_size;
@@ -910,9 +910,9 @@ private:
         p.dst_scale = scale_dst;
         p.rows = rows;
         p.cols = s.local_cols;
-        kernels::launch_transcode(
-            kernels::TranscodeSource::Fp8E4m3PerGroup,
-            kernels::TranscodeTarget::Mxfp4E2m1E8m0, p, /*stream=*/0);
+        kernels::quant::launch_transcode(
+            kernels::quant::TranscodeSource::Fp8E4m3PerGroup,
+            kernels::quant::TranscodeTarget::Mxfp4E2m1E8m0, p, /*stream=*/0);
         CUDA_CHECK(cudaGetLastError());
     }
 #endif
@@ -950,7 +950,7 @@ private:
                 throw std::runtime_error(
                     "rust storage executor: FP8 Encode output dtype mismatch");
             }
-            kernels::quantize_bf16_to_fp8_e4m3_per_channel(
+            kernels::quant::quantize_bf16_to_fp8_e4m3_per_channel(
                 bf16.data(),
                 static_cast<std::uint8_t*>(out.data()) +
                     static_cast<std::uint64_t>(row_start) *
@@ -966,7 +966,7 @@ private:
                 throw std::runtime_error(
                     "rust storage executor: INT8 Encode output dtype mismatch");
             }
-            kernels::quantize_bf16_to_int8_per_channel(
+            kernels::quant::quantize_bf16_to_int8_per_channel(
                 bf16.data(),
                 static_cast<std::int8_t*>(out.data()) +
                     static_cast<std::uint64_t>(row_start) *
@@ -1003,7 +1003,7 @@ private:
             std::uint8_t* scale_dst =
                 static_cast<std::uint8_t*>(scale.data()) +
                 static_cast<std::uint64_t>(row_start) * scale_row_bytes;
-            kernels::quantize_bf16_to_mxfp4_e2m1_per_block(
+            kernels::quant::quantize_bf16_to_mxfp4_e2m1_per_block(
                 bf16.data(),
                 packed_dst,
                 scale_dst,

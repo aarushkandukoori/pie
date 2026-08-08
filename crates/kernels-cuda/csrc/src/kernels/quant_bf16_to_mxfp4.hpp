@@ -21,7 +21,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 void quantize_bf16_to_mxfp4_e2m1_per_block(
     const void*    W_bf16,        // [rows, cols] bf16
@@ -31,4 +31,4 @@ void quantize_bf16_to_mxfp4_e2m1_per_block(
     int            cols,          // must be a multiple of 32
     cudaStream_t   stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

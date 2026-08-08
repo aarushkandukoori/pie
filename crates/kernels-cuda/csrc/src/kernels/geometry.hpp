@@ -36,7 +36,7 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 // Derive the per-request length column `kv_len[r]` (device-resident, C1 FINAL)
 // from the paged-KV descriptors. `kv_page_indptr` is `[R+1]` (CSR page bounds,
@@ -73,4 +73,4 @@ void launch_resolve_slot_to_block(
     std::uint32_t* page_indices,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

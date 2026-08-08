@@ -25,7 +25,7 @@
 #include "kernels/kda.hpp"
 #include "kernels/swiglu.hpp"
 
-using pie_cuda_driver::kernels::launch_attn_res_blend_bf16;
+using pie_cuda_driver::kernels::attn::attn_res_blend_bf16;
 using pie_cuda_driver::kernels::ssm::kda_gate_beta_bf16;
 using pie_cuda_driver::kernels::ssm::kda_o_norm_gated_bf16;
 using pie_cuda_driver::kernels::ssm::kda_prefill_batched;
@@ -143,7 +143,7 @@ void test_attn_res() {
     __nv_bfloat16* d_out = nullptr;
     CUDA_OK(cudaMalloc(&d_out, T * H * sizeof(__nv_bfloat16)));
 
-    launch_attn_res_blend_bf16(d_prefix, d_blocks, d_nw, d_pw, d_out, T, B, H,
+    kernels::attn::attn_res_blend_bf16(d_prefix, d_blocks, d_nw, d_pw, d_out, T, B, H,
                                /*block_rows=*/T, kEps, nullptr);
     CUDA_OK(cudaDeviceSynchronize());
 

@@ -2,7 +2,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 namespace {
 
@@ -62,13 +62,13 @@ __global__ void lse_log2_to_ln_kernel(float* __restrict__ lse, int n) {
 
 }  // namespace
 
-void launch_lse_log2_to_ln(float* lse, int n, cudaStream_t stream) {
+void lse_log2_to_ln(float* lse, int n, cudaStream_t stream) {
     if (n <= 0) return;
     const int block = 256;
     lse_log2_to_ln_kernel<<<(n + block - 1) / block, block, 0, stream>>>(lse, n);
 }
 
-void launch_attention_sink_rescale_bf16(
+void attention_sink_rescale_bf16(
     void*        o,
     const float* lse,
     const void*  sinks,
@@ -86,4 +86,4 @@ void launch_attention_sink_rescale_bf16(
         N, num_q_heads, head_dim);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

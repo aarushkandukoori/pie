@@ -22,7 +22,7 @@ Qwen3_5LinearAttnWorkspace& la,
 KvCache& cache,
 RecurrentStateCache& state_cache,
 AttentionWorkspace& attn_ws,
-ops::CublasHandle& cublas,
+kernels::gemm::CublasHandle& cublas,
 const std::int32_t* token_ids,
 const std::int32_t* positions,
 const std::uint32_t* qo_indptr,
@@ -92,9 +92,9 @@ const StageHooks* hooks)
         }
     }
 
-    const ops::DecodePlanCache* decode_plan =
+    const kernels::attn::DecodePlanCache* decode_plan =
         plan_state.decode_plan ? plan_state.decode_plan.get() : nullptr;
-    const ops::PrefillPlanCache* prefill_plan =
+    const kernels::attn::PrefillPlanCache* prefill_plan =
         (plan_state.use_prefill_plan && plan_state.prefill_plan)
             ? plan_state.prefill_plan.get()
             : nullptr;
@@ -112,19 +112,19 @@ const StageHooks* hooks)
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[0].attn_norm_pre, "layer.0.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_qkv, "layer.0.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_z, "layer.0.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_a, "layer.0.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_b, "layer.0.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -169,39 +169,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[0].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[0].la_out_proj, "layer.0.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[0].mlp_norm_pre, "layer.0.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[1].attn_norm_pre, "layer.1.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_qkv, "layer.1.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_z, "layer.1.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_a, "layer.1.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_b, "layer.1.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -246,39 +246,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[1].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[1].la_out_proj, "layer.1.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[1].mlp_norm_pre, "layer.1.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[2].attn_norm_pre, "layer.2.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_qkv, "layer.2.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_z, "layer.2.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_a, "layer.2.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_b, "layer.2.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -323,35 +323,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[2].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[2].la_out_proj, "layer.2.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[2].mlp_norm_pre, "layer.2.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[3].attn_norm_pre, "layer.3.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_q_proj, "layer.3.q_proj"), w.layers[3].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_k_proj, "layer.3.k_proj"), w.layers[3].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_v_proj, "layer.3.v_proj"), w.layers[3].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -377,12 +377,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -393,7 +393,7 @@ const StageHooks* hooks)
                 "generated qwen35: no prefill plan");
         }
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          ops::dispatch_attention_flashinfer_prefill_bf16(
+          kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
               *prefill_plan,
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
@@ -405,7 +405,7 @@ const StageHooks* hooks)
                 "generated qwen35: no decode plan");
         }
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          ops::dispatch_attention_flashinfer_decode(
+          kernels::attn::dispatch_attention_flashinfer_decode(
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -420,39 +420,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             3u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].fa_o_proj, "layer.3.o_proj"), w.layers[3].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[3].mlp_norm_pre, "layer.3.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[4].attn_norm_pre, "layer.4.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_qkv, "layer.4.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_z, "layer.4.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_a, "layer.4.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_b, "layer.4.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -497,39 +497,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[4].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[4].la_out_proj, "layer.4.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[4].mlp_norm_pre, "layer.4.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[5].attn_norm_pre, "layer.5.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_qkv, "layer.5.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_z, "layer.5.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_a, "layer.5.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_b, "layer.5.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -574,39 +574,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[5].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[5].la_out_proj, "layer.5.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[5].mlp_norm_pre, "layer.5.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[6].attn_norm_pre, "layer.6.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_qkv, "layer.6.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_z, "layer.6.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_a, "layer.6.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_b, "layer.6.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -651,35 +651,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[6].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[6].la_out_proj, "layer.6.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[6].mlp_norm_pre, "layer.6.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[7].attn_norm_pre, "layer.7.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_q_proj, "layer.7.q_proj"), w.layers[7].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_k_proj, "layer.7.k_proj"), w.layers[7].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_v_proj, "layer.7.v_proj"), w.layers[7].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -705,12 +705,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -721,7 +721,7 @@ const StageHooks* hooks)
                 "generated qwen35: no prefill plan");
         }
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          ops::dispatch_attention_flashinfer_prefill_bf16(
+          kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
               *prefill_plan,
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
@@ -733,7 +733,7 @@ const StageHooks* hooks)
                 "generated qwen35: no decode plan");
         }
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          ops::dispatch_attention_flashinfer_decode(
+          kernels::attn::dispatch_attention_flashinfer_decode(
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -748,39 +748,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             7u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].fa_o_proj, "layer.7.o_proj"), w.layers[7].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[7].mlp_norm_pre, "layer.7.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[8].attn_norm_pre, "layer.8.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_qkv, "layer.8.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_z, "layer.8.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_a, "layer.8.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_b, "layer.8.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -825,39 +825,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[8].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[8].la_out_proj, "layer.8.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[8].mlp_norm_pre, "layer.8.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[9].attn_norm_pre, "layer.9.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_qkv, "layer.9.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_z, "layer.9.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_a, "layer.9.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_b, "layer.9.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -902,39 +902,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[9].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[9].la_out_proj, "layer.9.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[9].mlp_norm_pre, "layer.9.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[10].attn_norm_pre, "layer.10.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_qkv, "layer.10.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_z, "layer.10.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_a, "layer.10.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_b, "layer.10.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -979,35 +979,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[10].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[10].la_out_proj, "layer.10.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[10].mlp_norm_pre, "layer.10.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[11].attn_norm_pre, "layer.11.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_q_proj, "layer.11.q_proj"), w.layers[11].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_k_proj, "layer.11.k_proj"), w.layers[11].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_v_proj, "layer.11.v_proj"), w.layers[11].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -1033,12 +1033,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -1049,7 +1049,7 @@ const StageHooks* hooks)
                 "generated qwen35: no prefill plan");
         }
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          ops::dispatch_attention_flashinfer_prefill_bf16(
+          kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
               *prefill_plan,
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
@@ -1061,7 +1061,7 @@ const StageHooks* hooks)
                 "generated qwen35: no decode plan");
         }
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          ops::dispatch_attention_flashinfer_decode(
+          kernels::attn::dispatch_attention_flashinfer_decode(
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -1076,39 +1076,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             11u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].fa_o_proj, "layer.11.o_proj"), w.layers[11].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[11].mlp_norm_pre, "layer.11.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[12].attn_norm_pre, "layer.12.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_qkv, "layer.12.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_z, "layer.12.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_a, "layer.12.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_b, "layer.12.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -1153,39 +1153,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[12].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[12].la_out_proj, "layer.12.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[12].mlp_norm_pre, "layer.12.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[13].attn_norm_pre, "layer.13.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_qkv, "layer.13.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_z, "layer.13.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_a, "layer.13.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_b, "layer.13.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -1230,39 +1230,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[13].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[13].la_out_proj, "layer.13.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[13].mlp_norm_pre, "layer.13.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[14].attn_norm_pre, "layer.14.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_qkv, "layer.14.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_z, "layer.14.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_a, "layer.14.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_b, "layer.14.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -1307,35 +1307,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[14].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[14].la_out_proj, "layer.14.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[14].mlp_norm_pre, "layer.14.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[15].attn_norm_pre, "layer.15.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_q_proj, "layer.15.q_proj"), w.layers[15].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_k_proj, "layer.15.k_proj"), w.layers[15].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_v_proj, "layer.15.v_proj"), w.layers[15].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -1361,12 +1361,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -1377,7 +1377,7 @@ const StageHooks* hooks)
                 "generated qwen35: no prefill plan");
         }
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          ops::dispatch_attention_flashinfer_prefill_bf16(
+          kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
               *prefill_plan,
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
@@ -1389,7 +1389,7 @@ const StageHooks* hooks)
                 "generated qwen35: no decode plan");
         }
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          ops::dispatch_attention_flashinfer_decode(
+          kernels::attn::dispatch_attention_flashinfer_decode(
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -1404,39 +1404,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             15u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].fa_o_proj, "layer.15.o_proj"), w.layers[15].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[15].mlp_norm_pre, "layer.15.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[16].attn_norm_pre, "layer.16.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_qkv, "layer.16.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_z, "layer.16.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_a, "layer.16.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_b, "layer.16.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -1481,39 +1481,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[16].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[16].la_out_proj, "layer.16.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[16].mlp_norm_pre, "layer.16.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[17].attn_norm_pre, "layer.17.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_qkv, "layer.17.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_z, "layer.17.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_a, "layer.17.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_b, "layer.17.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -1558,39 +1558,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[17].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[17].la_out_proj, "layer.17.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[17].mlp_norm_pre, "layer.17.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[18].attn_norm_pre, "layer.18.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_qkv, "layer.18.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_z, "layer.18.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_a, "layer.18.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_b, "layer.18.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -1635,35 +1635,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[18].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[18].la_out_proj, "layer.18.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[18].mlp_norm_pre, "layer.18.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[19].attn_norm_pre, "layer.19.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_q_proj, "layer.19.q_proj"), w.layers[19].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_k_proj, "layer.19.k_proj"), w.layers[19].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_v_proj, "layer.19.v_proj"), w.layers[19].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -1689,12 +1689,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -1705,7 +1705,7 @@ const StageHooks* hooks)
                 "generated qwen35: no prefill plan");
         }
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          ops::dispatch_attention_flashinfer_prefill_bf16(
+          kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
               *prefill_plan,
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
@@ -1717,7 +1717,7 @@ const StageHooks* hooks)
                 "generated qwen35: no decode plan");
         }
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          ops::dispatch_attention_flashinfer_decode(
+          kernels::attn::dispatch_attention_flashinfer_decode(
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -1732,39 +1732,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             19u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[19].fa_o_proj, "layer.19.o_proj"), w.layers[19].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[19].mlp_norm_pre, "layer.19.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[20].attn_norm_pre, "layer.20.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_qkv, "layer.20.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_z, "layer.20.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_a, "layer.20.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_b, "layer.20.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -1809,39 +1809,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[20].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[20].la_out_proj, "layer.20.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[20].mlp_norm_pre, "layer.20.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[21].attn_norm_pre, "layer.21.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_qkv, "layer.21.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_z, "layer.21.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_a, "layer.21.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_b, "layer.21.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -1886,39 +1886,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[21].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[21].la_out_proj, "layer.21.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[21].mlp_norm_pre, "layer.21.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[22].attn_norm_pre, "layer.22.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_qkv, "layer.22.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_z, "layer.22.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_a, "layer.22.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_b, "layer.22.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -1963,35 +1963,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[22].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[22].la_out_proj, "layer.22.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[22].mlp_norm_pre, "layer.22.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[23].attn_norm_pre, "layer.23.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_q_proj, "layer.23.q_proj"), w.layers[23].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_k_proj, "layer.23.k_proj"), w.layers[23].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_v_proj, "layer.23.v_proj"), w.layers[23].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -2017,12 +2017,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -2033,7 +2033,7 @@ const StageHooks* hooks)
                 "generated qwen35: no prefill plan");
         }
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          ops::dispatch_attention_flashinfer_prefill_bf16(
+          kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
               *prefill_plan,
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
@@ -2045,7 +2045,7 @@ const StageHooks* hooks)
                 "generated qwen35: no decode plan");
         }
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          ops::dispatch_attention_flashinfer_decode(
+          kernels::attn::dispatch_attention_flashinfer_decode(
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
@@ -2060,20 +2060,20 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             23u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[23].fa_o_proj, "layer.23.o_proj"), w.layers[23].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[23].mlp_norm_pre, "layer.23.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
@@ -2092,11 +2092,11 @@ const StageHooks* hooks)
             logit_row_indices_d,
             static_cast<std::uint16_t*>(ws.norm_y.data()),
             num_logit_rows, H, stream);
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_y.data(), *require(w.embed, "embed"),
             ws.logits.data(), num_logit_rows, cfg.vocab_size, H);
     } else {
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_x.data(), *require(w.embed, "embed"),
             ws.logits.data(), N, cfg.vocab_size, H);
     }
@@ -2116,7 +2116,7 @@ Qwen3_5LinearAttnWorkspace& la,
 KvCache& cache,
 RecurrentStateCache& state_cache,
 AttentionWorkspace& attn_ws,
-ops::CublasHandle& cublas,
+kernels::gemm::CublasHandle& cublas,
 const std::int32_t* token_ids,
 const std::int32_t* positions,
 const std::uint32_t* qo_indptr,
@@ -2189,9 +2189,9 @@ const StageHooks* hooks)
         state_cache.reset(stream);
     }
 
-    const ops::DecodePlanCache* decode_plan =
+    const kernels::attn::DecodePlanCache* decode_plan =
         plan_state.decode_plan ? plan_state.decode_plan.get() : nullptr;
-    const ops::PrefillPlanCache* prefill_plan =
+    const kernels::attn::PrefillPlanCache* prefill_plan =
         (plan_state.use_prefill_plan && plan_state.prefill_plan)
             ? plan_state.prefill_plan.get()
             : nullptr;
@@ -2209,19 +2209,19 @@ const StageHooks* hooks)
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[0].attn_norm_pre, "layer.0.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_qkv, "layer.0.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_z, "layer.0.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_a, "layer.0.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_b, "layer.0.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -2279,39 +2279,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[0].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[0].la_out_proj, "layer.0.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[0].mlp_norm_pre, "layer.0.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[1].attn_norm_pre, "layer.1.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_qkv, "layer.1.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_z, "layer.1.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_a, "layer.1.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_b, "layer.1.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -2369,39 +2369,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[1].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[1].la_out_proj, "layer.1.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[1].mlp_norm_pre, "layer.1.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[2].attn_norm_pre, "layer.2.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_qkv, "layer.2.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_z, "layer.2.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_a, "layer.2.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_b, "layer.2.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -2459,35 +2459,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[2].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[2].la_out_proj, "layer.2.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[2].mlp_norm_pre, "layer.2.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[3].attn_norm_pre, "layer.3.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_q_proj, "layer.3.q_proj"), w.layers[3].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_k_proj, "layer.3.k_proj"), w.layers[3].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_v_proj, "layer.3.v_proj"), w.layers[3].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -2513,12 +2513,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -2528,7 +2528,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -2543,39 +2543,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             3u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].fa_o_proj, "layer.3.o_proj"), w.layers[3].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[3].mlp_norm_pre, "layer.3.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[4].attn_norm_pre, "layer.4.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_qkv, "layer.4.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_z, "layer.4.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_a, "layer.4.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_b, "layer.4.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -2633,39 +2633,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[4].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[4].la_out_proj, "layer.4.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[4].mlp_norm_pre, "layer.4.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[5].attn_norm_pre, "layer.5.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_qkv, "layer.5.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_z, "layer.5.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_a, "layer.5.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_b, "layer.5.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -2723,39 +2723,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[5].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[5].la_out_proj, "layer.5.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[5].mlp_norm_pre, "layer.5.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[6].attn_norm_pre, "layer.6.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_qkv, "layer.6.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_z, "layer.6.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_a, "layer.6.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_b, "layer.6.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -2813,35 +2813,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[6].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[6].la_out_proj, "layer.6.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[6].mlp_norm_pre, "layer.6.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[7].attn_norm_pre, "layer.7.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_q_proj, "layer.7.q_proj"), w.layers[7].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_k_proj, "layer.7.k_proj"), w.layers[7].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_v_proj, "layer.7.v_proj"), w.layers[7].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -2867,12 +2867,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -2882,7 +2882,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -2897,39 +2897,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             7u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].fa_o_proj, "layer.7.o_proj"), w.layers[7].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[7].mlp_norm_pre, "layer.7.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[8].attn_norm_pre, "layer.8.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_qkv, "layer.8.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_z, "layer.8.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_a, "layer.8.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_b, "layer.8.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -2987,39 +2987,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[8].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[8].la_out_proj, "layer.8.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[8].mlp_norm_pre, "layer.8.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[9].attn_norm_pre, "layer.9.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_qkv, "layer.9.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_z, "layer.9.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_a, "layer.9.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_b, "layer.9.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -3077,39 +3077,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[9].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[9].la_out_proj, "layer.9.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[9].mlp_norm_pre, "layer.9.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[10].attn_norm_pre, "layer.10.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_qkv, "layer.10.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_z, "layer.10.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_a, "layer.10.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_b, "layer.10.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -3167,35 +3167,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[10].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[10].la_out_proj, "layer.10.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[10].mlp_norm_pre, "layer.10.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[11].attn_norm_pre, "layer.11.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_q_proj, "layer.11.q_proj"), w.layers[11].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_k_proj, "layer.11.k_proj"), w.layers[11].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_v_proj, "layer.11.v_proj"), w.layers[11].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -3221,12 +3221,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -3236,7 +3236,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -3251,39 +3251,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             11u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].fa_o_proj, "layer.11.o_proj"), w.layers[11].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[11].mlp_norm_pre, "layer.11.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[12].attn_norm_pre, "layer.12.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_qkv, "layer.12.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_z, "layer.12.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_a, "layer.12.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_b, "layer.12.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -3341,39 +3341,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[12].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[12].la_out_proj, "layer.12.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[12].mlp_norm_pre, "layer.12.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[13].attn_norm_pre, "layer.13.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_qkv, "layer.13.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_z, "layer.13.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_a, "layer.13.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_b, "layer.13.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -3431,39 +3431,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[13].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[13].la_out_proj, "layer.13.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[13].mlp_norm_pre, "layer.13.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[14].attn_norm_pre, "layer.14.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_qkv, "layer.14.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_z, "layer.14.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_a, "layer.14.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_b, "layer.14.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -3521,35 +3521,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[14].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[14].la_out_proj, "layer.14.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[14].mlp_norm_pre, "layer.14.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[15].attn_norm_pre, "layer.15.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_q_proj, "layer.15.q_proj"), w.layers[15].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_k_proj, "layer.15.k_proj"), w.layers[15].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_v_proj, "layer.15.v_proj"), w.layers[15].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -3575,12 +3575,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -3590,7 +3590,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -3605,39 +3605,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             15u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].fa_o_proj, "layer.15.o_proj"), w.layers[15].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[15].mlp_norm_pre, "layer.15.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[16].attn_norm_pre, "layer.16.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_qkv, "layer.16.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_z, "layer.16.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_a, "layer.16.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_b, "layer.16.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -3695,39 +3695,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[16].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[16].la_out_proj, "layer.16.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[16].mlp_norm_pre, "layer.16.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[17].attn_norm_pre, "layer.17.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_qkv, "layer.17.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_z, "layer.17.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_a, "layer.17.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_b, "layer.17.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -3785,39 +3785,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[17].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[17].la_out_proj, "layer.17.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[17].mlp_norm_pre, "layer.17.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[18].attn_norm_pre, "layer.18.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_qkv, "layer.18.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_z, "layer.18.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_a, "layer.18.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_b, "layer.18.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -3875,35 +3875,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[18].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[18].la_out_proj, "layer.18.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[18].mlp_norm_pre, "layer.18.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[19].attn_norm_pre, "layer.19.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_q_proj, "layer.19.q_proj"), w.layers[19].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_k_proj, "layer.19.k_proj"), w.layers[19].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_v_proj, "layer.19.v_proj"), w.layers[19].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -3929,12 +3929,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -3944,7 +3944,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -3959,39 +3959,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             19u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[19].fa_o_proj, "layer.19.o_proj"), w.layers[19].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[19].mlp_norm_pre, "layer.19.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[20].attn_norm_pre, "layer.20.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_qkv, "layer.20.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_z, "layer.20.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_a, "layer.20.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_b, "layer.20.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -4049,39 +4049,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[20].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[20].la_out_proj, "layer.20.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[20].mlp_norm_pre, "layer.20.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[21].attn_norm_pre, "layer.21.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_qkv, "layer.21.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_z, "layer.21.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_a, "layer.21.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_b, "layer.21.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -4139,39 +4139,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[21].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[21].la_out_proj, "layer.21.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[21].mlp_norm_pre, "layer.21.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[22].attn_norm_pre, "layer.22.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_qkv, "layer.22.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_z, "layer.22.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_a, "layer.22.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_b, "layer.22.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -4229,35 +4229,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[22].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[22].la_out_proj, "layer.22.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[22].mlp_norm_pre, "layer.22.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[23].attn_norm_pre, "layer.23.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_q_proj, "layer.23.q_proj"), w.layers[23].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_k_proj, "layer.23.k_proj"), w.layers[23].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_v_proj, "layer.23.v_proj"), w.layers[23].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -4283,12 +4283,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -4298,7 +4298,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -4313,20 +4313,20 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             23u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[23].fa_o_proj, "layer.23.o_proj"), w.layers[23].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[23].mlp_norm_pre, "layer.23.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
@@ -4345,11 +4345,11 @@ const StageHooks* hooks)
             logit_row_indices_d,
             static_cast<std::uint16_t*>(ws.norm_y.data()),
             num_logit_rows, H, stream);
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_y.data(), *require(w.embed, "embed"),
             ws.logits.data(), num_logit_rows, cfg.vocab_size, H);
     } else {
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_x.data(), *require(w.embed, "embed"),
             ws.logits.data(), N, cfg.vocab_size, H);
     }
@@ -4369,7 +4369,7 @@ Qwen3_5LinearAttnWorkspace& la,
 KvCache& cache,
 RecurrentStateCache& state_cache,
 AttentionWorkspace& attn_ws,
-ops::CublasHandle& cublas,
+kernels::gemm::CublasHandle& cublas,
 const std::int32_t* token_ids,
 const std::int32_t* positions,
 const std::uint32_t* qo_indptr,
@@ -4442,9 +4442,9 @@ const StageHooks* hooks)
         state_cache.reset(stream);
     }
 
-    const ops::DecodePlanCache* decode_plan =
+    const kernels::attn::DecodePlanCache* decode_plan =
         plan_state.decode_plan ? plan_state.decode_plan.get() : nullptr;
-    const ops::PrefillPlanCache* prefill_plan =
+    const kernels::attn::PrefillPlanCache* prefill_plan =
         (plan_state.use_prefill_plan && plan_state.prefill_plan)
             ? plan_state.prefill_plan.get()
             : nullptr;
@@ -4462,19 +4462,19 @@ const StageHooks* hooks)
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[0].attn_norm_pre, "layer.0.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_qkv, "layer.0.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_z, "layer.0.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_a, "layer.0.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_b, "layer.0.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -4532,39 +4532,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[0].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[0].la_out_proj, "layer.0.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[0].mlp_norm_pre, "layer.0.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[1].attn_norm_pre, "layer.1.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_qkv, "layer.1.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_z, "layer.1.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_a, "layer.1.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_b, "layer.1.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -4622,39 +4622,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[1].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[1].la_out_proj, "layer.1.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[1].mlp_norm_pre, "layer.1.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[2].attn_norm_pre, "layer.2.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_qkv, "layer.2.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_z, "layer.2.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_a, "layer.2.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_b, "layer.2.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -4712,35 +4712,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[2].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[2].la_out_proj, "layer.2.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[2].mlp_norm_pre, "layer.2.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[3].attn_norm_pre, "layer.3.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_q_proj, "layer.3.q_proj"), w.layers[3].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_k_proj, "layer.3.k_proj"), w.layers[3].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_v_proj, "layer.3.v_proj"), w.layers[3].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -4766,12 +4766,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -4781,7 +4781,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -4796,39 +4796,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             3u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].fa_o_proj, "layer.3.o_proj"), w.layers[3].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[3].mlp_norm_pre, "layer.3.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[4].attn_norm_pre, "layer.4.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_qkv, "layer.4.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_z, "layer.4.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_a, "layer.4.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_b, "layer.4.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -4886,39 +4886,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[4].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[4].la_out_proj, "layer.4.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[4].mlp_norm_pre, "layer.4.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[5].attn_norm_pre, "layer.5.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_qkv, "layer.5.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_z, "layer.5.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_a, "layer.5.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_b, "layer.5.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -4976,39 +4976,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[5].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[5].la_out_proj, "layer.5.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[5].mlp_norm_pre, "layer.5.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[6].attn_norm_pre, "layer.6.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_qkv, "layer.6.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_z, "layer.6.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_a, "layer.6.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_b, "layer.6.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -5066,35 +5066,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[6].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[6].la_out_proj, "layer.6.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[6].mlp_norm_pre, "layer.6.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[7].attn_norm_pre, "layer.7.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_q_proj, "layer.7.q_proj"), w.layers[7].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_k_proj, "layer.7.k_proj"), w.layers[7].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_v_proj, "layer.7.v_proj"), w.layers[7].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -5120,12 +5120,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -5135,7 +5135,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -5150,39 +5150,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             7u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].fa_o_proj, "layer.7.o_proj"), w.layers[7].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[7].mlp_norm_pre, "layer.7.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[8].attn_norm_pre, "layer.8.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_qkv, "layer.8.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_z, "layer.8.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_a, "layer.8.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_b, "layer.8.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -5240,39 +5240,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[8].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[8].la_out_proj, "layer.8.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[8].mlp_norm_pre, "layer.8.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[9].attn_norm_pre, "layer.9.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_qkv, "layer.9.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_z, "layer.9.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_a, "layer.9.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_b, "layer.9.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -5330,39 +5330,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[9].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[9].la_out_proj, "layer.9.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[9].mlp_norm_pre, "layer.9.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[10].attn_norm_pre, "layer.10.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_qkv, "layer.10.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_z, "layer.10.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_a, "layer.10.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_b, "layer.10.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -5420,35 +5420,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[10].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[10].la_out_proj, "layer.10.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[10].mlp_norm_pre, "layer.10.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[11].attn_norm_pre, "layer.11.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_q_proj, "layer.11.q_proj"), w.layers[11].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_k_proj, "layer.11.k_proj"), w.layers[11].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_v_proj, "layer.11.v_proj"), w.layers[11].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -5474,12 +5474,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -5489,7 +5489,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -5504,39 +5504,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             11u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].fa_o_proj, "layer.11.o_proj"), w.layers[11].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[11].mlp_norm_pre, "layer.11.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[12].attn_norm_pre, "layer.12.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_qkv, "layer.12.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_z, "layer.12.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_a, "layer.12.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_b, "layer.12.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -5594,39 +5594,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[12].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[12].la_out_proj, "layer.12.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[12].mlp_norm_pre, "layer.12.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[13].attn_norm_pre, "layer.13.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_qkv, "layer.13.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_z, "layer.13.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_a, "layer.13.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_b, "layer.13.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -5684,39 +5684,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[13].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[13].la_out_proj, "layer.13.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[13].mlp_norm_pre, "layer.13.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[14].attn_norm_pre, "layer.14.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_qkv, "layer.14.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_z, "layer.14.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_a, "layer.14.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_b, "layer.14.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -5774,35 +5774,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[14].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[14].la_out_proj, "layer.14.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[14].mlp_norm_pre, "layer.14.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[15].attn_norm_pre, "layer.15.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_q_proj, "layer.15.q_proj"), w.layers[15].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_k_proj, "layer.15.k_proj"), w.layers[15].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_v_proj, "layer.15.v_proj"), w.layers[15].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -5828,12 +5828,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -5843,7 +5843,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -5858,39 +5858,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             15u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].fa_o_proj, "layer.15.o_proj"), w.layers[15].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[15].mlp_norm_pre, "layer.15.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[16].attn_norm_pre, "layer.16.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_qkv, "layer.16.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_z, "layer.16.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_a, "layer.16.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_b, "layer.16.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -5948,39 +5948,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[16].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[16].la_out_proj, "layer.16.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[16].mlp_norm_pre, "layer.16.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[17].attn_norm_pre, "layer.17.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_qkv, "layer.17.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_z, "layer.17.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_a, "layer.17.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_b, "layer.17.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -6038,39 +6038,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[17].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[17].la_out_proj, "layer.17.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[17].mlp_norm_pre, "layer.17.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[18].attn_norm_pre, "layer.18.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_qkv, "layer.18.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_z, "layer.18.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_a, "layer.18.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_b, "layer.18.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -6128,35 +6128,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[18].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[18].la_out_proj, "layer.18.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[18].mlp_norm_pre, "layer.18.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[19].attn_norm_pre, "layer.19.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_q_proj, "layer.19.q_proj"), w.layers[19].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_k_proj, "layer.19.k_proj"), w.layers[19].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_v_proj, "layer.19.v_proj"), w.layers[19].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -6182,12 +6182,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -6197,7 +6197,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -6212,39 +6212,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             19u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[19].fa_o_proj, "layer.19.o_proj"), w.layers[19].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[19].mlp_norm_pre, "layer.19.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[20].attn_norm_pre, "layer.20.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_qkv, "layer.20.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_z, "layer.20.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_a, "layer.20.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_b, "layer.20.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -6302,39 +6302,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[20].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[20].la_out_proj, "layer.20.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[20].mlp_norm_pre, "layer.20.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[21].attn_norm_pre, "layer.21.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_qkv, "layer.21.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_z, "layer.21.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_a, "layer.21.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_b, "layer.21.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -6392,39 +6392,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[21].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[21].la_out_proj, "layer.21.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[21].mlp_norm_pre, "layer.21.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[22].attn_norm_pre, "layer.22.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_qkv, "layer.22.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_z, "layer.22.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_a, "layer.22.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_b, "layer.22.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -6482,35 +6482,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[22].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[22].la_out_proj, "layer.22.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[22].mlp_norm_pre, "layer.22.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[23].attn_norm_pre, "layer.23.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_q_proj, "layer.23.q_proj"), w.layers[23].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_k_proj, "layer.23.k_proj"), w.layers[23].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_v_proj, "layer.23.v_proj"), w.layers[23].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -6536,12 +6536,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -6551,7 +6551,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -6566,20 +6566,20 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             23u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[23].fa_o_proj, "layer.23.o_proj"), w.layers[23].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[23].mlp_norm_pre, "layer.23.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
@@ -6595,7 +6595,7 @@ Qwen3_5LinearAttnWorkspace& la,
 KvCache& cache,
 RecurrentStateCache& state_cache,
 AttentionWorkspace& attn_ws,
-ops::CublasHandle& cublas,
+kernels::gemm::CublasHandle& cublas,
 const std::int32_t* token_ids,
 const std::int32_t* positions,
 const std::uint32_t* qo_indptr,
@@ -6668,9 +6668,9 @@ const StageHooks* hooks)
         state_cache.reset(stream);
     }
 
-    const ops::DecodePlanCache* decode_plan =
+    const kernels::attn::DecodePlanCache* decode_plan =
         plan_state.decode_plan ? plan_state.decode_plan.get() : nullptr;
-    const ops::PrefillPlanCache* prefill_plan =
+    const kernels::attn::PrefillPlanCache* prefill_plan =
         (plan_state.use_prefill_plan && plan_state.prefill_plan)
             ? plan_state.prefill_plan.get()
             : nullptr;
@@ -6688,19 +6688,19 @@ const StageHooks* hooks)
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[0].attn_norm_pre, "layer.0.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_qkv, "layer.0.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_z, "layer.0.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_a, "layer.0.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[0].la_in_proj_b, "layer.0.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -6785,39 +6785,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[0].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[0].la_out_proj, "layer.0.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[0].mlp_norm_pre, "layer.0.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[1].attn_norm_pre, "layer.1.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_qkv, "layer.1.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_z, "layer.1.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_a, "layer.1.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[1].la_in_proj_b, "layer.1.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -6902,39 +6902,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[1].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[1].la_out_proj, "layer.1.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[1].mlp_norm_pre, "layer.1.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[2].attn_norm_pre, "layer.2.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_qkv, "layer.2.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_z, "layer.2.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_a, "layer.2.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[2].la_in_proj_b, "layer.2.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -7019,35 +7019,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[2].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[2].la_out_proj, "layer.2.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[2].mlp_norm_pre, "layer.2.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[3].attn_norm_pre, "layer.3.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_q_proj, "layer.3.q_proj"), w.layers[3].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_k_proj, "layer.3.k_proj"), w.layers[3].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[3].fa_v_proj, "layer.3.v_proj"), w.layers[3].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -7073,12 +7073,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -7088,7 +7088,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[3].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -7103,39 +7103,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             3u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].fa_o_proj, "layer.3.o_proj"), w.layers[3].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[3].mlp_norm_pre, "layer.3.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[4].attn_norm_pre, "layer.4.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_qkv, "layer.4.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_z, "layer.4.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_a, "layer.4.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[4].la_in_proj_b, "layer.4.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -7220,39 +7220,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[4].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[4].la_out_proj, "layer.4.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[4].mlp_norm_pre, "layer.4.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[5].attn_norm_pre, "layer.5.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_qkv, "layer.5.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_z, "layer.5.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_a, "layer.5.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[5].la_in_proj_b, "layer.5.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -7337,39 +7337,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[5].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[5].la_out_proj, "layer.5.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[5].mlp_norm_pre, "layer.5.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[6].attn_norm_pre, "layer.6.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_qkv, "layer.6.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_z, "layer.6.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_a, "layer.6.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[6].la_in_proj_b, "layer.6.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -7454,35 +7454,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[6].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[6].la_out_proj, "layer.6.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[6].mlp_norm_pre, "layer.6.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[7].attn_norm_pre, "layer.7.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_q_proj, "layer.7.q_proj"), w.layers[7].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_k_proj, "layer.7.k_proj"), w.layers[7].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[7].fa_v_proj, "layer.7.v_proj"), w.layers[7].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -7508,12 +7508,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -7523,7 +7523,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[7].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -7538,39 +7538,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             7u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].fa_o_proj, "layer.7.o_proj"), w.layers[7].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[7].mlp_norm_pre, "layer.7.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[8].attn_norm_pre, "layer.8.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_qkv, "layer.8.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_z, "layer.8.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_a, "layer.8.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[8].la_in_proj_b, "layer.8.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -7655,39 +7655,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[8].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[8].la_out_proj, "layer.8.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[8].mlp_norm_pre, "layer.8.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[9].attn_norm_pre, "layer.9.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_qkv, "layer.9.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_z, "layer.9.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_a, "layer.9.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[9].la_in_proj_b, "layer.9.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -7772,39 +7772,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[9].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[9].la_out_proj, "layer.9.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[9].mlp_norm_pre, "layer.9.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[10].attn_norm_pre, "layer.10.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_qkv, "layer.10.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_z, "layer.10.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_a, "layer.10.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[10].la_in_proj_b, "layer.10.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -7889,35 +7889,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[10].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[10].la_out_proj, "layer.10.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[10].mlp_norm_pre, "layer.10.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[11].attn_norm_pre, "layer.11.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_q_proj, "layer.11.q_proj"), w.layers[11].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_k_proj, "layer.11.k_proj"), w.layers[11].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[11].fa_v_proj, "layer.11.v_proj"), w.layers[11].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -7943,12 +7943,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -7958,7 +7958,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[11].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -7973,39 +7973,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             11u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].fa_o_proj, "layer.11.o_proj"), w.layers[11].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[11].mlp_norm_pre, "layer.11.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[12].attn_norm_pre, "layer.12.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_qkv, "layer.12.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_z, "layer.12.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_a, "layer.12.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[12].la_in_proj_b, "layer.12.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -8090,39 +8090,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[12].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[12].la_out_proj, "layer.12.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[12].mlp_norm_pre, "layer.12.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[13].attn_norm_pre, "layer.13.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_qkv, "layer.13.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_z, "layer.13.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_a, "layer.13.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[13].la_in_proj_b, "layer.13.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -8207,39 +8207,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[13].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[13].la_out_proj, "layer.13.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[13].mlp_norm_pre, "layer.13.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[14].attn_norm_pre, "layer.14.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_qkv, "layer.14.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_z, "layer.14.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_a, "layer.14.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[14].la_in_proj_b, "layer.14.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -8324,35 +8324,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[14].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[14].la_out_proj, "layer.14.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[14].mlp_norm_pre, "layer.14.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[15].attn_norm_pre, "layer.15.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_q_proj, "layer.15.q_proj"), w.layers[15].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_k_proj, "layer.15.k_proj"), w.layers[15].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[15].fa_v_proj, "layer.15.v_proj"), w.layers[15].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -8378,12 +8378,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -8393,7 +8393,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[15].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -8408,39 +8408,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             15u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].fa_o_proj, "layer.15.o_proj"), w.layers[15].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[15].mlp_norm_pre, "layer.15.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[16].attn_norm_pre, "layer.16.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_qkv, "layer.16.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_z, "layer.16.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_a, "layer.16.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[16].la_in_proj_b, "layer.16.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -8525,39 +8525,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[16].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[16].la_out_proj, "layer.16.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[16].mlp_norm_pre, "layer.16.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[17].attn_norm_pre, "layer.17.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_qkv, "layer.17.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_z, "layer.17.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_a, "layer.17.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[17].la_in_proj_b, "layer.17.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -8642,39 +8642,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[17].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[17].la_out_proj, "layer.17.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[17].mlp_norm_pre, "layer.17.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[18].attn_norm_pre, "layer.18.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_qkv, "layer.18.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_z, "layer.18.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_a, "layer.18.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[18].la_in_proj_b, "layer.18.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -8759,35 +8759,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[18].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[18].la_out_proj, "layer.18.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[18].mlp_norm_pre, "layer.18.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[19].attn_norm_pre, "layer.19.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_q_proj, "layer.19.q_proj"), w.layers[19].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_k_proj, "layer.19.k_proj"), w.layers[19].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[19].fa_v_proj, "layer.19.v_proj"), w.layers[19].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -8813,12 +8813,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -8828,7 +8828,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[19].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -8843,39 +8843,39 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             19u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[19].fa_o_proj, "layer.19.o_proj"), w.layers[19].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[19].mlp_norm_pre, "layer.19.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[20].attn_norm_pre, "layer.20.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_qkv, "layer.20.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_z, "layer.20.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_a, "layer.20.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[20].la_in_proj_b, "layer.20.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -8960,39 +8960,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[20].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[20].la_out_proj, "layer.20.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[20].mlp_norm_pre, "layer.20.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[21].attn_norm_pre, "layer.21.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_qkv, "layer.21.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_z, "layer.21.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_a, "layer.21.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[21].la_in_proj_b, "layer.21.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -9077,39 +9077,39 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[21].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[21].la_out_proj, "layer.21.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[21].mlp_norm_pre, "layer.21.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[22].attn_norm_pre, "layer.22.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_qkv, "layer.22.in_proj_qkv"),
         la.mixed_qkv.data(), N, conv_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_z, "layer.22.in_proj_z"),
         la.z.data(), N, V_dim, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_a, "layer.22.in_proj_a"),
         la.a.data(), N, V_h, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         *require(w.layers[22].la_in_proj_b, "layer.22.in_proj_b"),
         la.b.data(), N, V_h, H);
@@ -9194,35 +9194,35 @@ const StageHooks* hooks)
         la.core_out.data(), la.z.data(), w.layers[22].la_norm_w_fp32,
         la.core_out_bf16.data(),
         N * V_h, V_d, /*eps=*/eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         la.core_out_bf16.data(),
         *require(w.layers[22].la_out_proj, "layer.22.o_proj"),
         ws.y.data(), N, H, V_dim, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[22].mlp_norm_pre, "layer.22.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[23].attn_norm_pre, "layer.23.attn_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_q_proj, "layer.23.q_proj"), w.layers[23].fa_q_proj_quant),
         la.fa_qg_packed.data(), N, 2 * Hq, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_k_proj, "layer.23.k_proj"), w.layers[23].fa_k_proj_quant),
         ws.k.data(), N, Hk, H);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         make_weight_view(require(w.layers[23].fa_v_proj, "layer.23.v_proj"), w.layers[23].fa_v_proj_quant),
         ws.v.data(), N, Hk, H);
@@ -9248,12 +9248,12 @@ const StageHooks* hooks)
     }
     if (has_write_desc) {
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          kernels::launch_write_kv_explicit_bf16(
+          kernels::attn::write_kv_explicit_bf16(
               kv_view, ws.k.data(), ws.v.data(),
               w_page_d, w_off_d, N, stream, row_valid_d); }
     } else {
         { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-          kernels::launch_write_kv_to_pages(
+          kernels::attn::write_kv_to_pages(
               kv_view, ws.k.data(), ws.v.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
               kv_last_page_lens, N, R, stream); }
@@ -9263,7 +9263,7 @@ const StageHooks* hooks)
             "generated qwen35: no prefill plan");
     }
     { auto kv_view = cache.layer_view(w.layers[23].kv_layer);
-      ops::dispatch_attention_flashinfer_prefill_bf16(
+      kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
           *prefill_plan,
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
@@ -9278,20 +9278,20 @@ const StageHooks* hooks)
             static_cast<std::uint32_t>(Hq),
             23u, stream, /*query_is_f32=*/false);
     }
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         make_weight_view(require(w.layers[23].fa_o_proj, "layer.23.o_proj"), w.layers[23].fa_o_proj_quant),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), require(w.layers[23].mlp_norm_pre, "layer.23.mlp_norm")->data(),
         ws.norm_x.data(), N, H, eps, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_x.data(),
         ops::WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
-    ops::gemm_act_x_w(cublas.handle(),
+    kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
         make_weight_view(require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant),
         ws.y.data(), N, H, I, 1.f);
@@ -9310,11 +9310,11 @@ const StageHooks* hooks)
             logit_row_indices_d,
             static_cast<std::uint16_t*>(ws.norm_y.data()),
             num_logit_rows, H, stream);
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_y.data(), *require(w.embed, "embed"),
             ws.logits.data(), num_logit_rows, cfg.vocab_size, H);
     } else {
-        ops::gemm_act_x_w(cublas.handle(),
+        kernels::gemm::act_x_w(cublas.handle(),
             ws.norm_x.data(), *require(w.embed, "embed"),
             ws.logits.data(), N, cfg.vocab_size, H);
     }
@@ -9334,7 +9334,7 @@ Qwen3_5LinearAttnWorkspace& la,
 KvCache& cache,
 RecurrentStateCache& state_cache,
 AttentionWorkspace& attn_ws,
-ops::CublasHandle& cublas,
+kernels::gemm::CublasHandle& cublas,
 const std::int32_t* token_ids,
 const std::int32_t* positions,
 const std::uint32_t* qo_indptr,
@@ -9389,9 +9389,9 @@ const StageHooks* hooks,
     // No reset: the commit replay advances the existing
     // committed state (the interpreter's commit arm).
 
-    const ops::DecodePlanCache* decode_plan =
+    const kernels::attn::DecodePlanCache* decode_plan =
         plan_state.decode_plan ? plan_state.decode_plan.get() : nullptr;
-    const ops::PrefillPlanCache* prefill_plan =
+    const kernels::attn::PrefillPlanCache* prefill_plan =
         (plan_state.use_prefill_plan && plan_state.prefill_plan)
             ? plan_state.prefill_plan.get()
             : nullptr;

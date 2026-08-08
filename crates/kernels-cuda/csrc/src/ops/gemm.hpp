@@ -19,7 +19,7 @@
 #include "ops/quant_meta.hpp"
 #include "tensor.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::gemm {
 
 struct RuntimeQuantScratchSpec {
     std::size_t max_tokens = 0;
@@ -91,7 +91,7 @@ struct WeightView {
     const void*       scale_data = nullptr;
     DType             scale_dtype = DType::FP32;
     std::size_t       scale_numel = 0;
-    QuantMeta::Kind   quant_kind = QuantMeta::Kind::PerTensor;
+    ops::QuantMeta::Kind   quant_kind = ops::QuantMeta::Kind::PerTensor;
     const void*       zero_point_data = nullptr;
     int               group_size = 0;
     int               channel_axis = 0;
@@ -110,8 +110,8 @@ struct WeightView {
     }
 
     // Quantized weight: ties together a weight DeviceTensor and a
-    // `QuantMeta` snapshot pulled from `LoadedModel::quant_meta`.
-    static WeightView quantized(const DeviceTensor& weight, const QuantMeta& meta) {
+    // `ops::QuantMeta` snapshot pulled from `LoadedModel::quant_meta`.
+    static WeightView quantized(const DeviceTensor& weight, const ops::QuantMeta& meta) {
         WeightView v;
         v.data = weight.data();
         v.dtype = weight.dtype();
@@ -137,7 +137,7 @@ struct WeightView {
         v.scale_data = scale.data();
         v.scale_dtype = DType::UINT8;
         v.scale_numel = scale.numel();
-        v.quant_kind = QuantMeta::Kind::PerGroup;
+        v.quant_kind = ops::QuantMeta::Kind::PerGroup;
         v.group_size = 32;
         v.channel_axis = 0;
         return v;
@@ -176,8 +176,8 @@ private:
 //
 // `act_dtype` / `y_dtype` default to BF16 so the common-case call site
 // just passes `(handle, act, w_tensor, y, M, N, K[, beta])` unchanged
-// from the deprecated `gemm_act_x_wt_bf16` shape.
-void gemm_act_x_w(
+// from the deprecated `act_x_wt_bf16` shape.
+void act_x_w(
     cublasHandle_t handle,
     const void* act,
     WeightView w,
@@ -265,7 +265,7 @@ bool lm_head_argmax_supported(WeightView w);
 // All batch elements share `(act_dtype, w_dtype, y_dtype)`. M0 supports
 // only `(BF16, BF16, BF16)`. M2 will add per-batch scale pointers for
 // per-expert MoE FP8.
-void gemm_batched_act_x_w(
+void batched_act_x_w(
     cublasHandle_t handle,
     const void* const* act_ptrs_dev,
     const void* const* w_ptrs_dev,
@@ -291,7 +291,7 @@ void gemm_batched_act_x_w(
 // llama_like lora grouping both stage through per-use device slots.
 // `M_array` and the internal int/scalar arrays are consumed at call time
 // and may be transient host memory.
-void gemm_grouped_act_x_wt_bf16(
+void grouped_act_x_wt_bf16(
     cublasHandle_t handle,
     const void* const* act_ptrs_host,
     const void* const* W_ptrs_host,
@@ -306,23 +306,23 @@ void gemm_grouped_act_x_wt_bf16(
 // Thin wrappers around the dispatchers above. Kept as the primary entry
 // point for archs whose forward functions haven't been migrated to
 // `make_weight_view` yet (gemma2/3/4, gpt_oss, mixtral, gemma3n,
-// qwen3_5_moe). Functionally equivalent to calling `gemm_act_x_w` with
+// qwen3_5_moe). Functionally equivalent to calling `act_x_w` with
 // a `WeightView::raw(W, DType::BF16)` — bf16-only, no quant. Migrate to
-// `gemm_act_x_w` + `make_weight_view` when adding quant support to that
+// `act_x_w` + `make_weight_view` when adding quant support to that
 // arch.
-inline void gemm_act_x_wt_bf16(
+inline void act_x_wt_bf16(
     cublasHandle_t handle,
     const void* act, const void* W, void* y,
     int M, int N, int K, float beta = 0.f)
 {
-    gemm_act_x_w(handle, act, WeightView::raw(W, DType::BF16),
+    act_x_w(handle, act, WeightView::raw(W, DType::BF16),
                  y, M, N, K, beta);
 }
 
-// Same storage convention as `gemm_act_x_wt_bf16`, but materialises the
+// Same storage convention as `act_x_wt_bf16`, but materialises the
 // output as fp32. Used by routers that are specified to compute logits in
 // fp32 before top-k selection.
-void gemm_act_x_wt_bf16_out_fp32(
+void act_x_wt_bf16_out_fp32(
     cublasHandle_t handle,
     const void* act,
     const void* W,
@@ -333,7 +333,7 @@ void gemm_act_x_wt_bf16_out_fp32(
 
 // Dense bf16 linear with a broadcast row bias: y[m][n] = sum_k act[m][k] *
 // W[n][k] + bias[n]. `bias` may be null, in which case this is exactly
-// `gemm_act_x_wt_bf16`.
+// `act_x_wt_bf16`.
 //
 // At M=1 -- the decode shape -- the bias is folded into the GEMV epilogue,
 // which removes an entire kernel launch per biased projection. gpt-oss-20b
@@ -345,7 +345,7 @@ void gemm_act_x_wt_bf16_out_fp32(
 // The fold only happens when the dense autotuner has *already* chosen the
 // GEMV for this shape, so a shape where cuBLAS wins is never forced onto a
 // slower kernel just to save a launch. Set PIE_GEMV_FUSED_BIAS=0 to disable.
-void gemm_act_x_wt_bias_bf16(
+void act_x_wt_bias_bf16(
     cublasHandle_t handle,
     const void* act, const void* W, const void* bias, void* y,
     int M, int N, int K,
@@ -355,22 +355,22 @@ void gemm_act_x_wt_bias_bf16(
     // bias, so asking for both costs no more launches than asking for either.
     float beta = 0.f);
 
-// Same math as `gemm_act_x_wt_bf16`, but bypasses the cuBLASLt BF16
+// Same math as `act_x_wt_bf16`, but bypasses the cuBLASLt BF16
 // dispatcher. This is useful for a few skinny-M packed projections where
 // Lt's heuristic is slower than cuBLAS GEMMEx.
-void gemm_act_x_wt_bf16_cublas(
+void act_x_wt_bf16_cublas(
     cublasHandle_t handle,
     const void* act, const void* W, void* y,
     int M, int N, int K, float beta = 0.f);
 
-inline void gemm_batched_act_x_wt_bf16(
+inline void batched_act_x_wt_bf16(
     cublasHandle_t handle,
     const void* const* act_ptrs_dev,
     const void* const* W_ptrs_dev,
     void* const*       y_ptrs_dev,
     int M, int N, int K, int batch_count, float beta = 0.f)
 {
-    gemm_batched_act_x_w(handle,
+    batched_act_x_w(handle,
                          act_ptrs_dev, W_ptrs_dev, y_ptrs_dev,
                          M, N, K, batch_count, beta);
 }
@@ -404,4 +404,29 @@ void mla_absorb_latent_to_v_bf16(
     const void* attn_latent, const void* kv_b_proj, void* attn_v,
     int tokens, int heads, int qk_nope_dim, int v_head_dim, int kv_lora_rank);
 
+}  // namespace pie_cuda_driver::kernels::gemm
+
+// ---------------------------------------------------------------------------
+// `ops::` forwarding for the SHARED vocabulary.
+//
+// `WeightView` is not gemm's; it is the driver's, and this header is merely
+// where it was first needed. The driver names it `ops::WeightView` in 31
+// hand-written lines and 1068 generated ones. Moving the launchers into a
+// family namespace must not conscript a thousand lines of unrelated code, so
+// the types travel with the file and stay REACHABLE under their old spelling.
+// Zero call sites change.
+//
+// `CublasHandle` and `RuntimeQuantScratchSpec` are NOT here: four driver
+// headers forward-declare them, and a using-declaration cannot coexist with a
+// declaration of the same name in the same namespace. Those two are spelled
+// `kernels::gemm::` at their call sites -- 108 lines, against WeightView's
+// 1099.
+//
+// A shim with a job to finish: these types belong in a shared header beside
+// `tensor.hpp`, and when they get one this block goes away.
+// See .wiki/kernel-refactor.md §7 step 3.
+namespace pie_cuda_driver::ops {
+using kernels::gemm::WeightView;
+using kernels::gemm::RuntimeQuantContext;
+using kernels::gemm::ScopedRuntimeQuantContext;
 }  // namespace pie_cuda_driver::ops

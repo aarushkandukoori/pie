@@ -9,11 +9,11 @@ int main() {
     using namespace pie_cuda_driver;
 
     std::uint32_t kv_page_indptr[2] = {0, 1};
-    auto plan = ops::make_decode_plan();
+    auto plan = kernels::attn::make_decode_plan();
     AttentionWorkspace workspace;
 
     try {
-        ops::plan_attention_flashinfer_decode_bf16(
+        kernels::attn::plan_attention_flashinfer_decode_bf16(
             *plan,
             kv_page_indptr,
             /*num_requests=*/1,

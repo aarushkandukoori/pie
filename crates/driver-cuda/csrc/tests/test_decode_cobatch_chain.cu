@@ -185,10 +185,10 @@ ChainResult run_chain(const std::vector<Req>& reqs, int first, int R, int num_st
         kv_last_page_lens_h[i] = static_cast<std::uint32_t>(prefill[i] + num_steps);
     RT(cudaMemcpy(d_klpl, kv_last_page_lens_h.data(), R*4, cudaMemcpyHostToDevice));
     auto ws = AttentionWorkspace::allocate(256ull*1024*1024, 32ull*1024*1024);
-    auto plan = ops::make_decode_plan();
-    ops::plan_attention_flashinfer_decode(*plan, kv_page_indptr_h.data(), R, HQ, HKV, D, PAGE,
+    auto plan = kernels::attn::make_decode_plan();
+    kernels::attn::plan_attention_flashinfer_decode(*plan, kv_page_indptr_h.data(), R, HQ, HKV, D, PAGE,
         ws, nullptr, false, /*full_attention_variant=*/true, false);
-    ops::dispatch_attention_flashinfer_decode_bf16(
+    kernels::attn::dispatch_attention_flashinfer_decode_bf16(
         *plan, d_qout, d_k, d_v, d_o, d_kpi, d_kpp, d_klpl, ws, nullptr);
     RT(cudaDeviceSynchronize());
 

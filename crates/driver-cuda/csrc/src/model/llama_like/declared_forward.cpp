@@ -228,37 +228,37 @@ LaunchKernel resolve_launch_kernel(std::string_view kernel) {
     if (kernel == "rope::rope_standard_table") {
         return LaunchKernel::RopeStandardTable;
     }
-    if (kernel == "launch_qkv_decode_qk_norm_rope_write_kv_bf16") {
+    if (kernel == "attn::qkv_decode_qk_norm_rope_write_kv_bf16") {
         return LaunchKernel::QkvDecodeQkNormRopeWriteKv;
     }
     if (kernel == "rope::qk_rmsnorm_rope_bf16") {
         return LaunchKernel::QkRmsnormRope;
     }
-    if (kernel == "launch_attention_xqa_decode_bf16_prepared") {
+    if (kernel == "attn::attention_xqa_decode_bf16_prepared") {
         return LaunchKernel::AttentionXqaDecodePrepared;
     }
-    if (kernel == "dispatch_attention_flashinfer_decode") {
+    if (kernel == "attn::dispatch_attention_flashinfer_decode") {
         return LaunchKernel::AttentionFlashinferDecode;
     }
-    if (kernel == "launch_dequant_kv_cache_layer_to_bf16_active") {
+    if (kernel == "attn::dequant_kv_cache_layer_to_bf16_active") {
         return LaunchKernel::DequantKvCacheLayerToBf16Active;
     }
-    if (kernel == "dispatch_attention_flashinfer_prefill_bf16") {
+    if (kernel == "attn::dispatch_attention_flashinfer_prefill_bf16") {
         return LaunchKernel::AttentionFlashinferPrefill;
     }
-    if (kernel == "dispatch_attention_flashinfer_prefill_custom") {
+    if (kernel == "attn::dispatch_attention_flashinfer_prefill_custom") {
         return LaunchKernel::AttentionFlashinferPrefillCustom;
     }
-    if (kernel == "dispatch_attention_flashinfer_decode_capture") {
+    if (kernel == "attn::dispatch_attention_flashinfer_decode_capture") {
         return LaunchKernel::AttentionFlashinferDecodeCapture;
     }
-    if (kernel == "dispatch_attention_flashinfer_prefill_capture_bf16") {
+    if (kernel == "attn::dispatch_attention_flashinfer_prefill_capture_bf16") {
         return LaunchKernel::AttentionFlashinferPrefillCapture;
     }
-    if (kernel == "launch_write_kv_explicit_bf16") {
+    if (kernel == "attn::write_kv_explicit_bf16") {
         return LaunchKernel::WriteKvExplicit;
     }
-    if (kernel == "launch_write_kv_to_pages") {
+    if (kernel == "attn::write_kv_to_pages") {
         return LaunchKernel::WriteKvToPages;
     }
     if (kernel == "pie_lora_qkv_correction") {
@@ -726,7 +726,7 @@ void llama_like_forward_declared(
     Workspace& ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,
@@ -1001,12 +1001,12 @@ void llama_like_forward_declared(
     // The plan caches the (unchanged) prepare hook filled. The executor no
     // longer chooses between them — each stated attention kernel's handler
     // BINDS the cache its contract needs, loudly null-checked.
-    const ops::DecodePlanCache* decode_plan =
+    const kernels::attn::DecodePlanCache* decode_plan =
         plan_state.decode_plan ? plan_state.decode_plan.get() : nullptr;
-    const ops::PrefillPlanCache* prefill_decode_plan =
+    const kernels::attn::PrefillPlanCache* prefill_decode_plan =
         plan_state.prefill_decode_plan ? plan_state.prefill_decode_plan.get()
                                        : nullptr;
-    const ops::PrefillPlanCache* prefill_plan =
+    const kernels::attn::PrefillPlanCache* prefill_plan =
         plan_state.prefill_plan ? plan_state.prefill_plan.get() : nullptr;
 
     const std::size_t op_count = plan.op_count();
@@ -1017,8 +1017,8 @@ void llama_like_forward_declared(
         const PieForwardOp& op = plan.op(i);
         if (op.kind == PieForwardOpKind::Launch &&
             plan.weight_name(op) ==
-                "launch_attention_xqa_decode_bf16_prepared") {
-            ops::prepare_attention_xqa_decode_bf16(
+                "attn::attention_xqa_decode_bf16_prepared") {
+            kernels::attn::prepare_attention_xqa_decode_bf16(
                 kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 R_fire, cache.page_size(), plan_state.xqa_max_pages_per_seq,
                 attn_ws, stream);
@@ -1295,24 +1295,24 @@ void llama_like_forward_declared(
                 // (dsl::cuda::qkv_decode_qk_norm_rope_write_kv), stated as
                 // the next Launch op — the peephole that used to re-derive
                 // it here is deleted (rung 2, north-star-dsl.md).
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     ops::WeightView(wb.require(name)),
                     out_slot(0), N, Hq + 2 * Hk, H);
             } else if (nm.field == "q_proj") {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     make_weight_view(&wb.require(name),
                                      layer.q_proj_quant),
                     out_slot(0), N, Hq, H);
             } else if (nm.field == "k_proj") {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     make_weight_view(&wb.require(name),
                                      layer.k_proj_quant),
                     out_slot(0), N, Hk, H);
             } else if (nm.field == "v_proj") {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     make_weight_view(&wb.require(name),
                                      layer.v_proj_quant),
@@ -1323,7 +1323,7 @@ void llama_like_forward_declared(
                     // trace's beta_one is 0 here); Rmsnorm(attn_norm) +
                     // ResidualAdd land it on the stream — the hand-written
                     // post-norm block, same buffers, same order.
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         // The trace's operand order, from the builder:
                         // `matmul_inner(x, ...)` records the activation
                         // FIRST and `matmul_add` appends the residual, so
@@ -1337,7 +1337,7 @@ void llama_like_forward_declared(
                     // Residual accumulate folded into the GEMM (beta from
                     // the trace's beta_one), exactly the hand-written T==1
                     // branch.
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         // The trace's operand order, from the builder:
                         // `matmul_inner(x, ...)` records the activation
                         // FIRST and `matmul_add` appends the residual, so
@@ -1362,18 +1362,18 @@ void llama_like_forward_declared(
                     layer.gate_up_proj_fused != nullptr &&
                     !ws.gate_up_fused.empty();
                 if (gate_up_used_fused) {
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
                         ops::WeightView(*layer.gate_up_proj_fused),
                         ws.gate_up_fused.data(), N, 2 * I, H);
                 } else {
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
                         make_weight_view(
                             &wb.require_field(nm.layer, "gate_proj", name),
                             layer.gate_proj_quant),
                         ws.gate.data(), N, I, H);
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
                         make_weight_view(
                             &wb.require_field(nm.layer, "up_proj", name),
@@ -1388,13 +1388,13 @@ void llama_like_forward_declared(
                 if (post_norm) {
                     // Post-norm: down_proj → norm_x scratch (beta 0), then
                     // Rmsnorm(mlp_norm) + ResidualAdd — as o_proj above.
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         down_in,
                         make_weight_view(&wb.require(name),
                                          layer.down_proj_quant),
                         ws.norm_x.data(), N, H, I, beta);
                 } else {
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         down_in,
                         make_weight_view(&wb.require(name),
                                          layer.down_proj_quant),
@@ -1412,13 +1412,13 @@ void llama_like_forward_declared(
             // buffer — the hand-written tail split verbatim. Offset 0 +
             // full length is the plain full-N split.
             if (peel_window_d != nullptr && win_region == WinRegion::Tail) {
-                kernels::launch_split_qkv_bf16_devwin(
+                kernels::attn::split_qkv_bf16_devwin(
                     ws.qkv_fused.data(),
                     ws.q.data(), ws.k.data(), ws.v.data(),
                     peel_window_d, N, Hq, Hk, stream);
                 break;
             }
-            kernels::launch_split_qkv_bf16(
+            kernels::attn::split_qkv_bf16(
                 bf16_row(ws.qkv_fused.data(), win_start, Hq + 2 * Hk),
                 bf16_row(ws.q.data(), win_start, Hq),
                 bf16_row(ws.k.data(), win_start, Hk),
@@ -1515,7 +1515,7 @@ void llama_like_forward_declared(
                         "attn_page_mask was written but this layer does "
                         "not take the paged decode path");
                 }
-                if (!ops::decode_plan_is_page_count_independent(
+                if (!kernels::attn::decode_plan_is_page_count_independent(
                         *decode_plan)) {
                     throw std::runtime_error(
                         "attn_page_mask requires a page-count-independent "
@@ -1606,7 +1606,7 @@ void llama_like_forward_declared(
                 if (peel_window_d != nullptr) {
                     // Device-window capture: the prefix form — the word's
                     // START is this kernel's row count.
-                    kernels::launch_qkv_decode_qk_norm_rope_write_kv_bf16_devwin(
+                    kernels::attn::qkv_decode_qk_norm_rope_write_kv_bf16_devwin(
                         ws.qkv_fused.data(),
                         ws.q.data(),
                         cache.k(q_nm.layer), cache.v(q_nm.layer),
@@ -1624,7 +1624,7 @@ void llama_like_forward_declared(
                         cfg.rope_theta, eps, stream);
                     break;
                 }
-                kernels::launch_qkv_decode_qk_norm_rope_write_kv_bf16(
+                kernels::attn::qkv_decode_qk_norm_rope_write_kv_bf16(
                     ws.qkv_fused.data(),
                     ws.q.data(),
                     cache.k(q_nm.layer), cache.v(q_nm.layer),
@@ -1686,7 +1686,7 @@ void llama_like_forward_declared(
             case LaunchKernel::AttentionXqaDecodePrepared: {
                 resolve_masked_pages(/*takes_paged_decode=*/false);
                 auto kv_view = cache.layer_view(L);
-                ops::launch_attention_xqa_decode_bf16_prepared(
+                kernels::attn::attention_xqa_decode_bf16_prepared(
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     R, num_q_heads, num_kv_heads, dk,
@@ -1708,7 +1708,7 @@ void llama_like_forward_declared(
                             ? fwd_cfg.per_layer_window_left[L]
                             : fwd_cfg.sliding_window;
                     auto kv_view_b = cache.layer_view(L);
-                    ops::dispatch_attention_flashinfer_decode(
+                    kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.depth_band_plans
                              [static_cast<std::size_t>(depth_band_index)],
                         attn_q, kv_view_b, attn_out_buf,
@@ -1727,7 +1727,7 @@ void llama_like_forward_declared(
                             ? fwd_cfg.per_layer_window_left[L]
                             : fwd_cfg.sliding_window;
                     auto kv_view_d = cache.layer_view(L);
-                    ops::dispatch_attention_flashinfer_decode(
+                    kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.depth_prefix_decode_plan,
                         attn_q, kv_view_d, attn_out_buf,
                         kv_page_indices, kv_page_indptr,
@@ -1760,7 +1760,7 @@ void llama_like_forward_declared(
                     // consumes the ATTN page views (hook-narrowed when
                     // sites ran; aliases of the raw CSRs otherwise).
                     resolve_masked_pages(/*takes_paged_decode=*/true);
-                    ops::dispatch_attention_flashinfer_decode(
+                    kernels::attn::dispatch_attention_flashinfer_decode(
                         *decode_plan,
                         attn_q, kv_view, attn_out_buf,
                         attn_page_indices, attn_page_indptr,
@@ -1770,7 +1770,7 @@ void llama_like_forward_declared(
                     break;
                 }
                 resolve_masked_pages(/*takes_paged_decode=*/true);
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *decode_plan,
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
@@ -1792,7 +1792,7 @@ void llama_like_forward_declared(
                 }
                 resolve_masked_pages(/*takes_paged_decode=*/true);
                 auto kv_view = cache.layer_view(L);
-                ops::dispatch_attention_flashinfer_decode_capture(
+                kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *decode_plan,
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
@@ -1807,7 +1807,7 @@ void llama_like_forward_declared(
                 break;
             }
             case LaunchKernel::AttentionFlashinferPrefillCapture: {
-                const ops::PrefillPlanCache* pp =
+                const kernels::attn::PrefillPlanCache* pp =
                     is_pure_decode ? prefill_decode_plan : prefill_plan;
                 if (pp == nullptr) {
                     throw std::runtime_error(
@@ -1822,7 +1822,7 @@ void llama_like_forward_declared(
                 }
                 resolve_masked_pages(/*takes_paged_decode=*/false);
                 auto kv_view = cache.layer_view(L);
-                ops::dispatch_attention_flashinfer_prefill_capture_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *pp,
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
@@ -1846,7 +1846,7 @@ void llama_like_forward_declared(
                     mask_region == MaskRegion::Prefix
                         ? kv_page_indptr_h[plan_state.spatial_mask_split]
                         : kv_page_indptr_h[R];
-                kernels::launch_dequant_kv_cache_layer_to_bf16_active(
+                kernels::attn::dequant_kv_cache_layer_to_bf16_active(
                     kv_view, kv_page_indices, num_pages_in_batch, stream);
                 break;
             }
@@ -1858,7 +1858,7 @@ void llama_like_forward_declared(
                 // (llama_like.cpp:1457): the custom dispatch takes the
                 // layer view whole (no dequant) and the mask data rides
                 // as runtime args of the stated kernel.
-                const ops::PrefillPlanCache* mask_plan = is_pure_decode
+                const kernels::attn::PrefillPlanCache* mask_plan = is_pure_decode
                     ? (plan_state.mask_decode_plan
                            ? plan_state.mask_decode_plan.get()
                            : nullptr)
@@ -1893,7 +1893,7 @@ void llama_like_forward_declared(
                         plan_state.spatial_mask_row_split >= 0
                             ? plan_state.spatial_mask_row_split
                             : split;
-                    const ops::PrefillPlanCache* tail_plan =
+                    const kernels::attn::PrefillPlanCache* tail_plan =
                         plan_state.use_mask_decode_plan
                             ? plan_state.mask_decode_plan.get()
                             : nullptr;
@@ -1902,7 +1902,7 @@ void llama_like_forward_declared(
                             "spatial mask: peel tail without a suffix "
                             "mask plan");
                     }
-                    ops::dispatch_attention_flashinfer_prefill_custom(
+                    kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                         *tail_plan,
                         bf16_row(attn_q, split_rows, Hq), kv_view,
                         bf16_row(attn_out_buf, split_rows, Hq),
@@ -1918,7 +1918,7 @@ void llama_like_forward_declared(
                         stream);
                     break;
                 }
-                ops::dispatch_attention_flashinfer_prefill_custom(
+                kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *mask_plan,
                     attn_q, kv_view, attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -1935,11 +1935,11 @@ void llama_like_forward_declared(
                 // exists only in the fused deployment, whose facts
                 // require the unpadded head dim.
                 if (head_dim_padded) {
-                    kernels::launch_pad_head_dim_bf16(
+                    kernels::attn::pad_head_dim_bf16(
                         ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-                    kernels::launch_pad_head_dim_bf16(
+                    kernels::attn::pad_head_dim_bf16(
                         ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-                    kernels::launch_pad_head_dim_bf16(
+                    kernels::attn::pad_head_dim_bf16(
                         ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
                 }
                 // Windowed (A3): the tail rows' cells only, from their
@@ -1947,13 +1947,13 @@ void llama_like_forward_declared(
                 // write; offset 0 + full length is the plain form.
                 if (peel_window_d != nullptr &&
                     win_region == WinRegion::Tail) {
-                    kernels::launch_write_kv_explicit_bf16_devwin(
+                    kernels::attn::write_kv_explicit_bf16_devwin(
                         kv_view, attn_k, attn_v,
                         w_page_d, w_off_d,
                         peel_window_d, N, stream, row_valid_d);
                     break;
                 }
-                kernels::launch_write_kv_explicit_bf16(
+                kernels::attn::write_kv_explicit_bf16(
                     kv_view,
                     bf16_row(attn_k, win_start, Hk),
                     bf16_row(attn_v, win_start, Hk),
@@ -1994,11 +1994,11 @@ void llama_like_forward_declared(
                 auto kv_view = cache.layer_view(L);
                 // (Pad staging comment above applies here too.)
                 if (head_dim_padded) {
-                    kernels::launch_pad_head_dim_bf16(
+                    kernels::attn::pad_head_dim_bf16(
                         ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-                    kernels::launch_pad_head_dim_bf16(
+                    kernels::attn::pad_head_dim_bf16(
                         ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-                    kernels::launch_pad_head_dim_bf16(
+                    kernels::attn::pad_head_dim_bf16(
                         ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
                 }
                 // Windowed (A3): base pointers stay; `first_token` skips
@@ -2007,14 +2007,14 @@ void llama_like_forward_declared(
                 // plain form's default).
                 if (peel_window_d != nullptr &&
                     win_region == WinRegion::Tail) {
-                    kernels::launch_write_kv_to_pages_bf16_devwin(
+                    kernels::attn::write_kv_to_pages_bf16_devwin(
                         kv_view, attn_k, attn_v,
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         peel_window_d, N, R, stream, row_valid_d);
                     break;
                 }
-                kernels::launch_write_kv_to_pages(
+                kernels::attn::write_kv_to_pages(
                     kv_view, attn_k, attn_v,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
@@ -2047,7 +2047,7 @@ void llama_like_forward_declared(
                             ? fwd_cfg.per_layer_window_left[L]
                             : fwd_cfg.sliding_window;
                     auto kv_view = cache.layer_view(L);
-                    ops::launch_attention_flashinfer_prefill(
+                    kernels::attn::attention_flashinfer_prefill(
                         attn_q, kv_view, attn_out_buf,
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
@@ -2057,7 +2057,7 @@ void llama_like_forward_declared(
                         /*logits_soft_cap=*/0.f, sm_scale_override);
                     break;
                 }
-                const ops::PrefillPlanCache* pp =
+                const kernels::attn::PrefillPlanCache* pp =
                     is_pure_decode ? prefill_decode_plan : prefill_plan;
                 if (pp == nullptr) {
                     if (!fwd_cfg.force_prefill_path) {
@@ -2073,7 +2073,7 @@ void llama_like_forward_declared(
                             ? fwd_cfg.per_layer_window_left[L]
                             : fwd_cfg.sliding_window;
                     auto kv_view = cache.layer_view(L);
-                    ops::launch_attention_flashinfer_prefill(
+                    kernels::attn::attention_flashinfer_prefill(
                         attn_q, kv_view, attn_out_buf,
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
@@ -2084,7 +2084,7 @@ void llama_like_forward_declared(
                     break;
                 }
                 auto kv_view = cache.layer_view(L);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *pp,
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
@@ -2109,7 +2109,7 @@ void llama_like_forward_declared(
                                  fwd_cfg.per_layer_window_left.size()))
                             ? fwd_cfg.per_layer_window_left[L]
                             : fwd_cfg.sliding_window;
-                    ops::dispatch_attention_flashinfer_decode(
+                    kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.mixed_mid_decode_plan,
                         bf16_row(attn_q, mid_row, Hq), kv_view,
                         bf16_row(attn_out_buf, mid_row, Hq),
@@ -2131,14 +2131,14 @@ void llama_like_forward_declared(
             // owns the value; the launch is still the buffer's writer.
             const std::string_view launch_name = plan.weight_name(op);
             const bool is_attention_out =
-                launch_name == "launch_attention_xqa_decode_bf16_prepared" ||
-                launch_name == "dispatch_attention_flashinfer_decode" ||
-                launch_name == "dispatch_attention_flashinfer_prefill_bf16" ||
-                launch_name == "dispatch_attention_flashinfer_prefill_custom" ||
-                launch_name == "dispatch_attention_flashinfer_decode_capture" ||
-                launch_name == "dispatch_attention_flashinfer_prefill_capture_bf16";
+                launch_name == "attn::attention_xqa_decode_bf16_prepared" ||
+                launch_name == "attn::dispatch_attention_flashinfer_decode" ||
+                launch_name == "attn::dispatch_attention_flashinfer_prefill_bf16" ||
+                launch_name == "attn::dispatch_attention_flashinfer_prefill_custom" ||
+                launch_name == "attn::dispatch_attention_flashinfer_decode_capture" ||
+                launch_name == "attn::dispatch_attention_flashinfer_prefill_capture_bf16";
             if (is_attention_out && head_dim_padded) {
-                kernels::launch_strip_head_dim_bf16(
+                kernels::attn::strip_head_dim_bf16(
                     attn_out_buf, ws.attn_out.data(),
                     N, num_q_heads, d, dk, stream);
             }
@@ -2212,7 +2212,7 @@ void llama_like_forward_declared(
                     N_fire, H, eps, stream);
                 lm_head_input = ws.norm_y.data();
             }
-            ops::gemm_act_x_w(cublas.handle(),
+            kernels::gemm::act_x_w(cublas.handle(),
                 lm_head_input, ops::WeightView(*lm_head),
                 ws.logits.data(), lm_head_rows, V, H);
             break;
@@ -2418,7 +2418,7 @@ bool llama_like_forward_supergraph_build(
     Workspace& ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,

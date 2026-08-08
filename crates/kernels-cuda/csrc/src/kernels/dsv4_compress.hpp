@@ -3,11 +3,11 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 // Average-pool consecutive tokens: out[i] = mean(in[i*ratio : (i+1)*ratio])
 // Used by the compressor to reduce token count by compress_ratio.
-void launch_average_pool_bf16(
+void average_pool_bf16(
     const void* input,       // [N, dim] BF16
     void* output,            // [N/ratio, dim] BF16
     int N,
@@ -17,7 +17,7 @@ void launch_average_pool_bf16(
 
 // Add Accumulated Positional Embedding (APE) to compressed KV.
 // output[i] += ape[i % ratio]
-void launch_add_ape_f32(
+void add_ape_f32(
     void* data,              // [N_compressed, dim] BF16 (modified in-place)
     const float* ape,        // [ratio, dim] F32
     int N_compressed,
@@ -36,7 +36,7 @@ void launch_add_ape_f32(
 //   output [N/ratio, dim]   BF16 — compressed output
 //
 // N must be divisible by ratio.
-void launch_gated_softmax_pool_bf16(
+void gated_softmax_pool_bf16(
     const void* kv,
     const void* score,
     void* output,
@@ -64,7 +64,7 @@ void launch_gated_softmax_pool_bf16(
 //
 // Window slots that fall before the request's first token, or before
 // absolute position 0, are masked out (score `-inf`, weight 0).
-void launch_dsv4_compress_gather_bf16(
+void dsv4_compress_gather_bf16(
     const void* kv_proj,                // [N, coff*head_dim] BF16
     const void* score_proj,             // [N, coff*head_dim] BF16
     const float* ape,                   // [ratio, coff*head_dim] F32 or null
@@ -84,7 +84,7 @@ void launch_dsv4_compress_gather_bf16(
 // slots written by earlier forward passes are visible during decode.
 // `boundary_pos[c]` is the absolute position of entry `c`'s boundary token and
 // `boundary_req[c]` the index of the owning request.
-void launch_dsv4_compress_gather_paged_bf16(
+void dsv4_compress_gather_paged_bf16(
     const void* state_kv,               // [num_pages, page_size, coff*head_dim] BF16
     const void* state_score,            // [num_pages, page_size, coff*head_dim] BF16
     const float* ape,                   // [ratio, coff*head_dim] F32 or null
@@ -105,10 +105,10 @@ void launch_dsv4_compress_gather_paged_bf16(
 // at absolute position `(c + 1) * ratio - 1`.
 /// CUDA-graph-safe boundary metadata for pure decode. Emits one slot per
 /// token (`n` == number of requests); tokens whose position is not a window
-/// boundary get `out_pos = -1`, which `launch_dsv4_compress_gather_paged_bf16`
-/// zero-fills and `launch_dsv4_store_comp_entries_bf16` skips. Replaces the
+/// boundary get `out_pos = -1`, which `dsv4_compress_gather_paged_bf16`
+/// zero-fills and `dsv4_store_comp_entries_bf16` skips. Replaces the
 /// host scan + compaction, which required a D2H sync and blocked graph capture.
-void launch_dsv4_boundary_meta_decode(
+void dsv4_boundary_meta_decode(
     const std::int32_t* positions,
     std::int32_t*       out_pos,
     std::int32_t*       out_req,
@@ -118,7 +118,7 @@ void launch_dsv4_boundary_meta_decode(
     cudaStream_t        stream,
     const std::uint8_t* row_valid = nullptr);
 
-void launch_dsv4_store_comp_entries_bf16(
+void dsv4_store_comp_entries_bf16(
     const void* entries,                // [C, head_dim] BF16
     void* comp_kv_pages,                // [num_pages, page_size, head_dim] BF16
     const std::int32_t* boundary_pos,   // [C]
@@ -134,7 +134,7 @@ void launch_dsv4_store_comp_entries_bf16(
 // read through the KV page table: entry `c` of a request lives at absolute
 // position `(c + 1) * ratio - 1`. A query at absolute position `p` may attend
 // to entry `c` iff that boundary position is `<= p`.
-void launch_attention_compressed_paged_bf16(
+void attention_compressed_paged_bf16(
     const void* q,                      // [N, num_q_heads, head_dim] BF16
     const void* comp_kv_pages,          // [num_pages, page_size, head_dim] BF16
     void* o,                            // [N, num_q_heads, head_dim] BF16
@@ -167,7 +167,7 @@ void launch_attention_compressed_paged_bf16(
 //   lse1, lse2 [N, num_heads]              F32
 //   o_out      [N, num_heads * head_dim]   BF16 (may alias o1)
 //   lse_out    [N, num_heads]              F32 (may alias lse1)
-void launch_combine_attn_outputs_bf16(
+void combine_attn_outputs_bf16(
     const void* o1, const float* lse1,
     const void* o2, const float* lse2,
     void* o_out, float* lse_out,
@@ -193,7 +193,7 @@ void launch_combine_attn_outputs_bf16(
 //   qo_indptr    [R+1]                                  host
 //   comp_offsets [R]                                     host
 //   comp_lens    [R]                                     host
-void launch_attention_compressed_bf16(
+void attention_compressed_bf16(
     const void* q,
     const void* comp_kv,
     void* o,
@@ -209,4 +209,4 @@ void launch_attention_compressed_bf16(
     float sm_scale,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

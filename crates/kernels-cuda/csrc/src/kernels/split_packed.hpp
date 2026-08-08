@@ -13,28 +13,28 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
 // `packed` is row-major [N, q_dim + 2*kv_dim]; outputs are row-major
 // [N, q_dim] / [N, kv_dim] / [N, kv_dim]. Buffers must not overlap with
 // `packed`.
 // Peel device-window variant: {start, len} in device memory, full-grid
 // launch with early-out, base pointers.
-void launch_split_qkv_bf16_devwin(
+void split_qkv_bf16_devwin(
     const void* packed,
     void* q_out, void* k_out, void* v_out,
     const std::uint32_t* win_d,
     int n_max, int q_dim, int kv_dim,
     cudaStream_t stream);
 
-void launch_split_qkv_bf16(
+void split_qkv_bf16(
     const void* packed,
     void* q_out, void* k_out, void* v_out,
     int n_tokens, int q_dim, int kv_dim,
     cudaStream_t stream);
 
 // `packed` is row-major [N, 2*inter]; outputs are row-major [N, inter].
-void launch_split_gate_up_bf16(
+void split_gate_up_bf16(
     const void* packed,
     void* gate_out, void* up_out,
     int n_tokens, int inter,
@@ -44,7 +44,7 @@ void launch_split_gate_up_bf16(
 // and standard RoPE. Reads packed [R, q_dim + 2 * kv_dim], writes Q to
 // [R, num_q_heads, head_dim], and writes K/V directly into the paged cache at
 // the current decode position for each request.
-void launch_qkv_decode_qk_norm_rope_write_kv_bf16(
+void qkv_decode_qk_norm_rope_write_kv_bf16(
     const void* packed,
     void* q_out,
     void* k_pages,
@@ -74,7 +74,7 @@ void launch_qkv_decode_qk_norm_rope_write_kv_bf16(
 // START is this kernel's row count (the tail region starts where the
 // prefix ends). Grid spans the full `n_max` lanes; out-of-window rows
 // early-out, so a captured launch replays across row splits.
-void launch_qkv_decode_qk_norm_rope_write_kv_bf16_devwin(
+void qkv_decode_qk_norm_rope_write_kv_bf16_devwin(
     const void* packed,
     void* q_out,
     void* k_pages,
@@ -104,7 +104,7 @@ void launch_qkv_decode_qk_norm_rope_write_kv_bf16_devwin(
 // Each input row has a corresponding decode-style KV page table row. The
 // kernel writes only Q scratch plus normalized/rotated K and normalized V
 // directly into the paged cache, preserving the unfused bf16 rounding points.
-void launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
+void qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
     const void* packed,
     void* q_out,
     void* k_pages,
@@ -126,4 +126,4 @@ void launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
     float eps,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn

@@ -43,7 +43,7 @@ void KimiModel::prepare(AttentionWorkspace& attn_ws,
 void KimiModel::body(Workspace& ws,
                      KvCache& /*kv*/,
                      AttentionWorkspace& attn_ws,
-                     ops::CublasHandle& cublas,
+                     kernels::gemm::CublasHandle& cublas,
                      const ForwardFn::ForwardInputs& in) {
     kimi_forward_paged(
         weights_, hf_config_, fwd_cfg_, plan_state_, ws_, mla_cache_,

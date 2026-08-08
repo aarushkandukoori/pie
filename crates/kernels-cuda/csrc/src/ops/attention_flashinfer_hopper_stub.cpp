@@ -1,7 +1,7 @@
 #include "ops/attention_flashinfer_hopper.hpp"
 #include <stdexcept>
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::attn {
 
 bool hopper_prefill_supported(int /*head_dim*/,
                               int /*window_left*/,
@@ -50,12 +50,12 @@ void dispatch_attention_flashinfer_prefill_sm90_bf16(
     throw std::runtime_error("flashinfer sm90 prefill is not built for this CUDA architecture");
 }
 
-// `merge_attention_states_bf16` is deliberately NOT stubbed here.
+// `kernels::attn::merge_attention_states_bf16` is deliberately NOT stubbed here.
 //
 // It used to be, on the reasoning that the KV split producing its inputs was
 // the sm90 prefill's, so the only caller ran after a dispatch that had
 // already thrown. That was wrong: the DECODE KV-split path calls
-// `dispatch_attention_flashinfer_decode_bf16`, which is built on every
+// `kernels::attn::dispatch_attention_flashinfer_decode_bf16`, which is built on every
 // architecture, and then merges. On sm_100 the dispatch succeeded and this
 // stub threw on the first fire, poisoning the driver and taking gpt-oss and
 // gemma-4 down with it.
@@ -65,7 +65,7 @@ void dispatch_attention_flashinfer_prefill_sm90_bf16(
 // which is the desired outcome: it makes the mistake a link error rather
 // than a runtime one.
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::attn
 
 namespace pie_cuda_driver::ops::detail {
 

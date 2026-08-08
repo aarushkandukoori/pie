@@ -29,7 +29,7 @@ public:
     void body(Workspace& ws,
               KvCache& kv,
               AttentionWorkspace& attn_ws,
-              ops::CublasHandle& cublas,
+              kernels::gemm::CublasHandle& cublas,
               const ForwardFn::ForwardInputs& in) override;
 
     ModelCapabilities capabilities() const override { return caps_; }
@@ -37,7 +37,7 @@ public:
     bool supergraph_body(Workspace& ws,
                          KvCache& kv,
                          AttentionWorkspace& attn_ws,
-                         ops::CublasHandle& cublas,
+                         kernels::gemm::CublasHandle& cublas,
                          const ForwardFn::ForwardInputs& in,
                          batch::SupergraphBuilder& sg) override;
     std::uint32_t graph_layout() override;

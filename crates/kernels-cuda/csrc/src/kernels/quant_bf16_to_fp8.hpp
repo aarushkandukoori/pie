@@ -7,7 +7,7 @@
 // reads the source weight, computes absmax, and stores the quantized weight
 // plus scale tensor directly as runtime outputs.
 //
-// The scale convention matches what `ops::gemm_act_x_w` expects from a
+// The scale convention matches what `kernels::gemm::act_x_w` expects from a
 // `QuantMeta` — cuBLASLt multiplies operand A by the scale pointer
 // before the matmul, so storing `weight_scale_inv` (not its reciprocal)
 // lets the dispatcher hand the same float to cuBLASLt unchanged. INT8
@@ -17,7 +17,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::quant {
 
 /// Per-channel symmetric INT8 quantization along axis 0 of a row-major
 /// `[rows, cols]` weight. Mirrors the FP8 per-channel kernel: one block
@@ -197,4 +197,4 @@ void quantize_bf16_to_fp8_e4m3_per_token_group(
     int            group_size,
     cudaStream_t   stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::quant

@@ -86,7 +86,7 @@ void gemma2_forward_paged(
     Workspace& ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,
@@ -125,10 +125,10 @@ void gemma2_forward_paged(
         ws.y.data(), std::sqrt(static_cast<float>(H)),
         static_cast<std::size_t>(N) * H, stream);
 
-    ops::DecodePlanCachePtr decode_plan;
+    kernels::attn::DecodePlanCachePtr decode_plan;
     if (use_decode_path) {
-        decode_plan = ops::make_decode_plan();
-        ops::plan_attention_flashinfer_decode(
+        decode_plan = kernels::attn::make_decode_plan();
+        kernels::attn::plan_attention_flashinfer_decode(
             *decode_plan, kv_page_indptr_h, R,
             num_q_heads_local, num_kv_heads_local, d,
             cache.page_size(), attn_ws, stream,
@@ -156,11 +156,11 @@ void gemma2_forward_paged(
             N, H, eps, stream);
 
         // 1b. QKV projection.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.q_proj->data(), ws.q.data(), N, Hq, H);
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.k_proj->data(), ws.k.data(), N, Hk, H);
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.v_proj->data(), ws.v.data(), N, Hk, H);
 
         // Per-head q/k RMSNorm (Gemma-3+) — applied before the query
@@ -208,7 +208,7 @@ void gemma2_forward_paged(
             static_cast<std::uint32_t>(L), stream);
 
         auto kv_view = cache.layer_view(L);
-        kernels::launch_write_kv_to_pages(
+        kernels::attn::write_kv_to_pages(
             kv_view, ws.k.data(), ws.v.data(),
             qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
             N, R, stream);
@@ -220,20 +220,20 @@ void gemma2_forward_paged(
                 : -1;
 
         if (use_decode_path) {
-            ops::dispatch_attention_flashinfer_decode(
+            kernels::attn::dispatch_attention_flashinfer_decode(
                 *decode_plan,
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 attn_ws, stream, layer_window_left, fwd_cfg.attn_logit_softcap);
         } else if (custom_mask_d) {
-            ops::launch_attention_flashinfer_prefill_custom(
+            kernels::attn::attention_flashinfer_prefill_custom(
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 custom_mask_d, custom_mask_indptr_d,
                 qo_indptr_h, kv_page_indptr_h,
                 N, R, num_q_heads_local, attn_ws, stream);
         } else {
-            ops::launch_attention_flashinfer_prefill(
+            kernels::attn::attention_flashinfer_prefill(
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 qo_indptr_h, kv_page_indptr_h,
@@ -250,7 +250,7 @@ void gemma2_forward_paged(
         // 1c. o_proj → norm_x scratch (NOT into y), apply post-attn norm,
         //     then residual-add into y. Under TP this is row-parallel; we
         //     all-reduce the partial sum before the post-attn norm sees it.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.attn_out.data(), layer.o_proj->data(), ws.norm_x.data(),
             N, H, Hq, /*beta=*/0.f);
         if (T > 1) {
@@ -271,9 +271,9 @@ void gemma2_forward_paged(
             N, H, eps, stream);
 
         // 2b. GeGLU(tanh): gate / up GEMMs, GeLU-tanh-glu, down.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.gate_proj->data(), ws.gate.data(), N, I, H);
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.norm_x.data(), layer.up_proj->data(),   ws.up.data(),   N, I, H);
         kernels::mlp::geglu_tanh_bf16(
             ws.gate.data(), ws.up.data(), ws.gate.data(),
@@ -281,7 +281,7 @@ void gemma2_forward_paged(
 
         // 2c. down → norm_x scratch, apply post-MLP norm, residual-add.
         // Same row-parallel + all-reduce dance as o_proj.
-        ops::gemm_act_x_wt_bf16(cublas.handle(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),
             ws.gate.data(), layer.down_proj->data(), ws.norm_x.data(),
             N, H, I, /*beta=*/0.f);
         if (T > 1) {
@@ -299,12 +299,12 @@ void gemma2_forward_paged(
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), w.final_norm->data(), ws.norm_x.data(),
         N, H, eps, stream);
-    ops::gemm_act_x_wt_bf16(cublas.handle(),
+    kernels::gemm::act_x_wt_bf16(cublas.handle(),
         ws.norm_x.data(), w.lm_head->data(), ws.logits.data(),
         N, V, H);
 
     if (fwd_cfg.final_logit_softcap > 0.f) {
-        kernels::launch_logit_softcap_bf16(
+        kernels::attn::logit_softcap_bf16(
             ws.logits.data(), fwd_cfg.final_logit_softcap,
             static_cast<std::size_t>(N) * V, stream);
     }

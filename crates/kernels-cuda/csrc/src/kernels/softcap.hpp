@@ -11,12 +11,12 @@
 #include <cstddef>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::attn {
 
-void launch_logit_softcap_bf16(
+void logit_softcap_bf16(
     void* x,            // [n] bf16 in-place
     float cap,
     std::size_t n,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::attn
