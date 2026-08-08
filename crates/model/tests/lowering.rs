@@ -900,3 +900,24 @@ fn the_kimi_k3_decode_text_lowers() {
     );
     assert_eq!(out.coverage(), 1.0);
 }
+
+/// deepseek_v4's CUDA decode text lowers with nothing left over.
+///
+/// The two schemes this family alone carries are what the gate is for:
+/// a rank-K residual that never spells `y += ...`, and a two-pass
+/// attention combined by its LSEs.
+#[test]
+fn the_deepseek_v4_decode_text_lowers() {
+    use model::deepseek_v4::forward::facts::Dsv4Facts;
+    let facts = Dsv4Facts::dsv4_synthetic();
+    let plan = model::deepseek_v4::forward::dsv4_cuda(&facts, FireClass::Decode);
+    let out = lower(&plan, &sampled(1), Fire::default())
+        .unwrap_or_else(|e| panic!("deepseek_v4's decode text must lower: {e:?}"));
+    assert!(
+        out.residue.is_empty(),
+        "{} statement(s) still owe a declaration: {:#?}",
+        out.residue.len(),
+        out.residue
+    );
+    assert_eq!(out.coverage(), 1.0);
+}
