@@ -1297,7 +1297,7 @@ void llama_like_forward_declared(
                 // it here is deleted (rung 2, north-star-dsl.md).
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
-                    ops::WeightView(wb.require(name)),
+                    WeightView(wb.require(name)),
                     out_slot(0), N, Hq + 2 * Hk, H);
             } else if (nm.field == "q_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
@@ -1364,7 +1364,7 @@ void llama_like_forward_declared(
                 if (gate_up_used_fused) {
                     kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
-                        ops::WeightView(*layer.gate_up_proj_fused),
+                        WeightView(*layer.gate_up_proj_fused),
                         ws.gate_up_fused.data(), N, 2 * I, H);
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),
@@ -2213,7 +2213,7 @@ void llama_like_forward_declared(
                 lm_head_input = ws.norm_y.data();
             }
             kernels::gemm::act_x_w(cublas.handle(),
-                lm_head_input, ops::WeightView(*lm_head),
+                lm_head_input, WeightView(*lm_head),
                 ws.logits.data(), lm_head_rows, V, H);
             break;
         }

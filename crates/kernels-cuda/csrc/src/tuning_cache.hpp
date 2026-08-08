@@ -27,7 +27,7 @@
 
 
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver {
 
 // Mixes `v` into hash `h`. Callers fold each dimension of a problem shape
 // through this to get a cache key.
@@ -139,4 +139,4 @@ class TuningCache {
     std::unordered_map<std::uint64_t, std::pair<int, int>> entries_;
 };
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver

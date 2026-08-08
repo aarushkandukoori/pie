@@ -1914,7 +1914,7 @@ bool moe_block(
                         stream, [&] {
                             kernels::gemm::act_x_w(cublas.handle(),
                                 ws.norm_x.data(),
-                                ops::WeightView(*Lw.shared_gate_up_gate_proj),
+                                WeightView(*Lw.shared_gate_up_gate_proj),
                                 moe_ws.shared_gate_up.data(), N, 2 * Is + 1, H);
                             kernels::mlp::chunked_swiglu_strided_bf16(
                                 moe_ws.shared_gate_up.data(),
@@ -1925,7 +1925,7 @@ bool moe_block(
                         profile, profile ? &profile->moe_shared_gate_up_ms : nullptr,
                         stream, [&] {
                             kernels::gemm::act_x_w(cublas.handle(),
-                                ws.norm_x.data(), ops::WeightView(*Lw.shared_gate_up_proj),
+                                ws.norm_x.data(), WeightView(*Lw.shared_gate_up_proj),
                                 moe_ws.shared_gate_up.data(), N, 2 * Is, H);
                             kernels::mlp::chunked_swiglu_bf16(
                                 moe_ws.shared_gate_up.data(),

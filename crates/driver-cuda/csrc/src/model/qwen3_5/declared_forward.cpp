@@ -746,7 +746,7 @@ bool forward_declared_tmpl(
                 // check), so a missing bank here is drift, not dispatch.
                 kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(),
-                    ops::WeightView(wb.require(name)),
+                    WeightView(wb.require(name)),
                     ws.gate_up_fused.data(), N, qgkv_dim, H);
             } else if (nm.field == "q_proj") {
                 // 2×-wide gated q → the packed [query | gate] buffer.
@@ -829,7 +829,7 @@ bool forward_declared_tmpl(
                 if (gate_up_used_fused) {
                     kernels::gemm::act_x_w(cublas.handle(),
                         ws.norm_x.data(),
-                        ops::WeightView(*layer.gate_up_proj_fused),
+                        WeightView(*layer.gate_up_proj_fused),
                         ws.gate_up_fused.data(), N, 2 * I, H);
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),

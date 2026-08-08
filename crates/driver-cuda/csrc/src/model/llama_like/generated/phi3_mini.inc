@@ -439,7 +439,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
+        WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -749,7 +749,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
+        WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -1059,7 +1059,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
+        WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -1369,7 +1369,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
+        WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -1679,7 +1679,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
+        WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -1989,7 +1989,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
+        WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -2299,7 +2299,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
+        WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -2609,7 +2609,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
+        WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -2919,7 +2919,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
+        WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -3229,7 +3229,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
+        WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -3539,7 +3539,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
+        WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -3849,7 +3849,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
+        WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -4159,7 +4159,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
+        WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -4469,7 +4469,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
+        WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -4779,7 +4779,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
+        WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -5089,7 +5089,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
+        WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -5399,7 +5399,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
+        WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -5709,7 +5709,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
+        WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -6019,7 +6019,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
+        WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -6329,7 +6329,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
+        WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -6639,7 +6639,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
+        WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -6949,7 +6949,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
+        WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -7259,7 +7259,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
+        WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -7569,7 +7569,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
+        WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -7879,7 +7879,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[24].gate_up_proj_fused, "layer.24.gate_up")),
+        WeightView(*require(w.layers[24].gate_up_proj_fused, "layer.24.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -8189,7 +8189,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[25].gate_up_proj_fused, "layer.25.gate_up")),
+        WeightView(*require(w.layers[25].gate_up_proj_fused, "layer.25.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -8499,7 +8499,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[26].gate_up_proj_fused, "layer.26.gate_up")),
+        WeightView(*require(w.layers[26].gate_up_proj_fused, "layer.26.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -8809,7 +8809,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[27].gate_up_proj_fused, "layer.27.gate_up")),
+        WeightView(*require(w.layers[27].gate_up_proj_fused, "layer.27.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -9119,7 +9119,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[28].gate_up_proj_fused, "layer.28.gate_up")),
+        WeightView(*require(w.layers[28].gate_up_proj_fused, "layer.28.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -9429,7 +9429,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[29].gate_up_proj_fused, "layer.29.gate_up")),
+        WeightView(*require(w.layers[29].gate_up_proj_fused, "layer.29.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -9739,7 +9739,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[30].gate_up_proj_fused, "layer.30.gate_up")),
+        WeightView(*require(w.layers[30].gate_up_proj_fused, "layer.30.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -10049,7 +10049,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[31].gate_up_proj_fused, "layer.31.gate_up")),
+        WeightView(*require(w.layers[31].gate_up_proj_fused, "layer.31.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -10086,7 +10086,7 @@ std::uint32_t declared_full_depth_rows)
             lm_head_input = ws.norm_y.data();
         }
         kernels::gemm::act_x_w(cublas.handle(),
-            lm_head_input, ops::WeightView(*require(w.lm_head, "lm_head")),
+            lm_head_input, WeightView(*require(w.lm_head, "lm_head")),
             ws.logits.data(), lm_head_rows, V, H);
     }
 }
@@ -10483,7 +10483,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
+        WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -10758,7 +10758,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
+        WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -11033,7 +11033,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
+        WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -11308,7 +11308,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
+        WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -11583,7 +11583,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
+        WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -11858,7 +11858,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
+        WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -12133,7 +12133,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
+        WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -12408,7 +12408,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
+        WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -12683,7 +12683,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
+        WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -12958,7 +12958,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
+        WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -13233,7 +13233,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
+        WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -13508,7 +13508,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
+        WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -13783,7 +13783,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
+        WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -14058,7 +14058,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
+        WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -14333,7 +14333,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
+        WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -14608,7 +14608,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
+        WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -14883,7 +14883,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
+        WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -15158,7 +15158,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
+        WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -15433,7 +15433,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
+        WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -15708,7 +15708,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
+        WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -15983,7 +15983,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
+        WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -16258,7 +16258,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
+        WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -16533,7 +16533,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
+        WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -16808,7 +16808,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
+        WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -17083,7 +17083,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[24].gate_up_proj_fused, "layer.24.gate_up")),
+        WeightView(*require(w.layers[24].gate_up_proj_fused, "layer.24.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -17358,7 +17358,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[25].gate_up_proj_fused, "layer.25.gate_up")),
+        WeightView(*require(w.layers[25].gate_up_proj_fused, "layer.25.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -17633,7 +17633,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[26].gate_up_proj_fused, "layer.26.gate_up")),
+        WeightView(*require(w.layers[26].gate_up_proj_fused, "layer.26.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -17908,7 +17908,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[27].gate_up_proj_fused, "layer.27.gate_up")),
+        WeightView(*require(w.layers[27].gate_up_proj_fused, "layer.27.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -18183,7 +18183,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[28].gate_up_proj_fused, "layer.28.gate_up")),
+        WeightView(*require(w.layers[28].gate_up_proj_fused, "layer.28.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -18458,7 +18458,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[29].gate_up_proj_fused, "layer.29.gate_up")),
+        WeightView(*require(w.layers[29].gate_up_proj_fused, "layer.29.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -18733,7 +18733,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[30].gate_up_proj_fused, "layer.30.gate_up")),
+        WeightView(*require(w.layers[30].gate_up_proj_fused, "layer.30.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -19008,7 +19008,7 @@ std::uint32_t declared_full_depth_rows)
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[31].gate_up_proj_fused, "layer.31.gate_up")),
+        WeightView(*require(w.layers[31].gate_up_proj_fused, "layer.31.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -19045,7 +19045,7 @@ std::uint32_t declared_full_depth_rows)
             lm_head_input = ws.norm_y.data();
         }
         kernels::gemm::act_x_w(cublas.handle(),
-            lm_head_input, ops::WeightView(*require(w.lm_head, "lm_head")),
+            lm_head_input, WeightView(*require(w.lm_head, "lm_head")),
             ws.logits.data(), lm_head_rows, V, H);
     }
 }
@@ -19269,7 +19269,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
+        WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -19361,7 +19361,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
+        WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -19453,7 +19453,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
+        WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -19545,7 +19545,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
+        WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -19637,7 +19637,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
+        WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -19729,7 +19729,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
+        WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -19821,7 +19821,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
+        WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -19913,7 +19913,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
+        WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20005,7 +20005,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
+        WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20097,7 +20097,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
+        WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20189,7 +20189,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
+        WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20281,7 +20281,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
+        WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20373,7 +20373,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
+        WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20465,7 +20465,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
+        WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20557,7 +20557,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
+        WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20649,7 +20649,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
+        WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20741,7 +20741,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
+        WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20833,7 +20833,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
+        WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -20925,7 +20925,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
+        WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21017,7 +21017,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
+        WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21109,7 +21109,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
+        WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21201,7 +21201,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
+        WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21293,7 +21293,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
+        WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21385,7 +21385,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
+        WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21477,7 +21477,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[24].gate_up_proj_fused, "layer.24.gate_up")),
+        WeightView(*require(w.layers[24].gate_up_proj_fused, "layer.24.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21569,7 +21569,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[25].gate_up_proj_fused, "layer.25.gate_up")),
+        WeightView(*require(w.layers[25].gate_up_proj_fused, "layer.25.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21661,7 +21661,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[26].gate_up_proj_fused, "layer.26.gate_up")),
+        WeightView(*require(w.layers[26].gate_up_proj_fused, "layer.26.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21753,7 +21753,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[27].gate_up_proj_fused, "layer.27.gate_up")),
+        WeightView(*require(w.layers[27].gate_up_proj_fused, "layer.27.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21845,7 +21845,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[28].gate_up_proj_fused, "layer.28.gate_up")),
+        WeightView(*require(w.layers[28].gate_up_proj_fused, "layer.28.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -21937,7 +21937,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[29].gate_up_proj_fused, "layer.29.gate_up")),
+        WeightView(*require(w.layers[29].gate_up_proj_fused, "layer.29.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -22029,7 +22029,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[30].gate_up_proj_fused, "layer.30.gate_up")),
+        WeightView(*require(w.layers[30].gate_up_proj_fused, "layer.30.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -22121,7 +22121,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[31].gate_up_proj_fused, "layer.31.gate_up")),
+        WeightView(*require(w.layers[31].gate_up_proj_fused, "layer.31.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -22156,7 +22156,7 @@ std::uint32_t declared_full_depth_rows,
             lm_head_input = ws.norm_y.data();
         }
         kernels::gemm::act_x_w(cublas.handle(),
-            lm_head_input, ops::WeightView(*require(w.lm_head, "lm_head")),
+            lm_head_input, WeightView(*require(w.lm_head, "lm_head")),
             ws.logits.data(), lm_head_rows, V, H);
     }
         }
@@ -22277,7 +22277,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
+        WeightView(*require(w.layers[0].gate_up_proj_fused, "layer.0.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -22394,7 +22394,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
+        WeightView(*require(w.layers[1].gate_up_proj_fused, "layer.1.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -22511,7 +22511,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
+        WeightView(*require(w.layers[2].gate_up_proj_fused, "layer.2.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -22628,7 +22628,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
+        WeightView(*require(w.layers[3].gate_up_proj_fused, "layer.3.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -22745,7 +22745,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
+        WeightView(*require(w.layers[4].gate_up_proj_fused, "layer.4.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -22862,7 +22862,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
+        WeightView(*require(w.layers[5].gate_up_proj_fused, "layer.5.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -22979,7 +22979,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
+        WeightView(*require(w.layers[6].gate_up_proj_fused, "layer.6.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -23096,7 +23096,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
+        WeightView(*require(w.layers[7].gate_up_proj_fused, "layer.7.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -23213,7 +23213,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
+        WeightView(*require(w.layers[8].gate_up_proj_fused, "layer.8.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -23330,7 +23330,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
+        WeightView(*require(w.layers[9].gate_up_proj_fused, "layer.9.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -23447,7 +23447,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
+        WeightView(*require(w.layers[10].gate_up_proj_fused, "layer.10.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -23564,7 +23564,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
+        WeightView(*require(w.layers[11].gate_up_proj_fused, "layer.11.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -23681,7 +23681,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
+        WeightView(*require(w.layers[12].gate_up_proj_fused, "layer.12.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -23798,7 +23798,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
+        WeightView(*require(w.layers[13].gate_up_proj_fused, "layer.13.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -23915,7 +23915,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
+        WeightView(*require(w.layers[14].gate_up_proj_fused, "layer.14.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -24032,7 +24032,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
+        WeightView(*require(w.layers[15].gate_up_proj_fused, "layer.15.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -24149,7 +24149,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
+        WeightView(*require(w.layers[16].gate_up_proj_fused, "layer.16.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -24266,7 +24266,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
+        WeightView(*require(w.layers[17].gate_up_proj_fused, "layer.17.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -24383,7 +24383,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
+        WeightView(*require(w.layers[18].gate_up_proj_fused, "layer.18.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -24500,7 +24500,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
+        WeightView(*require(w.layers[19].gate_up_proj_fused, "layer.19.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -24617,7 +24617,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
+        WeightView(*require(w.layers[20].gate_up_proj_fused, "layer.20.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -24734,7 +24734,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
+        WeightView(*require(w.layers[21].gate_up_proj_fused, "layer.21.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -24851,7 +24851,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
+        WeightView(*require(w.layers[22].gate_up_proj_fused, "layer.22.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -24968,7 +24968,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
+        WeightView(*require(w.layers[23].gate_up_proj_fused, "layer.23.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -25085,7 +25085,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[24].gate_up_proj_fused, "layer.24.gate_up")),
+        WeightView(*require(w.layers[24].gate_up_proj_fused, "layer.24.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -25202,7 +25202,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[25].gate_up_proj_fused, "layer.25.gate_up")),
+        WeightView(*require(w.layers[25].gate_up_proj_fused, "layer.25.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -25319,7 +25319,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[26].gate_up_proj_fused, "layer.26.gate_up")),
+        WeightView(*require(w.layers[26].gate_up_proj_fused, "layer.26.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -25436,7 +25436,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[27].gate_up_proj_fused, "layer.27.gate_up")),
+        WeightView(*require(w.layers[27].gate_up_proj_fused, "layer.27.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -25553,7 +25553,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[28].gate_up_proj_fused, "layer.28.gate_up")),
+        WeightView(*require(w.layers[28].gate_up_proj_fused, "layer.28.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -25670,7 +25670,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[29].gate_up_proj_fused, "layer.29.gate_up")),
+        WeightView(*require(w.layers[29].gate_up_proj_fused, "layer.29.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -25787,7 +25787,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[30].gate_up_proj_fused, "layer.30.gate_up")),
+        WeightView(*require(w.layers[30].gate_up_proj_fused, "layer.30.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -25904,7 +25904,7 @@ std::uint32_t declared_full_depth_rows,
         ws.norm_y.data(), N, H, eps, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.norm_y.data(),
-        ops::WeightView(*require(w.layers[31].gate_up_proj_fused, "layer.31.gate_up")),
+        WeightView(*require(w.layers[31].gate_up_proj_fused, "layer.31.gate_up")),
         ws.gate_up_fused.data(), N, 2 * I, H);
     kernels::mlp::chunked_swiglu_bf16(
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -25939,7 +25939,7 @@ std::uint32_t declared_full_depth_rows,
             lm_head_input = ws.norm_y.data();
         }
         kernels::gemm::act_x_w(cublas.handle(),
-            lm_head_input, ops::WeightView(*require(w.lm_head, "lm_head")),
+            lm_head_input, WeightView(*require(w.lm_head, "lm_head")),
             ws.logits.data(), lm_head_rows, V, H);
     }
         }

@@ -34,7 +34,7 @@ namespace {
 // the weight tensor is stored as a packed byte buffer (1-D UINT8) and the
 // QuantMeta carries PerGroup E8M0 scales. Falls back to make_weight_view
 // for ordinary BF16 / FP8 weights.
-ops::WeightView make_expert_weight_view(
+WeightView make_expert_weight_view(
     const DeviceTensor* w,
     const std::optional<QuantMeta>& meta)
 {
@@ -45,7 +45,7 @@ ops::WeightView make_expert_weight_view(
         // MXFP4 expert weight: bytes are nibble-packed and the scale is
         // E8M0 (uint8). Override the dtype so the GEMM dispatcher routes
         // to the MXFP4_PACKED path.
-        ops::WeightView v;
+        WeightView v;
         v.data = w->data();
         v.dtype = DType::MXFP4_PACKED;
         v.nbytes = w->nbytes();

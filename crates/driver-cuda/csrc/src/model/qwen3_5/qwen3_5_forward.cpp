@@ -95,7 +95,7 @@ void qwen35_dense_mlp_block(
     NcclComm* tp_mlp = (T_mlp > 1) ? fwd_cfg.tp_comm : nullptr;
     if (Lw.gate_up_proj_fused != nullptr && !ws.gate_up_fused.empty()) {
         kernels::gemm::act_x_w(cublas.handle(),
-            ws.norm_x.data(), ops::WeightView(*Lw.gate_up_proj_fused),
+            ws.norm_x.data(), WeightView(*Lw.gate_up_proj_fused),
             ws.gate_up_fused.data(), N, 2 * I, H);
         kernels::mlp::chunked_swiglu_bf16(
             ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
@@ -1360,7 +1360,7 @@ void full_attn_layer_body(
         ws.gate_up_fused.numel() >= static_cast<std::size_t>(N) * qgkv_dim;
     if (use_fused_qgkv) {
         kernels::gemm::act_x_w(cublas.handle(),
-            ws.norm_x.data(), ops::WeightView(*Lw.fa_qgkv_proj_fused),
+            ws.norm_x.data(), WeightView(*Lw.fa_qgkv_proj_fused),
             ws.gate_up_fused.data(), N, qgkv_dim, H);
         kernels::attn::split_qkv_bf16(
             ws.gate_up_fused.data(),
@@ -2110,7 +2110,7 @@ void mtp_full_attn_no_cache(
         ws.gate_up_fused.numel() >= static_cast<std::size_t>(N) * qgkv_dim;
     if (use_fused_qgkv) {
         kernels::gemm::act_x_w(cublas.handle(),
-            ws.norm_x.data(), ops::WeightView(*Lw.fa_qgkv_proj_fused),
+            ws.norm_x.data(), WeightView(*Lw.fa_qgkv_proj_fused),
             ws.gate_up_fused.data(), N, qgkv_dim, H);
         kernels::attn::split_qkv_bf16(
             ws.gate_up_fused.data(),
@@ -2334,9 +2334,9 @@ void qwen3_5_mtp_forward(
     kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), mtp.norm->data(), ws.norm_x.data(),
         num_tokens, H, eps, stream);
-    ops::WeightView lm_head(*w.lm_head);
+    WeightView lm_head(*w.lm_head);
     if (mtp.lm_head != nullptr) {
-        lm_head = ops::WeightView(*mtp.lm_head);
+        lm_head = WeightView(*mtp.lm_head);
     }
     if (sampled_token_ids != nullptr &&
         mtp.lm_head_scale_inv != nullptr &&

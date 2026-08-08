@@ -90,12 +90,12 @@ struct Qwen3LayerWeights {
 // quantized view that the GEMM dispatcher routes to the appropriate
 // kernel (cuBLASLt FP8, marlin int4, …). Same call shape works for
 // every model that wires QuantMeta companions in.
-inline ops::WeightView make_weight_view(const DeviceTensor* w,
+inline WeightView make_weight_view(const DeviceTensor* w,
                                         const std::optional<QuantMeta>& meta) {
     if (meta.has_value()) {
-        return ops::WeightView::quantized(*w, *meta);
+        return WeightView::quantized(*w, *meta);
     }
-    return ops::WeightView(*w);
+    return WeightView(*w);
 }
 
 struct Qwen3Weights {

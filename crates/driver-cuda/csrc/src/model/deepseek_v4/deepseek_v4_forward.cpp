@@ -1117,7 +1117,7 @@ void dsv4_forward_paged(
         // ── FFN (MoE) block ──────────────────────────────────────────
         // Router
         kernels::gemm::act_x_w(cublas.handle(),
-            ws.norm_y.data(), ops::WeightView(*Lw.router), ws.router_logits.data(),
+            ws.norm_y.data(), WeightView(*Lw.router), ws.router_logits.data(),
             N, E, H);
 
         // MoE routing
@@ -1353,11 +1353,11 @@ void dsv4_forward_paged(
 
                 kernels::gemm::act_x_w(cublas.handle(),
                     ws.expert_in.data(),
-                    ops::WeightView::raw(w_gate, DType::BF16),
+                    WeightView::raw(w_gate, DType::BF16),
                     ws.expert_gate.data(), Ne, local_moe_I, H);
                 kernels::gemm::act_x_w(cublas.handle(),
                     ws.expert_in.data(),
-                    ops::WeightView::raw(w_up, DType::BF16),
+                    WeightView::raw(w_up, DType::BF16),
                     ws.expert_up.data(), Ne, local_moe_I, H);
                 if (cfg.swiglu_limit > 0.f) {
                     kernels::mlp::swiglu_clamp_bf16(
@@ -1373,7 +1373,7 @@ void dsv4_forward_paged(
                 }
                 kernels::gemm::act_x_w(cublas.handle(),
                     ws.expert_gate.data(),
-                    ops::WeightView::raw(w_down, DType::BF16),
+                    WeightView::raw(w_down, DType::BF16),
                     ws.expert_out.data(), Ne, H, local_moe_I);
 
                 kernels::moe::scatter_add_weighted_bf16(
@@ -1519,7 +1519,7 @@ void dsv4_forward_paged(
     if (fwd_cfg.emit_logits) {
         const int local_vocab = static_cast<int>(w.lm_head->shape()[0]);
         kernels::gemm::act_x_w(cublas.handle(),
-            ws.norm_y.data(), ops::WeightView(*w.lm_head), logits_out,
+            ws.norm_y.data(), WeightView(*w.lm_head), logits_out,
             rows, local_vocab, H);
         act_dump_bf16("logits", logits_out, rows, local_vocab, stream);
     }

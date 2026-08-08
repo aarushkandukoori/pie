@@ -1031,18 +1031,18 @@ void kimi_forward_paged(
                     Ne, H, stream);
                 kernels::gemm::act_x_w(cublas.handle(),
                     kimi_ws.expert_in.data(),
-                    ops::WeightView::raw(kimi_ws.expert_gate_w.data(), DType::BF16),
+                    WeightView::raw(kimi_ws.expert_gate_w.data(), DType::BF16),
                     kimi_ws.expert_gate.data(), Ne, routed_I, H);
                 kernels::gemm::act_x_w(cublas.handle(),
                     kimi_ws.expert_in.data(),
-                    ops::WeightView::raw(kimi_ws.expert_up_w.data(), DType::BF16),
+                    WeightView::raw(kimi_ws.expert_up_w.data(), DType::BF16),
                     kimi_ws.expert_up.data(), Ne, routed_I, H);
                 kernels::mlp::swiglu_bf16(
                     kimi_ws.expert_gate.data(), kimi_ws.expert_up.data(),
                     kimi_ws.expert_gate.data(), Ne * routed_I, stream);
                 kernels::gemm::act_x_w(cublas.handle(),
                     kimi_ws.expert_gate.data(),
-                    ops::WeightView::raw(kimi_ws.expert_down_w.data(), DType::BF16),
+                    WeightView::raw(kimi_ws.expert_down_w.data(), DType::BF16),
                     kimi_ws.expert_out.data(), Ne, H, routed_I);
                 kernels::moe::scatter_add_weighted_bf16(
                     kimi_ws.moe_out.data(), kimi_ws.expert_out.data(),

@@ -742,7 +742,7 @@ struct DenseGemmTuner {
     std::mutex mu;
     std::unordered_map<std::uint64_t, DenseTactic> chosen;
     std::unordered_map<std::uint64_t, int> seen;
-    ops::TuningCache disk{"dense_gemm.txt", dense_cache_signature()};
+    TuningCache disk{"dense_gemm.txt", dense_cache_signature()};
 
     static DenseGemmTuner& instance() {
         return per_device_singleton<DenseGemmTuner>();
@@ -757,10 +757,10 @@ constexpr std::size_t kMaxTunedShapes = 1024;
 
 std::uint64_t dense_key(int M, int N, int K, float beta) {
     std::uint64_t h = 0;
-    h = ops::tuning_hash(h, static_cast<std::uint64_t>(M));
-    h = ops::tuning_hash(h, static_cast<std::uint64_t>(N));
-    h = ops::tuning_hash(h, static_cast<std::uint64_t>(K));
-    h = ops::tuning_hash(h, beta == 0.f ? 0u : 1u);
+    h = tuning_hash(h, static_cast<std::uint64_t>(M));
+    h = tuning_hash(h, static_cast<std::uint64_t>(N));
+    h = tuning_hash(h, static_cast<std::uint64_t>(K));
+    h = tuning_hash(h, beta == 0.f ? 0u : 1u);
     return h;
 }
 
@@ -1326,9 +1326,9 @@ void validate_quant_weight_view(const char* api, const WeightView& w, int N, int
     // PerTensor → 1 scale; PerChannel → N; PerGroup → N×ceil(K/gs),
     // except 2D block-scaled FP8 (DeepSeek) which is ceil(N/gs)×ceil(K/gs).
     std::size_t expected_scales = 1;
-    if (w.quant_kind == ops::QuantMeta::Kind::PerChannel) {
+    if (w.quant_kind == QuantMeta::Kind::PerChannel) {
         expected_scales = static_cast<std::size_t>(N);
-    } else if (w.quant_kind == ops::QuantMeta::Kind::PerGroup && w.group_size > 0) {
+    } else if (w.quant_kind == QuantMeta::Kind::PerGroup && w.group_size > 0) {
         if (w.dtype == DType::FP8_E4M3) {
             // 2D block-scaled FP8: scales are [ceil(N/gs), ceil(K/gs)]
             expected_scales =
@@ -1769,7 +1769,7 @@ class DequantWeightCache {
 void gemm_fp8_dequant_then_bf16_fallback(
     cublasHandle_t cublas_handle,
     const void* act, const void* w_fp8, const void* w_scale_fp32_dev,
-    ops::QuantMeta::Kind scale_kind,
+    QuantMeta::Kind scale_kind,
     void* y,
     int M, int N, int K,
     float beta,
@@ -1810,14 +1810,14 @@ void gemm_fp8_dequant_then_bf16_fallback(
         bf16_w = ctx.dequant.ensure(weight_elems * 2);
     }
 
-    if (scale_kind == ops::QuantMeta::Kind::PerGroup && group_size > 0) {
+    if (scale_kind == QuantMeta::Kind::PerGroup && group_size > 0) {
         kernels::quant::dequant_fp8_e4m3_to_bf16_per_group(
             static_cast<const std::uint8_t*>(w_fp8),
             bf16_w,
             static_cast<const float*>(w_scale_fp32_dev),
             N, K, group_size, fill_stream);
         CUDA_CHECK(cudaGetLastError());
-    } else if (scale_kind == ops::QuantMeta::Kind::PerChannel) {
+    } else if (scale_kind == QuantMeta::Kind::PerChannel) {
         kernels::quant::dequant_fp8_e4m3_to_bf16_per_channel(
             static_cast<const std::uint8_t*>(w_fp8),
             bf16_w,
@@ -1957,7 +1957,7 @@ bool gemm_fp8_blockwise_w8a8_impl(
 void gemm_fp8_e4m3_w_bf16_act_impl(
     cublasHandle_t cublas_handle,
     const void* act, const void* w_fp8, const void* w_scale_fp32_dev,
-    ops::QuantMeta::Kind scale_kind,
+    QuantMeta::Kind scale_kind,
     void* y,
     int M, int N, int K,
     float beta,
@@ -1973,15 +1973,15 @@ void gemm_fp8_e4m3_w_bf16_act_impl(
     auto& ctx = LtCtx::instance();
     ctx.ensure_init();
 
-    if (scale_kind == ops::QuantMeta::Kind::PerGroup &&
+    if (scale_kind == QuantMeta::Kind::PerGroup &&
         gemm_fp8_blockwise_w8a8_impl(act, w_fp8, w_scale_fp32_dev, y,
                                      M, N, K, beta, stream, group_size)) {
         return;
     }
 
     if (!ctx.fp8_native_supported ||
-        scale_kind == ops::QuantMeta::Kind::PerChannel ||
-        scale_kind == ops::QuantMeta::Kind::PerGroup) {
+        scale_kind == QuantMeta::Kind::PerChannel ||
+        scale_kind == QuantMeta::Kind::PerGroup) {
         gemm_fp8_dequant_then_bf16_fallback(
             cublas_handle, act, w_fp8, w_scale_fp32_dev, scale_kind, y,
             M, N, K, beta, stream, group_size);
@@ -2184,7 +2184,7 @@ void act_x_w(
                 "act_x_w[INT8 W8A8]: scale must be FP32 (got " +
                 std::string(dtype_name(w.scale_dtype)) + ")");
         }
-        if (w.quant_kind != ops::QuantMeta::Kind::PerChannel) {
+        if (w.quant_kind != QuantMeta::Kind::PerChannel) {
             throw std::runtime_error(
                 "act_x_w[INT8 W8A8]: only PerChannel weight scale "
                 "supported (per-tensor / per-group not yet wired)");
@@ -2203,7 +2203,7 @@ void act_x_w(
         // symmetric), no act-order. The dispatcher relies on the loader
         // having pre-repacked the weight into marlin's tile layout (via
         // `gptq_marlin_repack`) and stored the per-group scales as the
-        // ops::QuantMeta side-tensor.
+        // QuantMeta side-tensor.
         cudaStream_t stream = nullptr;
         cublasGetStream(handle, &stream);
         // marlin always overwrites C. For the beta=1 residual-add
@@ -2244,7 +2244,7 @@ void act_x_w(
                 "act_x_w[MXFP4]: scale must be raw E8M0 bytes (got " +
                 std::string(dtype_name(w.scale_dtype)) + ")");
         }
-        if (w.quant_kind != ops::QuantMeta::Kind::PerGroup || w.group_size != 32) {
+        if (w.quant_kind != QuantMeta::Kind::PerGroup || w.group_size != 32) {
             throw std::runtime_error(
                 "act_x_w[MXFP4]: expected per-group scales with "
                 "group_size=32");

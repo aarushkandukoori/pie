@@ -12,7 +12,7 @@
 
 #include "tensor.hpp"
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver {
 
 struct QuantMeta {
     enum class Kind { PerTensor, PerChannel, PerGroup };
@@ -25,4 +25,4 @@ struct QuantMeta {
     int channel_axis = 0;
 };
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver

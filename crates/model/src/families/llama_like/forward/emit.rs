@@ -865,7 +865,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.norm_x.data(),");
                     b.stmt(&format!(
-                        "    ops::WeightView(*require(w.layers[{layer}].qkv_proj_fused, \"{weight}\")),"
+                        "    WeightView(*require(w.layers[{layer}].qkv_proj_fused, \"{weight}\")),"
                     ));
                     b.stmt("    ws.qkv_fused.data(), N, Hq + 2 * Hk, H);");
                 }
@@ -898,7 +898,7 @@ fn emit_op(
                         b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                         b.stmt(&format!("    {mlp_in},"));
                         b.stmt(&format!(
-                            "    ops::WeightView(*require(w.layers[{layer}].gate_up_proj_fused, \"{weight}\")),"
+                            "    WeightView(*require(w.layers[{layer}].gate_up_proj_fused, \"{weight}\")),"
                         ));
                         b.stmt("    ws.gate_up_fused.data(), N, 2 * I, H);");
                     } else {
@@ -1083,7 +1083,7 @@ fn emit_op(
             b.stmt("    }");
             b.stmt("    kernels::gemm::act_x_w(cublas.handle(),");
             b.stmt(&format!(
-                "        lm_head_input, ops::WeightView(*require({member}, \"{weight}\")),"
+                "        lm_head_input, WeightView(*require({member}, \"{weight}\")),"
             ));
             b.stmt("        ws.logits.data(), lm_head_rows, V, H);");
             b.stmt("}");

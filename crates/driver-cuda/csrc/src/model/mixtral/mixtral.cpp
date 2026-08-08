@@ -1505,12 +1505,12 @@ void mixtral_forward_paged(
                 }
                 kernels::gemm::act_x_w(cublas.handle(),
                     d_expert_in.data(),
-                    ops::WeightView::mxfp4_marlin(
+                    WeightView::mxfp4_marlin(
                         *expert.w_gate_mxfp4, *expert.w_gate_mxfp4_scale),
                     d_expert_gate.data(), Ne, Ip, H);
                 kernels::gemm::act_x_w(cublas.handle(),
                     d_expert_in.data(),
-                    ops::WeightView::mxfp4_marlin(
+                    WeightView::mxfp4_marlin(
                         *expert.w_up_mxfp4, *expert.w_up_mxfp4_scale),
                     d_expert_up.data(), Ne, Ip, H);
                 if (expert.b_gate) kernels::norm::add_bias_bf16_strided(
@@ -1533,7 +1533,7 @@ void mixtral_forward_paged(
                 }
                 kernels::gemm::act_x_w(cublas.handle(),
                     d_expert_gate.data(),
-                    ops::WeightView::mxfp4_marlin(
+                    WeightView::mxfp4_marlin(
                         *expert.w_down_mxfp4, *expert.w_down_mxfp4_scale),
                     d_expert_out.data(), Ne, H, Ip);
                 if (expert.b_down && tp_is_leader) kernels::norm::add_bias_bf16(

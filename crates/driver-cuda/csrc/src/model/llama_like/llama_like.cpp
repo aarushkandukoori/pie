@@ -1931,7 +1931,7 @@ void llama_like_forward_paged(
         }
         if (use_fused_qkv) {
             kernels::gemm::act_x_w(cublas.handle(),
-                qkv_in, ops::WeightView(*layer.qkv_proj_fused),
+                qkv_in, WeightView(*layer.qkv_proj_fused),
                 ws.qkv_fused.data(), N, Hq + 2 * Hk, H);
             if (fused_decode_qkv_post) {
                 if (!rope_table_ready && !ws.rope_table.empty()) {
@@ -2756,7 +2756,7 @@ void llama_like_forward_paged(
                                   !ws.gate_up_fused.empty();
         if (use_fused_gu) {
             kernels::gemm::act_x_w(cublas.handle(),
-                mlp_in, ops::WeightView(*layer.gate_up_proj_fused),
+                mlp_in, WeightView(*layer.gate_up_proj_fused),
                 ws.gate_up_fused.data(), N, 2 * I, H);
             kernels::mlp::chunked_swiglu_bf16(
                 ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);

@@ -387,7 +387,7 @@ int autotune_m_bucket(int m) {
 }
 
 std::uint64_t tactic_key(const MoeProblem& p) {
-    const auto mix = ops::tuning_hash;
+    const auto mix = tuning_hash;
     std::uint64_t h = 0;
     h = mix(h, static_cast<std::uint64_t>(autotune_m_bucket(p.num_rows)));
     h = mix(h, static_cast<std::uint64_t>(p.hidden_size));
@@ -641,8 +641,8 @@ std::string tactic_cache_signature(const RunnerState& s) {
     return buf;
 }
 
-ops::TuningCache& tactic_cache(const RunnerState& s) {
-    static ops::TuningCache cache("moe_tactics.txt", tactic_cache_signature(s));
+TuningCache& tactic_cache(const RunnerState& s) {
+    static TuningCache cache("moe_tactics.txt", tactic_cache_signature(s));
     return cache;
 }
 
@@ -652,7 +652,7 @@ void install_tactics(RunnerState& s, Runner& runner, const MoeProblem& p,
                      const MoeBuffers& b, std::size_t workspace_bytes) {
     const std::uint64_t key = tactic_key(p);
     std::lock_guard<std::mutex> lock(s.tune_mutex);
-    ops::TuningCache& disk = tactic_cache(s);
+    TuningCache& disk = tactic_cache(s);
     auto it = s.tuned.find(key);
     if (it == s.tuned.end()) {
         TacticPair chosen{};

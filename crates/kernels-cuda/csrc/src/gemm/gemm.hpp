@@ -22,7 +22,6 @@
 
 namespace pie_cuda_driver::kernels::gemm {
 
-using ops::WeightView;
 
 struct RuntimeQuantScratchSpec {
     std::size_t max_tokens = 0;
