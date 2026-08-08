@@ -475,17 +475,24 @@ Qwen35DeclaredPlan build_impl(const HfConfig& cfg, const W& w, int tp_size) {
         // (The dense forward assumes the gate unconditionally, so no gate
         // check on the dense side — trace and hand-written path agree.)
         if (!cfg.attn_output_gate) return refuse("attn_output_gate disabled");
-        // The MoE block HAS a declaration — `moe_mlp_body_cuda` states the
-        // fused CUTLASS leg — but this executor has no arms for it: its
-        // launcher registry knows none of the MoE symbols, and
-        // `qwen35_validate_stated_kernels` turns an unknown symbol into a
-        // model-LOAD failure. So a plan built here would not fall back to
-        // the hand-written pass, it would refuse to boot the model.
+        // The executor now has the ALIGNED leg's arms, so this no longer
+        // refuses unconditionally — but it still refuses unless the fire
+        // opted in, and for the reason the deleted comment gave: a plan
+        // built here goes through `qwen35_validate_stated_kernels`, which
+        // turns an unknown symbol into a model-LOAD failure rather than a
+        // fallback. Building one for every MoE deployment would risk
+        // turning a working checkpoint into a boot failure.
         //
-        // Refusing at build is the difference between "the declaration is
-        // ahead of the executor" and "this checkpoint does not run".
-        // Delete this line in the commit that registers the MoE kernels.
-        return refuse("the MoE block's declaration has no executor arms yet");
+        // That risk is not theoretical here, and the honest reason is
+        // that the A/B has NOT run: Qwen3.5-35B-A3B is ~67G of bf16 and
+        // the only GPU available is a 46G L40S, so the load OOMs before
+        // it reaches a single fire. Until someone runs
+        // `qwen35_moe_declared_forward_parity` on a big enough device,
+        // `PIE_DECLARED_MOE` is the whole gate: unset, this family
+        // behaves exactly as it did before the arms existed.
+        if (!qwen35_declared_moe_enabled()) {
+            return refuse("PIE_DECLARED_MOE unset (MoE arc is opt-in)");
+        }
         if (cfg.num_experts <= 0 || cfg.num_experts_per_tok <= 0 ||
             cfg.moe_intermediate_size <= 0) {
             return refuse("moe dims unset");
@@ -677,6 +684,16 @@ Qwen35DeclaredPlan build_impl(const HfConfig& cfg, const W& w, int tp_size) {
         }
         // `add_to_residual` is `(T == 1) && use_decode_fast_path`; the
         // tp term is the deployment's, the other is the class's.
+        // The declaration `moe_mlp_body_cuda` states the FUSED CUTLASS leg
+        // whenever the deployment sized a workspace for it, and the arms
+        // written so far cover the ALIGNED one. Refuse rather than let
+        // `qwen35_validate_stated_kernels` discover the mismatch, which it
+        // reports as a model-LOAD failure.
+        if constexpr (kMoe) {
+            if (cuda.moe_cutlass_max_rows != 0) {
+                return refuse("deployment states the fused CUTLASS leg");
+            }
+        }
         cuda.moe_residual_fold = (tp_size == 1) ? 1 : 0;
         cuda.moe_force_general = qwen35_moe_force_general_path() ? 1 : 0;
         // Streamed experts are a per-layer binding, but the pass reads

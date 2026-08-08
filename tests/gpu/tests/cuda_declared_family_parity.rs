@@ -104,6 +104,12 @@ const GPT_OSS: Family = Family {
 /// 35B-A3B rather than a smaller MoE because the fixture the DSL
 /// declaration is written against IS this geometry: hidden 2048, 256
 /// experts, top_k 8, moe_intermediate 512, shared_expert 512.
+/// NOT YET GREEN, and not because it failed: the checkpoint is ~67G of
+/// bf16 and the machine this was written on has a 46G L40S, so the load
+/// OOMs before the first fire. There is no smaller stand-in -- plain
+/// `qwen3_moe` is refused by `linear-attn dims unset` and an fp8 variant
+/// by `quantized shared-expert projections`. `PIE_DECLARED_MOE` gates
+/// BOTH the plan build and arc 2 until this row runs somewhere.
 const QWEN35_MOE: Family = Family {
     name: "qwen3_5_moe",
     hub_dir: "models--Qwen--Qwen3.5-35B-A3B",
@@ -352,7 +358,7 @@ async fn gemma4_e2b_declared_forward_parity() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs a CUDA GPU + Qwen3.5-35B-A3B; run gate-OFF then gate-ON"]
+#[ignore = "needs a CUDA GPU with >=80G + Qwen3.5-35B-A3B; run gate-OFF then gate-ON"]
 async fn qwen35_moe_declared_forward_parity() -> Result<()> {
     run_family(&QWEN35_MOE).await
 }
