@@ -66,6 +66,67 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── deepseek_v4: hyper-connections ─────────────────────────────
+    // The SECOND rank-K residual scheme here, and not AltUp's. gemma-3n
+    // predicts each stream from a learned combination and corrects from one
+    // ACTIVE stream; HC mixes with a per-token, sinkhorn-normalized matrix
+    // and has no active stream -- every layer reads a weighted collapse of
+    // all of them and writes back to all of them. Row-shaped throughout.
+    kernel!(hc_rmsnorm_to_f32 "launch_hc_rmsnorm_to_f32"),
+    // Where a rank-K residual BEGINS: replicate the embedding into K
+    // streams. AltUp's equivalent is implicit in gemma-3n's workspace
+    // layout; HC states it, which is the one a declaration can read.
+    kernel!(hc_expand "launch_hc_expand_bf16"),
+    kernel!(hc_pre "launch_hc_pre_postprocess_bf16"),
+    kernel!(hc_post "launch_hc_post_bf16"),
+    kernel!(hc_head "launch_hc_head_postprocess_bf16"),
+    kernel!(per_head_rmsnorm "launch_per_head_rmsnorm_bf16"),
+    kernel!(attn_sink_correction "launch_attn_sink_correction_bf16"),
+
+    // ── deepseek_v4: compressed attention ──────────────────────────
+    // A SECOND KV cache beside the fine-grained one, holding one entry per
+    // `ratio` tokens. Every query attends both and the outputs are merged by
+    // their log-sum-exps -- exact, not an approximation: the same algebra
+    // flashinfer's own KV-split merge uses.
+    kernel!(dsv4_boundary_meta_decode "launch_dsv4_boundary_meta_decode"),
+    // Both address through `kv_page_indptr` and the boundary arrays.
+    kernel!(dsv4_compress_gather_paged "launch_dsv4_compress_gather_paged_bf16", whole = true),
+    kernel!(dsv4_store_comp_entries "launch_dsv4_store_comp_entries_bf16", whole = true),
+    // `qo_indptr` + `kv_page_indptr`, like every other paged attention here.
+    // No capture variant, so it cannot publish scores; it does publish an LSE,
+    // which is what the combine below consumes.
+    kernel!(attention_compressed_paged "launch_attention_compressed_paged_bf16",
+        whole = true, lacks = &[Cap::Scores]),
+    kernel!(combine_attn_outputs "launch_combine_attn_outputs_bf16"),
+    // FlashInfer publishes its LSE in log2 and the combine works in ln. A
+    // unit conversion, stated so a reader never has to guess which base an
+    // LSE is in.
+    kernel!(lse_log2_to_ln "launch_lse_log2_to_ln"),
+
+    // ── deepseek_v4: routing, activation, dequant ──────────────────
+    kernel!(topk_sqrtsoftplus "launch_topk_sqrtsoftplus_bf16"),
+    // Expert INDICES from a table keyed by token id -- a route that is a pure
+    // function of the token rather than of its activations. The WEIGHTS still
+    // come from the router logits, so the logits GEMM above it does not go
+    // away.
+    kernel!(hash_route_lookup "launch_hash_route_lookup"),
+    kernel!(swiglu_clamp "launch_swiglu_clamp_bf16"),
+    kernel!(chunked_swiglu_clamp "launch_chunked_swiglu_clamp_bf16"),
+    // Ropes the LAST `rope_dim` channels rather than the first. A different
+    // statement from `rope_partial_q_only`, not a flag on it: which end of
+    // the channel axis carries position is a property of the checkpoint.
+    kernel!(rope_partial_last "launch_rope_partial_last_bf16"),
+    kernel!(write_kv_to_pages_bf16 "launch_write_kv_to_pages_bf16"),
+    kernel!(attention_naive_paged_bf16 "launch_attention_naive_paged_bf16", whole = true),
+    // Three fp8 forms because the SCALE's shape differs -- per tensor, per
+    // output channel, per group along K. A property of the checkpoint, so the
+    // declaration states which; a driver that guessed would dequantize
+    // correctly on one checkpoint and silently wrongly on another.
+    kernel!(dequant_fp8_e4m3 "launch_dequant_fp8_e4m3_to_bf16"),
+    kernel!(dequant_fp8_e4m3_per_channel "launch_dequant_fp8_e4m3_to_bf16_per_channel"),
+    kernel!(dequant_fp8_e4m3_per_group "launch_dequant_fp8_e4m3_to_bf16_per_group"),
+    kernel!(dequant_mxfp4 "launch_dequant_mxfp4_to_bf16"),
+
     // ── nemotron_h: mamba ──────────────────────────────────────────
     // The third linear-attention shape here, and not a variant of the other
     // two: mamba carries a `[head_dim, state_size]` slab per head and
