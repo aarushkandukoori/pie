@@ -889,6 +889,153 @@ impl RowsCtx<'_> {
     }
 }
 
+/// Which discipline an arm of [`regions`] follows.
+///
+/// The Guard/Peel unification is of the SURFACE, and this enum is where
+/// that is said out loud: one construct in the text, arms that state
+/// their own rule. Read `lower::Lowering::select`'s doc before assuming
+/// these can collapse into one predicate vocabulary — the obvious
+/// generalisation (a fire fact is just a row predicate that holds for all
+/// rows or none) was implemented once and shipped a real defect, caught
+/// by the live shadow comparison. `.wiki/tart/dsl.md` migration step 2
+/// carries the argument.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Region {
+    /// EXCLUSIVE, over the whole window: the first `Fire` arm whose
+    /// predicate holds runs, and the rest do not. A `GuardPred` names a
+    /// property of the FIRE, and the arm it selects is a kernel choice
+    /// for the whole op list.
+    Fire(crate::trace::GuardPred),
+    /// A PARTITION: this arm covers the rows its predicate names, the
+    /// rest covers the others, and BOTH run. Moving an axis from `Fire`
+    /// to `Rows` is a deliberate change in what the text says, never a
+    /// reinterpretation a backend performs.
+    Rows(RowPred),
+}
+
+/// The arms of a [`regions`] construct.
+pub struct RegionsCtx<'t> {
+    guard: Option<GuardCtx>,
+    rows: Option<RowsCtx<'t>>,
+    t: &'t Trace,
+    layer: Option<u32>,
+    shape: Option<(Shape, DType)>,
+    out: Option<Val>,
+}
+
+impl<'t> RegionsCtx<'t> {
+    /// One arm, and what runs in it.
+    ///
+    /// The FIRST arm fixes the construct's discipline, because the IR
+    /// underneath is still two ops (`Guard` and `Peel`) and neither can
+    /// express a mix. A mixed chain is a real thing to want — a fire
+    /// choice inside one side of a row split — and the text already
+    /// expresses it by NESTING, which is what the IR merge in migration
+    /// step 6 is for. Asking for it in one flat chain is refused here
+    /// rather than silently flattened into whichever op was opened first.
+    pub fn arm(&mut self, pred: Region, f: impl FnOnce()) {
+        match pred {
+            Region::Fire(p) => {
+                assert!(
+                    self.rows.is_none(),
+                    "regions: a Fire arm after a Rows arm — one flat chain                      cannot be both disciplines (nest instead; the IR merge                      is migration step 6)"
+                );
+                let g = self.guard.take().unwrap_or_else(|| {
+                    let (idx, outs) = {
+                        let mut b = self.t.inner.borrow_mut();
+                        b.set_layer(self.layer);
+                        b.open_guard(self.shape.clone().into_iter().collect())
+                    };
+                    self.out = outs.first().map(|v| Val {
+                        t: self.t.clone(),
+                        id: *v,
+                        layer: self.layer,
+                    });
+                    GuardCtx {
+                        t: self.t.clone(),
+                        idx,
+                        arms: Vec::new(),
+                        emitted: 0,
+                    }
+                });
+                self.guard = Some(g.arm(p, f));
+            }
+            Region::Rows(p) => {
+                assert!(
+                    self.guard.is_none(),
+                    "regions: a Rows arm after a Fire arm — one flat chain                      cannot be both disciplines (nest instead; the IR merge                      is migration step 6)"
+                );
+                let ctx = self.rows.get_or_insert_with(|| {
+                    let (idx, outs) = {
+                        let mut b = self.t.inner.borrow_mut();
+                        b.set_layer(self.layer);
+                        b.open_peel(
+                            self.shape.clone().into_iter().collect(),
+                            crate::trace::PeelWindow::HookFreePrefix,
+                        )
+                    };
+                    self.out = outs.first().map(|v| Val {
+                        t: self.t.clone(),
+                        id: *v,
+                        layer: self.layer,
+                    });
+                    RowsCtx {
+                        t: self.t,
+                        idx,
+                        prefix: None,
+                        pred: None,
+                    }
+                });
+                ctx.arm(p, f);
+            }
+        }
+    }
+
+    /// Every case the arms did not name.
+    fn close(mut self, f: impl FnOnce()) -> Option<Val> {
+        if let Some(g) = self.guard.take() {
+            g.otherwise(f);
+        } else if let Some(mut r) = self.rows.take() {
+            r.rest(f);
+        } else {
+            panic!("regions states at least one arm before its rest");
+        }
+        self.out
+    }
+}
+
+/// ONE construct for both region disciplines (`.wiki/tart/dsl.md`
+/// migration step 2).
+///
+/// `by_rows` and `guarded_value` were two spellings of "some statements
+/// run and some do not", and a reader had to know which mechanism a
+/// family had reached for before they could read the arm. This is the
+/// single surface: arms, each stating its own discipline, and a rest.
+///
+/// It lowers to today's two IR ops unchanged — a `Fire`-armed chain to
+/// `Guard`, a `Rows`-armed one to `Peel` — so the goldens pin that this
+/// surface changed no traced byte. Merging THOSE is migration step 6, and
+/// it is a separate change with a separate gate: the IR carries the
+/// discipline, so nothing here has to guess it later.
+pub fn regions(
+    t: &Trace,
+    layer: Option<u32>,
+    shape: Option<(Shape, DType)>,
+    build: impl FnOnce(&mut RegionsCtx<'_>),
+    rest: impl FnOnce(),
+) -> Option<Val> {
+    let mut ctx = RegionsCtx {
+        guard: None,
+        rows: None,
+        t,
+        layer,
+        shape,
+        out: None,
+    };
+    build(&mut ctx);
+    ctx.close(rest)
+}
+
 /// THE row-partition construct (`.wiki/tart/dsl.md` ③'s `t.by_rows`):
 /// the arms' statements each cover their own rows and ALL of them run,
 /// which is what separates this from the fire-level [`GuardCtx`] chain
@@ -6063,3 +6210,4 @@ mod seam_tests {
         assert!(seam::ATTN_Q.sink.is_some(), "the page-mask sink is declared");
     }
 }
+
