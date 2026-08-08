@@ -66,6 +66,35 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── tensor-parallel shapes ─────────────────────────────────────
+    // A vocab-sharded embedding: the rank holds `[local_vocab, hidden]` from
+    // `vocab_offset` and writes zeros elsewhere, and the all-reduce after it
+    // makes the row whole. The shard is a property of the WEIGHT, not of the
+    // row range, so this splits like any gather.
+    kernel!(embed_vocab_shard "launch_embed_bf16_vocab_shard"),
+    // Residual add + the next block's pre-norm, fused. Numerically the
+    // two-kernel sequence (the kernel matches `residual_add`'s bf16 rounding
+    // before norming), which is what makes it a binding a declaration may
+    // state rather than a different computation.
+    kernel!(residual_add_rmsnorm "launch_residual_add_rmsnorm_bf16"),
+
+    // ── MLA: the kimi splits ───────────────────────────────────────
+    // The unfused counterpart of `mla_prepare`. `tokens` is their only
+    // extent, so unlike the fused prepare they are NOT `whole` -- which is
+    // the reason a deployment might bind them instead.
+    kernel!(kimi_split_kv_a_norm "launch_kimi_split_kv_a_norm_bf16"),
+    kernel!(kimi_split_q_b "launch_kimi_split_q_b_bf16"),
+
+    // ── DSA: the lightning indexer ─────────────────────────────────
+    // glm5 attends SPARSELY: a small side network scores every (query, key)
+    // pair and only the top-k keys per query are attended.
+    kernel!(dsa_index_q_rope "launch_dsa_index_q_rope_bf16"),
+    kernel!(dsa_index_knorm_rope "launch_dsa_index_knorm_rope_bf16"),
+    // `whole`, and here the reason is the ALGEBRA rather than the addressing:
+    // query `i` scores keys `0..=i`, so a row window starting anywhere but
+    // zero cannot see the keys it must rank against.
+    kernel!(dsa_index_topk_mask "launch_dsa_index_topk_mask", whole = true),
+
     // ── MoE: the ALIGNED dispatch path ─────────────────────────────
     // glm5 and kimi_k3 route through a permutation rather than a loop: every
     // (token, expert) pair is a route, routes are bucketed by expert and
@@ -105,6 +134,14 @@ pub static KERNELS: &[KernelSig] = &[
     // which is a different thing and not what the capability names.
     kernel!(attention_mla "dispatch_attention_mla_bf16",
         needs = Prepare::MlaPlan, lacks = &[Cap::Scores]),
+
+    // The custom-mask prefill in its PLAN-FREE form: it takes the indptrs and
+    // the mask directly and builds its R-shaped plan on the way in, so it
+    // owes no prepare and cannot take a row window -- `whole`, and `FireWide`
+    // for the same reason XQA is. gemma-3n binds this rather than the planned
+    // `flashinfer_custom` above.
+    kernel!(flashinfer_custom_planless "ops::launch_attention_flashinfer_prefill_custom",
+        whole = true, needs = Prepare::FireWide, sink = Some("kv.pages")),
 
     // ── gemma-3n: AltUp ────────────────────────────────────────────
     // A rank-K residual stream: K parallel streams predicted from each

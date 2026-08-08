@@ -1549,11 +1549,12 @@ pub mod cuda {
         t: &Trace,
         layer: Option<u32>,
         kernel: &str,
+        weights: Vec<String>,
         inputs: Vec<crate::trace::ValueId>,
         outs: Vec<(Shape, DType)>,
     ) -> Vec<Val> {
         let n = outs.len();
-        let ids = t.with(layer, |b| b.launch(kernel, vec![], None, inputs, outs));
+        let ids = t.with(layer, |b| b.launch(kernel, weights, None, inputs, outs));
         assert_eq!(ids.len(), n, "the tape recorded a different arity than stated");
         ids.into_iter()
             .map(|id| Val { t: t.clone(), id, layer })
@@ -1642,6 +1643,213 @@ pub mod cuda {
         .expect("fused post produces q")
     }
 
+    // ── tensor-parallel shapes ─────────────────────────────────────
+
+    /// `kernels::launch_embed_bf16_vocab_shard`: gather from a vocab-SHARDED
+    /// embedding table.
+    ///
+    /// Under tensor parallelism the table is split along the vocabulary, so a
+    /// rank holds `[local_vocab, hidden]` starting at `vocab_offset` and
+    /// writes zeros for tokens outside its shard; the all-reduce that follows
+    /// makes the row whole. Row-shaped, so not `whole` — the shard is a
+    /// property of the WEIGHT, not of the row range.
+    pub fn embed_vocab_shard(t: &Trace, weight: &str, hidden: u32) -> Val {
+        record(
+            t,
+            None,
+            "launch_embed_bf16_vocab_shard",
+            vec![weight.to_string()],
+            None,
+            vec![],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(hidden)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the gather produces its value")
+    }
+
+    /// `kernels::launch_residual_add_rmsnorm_bf16`: the residual add and the
+    /// next block's pre-norm, fused.
+    ///
+    /// `hidden = round_bf16(hidden + residual)` then
+    /// `norm_out = rmsnorm(hidden, weight)`. The kernel's own header states
+    /// that the rounding matches `launch_residual_add_bf16`'s, so this is
+    /// numerically the two-kernel sequence and not an approximation of it —
+    /// which is what makes it a BINDING choice a declaration may state rather
+    /// than a different computation.
+    pub fn residual_add_rmsnorm(x: &Val, residual: &Val, weight: &str, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_residual_add_rmsnorm_bf16",
+            vec![weight.to_string()],
+            None,
+            vec![x.id, residual.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(hidden)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the fused norm produces its value")
+    }
+
+    // ── MLA: the kimi splits ───────────────────────────────────────
+    //
+    // The unfused counterpart of [`mla_prepare`]. Kimi projects `q_a` and
+    // `kv_a` in one GEMM and splits afterwards; both statements are row-shaped
+    // (`tokens` is their only extent), so unlike the fused prepare they are
+    // NOT `whole` — which is the whole reason a deployment might bind them
+    // instead.
+
+    /// `kernels::launch_kimi_split_kv_a_norm_bf16`: split the latent KV
+    /// projection into `(kv_c, k_pe)`, norming the compressed half on the way.
+    ///
+    /// The norm is folded in, so this is one statement where the semantic
+    /// reading is two (`rmsnorm` then a split).
+    pub fn kimi_split_kv_a_norm(
+        kv_a: &Val,
+        norm_weight: &str,
+        kv_lora_rank: u32,
+        qk_rope_dim: u32,
+    ) -> (Val, Val) {
+        let outs = record_many(
+            &kv_a.t,
+            kv_a.layer,
+            "launch_kimi_split_kv_a_norm_bf16",
+            vec![norm_weight.to_string()],
+            vec![kv_a.id],
+            vec![
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(kv_lora_rank)]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(qk_rope_dim)]),
+                    DType::BF16,
+                ),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let kv_c = it.next().expect("the split states two outputs");
+        let k_pe = it.next().expect("the split states two outputs");
+        (kv_c, k_pe)
+    }
+
+    /// `kernels::launch_kimi_split_q_b_bf16`: split the query projection into
+    /// its nope and rope halves.
+    pub fn kimi_split_q_b(
+        q_b: &Val,
+        heads: u32,
+        qk_nope_dim: u32,
+        qk_rope_dim: u32,
+    ) -> (Val, Val) {
+        let outs = record_many(
+            &q_b.t,
+            q_b.layer,
+            "launch_kimi_split_q_b_bf16",
+            vec![],
+            vec![q_b.id],
+            vec![
+                (
+                    Shape(vec![
+                        Dim::Tokens,
+                        Dim::Const(heads),
+                        Dim::Const(qk_nope_dim),
+                    ]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![
+                        Dim::Tokens,
+                        Dim::Const(heads),
+                        Dim::Const(qk_rope_dim),
+                    ]),
+                    DType::BF16,
+                ),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let q_nope = it.next().expect("the split states two outputs");
+        let q_pe = it.next().expect("the split states two outputs");
+        (q_nope, q_pe)
+    }
+
+    // ── DSA: the lightning indexer ─────────────────────────────────
+    //
+    // glm5 attends SPARSELY: a small side network scores every (query, key)
+    // pair, and only the top-k keys per query are attended. The two rope
+    // statements prepare that indexer's own q and k; the third scores and
+    // thresholds, and its output is the mask MLA's `index_mask` reads.
+    //
+    // The mask is the one statement here that is `whole`, and the reason is
+    // the algebra rather than the addressing: query `i` scores keys `0..=i`,
+    // so a row window that starts anywhere but zero cannot see the keys it
+    // must rank against.
+
+    /// `kernels::launch_dsa_index_q_rope_bf16`: interleaved rope on each
+    /// index head of the indexer's queries.
+    pub fn dsa_index_q_rope(idx_q: &Val, heads: u32, head_dim: u32) -> Val {
+        record(
+            &idx_q.t,
+            idx_q.layer,
+            "launch_dsa_index_q_rope_bf16",
+            vec![],
+            None,
+            vec![idx_q.id],
+            Some((
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(heads),
+                    Dim::Const(head_dim),
+                ]),
+                DType::BF16,
+            )),
+        )
+        .expect("the rope produces its value")
+    }
+
+    /// `kernels::launch_dsa_index_knorm_rope_bf16`: layernorm then rope on the
+    /// indexer's keys.
+    ///
+    /// A LayerNorm with a bias, not the RMS norm the rest of the model uses —
+    /// which is why it is its own statement rather than `rmsnorm` followed by
+    /// `rope`.
+    pub fn dsa_index_knorm_rope(idx_k: &Val, head_dim: u32) -> Val {
+        record(
+            &idx_k.t,
+            idx_k.layer,
+            "launch_dsa_index_knorm_rope_bf16",
+            vec![],
+            None,
+            vec![idx_k.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(head_dim)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the norm+rope produces its value")
+    }
+
+    /// `kernels::launch_dsa_index_topk_mask`: score every causal (query, key)
+    /// pair and keep the top-k per query.
+    ///
+    /// `logit[i,j] = Σ_h relu(idx_q[i,h,·] · idx_k[j,·]) · idx_w[i,h]`, then
+    /// the mask is 1 for the top-`k` of `j <= i`. The output is `[T, T]`, and
+    /// it is what MLA's `index_mask` consumes.
+    pub fn dsa_index_topk_mask(idx_q: &Val, idx_k: &Val, idx_w: &Val) -> Val {
+        record(
+            &idx_q.t,
+            idx_q.layer,
+            "launch_dsa_index_topk_mask",
+            vec![],
+            None,
+            vec![idx_q.id, idx_k.id, idx_w.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Tokens]), DType::I32)),
+        )
+        .expect("the indexer produces its mask")
+    }
+
     // ── MoE: the ALIGNED dispatch path ─────────────────────────────
     //
     // glm5 and kimi_k3 route through a permutation, not a loop. Every
@@ -1666,6 +1874,7 @@ pub mod cuda {
             &logits.t,
             logits.layer,
             "launch_topk_sigmoid_bf16",
+            vec![],
             vec![logits.id],
             vec![
                 (Shape(vec![Dim::Tokens, Dim::Const(top_k)]), DType::I32),
@@ -1690,6 +1899,7 @@ pub mod cuda {
             &topk_idx.t,
             topk_idx.layer,
             "launch_moe_align_decode",
+            vec![],
             vec![topk_idx.id],
             vec![
                 (
@@ -1835,6 +2045,7 @@ pub mod cuda {
             &kv_a.t,
             kv_a.layer,
             "launch_mla_prepare_bf16",
+            vec![],
             vec![kv_a.id, q_b.id],
             vec![
                 (
@@ -1919,6 +2130,37 @@ pub mod cuda {
                     Dim::Const(heads),
                     Dim::Const(kv_lora_rank),
                 ]),
+                DType::BF16,
+            )),
+        )
+        .expect("the attention produces its value")
+    }
+
+    /// `ops::launch_attention_flashinfer_prefill_custom`: the custom-mask
+    /// prefill in its PLAN-FREE form.
+    ///
+    /// The counterpart of [`Self::flashinfer_prefill_planless`]'s reasoning:
+    /// it takes the indptr arrays and the mask directly and builds its
+    /// R-shaped plan on the way in, so it owes its caller no prepare and
+    /// cannot be handed a row window. `whole`, and `FireWide` for the same
+    /// reason XQA is.
+    ///
+    /// gemma-3n binds this rather than the planned `flashinfer_custom` above,
+    /// which is a deployment fact and therefore something a declaration
+    /// states.
+    pub fn flashinfer_prefill_custom_planless(q: &Val, l: u32, heads: u32, head_dim: u32) -> Val {
+        record(
+            &q.t,
+            Some(l),
+            "ops::launch_attention_flashinfer_prefill_custom",
+            vec![],
+            Some(StateRef {
+                store: StateStore::KvCache,
+                layer: l,
+            }),
+            vec![q.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(heads * head_dim)]),
                 DType::BF16,
             )),
         )
