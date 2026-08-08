@@ -20,9 +20,9 @@
 use pie_loader::cache_key::{ArtifactInputs, artifact_cache_key};
 use pie_loader::plan::compile as compile_load_plan;
 
-use pie_model_common::facts::ModelFacts;
-use pie_model_common::policy::Mxfp4MoePolicy;
-use pie_model_common::policy::{
+use pie_model::facts::ModelFacts;
+use pie_model::policy::Mxfp4MoePolicy;
+use pie_model::policy::{
     Component, FamilyKnobs, Mxfp4MoeRequest, Naming, Policy, Projections, RuntimeQuant,
 };
 

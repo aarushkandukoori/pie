@@ -55,8 +55,7 @@ pie-model-config = { path = "../../crates/model-config" }
 # the same websocket path a deployment is reached by, because measuring an
 # in-process shortcut would measure something nobody runs.
 pie-client = { path = "../../crates/client" }
-pie-model = { path = "../../model", features = ["contract"] }
-pie-model-common = { path = "../../model/common", features = ["contract"] }
+pie-model = { path = "../../crates/model", features = ["contract"] }
 # Wire vocabulary — compose.rs names control-plane types (RoutingTable, Ack,
 # GatewayInfo, WorkerInfo, Neighbors, WorkerStatus) from pie-controller-rpc and
 # the id atoms (WorkerId/GatewayId/NodeId) from pie-ids.

@@ -48,8 +48,8 @@ use pie_loader::checkpoint::write::CheckpointWriter;
 use pie_loader::executor::host::Progress;
 use pie_loader::plan::{CONVERT_TILE_MAP_MASK, StorageTarget};
 use pie_loader::types::Visibility;
-use pie_model_common::facts::ModelFacts;
-use pie_model_common::policy::{Mxfp4MoeRequest, Naming, Policy, Projections, RuntimeQuant};
+use pie_model::facts::ModelFacts;
+use pie_model::policy::{Mxfp4MoeRequest, Naming, Policy, Projections, RuntimeQuant};
 use pie_model_config::DESCRIPTOR_OBJECT;
 
 use super::import::{
