@@ -19,10 +19,10 @@
 
 #include "layout/envelope.hpp"
 
-using pie_cuda_driver::kernels::launch_envelope_dot_f32;
-using pie_cuda_driver::kernels::launch_envelope_merge_written_bf16;
-using pie_cuda_driver::kernels::launch_envelope_recompute_bf16;
-using pie_cuda_driver::kernels::launch_envelope_update_appended_bf16;
+using pie_cuda_driver::kernels::layout::launch_envelope_dot_f32;
+using pie_cuda_driver::kernels::layout::launch_envelope_merge_written_bf16;
+using pie_cuda_driver::kernels::layout::launch_envelope_recompute_bf16;
+using pie_cuda_driver::kernels::layout::launch_envelope_update_appended_bf16;
 
 namespace {
 

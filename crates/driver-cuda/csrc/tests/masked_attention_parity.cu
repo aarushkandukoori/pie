@@ -175,7 +175,7 @@ bool run_case(const Case& c, float tol) {
     // dispatch twice. This is the serving path: persistent mask pointers and a
     // cached prefill plan, with no host planner work in the graph body.
     auto ws = AttentionWorkspace::allocate(128ull*1024*1024, 16ull*1024*1024);
-    auto plan = pie_cuda_driver::ops::make_prefill_plan();
+    auto plan = pie_cuda_driver::kernels::attn::make_prefill_plan();
     pie_cuda_driver::kernels::attn::plan_attention_flashinfer_prefill_bf16(
         *plan, qo_indptr_h.data(), kv_page_indptr_h.data(),
         kv_last_page_lens_h.data(), tokens, /*num_requests=*/1,

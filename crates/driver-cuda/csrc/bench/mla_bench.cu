@@ -19,7 +19,7 @@
 
 #include "attn/attention_mla_naive.cuh"
 
-using pie_cuda_driver::ops::mla_naive::launch_mla_naive_paged_raw;
+using pie_cuda_driver::kernels::attn::mla_naive::launch_mla_naive_paged_raw;
 
 namespace {
 
