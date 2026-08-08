@@ -20,6 +20,7 @@
 #include "ops/attention_flashinfer.hpp"
 #include "ops/attention_naive_paged.hpp"
 #include "ops/gemm.hpp"
+#include "model/declared/value_arena.hpp"
 #include <string>
 #include <string_view>
 
@@ -361,6 +362,10 @@ bool gemma4_forward_declared(
                                 out, m, n, k, beta);
     };
 
+    // Declared HERE so the arms can capture it; filled after the
+    // lowering exists, which is the only thing that has to come first.
+    declared::ValueArena values;
+
     const auto execute_op = [&](const PieForwardOp& op) {
         enter(op.layer);
         switch (op.kind) {
@@ -377,44 +382,43 @@ bool gemma4_forward_declared(
             break;
         }
         case PieForwardOpKind::Matmul: {
+            // ISLAND (value arena). Twelve branches told apart by the
+            // WEIGHT NAME used to sit here, and every one of them chose
+            // buffers and widths the trace already states: the operands
+            // are `op.inputs[0]` and `op.outputs[0]`, and a GEMM's two
+            // extents are those values' row widths. Reading the name to
+            // rediscover them was the family convention doing work the
+            // declaration had already done.
+            //
+            // The widths come off the value descriptors rather than the
+            // `cur_*` per-layer bookkeeping, which is the same number by
+            // a shorter route — a traced value's trailing dims ARE its
+            // row width, and for these statements that is `cur_hq`,
+            // `2 * cur_inter`, `L * ple_dim` and the rest, per layer,
+            // without the executor tracking any of it.
+            //
+            // The `throw_drift` on an unrecognised field goes with them,
+            // and is not a guard lost: it fired when the DECLARATION
+            // named a matmul this arm had no placement for, and there is
+            // no placement left to lack. A weight that does not exist
+            // still refuses, one line down, where `gemm` requires it.
             const std::string_view name = plan.weight_name(op);
-            const ParsedName nm = parse_name(name);
-            if (nm.field == "ple_model_proj") {
-                // The MAIN embedding is the input; the per-layer table
-                // is the residual's other addend.
-                gemm(ws.y.data(), name, per_layer_proj,
-                     N, L * ple_dim, H, 0.f);
-            } else if (nm.field == "qkv") {
-                gemm(ws.norm_x.data(), name, ws.qkv_fused.data(),
-                     N, cur_hq + 2 * cur_hk, H, 0.f);
-            } else if (nm.field == "q_proj") {
-                gemm(ws.norm_x.data(), name, ws.q.data(), N, cur_hq, H, 0.f);
-            } else if (nm.field == "k_proj") {
-                gemm(ws.norm_x.data(), name, ws.k.data(), N, cur_hk, H, 0.f);
-            } else if (nm.field == "v_proj") {
-                gemm(ws.norm_x.data(), name, ws.v.data(), N, cur_hk, H, 0.f);
-            } else if (nm.field == "o_proj") {
-                gemm(ws.attn_out.data(), name, ws.norm_x.data(),
-                     N, H, cur_hq, 0.f);
-            } else if (nm.field == "gate_up") {
-                gemm(ws.norm_x.data(), name, ws.gate_up_fused.data(),
-                     N, 2 * cur_inter, H, 0.f);
-            } else if (nm.field == "gate_proj") {
-                gemm(ws.norm_x.data(), name, ws.gate.data(),
-                     N, cur_inter, H, 0.f);
-            } else if (nm.field == "up_proj") {
-                gemm(ws.norm_x.data(), name, ws.up.data(),
-                     N, cur_inter, H, 0.f);
-            } else if (nm.field == "down") {
-                gemm(ws.gate.data(), name, ws.norm_x.data(), N, H, cur_inter, 0.f);
-            } else if (nm.field == "ple_gate") {
-                gemm(ws.y.data(), name, ws.norm_x.data(), N, ple_dim, H, 0.f);
-            } else if (nm.field == "ple_proj") {
-                gemm(ws.norm_x.data(), name, ws.norm_y.data(),
-                     N, H, ple_dim, 0.f);
-            } else {
-                throw_drift("matmul on '" + std::string(name) + "'");
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            if (ins.size == 0 || outs.size == 0) {
+                throw_drift("matmul on '" + std::string(name) +
+                            "' states no operands");
             }
+            const auto row_width = [&](std::uint32_t id) {
+                const auto& val = plan.value(id);
+                std::uint32_t w_ = 1;
+                for (std::uint32_t d = 1; d < val.rank; ++d) {
+                    w_ *= val.dims[d].value;
+                }
+                return static_cast<int>(w_);
+            };
+            gemm(values.slot(ins[0]), name, values.slot(outs[0]),
+                 N, row_width(outs[0]), row_width(ins[0]), 0.f);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {
@@ -748,6 +752,130 @@ bool gemma4_forward_declared(
     const pie_forward::PieForwardLowered flat =
         plan.lower(rows.data(), rows.size());
     if (flat.uncovered != pie_forward::PieForwardUncovered::None) return false;
+
+    // THE PIN PASS (`model/declared/value_arena.hpp`): this family's
+    // buffer convention, stated ONCE.
+    //
+    // Every arm below used to carry a piece of it — "the normed
+    // activation is `ws.norm_x`", "the geglu lands in `ws.gate`" — which
+    // is why an arm could not be shared with a family spelling the same
+    // role differently (qwen3_5 norms into `ws.norm_x` where llama_like
+    // uses `ws.norm_y`). Collected here, an arm asks the arena by VALUE
+    // ID and never learns whose convention it is serving.
+    //
+    // The bytes do not move. Each entry names the buffer that op's arm
+    // writes today, so a converted arm addresses exactly what it
+    // addressed before and the family A/B is a real comparison rather
+    // than a re-baselining. Host-assigned offsets take over per island,
+    // as each island's pins come out.
+    values.reset_pins_only(plan.value_count());
+    values.bind_offsets(ws.declared_values.data(),
+                        ws.declared_values.nbytes(), flat);
+    {
+        const std::size_t op_count = plan.op_count();
+        for (std::size_t i = 0; i < op_count; ++i) {
+            const PieForwardOp& op = plan.op(i);
+            const auto outs = plan.outputs(op);
+            if (outs.size == 0) continue;
+            const auto pin = [&](std::size_t which, void* ptr) {
+                if (which < outs.size) values.pin(outs[which], ptr);
+            };
+            switch (op.kind) {
+            case PieForwardOpKind::Embed:
+                pin(0, plan.weight_name(op) == "embed" ? ws.y.data()
+                                                       : per_layer_token);
+                break;
+            case PieForwardOpKind::Matmul: {
+                const ParsedName nm = parse_name(plan.weight_name(op));
+                if (nm.field == "ple_model_proj")   pin(0, per_layer_proj);
+                else if (nm.field == "qkv")         pin(0, ws.qkv_fused.data());
+                else if (nm.field == "q_proj")      pin(0, ws.q.data());
+                else if (nm.field == "k_proj")      pin(0, ws.k.data());
+                else if (nm.field == "v_proj")      pin(0, ws.v.data());
+                else if (nm.field == "o_proj")      pin(0, ws.norm_x.data());
+                else if (nm.field == "gate_up")     pin(0, ws.gate_up_fused.data());
+                else if (nm.field == "gate_proj")   pin(0, ws.gate.data());
+                else if (nm.field == "up_proj")     pin(0, ws.up.data());
+                else if (nm.field == "down")        pin(0, ws.norm_x.data());
+                else if (nm.field == "ple_gate")    pin(0, ws.norm_x.data());
+                else if (nm.field == "ple_proj")    pin(0, ws.norm_y.data());
+                break;
+            }
+            case PieForwardOpKind::Rmsnorm:
+                // Both sites (`attn_norm`, `final_norm`) norm the stream
+                // into the same scratch.
+                pin(0, ws.norm_x.data());
+                break;
+            case PieForwardOpKind::RmsnormPerHead: {
+                const ParsedName nm = parse_name(plan.weight_name(op));
+                if (nm.field == "ple_model_norm") pin(0, per_layer_proj);
+                else if (nm.field == "q_norm")    pin(0, ws.q.data());
+                else if (nm.field == "k_norm")    pin(0, ws.k.data());
+                break;
+            }
+            case PieForwardOpKind::SplitQkv:
+                pin(0, ws.q.data());
+                pin(1, ws.k.data());
+                pin(2, ws.v.data());
+                break;
+            case PieForwardOpKind::Rope:
+                pin(0, ws.q.data());
+                pin(1, ws.k.data());
+                break;
+            case PieForwardOpKind::LmHead:
+                pin(0, ws.logits.data());
+                break;
+            case PieForwardOpKind::Launch: {
+                const auto names = plan.aux_names(op);
+                const auto aux = [&](std::size_t j) { return plan.name(names[j]); };
+                switch (resolve_g4_kernel(plan.weight_name(op))) {
+                case G4Kernel::ScalarMul: {
+                    const std::string_view which = aux(0);
+                    if (which == "scale.sqrt_hidden")        pin(0, ws.y.data());
+                    else if (which == "scale.sqrt_ple_dim")  pin(0, per_layer_token);
+                    else                                     pin(0, per_layer_proj);
+                    break;
+                }
+                case G4Kernel::ResidualAdd:       pin(0, per_layer_proj); break;
+                case G4Kernel::TransposeNldToLnd: pin(0, per_layer_token); break;
+                case G4Kernel::QkvPackedPost:     pin(0, ws.q.data()); break;
+                case G4Kernel::QkRmsnormRopeRounded:
+                    pin(0, ws.q.data());
+                    pin(1, ws.k.data());
+                    break;
+                case G4Kernel::RopeQOnlyPartial:
+                case G4Kernel::RopeQOnly:         pin(0, ws.q.data()); break;
+                case G4Kernel::RmsnormNoScale:    pin(0, ws.v.data()); break;
+                case G4Kernel::AttnFlashinferDecode:
+                case G4Kernel::AttnFlashinferPrefill:
+                case G4Kernel::AttnNaivePaged:    pin(0, ws.attn_out.data()); break;
+                case G4Kernel::ChunkedGegluTanh:  pin(0, ws.gate.data()); break;
+                case G4Kernel::GegluTanh: {
+                    // TWO sites for one kernel, told apart by the WIDTH
+                    // the op declares — the same test the arm makes.
+                    const auto& val = plan.value(outs[0]);
+                    const std::uint32_t width = val.dims[val.rank - 1].value;
+                    pin(0, static_cast<int>(width) == ple_dim ? ws.norm_x.data()
+                                                              : ws.gate.data());
+                    break;
+                }
+                case G4Kernel::NormResidualScaleNorm:
+                    // `(landed, mlp_in)` in the declaration: the stream
+                    // first, the normed activation second.
+                    pin(0, ws.y.data());
+                    pin(1, ws.norm_x.data());
+                    break;
+                case G4Kernel::NormResidualAdd:   pin(0, ws.y.data()); break;
+                case G4Kernel::LogitSoftcap:      pin(0, ws.logits.data()); break;
+                default: break;
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+    }
 
     std::size_t next_site = 0;
     std::size_t at = 0;

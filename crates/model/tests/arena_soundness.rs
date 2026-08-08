@@ -357,3 +357,62 @@ fn the_walk_catches_an_overlap_it_is_given() {
         "an arena that puts every value at offset 0 must clobber"
     );
 }
+
+/// Which operands a driver can size FROM THE VALUE, and which it cannot.
+///
+/// The gemma-4 executor's Matmul arm now derives a GEMM's two extents
+/// from its operands' value descriptors instead of tracking `cur_hq`,
+/// `cur_inter` and friends per layer. That is only the same number when
+/// a traced value's trailing dims are constants, so this gates exactly
+/// that: every MATMUL operand, every family.
+///
+/// It is not true in general, and the exception is worth naming rather
+/// than asserting away. `launch_transpose_bf16_nld_to_lnd` turns
+/// `[N, L, ple_dim]` into `[L, N, ple_dim]`, which puts `Tokens` in a
+/// non-leading position — its row width is a runtime number and
+/// `Arg::Arena { width }` is 0. A generic driver therefore cannot assume
+/// a width is available for every rectangle; the kernels that need one
+/// from elsewhere are printed, and they are the ones whose arms will
+/// still read something the value alone does not say.
+#[test]
+fn a_matmul_operand_has_a_row_width_a_driver_can_derive() {
+    use model_compiler::lower::{lower, Arg, Fire};
+    use std::collections::BTreeSet;
+
+    let mut widthless: BTreeSet<String> = BTreeSet::new();
+    for (name, class, plan) in families() {
+        for n in [1usize, 8] {
+            let rows = plain(n);
+            let Ok(out) = lower(&plan, &rows, Fire::default()) else {
+                continue; // a text that will not lower has no operands
+            };
+            for l in &out.launches {
+                let kernel = &out.kernels[l.kernel as usize];
+                for a in &out.args[l.args.start as usize..l.args.end as usize] {
+                    let width = match a {
+                        Arg::Arena { width, .. } | Arg::Named { width, .. } => *width,
+                        Arg::Weight(_) => continue,
+                    };
+                    if width > 0 {
+                        continue;
+                    }
+                    widthless.insert(kernel.clone());
+                    // The converted arm derives ITS extents this way, so
+                    // for a matmul a missing width is a wrong number on
+                    // the device rather than a fact about the tree.
+                    assert!(
+                        !kernel.starts_with("gemm_"),
+                        "{name} ({class:?}), {n} rows: the matmul operand of \
+                         `{kernel}` has no fixed row width, so the executor \
+                         deriving extents from the value descriptor would \
+                         get one wrong"
+                    );
+                }
+            }
+        }
+    }
+    println!("kernels with an operand no value descriptor can size:");
+    for k in &widthless {
+        println!("  {k}");
+    }
+}
