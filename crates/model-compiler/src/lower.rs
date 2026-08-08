@@ -130,11 +130,20 @@ pub struct Site {
 /// once, in the lowering, for every family at once.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Arg {
-    /// An activation: a byte offset into the frame's arena.
-    Arena(usize),
+    /// An activation: a byte offset into the frame's arena, and the
+    /// operand's WIDTH — elements per row.
+    ///
+    /// The width is here because an arm needs it and the alternative is
+    /// worse. Today's per-family executors track it as `cur_d`, `cur_hk`
+    /// and friends — per-layer bookkeeping the walk maintains — and a
+    /// driver that had to re-derive it would be reading the plan again,
+    /// which is exactly what the flat list exists to avoid. The rows come
+    /// from [`Launch::rows`]; together they are the rectangle the kernel
+    /// addresses.
+    Arena { at: usize, width: u32 },
     /// A value the BACKEND binds by name — the values a seam exposes
     /// (the observed query, the logits). `Buffers::NAMED` says which.
-    Named(ValueId),
+    Named { value: ValueId, width: u32 },
     /// A weight, by the name the trace states (`layer.3.q_proj`). The
     /// driver resolves it against its own tensor store, which is the one
     /// thing that stays per-family and is a MAP rather than a switch.
@@ -562,12 +571,35 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// Where a value's bytes are: the arena, or the backend's to bind.
+    /// Where a value's bytes are, and how wide a row of it is.
     fn slot(&self, v: ValueId) -> Arg {
+        let width = self.row_width(v);
         match self.buffers.offset.get(v as usize) {
-            Some(&Buffers::NAMED) | None => Arg::Named(v),
-            Some(&at) => Arg::Arena(at),
+            Some(&Buffers::NAMED) | None => Arg::Named { value: v, width },
+            Some(&at) => Arg::Arena { at, width },
         }
+    }
+
+    /// Elements per row: the product of every dim but the leading one.
+    ///
+    /// The leading dim is the row axis (`Tokens` for the body,
+    /// `Requests` for the epilogue), which [`Launch::rows`] already
+    /// names. A symbolic dim after the first would make the width a
+    /// runtime number, and no statement in the tree has one — so this
+    /// takes the constants and says zero if that ever stops being true,
+    /// which a driver reads as "this operand has no fixed width".
+    fn row_width(&self, v: ValueId) -> u32 {
+        let Some(info) = self.plan.values.get(v as usize) else {
+            return 0;
+        };
+        let mut w: u32 = 1;
+        for dim in info.shape.0.iter().skip(1) {
+            match dim {
+                Dim::Const(k) => w = w.saturating_mul(*k),
+                _ => return 0,
+            }
+        }
+        w
     }
 
     /// THE EPILOGUE, as rectangles rather than as a branch.

@@ -813,6 +813,11 @@ struct PieForwardLaunch {
 struct PieForwardArg {
   PieForwardArgKind kind;
   uint32_t value;
+  /// Elements per row, for `Arena` and `Named`; zero for a `Weight`,
+  /// whose extent is the tensor's own. An arm needs this and would
+  /// otherwise have to re-read the plan — see
+  /// [`model_compiler::lower::Arg`].
+  uint32_t width;
 };
 
 /// One STRUCTURAL statement: where it sits, and the rows it brackets.

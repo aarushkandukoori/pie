@@ -661,9 +661,13 @@ pub fn lower(
             .args
             .iter()
             .map(|a| {
-                let (kind, value) = match a {
-                    Arg::Arena(at) => (PieForwardArgKind::Arena, *at as u32),
-                    Arg::Named(v) => (PieForwardArgKind::Named, *v),
+                let (kind, value, width) = match a {
+                    Arg::Arena { at, width } => {
+                        (PieForwardArgKind::Arena, *at as u32, *width)
+                    }
+                    Arg::Named { value, width } => {
+                        (PieForwardArgKind::Named, *value, *width)
+                    }
                     Arg::Weight(want) => {
                         let idx = arena
                             .names
@@ -675,10 +679,10 @@ pub fn lower(
                             })
                             .map(|i| i as u32)
                             .unwrap_or(PIE_FORWARD_NO_NAME);
-                        (PieForwardArgKind::Weight, idx)
+                        (PieForwardArgKind::Weight, idx, 0)
                     }
                 };
-                PieForwardArg { kind, value }
+                PieForwardArg { kind, value, width }
             })
             .collect();
         arena.shadow_args.extend(slots);

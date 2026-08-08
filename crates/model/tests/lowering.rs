@@ -1014,15 +1014,19 @@ fn every_launch_carries_operands_that_match_the_arena() {
         );
         for a in &out.args[l.args.start as usize..l.args.end as usize] {
             match a {
-                Arg::Arena(at) => {
+                Arg::Arena { at, width } => {
                     arena_args += 1;
                     assert!(
                         *at < out.arena_bytes,
                         "an operand outside the arena ({at} vs {})",
                         out.arena_bytes
                     );
+                    // A zero width is the lowering saying "this operand
+                    // has no fixed row width", which no statement in the
+                    // tree produces — so it reads as a resolver bug.
+                    assert!(*width > 0, "an activation operand with no width");
                 }
-                Arg::Named(v) => assert_eq!(
+                Arg::Named { value: v, .. } => assert_eq!(
                     buffers.offset[*v as usize],
                     Buffers::NAMED,
                     "a Named operand must be one the arena declined"

@@ -672,6 +672,11 @@ pub enum PieForwardArgKind {
 pub struct PieForwardArg {
     pub kind: PieForwardArgKind,
     pub value: u32,
+    /// Elements per row, for `Arena` and `Named`; zero for a `Weight`,
+    /// whose extent is the tensor's own. An arm needs this and would
+    /// otherwise have to re-read the plan — see
+    /// [`model_compiler::lower::Arg`].
+    pub width: u32,
 }
 
 
