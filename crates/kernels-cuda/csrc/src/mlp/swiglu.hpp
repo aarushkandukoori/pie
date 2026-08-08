@@ -179,25 +179,14 @@ void relu2_bf16(
     int num_elements,
     cudaStream_t stream);
 
-// In-place per-token sigmoid gate on a `[N, H]` tensor: `x[n, h] *=
-// sigmoid(scalar_gate[n])`. Used by the Qwen3.6-MoE shared-expert path,
-// where the gate is a single scalar per token (output of the `[N, 1]`
-// shared_expert_gate projection).
-void sigmoid_scalar_gate_inplace_bf16(
-    void*       x,             // bf16 [N, H], in-place
-    const void* scalar_gate,   // bf16 [N]
-    int N, int H,
-    cudaStream_t stream);
-
-void sigmoid_scalar_gate_strided_inplace_bf16(
-    void*       x,             // bf16 [N, H], in-place
-    const void* scalar_gate,   // bf16 [N, stride]
-    int N, int H, int stride,
-    cudaStream_t stream);
-
-// Fused version of `x *= sigmoid(gate); out += x` for Qwen3.6-MoE's
-// shared expert. Saves one kernel launch and one bf16 read/write pass over
-// the shared expert output on decode/spec-verification shapes.
+// Per-token sigmoid gate on a `[N, H]` tensor for the Qwen3.6-MoE shared
+// expert, where the gate is a single scalar per token (output of the `[N, 1]`
+// shared_expert_gate projection), FUSED with the add that always followed it:
+// `out += x * sigmoid(gate)`. Saves one kernel launch and one bf16 read/write
+// pass over the shared expert output on decode/spec-verification shapes.
+//
+// The unfused `sigmoid_scalar_gate_inplace_bf16` pair these superseded was
+// deleted once nothing called it -- see the note in swiglu.cu.
 void sigmoid_scalar_gate_add_bf16(
     void*       out,           // bf16 [N, H], in-place add destination
     const void* x,             // bf16 [N, H]
@@ -212,17 +201,6 @@ void sigmoid_scalar_gate_strided_add_bf16(
     int N, int H, int stride,
     cudaStream_t stream);
 
-// Fused Qwen3.6-MoE shared-expert scalar gate:
-//   gate[n] = dot(x[n, :], gate_w[:])
-//   y[n, h] *= sigmoid(gate[n])
-// This replaces the tiny [N, H] x [H, 1] cuBLAS GEMM plus the scalar gate
-// kernel on decode/spec-verification shapes.
-void sigmoid_dot_scalar_gate_inplace_bf16(
-    const void* x,       // bf16 [N, H]
-    const void* gate_w,  // bf16 [H]
-    void*       y,       // bf16 [N, H], in-place
-    int N, int H,
-    cudaStream_t stream);
 
 void sigmoid_dot_scalar_gate_add_bf16(
     const void* x,       // bf16 [N, H]

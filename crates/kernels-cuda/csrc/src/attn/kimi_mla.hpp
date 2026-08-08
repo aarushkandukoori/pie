@@ -15,15 +15,9 @@ void kimi_split_q_b_bf16(
     int qk_rope_dim,
     cudaStream_t stream);
 
-void kimi_split_kv_a_bf16(
-    const void* kv_a,
-    void* kv_c,
-    void* k_pe,
-    int tokens,
-    int kv_lora_rank,
-    int qk_rope_dim,
-    cudaStream_t stream);
-
+// The unfused `kimi_split_kv_a_bf16` this replaced was deleted once nothing
+// called it: every caller wants the rmsnorm, and the fused form is the only
+// one the table ever declared.
 void kimi_split_kv_a_norm_bf16(
     const void* kv_a,
     const void* norm_weight,

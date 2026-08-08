@@ -527,34 +527,12 @@ void relu2_bf16(
 
 namespace {
 
-__global__ void sigmoid_scalar_gate_inplace_bf16_kernel(
-    __nv_bfloat16* __restrict__ x,
-    const __nv_bfloat16* __restrict__ scalar_gate,
-    int N, int H)
-{
-    const int n = blockIdx.x;
-    const int h = blockIdx.y * blockDim.x + threadIdx.x;
-    if (n >= N || h >= H) return;
-    const float gv = __bfloat162float(scalar_gate[n]);
-    const float s  = 1.f / (1.f + __expf(-gv));
-    const long long i = (long long)n * H + h;
-    x[i] = __float2bfloat16(__bfloat162float(x[i]) * s);
-}
-
-__global__ void sigmoid_scalar_gate_strided_inplace_bf16_kernel(
-    __nv_bfloat16* __restrict__ x,
-    const __nv_bfloat16* __restrict__ scalar_gate,
-    int N, int H, int stride)
-{
-    const int n = blockIdx.x;
-    const int h = blockIdx.y * blockDim.x + threadIdx.x;
-    if (n >= N || h >= H) return;
-    const float gv =
-        __bfloat162float(scalar_gate[static_cast<long long>(n) * stride]);
-    const float s  = 1.f / (1.f + __expf(-gv));
-    const long long i = (long long)n * H + h;
-    x[i] = __float2bfloat16(__bfloat162float(x[i]) * s);
-}
+// Three unfused launchers used to live here -- `sigmoid_scalar_gate_inplace`,
+// its `_strided` sibling, and `sigmoid_dot_scalar_gate_inplace` -- each with
+// its own device kernel. The fused `_add` forms below replaced them (the add
+// always followed the gate), and nothing called the unfused ones afterwards:
+// no table row, no emitter, no model. Deleted rather than left as vocabulary
+// that reads like a choice.
 
 __global__ void sigmoid_scalar_gate_add_bf16_kernel(
     __nv_bfloat16* __restrict__ out,
@@ -572,36 +550,6 @@ __global__ void sigmoid_scalar_gate_add_bf16_kernel(
     const float ov = __bfloat162float(out[i]);
     const float xv = __bfloat162float(x[i]);
     out[i] = __float2bfloat16(ov + xv * s);
-}
-
-__global__ void sigmoid_dot_scalar_gate_inplace_bf16_kernel(
-    const __nv_bfloat16* __restrict__ x,
-    const __nv_bfloat16* __restrict__ gate_w,
-    __nv_bfloat16* __restrict__ y,
-    int H)
-{
-    const int n = blockIdx.x;
-    const int tid = threadIdx.x;
-    extern __shared__ float smem[];
-
-    float acc = 0.f;
-    const __nv_bfloat16* x_row = x + static_cast<long long>(n) * H;
-    for (int h = tid; h < H; h += blockDim.x) {
-        acc += __bfloat162float(x_row[h]) * __bfloat162float(gate_w[h]);
-    }
-    smem[tid] = acc;
-    __syncthreads();
-
-    for (int offset = blockDim.x >> 1; offset > 0; offset >>= 1) {
-        if (tid < offset) smem[tid] += smem[tid + offset];
-        __syncthreads();
-    }
-    const float s = 1.f / (1.f + __expf(-smem[0]));
-
-    __nv_bfloat16* y_row = y + static_cast<long long>(n) * H;
-    for (int h = tid; h < H; h += blockDim.x) {
-        y_row[h] = __float2bfloat16(__bfloat162float(y_row[h]) * s);
-    }
 }
 
 // One bf16 per thread makes every warp issue a 64-byte access, half a cache
@@ -692,34 +640,6 @@ __global__ void sigmoid_dot_scalar_gate_add_bf16_kernel(
 
 }  // namespace
 
-void sigmoid_scalar_gate_inplace_bf16(
-    void* x, const void* scalar_gate, int N, int H, cudaStream_t stream)
-{
-    if (N <= 0 || H <= 0) return;
-    constexpr int BLOCK = 128;
-    dim3 grid(N, (H + BLOCK - 1) / BLOCK);
-    sigmoid_scalar_gate_inplace_bf16_kernel<<<grid, BLOCK, 0, stream>>>(
-        static_cast<__nv_bfloat16*>(x),
-        static_cast<const __nv_bfloat16*>(scalar_gate),
-        N, H);
-}
-
-void sigmoid_scalar_gate_strided_inplace_bf16(
-    void* x, const void* scalar_gate, int N, int H, int stride, cudaStream_t stream)
-{
-    if (N <= 0 || H <= 0) return;
-    if (stride == 1) {
-        sigmoid_scalar_gate_inplace_bf16(x, scalar_gate, N, H, stream);
-        return;
-    }
-    constexpr int BLOCK = 128;
-    dim3 grid(N, (H + BLOCK - 1) / BLOCK);
-    sigmoid_scalar_gate_strided_inplace_bf16_kernel<<<grid, BLOCK, 0, stream>>>(
-        static_cast<__nv_bfloat16*>(x),
-        static_cast<const __nv_bfloat16*>(scalar_gate),
-        N, H, stride);
-}
-
 void sigmoid_scalar_gate_add_bf16(
     void* out, const void* x, const void* scalar_gate, int N, int H,
     cudaStream_t stream)
@@ -740,20 +660,6 @@ void sigmoid_scalar_gate_strided_add_bf16(
         static_cast<const __nv_bfloat16*>(x),
         static_cast<const __nv_bfloat16*>(scalar_gate),
         N, H, stride);
-}
-
-void sigmoid_dot_scalar_gate_inplace_bf16(
-    const void* x, const void* gate_w, void* y, int N, int H,
-    cudaStream_t stream)
-{
-    if (N <= 0 || H <= 0) return;
-    constexpr int BLOCK = 256;
-    sigmoid_dot_scalar_gate_inplace_bf16_kernel<<<
-        N, BLOCK, BLOCK * sizeof(float), stream>>>(
-        static_cast<const __nv_bfloat16*>(x),
-        static_cast<const __nv_bfloat16*>(gate_w),
-        static_cast<__nv_bfloat16*>(y),
-        H);
 }
 
 void sigmoid_dot_scalar_gate_add_bf16(

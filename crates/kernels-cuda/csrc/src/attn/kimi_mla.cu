@@ -32,27 +32,6 @@ __global__ void split_q_b_kernel(
     }
 }
 
-__global__ void split_kv_a_kernel(
-    const __nv_bfloat16* __restrict__ kv_a,
-    __nv_bfloat16* __restrict__ kv_c,
-    __nv_bfloat16* __restrict__ k_pe,
-    int total,
-    int kv_lora,
-    int rope)
-{
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= total) return;
-    const int per = kv_lora + rope;
-    const int d = i % per;
-    const int n = i / per;
-    const __nv_bfloat16 v = kv_a[i];
-    if (d < kv_lora) {
-        kv_c[static_cast<long long>(n) * kv_lora + d] = v;
-    } else {
-        k_pe[static_cast<long long>(n) * rope + (d - kv_lora)] = v;
-    }
-}
-
 // Fused split_kv_a + rmsnorm(kv_c): splits [kv_lora+rope] → kv_c[kv_lora] (normalized) + k_pe[rope]
 template <int BLOCK_DIM>
 __global__ void split_kv_a_norm_kernel(
@@ -111,24 +90,6 @@ void kimi_split_q_b_bf16(
         static_cast<__nv_bfloat16*>(q_nope),
         static_cast<__nv_bfloat16*>(q_pe),
         total, heads, qk_nope_dim, qk_rope_dim);
-}
-
-void kimi_split_kv_a_bf16(
-    const void* kv_a,
-    void* kv_c,
-    void* k_pe,
-    int tokens,
-    int kv_lora_rank,
-    int qk_rope_dim,
-    cudaStream_t stream)
-{
-    const int total = tokens * (kv_lora_rank + qk_rope_dim);
-    if (total <= 0) return;
-    split_kv_a_kernel<<<(total + BLOCK - 1) / BLOCK, BLOCK, 0, stream>>>(
-        static_cast<const __nv_bfloat16*>(kv_a),
-        static_cast<__nv_bfloat16*>(kv_c),
-        static_cast<__nv_bfloat16*>(k_pe),
-        total, kv_lora_rank, qk_rope_dim);
 }
 
 void kimi_split_kv_a_norm_bf16(
