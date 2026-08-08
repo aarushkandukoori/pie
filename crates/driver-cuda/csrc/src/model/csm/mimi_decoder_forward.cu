@@ -45,6 +45,8 @@
 #include <string>
 #include <vector>
 
+#include "model/csm/csm_naive_kernels.cuh"
+
 namespace pie_cuda_driver::model {
 
 // ── Optional parity-debug checkpoint hook ────────────────────────────────────
@@ -65,8 +67,6 @@ namespace {
 
 typedef __nv_bfloat16 bf;
 #define MCK(x) do{cudaError_t e=(x);if(e)throw std::runtime_error(std::string("mimi_decoder: ")+cudaGetErrorString(e));}while(0)
-__device__ __forceinline__ float F(bf x){return __bfloat162float(x);}
-__device__ __forceinline__ bf   Bf(float x){return __float2bfloat16(x);}
 
 dim3 B2(16,16); inline dim3 G2(int X,int Y){return dim3((X+15)/16,(Y+15)/16);}
 
@@ -95,11 +95,6 @@ __global__ void k_layerscale_add_rd(bf* res,const bf* x,const bf* scale,int R,in
     if(r>=R||d>=D)return;long i=(long)r*D+d;res[i]=Bf(F(res[i])+F(scale[d])*F(x[i]));}
 
 // Standard matmul y[n,o] = sum_k x[n,k]*W[o,k]   (W is [O, K], row-major).
-__global__ void k_matmul(const bf* x,const bf* W,bf* y,int N,int K,int O){
-    int n=blockIdx.y*blockDim.y+threadIdx.y,o=blockIdx.x*blockDim.x+threadIdx.x;
-    if(n>=N||o>=O)return;const bf* xr=x+(long)n*K;const bf* wr=W+(long)o*K;
-    float a=0;for(int k=0;k<K;k++)a+=F(xr[k])*F(wr[k]);y[(long)n*O+o]=Bf(a);}
-
 // LayerNorm over the feature axis (with weight + bias), on a [R, D] row-major
 // tensor (one feature vector per row). transformers nn.LayerNorm.
 __global__ void k_layernorm(const bf* x,const bf* w,const bf* b,bf* o,int R,int D,float eps){
