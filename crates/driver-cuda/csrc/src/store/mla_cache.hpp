@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "kernels/mla_cache_view.hpp"
-#include "../tensor.hpp"
+#include "tensor.hpp"
 
 namespace pie_cuda_driver {
 

@@ -1,4 +1,4 @@
-#include "custom_all_reduce.hpp"
+#include "comm/custom_all_reduce.hpp"
 
 #include <cstring>
 #include <cstdlib>

@@ -9,7 +9,7 @@
 
 #include <vector>
 
-#include "../../kernels/decode_psos.hpp"
+#include "../../batch/decode_psos.hpp"
 #include "../../mtl4_context.hpp"
 #include "decode_step.hpp"
 #include "geometry.hpp"

@@ -26,3 +26,7 @@ driver = { path = "../driver" }
 driver-abi = { path = "../driver-abi" }
 model-loader-capi = { path = "../model-loader-capi", default-features = false }
 model-compiler = { path = "../model-compiler" }
+# The shaders. `native` is what stages `ptir_rng.generated.metal` beside them;
+# there is nothing to compile, because Metal builds its pipeline state objects
+# from `.metal` text at run time.
+kernels-metal = { path = "../kernels-metal", features = ["native"] }

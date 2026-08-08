@@ -13,7 +13,7 @@
 
 #include <cuda_runtime.h>
 
-#include "kernels/custom_all_reduce.hpp"
+#include "comm/custom_all_reduce.hpp"
 #include "cuda_check.hpp"
 #include "distributed.hpp"
 #include "store/kv_cache.hpp"

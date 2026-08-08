@@ -8,6 +8,13 @@ license = "Apache-2.0"
 repository = "https://github.com/pie-project/pie"
 publish = false
 
+# The archive `native` builds, and the include trees that come with it. A
+# `links` key is how `driver-cuda` reads `DEP_PIE_KERNELS_CUDA_INCLUDE` and
+# friends -- including the FlashInfer paths, which only this crate's CMake
+# knows because only this crate's CMake fetches and patches FlashInfer.
+links = "pie_kernels_cuda"
+build = "build.rs"
+
 [lib]
 name = "kernels_cuda"
 path = "src/lib.rs"

@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "kernels/custom_all_reduce.hpp"
+#include "comm/custom_all_reduce.hpp"
 #include "batch/forward_graph.hpp"  // prefill_graph_enabled()
 #include "cuda_check.hpp"
 #include "kernels/add_bias.hpp"

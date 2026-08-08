@@ -38,7 +38,7 @@
 #include "../model/qwen3_5/qwen3_5_forward.hpp"
 #include "../model/qwen3_5/qwen3_5_moe_forward.hpp"
 #include "../model/workspace.hpp"
-#include "../ops/gemm.hpp"
+#include "ops/gemm.hpp"
 
 namespace pie_cuda_driver {
 namespace {

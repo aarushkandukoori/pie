@@ -6,7 +6,7 @@
 
 #include <cuda_runtime.h>
 
-#include "../cuda_check.hpp"
+#include "cuda_check.hpp"
 
 namespace pie_cuda_driver {
 

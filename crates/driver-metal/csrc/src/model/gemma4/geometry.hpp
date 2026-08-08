@@ -1,6 +1,6 @@
 #pragma once
 
-#include "kernels/affine_format.hpp"
+#include "affine_format.hpp"
 
 /// Gemma 4 decode geometry.
 ///

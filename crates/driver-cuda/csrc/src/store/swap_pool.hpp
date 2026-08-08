@@ -18,7 +18,7 @@
 #include <cuda_runtime.h>
 
 #include "kv_cache.hpp"
-#include "../tensor.hpp"
+#include "tensor.hpp"
 
 namespace pie_cuda_driver {
 

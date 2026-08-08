@@ -20,7 +20,7 @@
 #include "mtl4_context.hpp"
 #include "batch/decode_abi.hpp"
 #include "batch/golden_tap.hpp"
-#include "kernels/decode_psos.hpp"
+#include "batch/decode_psos.hpp"
 #include "loader/heap_bind_metal.hpp"
 #include "loader/load_plan.hpp"
 #include "pie_loader/checkpoint_source.hpp"

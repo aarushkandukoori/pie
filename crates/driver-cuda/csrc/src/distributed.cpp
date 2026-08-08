@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "cuda_check.hpp"
-#include "kernels/custom_all_reduce.hpp"
+#include "comm/custom_all_reduce.hpp"
 
 namespace pie_cuda_driver {
 

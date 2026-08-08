@@ -20,7 +20,7 @@
 namespace pie::metal::shared_kernels {
 
 /// Params structs, replicated EXACTLY from the .metal sources.
-#include "../kernels/rms_params.h"
+#include "rms_params.h"
 static_assert(sizeof(RmsParams) == 20);
 static_assert(sizeof(VNormParams) == 8);
 static_assert(sizeof(GatedRmsParams) == 8);
@@ -28,7 +28,7 @@ struct RowGatherParams {    // row_gather.metal       (buffer 3)
     std::uint32_t width;
     std::uint32_t count;
 };
-#include "../kernels/moe_params.h"
+#include "moe_params.h"
 static_assert(sizeof(RouterParams) == 16);
 static_assert(sizeof(ExpertCombineParams) == 12);
 static_assert(sizeof(MoeRouteParams) == 28);

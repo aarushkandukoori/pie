@@ -47,7 +47,7 @@
 #include "kernels/kv_paged.hpp"
 #include "store/kv_cache.hpp"
 #include "store/elastic.hpp"
-#include "kernels/custom_all_reduce.hpp"
+#include "comm/custom_all_reduce.hpp"
 #include "store/mla_cache.hpp"
 #include "store/dsa_cache.hpp"
 #include "model/deepseek_v4/deepseek_v4_forward.hpp"

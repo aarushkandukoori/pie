@@ -29,7 +29,7 @@
 
 #include "ops/attention_workspace.hpp"
 #include "kernels/argmax.hpp"
-#include "kernels/custom_all_reduce.hpp"
+#include "comm/custom_all_reduce.hpp"
 #include "cuda_check.hpp"
 #include "device_buffer.hpp"
 #include "distributed.hpp"

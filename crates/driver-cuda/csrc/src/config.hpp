@@ -15,6 +15,11 @@
 #include <toml++/toml.hpp>
 #endif
 
+// `mutable_cache_dir()` / `cache_dir()`, which `load_config` below publishes
+// out of `[cache] dir`. They live in the kernels crate because `ops/
+// tuning_cache.hpp` reads the cache root and must not include this header to
+// get it -- see cache_root.hpp for the whole argument.
+#include "cache_root.hpp"
 #include "batch/planner_calibration.hpp"
 #include "store/kv_cache_format.hpp"
 
@@ -107,17 +112,6 @@ struct Config {
     DistributedConfig distributed;
     RuntimeConfig runtime;
 };
-
-/// The root every disk cache derives from, from `[cache] dir` -- normally
-/// `$PIE_HOME/cache`. Empty means the engine did not say, which happens when a
-/// driver is run against a hand-written TOML; the caches then fall back to
-/// their XDG derivation.
-inline std::string& mutable_cache_dir() {
-    static std::string dir;
-    return dir;
-}
-
-inline const std::string& cache_dir() { return mutable_cache_dir(); }
 
 /// This model's materialized-weight artifact directory, published by
 /// `load_config` because the artifact cache is built from a place that never

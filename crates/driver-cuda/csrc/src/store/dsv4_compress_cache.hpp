@@ -25,7 +25,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "../tensor.hpp"
+#include "tensor.hpp"
 #include "model/config.hpp"
 
 namespace pie_cuda_driver {

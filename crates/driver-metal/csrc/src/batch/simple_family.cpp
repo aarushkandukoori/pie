@@ -9,7 +9,7 @@
 
 #include "decode_abi.hpp"
 #include "golden_tap.hpp"
-#include "kernels/decode_psos.hpp"
+#include "batch/decode_psos.hpp"
 #include "expert_paging.hpp"
 #include "loader/heap_bind_metal.hpp"
 #include "pie_loader/checkpoint_source.hpp"

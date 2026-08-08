@@ -44,7 +44,18 @@ fn main() {
         .define("PIE_DRIVER_INCLUDE_DIR", dep_include("PIE_DRIVER", "driver"))
         .define("PIE_PTIR_INCLUDE_DIR", sibling("tensor-compiler").join("include"))
         .define("PIE_PTIR_RUNTIME_DIR", sibling("tensor-compiler").join("runtime"))
-        .define("PIE_REPO_ROOT", repo_root());
+        .define("PIE_REPO_ROOT", repo_root())
+        // The shader directory, from cargo rather than by walking out of this
+        // tree. It becomes both an include dir (the `*_params.h` a shader and
+        // its host caller must agree on) and PIE_METAL_KERNELS_DIR_DEFAULT,
+        // the path baked into the binary for the runtime shader compiler.
+        .define(
+            "PIE_KERNELS_METAL_DIR",
+            std::env::var("DEP_PIE_KERNELS_METAL_KERNELS_DIR").expect(
+                "kernels-metal's build.rs publishes the shader directory as \
+                 cargo:kernels_dir",
+            ),
+        );
 
     // CPM cache is read by the CMakeLists via `$ENV{CPM_SOURCE_CACHE}`;
     // declare the dep so a change reconfigures.

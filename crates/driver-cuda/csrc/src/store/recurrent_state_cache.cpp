@@ -9,8 +9,8 @@
 
 #include <cuda_runtime.h>
 
-#include "../cuda_check.hpp"
-#include "../kernels/slot_ops.hpp"
+#include "cuda_check.hpp"
+#include "kernels/slot_ops.hpp"
 
 namespace pie_cuda_driver {
 

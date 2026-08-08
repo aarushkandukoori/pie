@@ -40,7 +40,7 @@
 #include <vector>
 
 #include "batch/decode_abi.hpp"
-#include "kernels/decode_psos.hpp"
+#include "batch/decode_psos.hpp"
 #include "loader/heap_bind.hpp"
 #include "model/llama/bind.hpp"
 #include "model/llama/decode_consts.hpp"

@@ -7,8 +7,8 @@
 #include <string>
 #include <utility>
 
-#include "../cuda_check.hpp"
-#include "../kernels/envelope.hpp"
+#include "cuda_check.hpp"
+#include "kernels/envelope.hpp"
 #include "../model/config.hpp"
 #include "elastic.hpp"
 

@@ -45,7 +45,20 @@ fn main() {
         .define("PIE_DRIVER_INCLUDE_DIR", dep_include("PIE_DRIVER", "driver"))
         .define("PIE_PTIR_INCLUDE_DIR", sibling("tensor-compiler").join("include"))
         .define("PIE_PTIR_RUNTIME_DIR", sibling("tensor-compiler").join("runtime"))
-        .define("PIE_REPO_ROOT", repo_root());
+        .define("PIE_REPO_ROOT", repo_root())
+        // The kernel archive's source tree and every include dir it was built
+        // with. Both come from `kernels-cuda`'s build script, because only it
+        // knows where FlashInfer landed -- it is the crate that fetches and
+        // patches it, into its own OUT_DIR. Deriving these here would mean a
+        // second fetch of the same repository and a second patch pass over
+        // the CPM cache the first one already dirtied.
+        .define("PIE_KERNELS_CUDA_SRC", dep_include("PIE_KERNELS_CUDA", "kernels-cuda"))
+        .define(
+            "PIE_KERNELS_CUDA_LIB",
+            std::env::var("DEP_PIE_KERNELS_CUDA_LIB")
+                .expect("kernels-cuda publishes the archive path as cargo:lib"),
+        )
+        .define("PIE_KERNELS_CUDA_INCLUDE_DIRS", kernels_include_dirs());
 
     // nvcc discovery, CUDA arch, the sccache/ccache launcher, the Marlin
     // toggle and the CPM source cache are all handled by csrc's CMakeLists
@@ -67,7 +80,13 @@ fn main() {
     add_link_search_paths(&build_dir);
 
     // --- link directives for the final rustc binary (CMake can't emit these) ---
+    //
+    // Order is load-bearing and is why both names are here rather than one in
+    // each crate: a static archive is scanned once, in place, so the shell
+    // must precede the kernels it calls. `kernels-cuda`'s build script emits
+    // the search path for the second one and deliberately not the `-l`.
     println!("cargo:rustc-link-lib=static=pie_driver_cuda_lib");
+    println!("cargo:rustc-link-lib=static=pie_kernels_cuda");
 
     // CUDA toolkit: dynamic cudart + cublas + cublasLt + nvrtc (gemm.cpp
     // references cublasLt directly; the Sampling-IR JIT calls the NVRTC
@@ -101,6 +120,33 @@ fn dep_include(prefix: &str, crate_name: &str) -> PathBuf {
         )
     });
     PathBuf::from(dir)
+}
+
+/// The include path the shell compiles against, in the order the kernel
+/// archive was built with.
+///
+/// CCCL first and FlashInfer's own headers ahead of anything the toolkit
+/// ships: FlashInfer v0.6.15 needs the CCCL it vendors, and a CUDA toolkit
+/// that bundles an older one would shadow it. The ordering is decided once,
+/// in `kernels-cuda`'s CMake, and carried across intact rather than
+/// reconstructed from a guess about which came first.
+///
+/// The `:` separators are `kernels-cuda`'s doing: a cargo metadata value is
+/// one line, and CMake's own `;` list separator does not survive the trip.
+fn kernels_include_dirs() -> String {
+    let mut dirs: Vec<String> = Vec::new();
+    for key in ["CCCL", "FLASHINFER", "INCLUDE"] {
+        let var = format!("DEP_PIE_KERNELS_CUDA_{key}");
+        let value = std::env::var(&var).unwrap_or_else(|_| {
+            panic!(
+                "kernels-cuda's build.rs did not emit ${var} -- it publishes \
+                 this out of its CMake's export block, and the `native` \
+                 feature is what turns that block on"
+            )
+        });
+        dirs.extend(value.split(':').filter(|s| !s.is_empty()).map(str::to_string));
+    }
+    dirs.join(";")
 }
 
 /// A sibling crate's directory. Used for assets no `links` handoff publishes:

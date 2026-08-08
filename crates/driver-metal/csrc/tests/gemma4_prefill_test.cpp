@@ -18,7 +18,7 @@
 #include "mtl4_context.hpp"
 #include "batch/decode_abi.hpp"
 #include "model/gemma4/kernels.hpp"
-#include "kernels/decode_psos.hpp"
+#include "batch/decode_psos.hpp"
 #include "model/qwen3_5/decode_dispatch_mb.hpp"
 
 using namespace pie::metal;

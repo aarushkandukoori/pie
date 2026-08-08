@@ -14,7 +14,7 @@
 
 #include <cuda_runtime.h>
 
-#include "../cuda_check.hpp"
+#include "cuda_check.hpp"
 #include "../model/loaded_model.hpp"
 #include "../store/kv_cache.hpp"
 #include "../store/planner_profile_cache.hpp"

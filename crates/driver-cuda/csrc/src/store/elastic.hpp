@@ -11,7 +11,7 @@
 
 #include <cuda.h>
 
-#include "../tensor.hpp"
+#include "tensor.hpp"
 
 /// The page abstraction the elastic allocator is written against.
 ///

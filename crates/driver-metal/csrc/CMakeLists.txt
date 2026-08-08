@@ -147,8 +147,22 @@ if(APPLE)
     src/batch/simple_family.cpp
     src/model/qwen3_5/decode_step.cpp
     src/model/qwen3_5/decode_step_mb.cpp
-    src/kernels/decode_psos.cpp
+    src/batch/decode_psos.cpp
     src/loader/heap_bind.cpp)
+endif()
+
+# Where the shaders are. `crates/kernels-metal` owns them now -- the .metal
+# sources, the `*_params.h` a shader and its host caller must agree on, and
+# `affine_format.hpp`. build.rs passes this from cargo
+# (DEP_PIE_KERNELS_METAL_KERNELS_DIR); the fallback is for a by-hand
+# `cmake -S csrc`.
+#
+# It is a directory rather than an archive because Metal compiles shaders at
+# RUN time: the driver reads `.metal` text out of PIE_METAL_KERNELS_DIR and
+# builds pipeline state objects from it. Nothing here compiles a shader, which
+# is why this is the whole of the handoff.
+if(NOT PIE_KERNELS_METAL_DIR)
+  set(PIE_KERNELS_METAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../kernels-metal/kernels")
 endif()
 
 add_library(pie_driver_metal_lib STATIC
@@ -167,7 +181,7 @@ target_include_directories(pie_driver_metal_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/batch
     ${CMAKE_CURRENT_SOURCE_DIR}/src/model/qwen3_5
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/kernels
+    ${PIE_KERNELS_METAL_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/store
     ${CMAKE_CURRENT_SOURCE_DIR}/src/loader
     # ../common/include carries the shared launch-package view headers
@@ -214,14 +228,9 @@ set_source_files_properties(src/batch/forward.cpp
 # `configure_file` (below) keeps them in lockstep -- the driver splices it in
 # at compile time because Metal's runtime shader compiler does no filesystem
 # include lookup.
-configure_file(
-  ${PIE_PTIR_INCLUDE_DIR}/ptir_rng.generated.metal
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/ptir_rng.generated.metal
-  COPYONLY)
-
 if(APPLE)
   target_compile_definitions(pie_driver_metal_lib PUBLIC
-    PIE_METAL_KERNELS_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+    PIE_METAL_KERNELS_DIR_DEFAULT="${PIE_KERNELS_METAL_DIR}")
 endif()
 
 target_link_libraries(pie_driver_metal_lib PUBLIC
@@ -322,7 +331,7 @@ if(NOT APPLE)
       -I${CMAKE_CURRENT_SOURCE_DIR}/src
       -I${CMAKE_CURRENT_SOURCE_DIR}/src/batch
       -I${CMAKE_CURRENT_SOURCE_DIR}/src/model/qwen3_5
-      -I${CMAKE_CURRENT_SOURCE_DIR}/src/kernels
+      -I${PIE_KERNELS_METAL_DIR}
       -I${CMAKE_CURRENT_SOURCE_DIR}/src/store
       -I${CMAKE_CURRENT_SOURCE_DIR}/src/loader
       -I${PIE_DRIVER_INCLUDE_DIR}
@@ -519,19 +528,19 @@ if(APPLE)
   # The six gemma4 kernels that shipped with no PSO entry and no binder.
   add_metal_linked_test(host_buffer_bind_test tests/host_buffer_bind_test.cpp)
   target_compile_definitions(host_buffer_bind_test PRIVATE
-    PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+    PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   add_metal_linked_test(gemma4_pso_test tests/gemma4_pso_test.cpp)
   target_compile_definitions(gemma4_pso_test PRIVATE
-    PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+    PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   add_metal_linked_test(gemma4_forward_test tests/gemma4_forward_test.cpp NEEDS_LOADER)
   if(TARGET gemma4_forward_test)
     target_compile_definitions(gemma4_forward_test PRIVATE
-      PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+      PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   endif()
   add_metal_linked_test(gptoss_forward_test tests/gptoss_forward_test.cpp NEEDS_LOADER)
   if(TARGET gptoss_forward_test)
     target_compile_definitions(gptoss_forward_test PRIVATE
-      PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+      PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   endif()
   # A stopwatch that checks its own work. Under ctest it SKIPs (no checkpoint
   # path), so the suite stays green on a machine without an 1.1 GB download;
@@ -541,12 +550,12 @@ if(APPLE)
   add_metal_linked_test(llama_bench tests/llama_bench.cpp NEEDS_LOADER)
   if(TARGET llama_bench)
     target_compile_definitions(llama_bench PRIVATE
-      PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+      PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   endif()
   add_metal_linked_test(simple_family_executor_test tests/simple_family_executor_test.cpp NEEDS_LOADER)
   if(TARGET simple_family_executor_test)
     target_compile_definitions(simple_family_executor_test PRIVATE
-      PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+      PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   endif()
   # The same cases again with the weights STREAMED rather than copied. Streaming
   # is meant to change what is resident and nothing else, so the assertions are
@@ -561,11 +570,11 @@ if(APPLE)
   add_metal_linked_test(gemma4_prefill_numerics_test tests/gemma4_prefill_numerics_test.cpp NEEDS_LOADER)
   if(TARGET gemma4_prefill_numerics_test)
     target_compile_definitions(gemma4_prefill_numerics_test PRIVATE
-      PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+      PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   endif()
   add_metal_linked_test(gemma4_prefill_test tests/gemma4_prefill_test.cpp)
   target_compile_definitions(gemma4_prefill_test PRIVATE
-    PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+    PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   add_metal_linked_test(decode_step_mb_test tests/decode_step_mb_test.cpp)
   add_metal_linked_test(kv_pool_lifecycle_test tests/kv_pool_lifecycle_test.cpp)
   # `router_topk` past one simdgroup. gpt-oss's 32 experts never exercised the
@@ -575,14 +584,14 @@ if(APPLE)
   # decode is proved -- not in a test that needs the weights.
   add_metal_linked_test(mxfp4_matvec_test tests/mxfp4_matvec_test.cpp)
   target_compile_definitions(mxfp4_matvec_test PRIVATE
-    PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+    PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   add_metal_linked_test(router_topk_test tests/router_topk_test.cpp)
   target_compile_definitions(router_topk_test PRIVATE
-    PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+    PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   # The llama family's kernels beyond the shared decode set, compiled on device.
   add_metal_linked_test(llama_pso_test tests/llama_pso_test.cpp)
   target_compile_definitions(llama_pso_test PRIVATE
-    PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+    PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   # Every slot the llama family's kernels declare, against a real argument
   # table. Catches the unbound-slot class, which is never a crash.
   add_metal_linked_test(llama_bind_test tests/llama_bind_test.cpp)
@@ -590,7 +599,7 @@ if(APPLE)
   # files. Synthesises its own MLX affine-U4 weights, so it needs no checkpoint.
   add_metal_linked_test(llama_numerics_test tests/llama_numerics_test.cpp)
   target_compile_definitions(llama_numerics_test PRIVATE
-    PIE_METAL_KERNELS_DIR_FOR_TEST="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels")
+    PIE_METAL_KERNELS_DIR_FOR_TEST="${PIE_KERNELS_METAL_DIR}")
   # The platform facts `heap_bind.cpp`'s `case K::Fill` rests on. (No longer
   # NEEDS_LOADER: the end-to-end half died with the contract entry — see the
   # file's part 3.)
@@ -604,7 +613,7 @@ if(APPLE)
     PIE_MSL_GOLDEN_DIR="${PIE_PTIR_INCLUDE_DIR}/../tests/golden-msl"
     PIE_MSL_RUNTIME_TEMPLATE="${PIE_PTIR_RUNTIME_DIR}/metal/ptir_m1_runtime.metal"
     PIE_MSL_GROUPED_PREAMBLE="${PIE_PTIR_RUNTIME_DIR}/metal/ptir_m1_grouped.metal"
-    PIE_MSL_RNG_PREAMBLE="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/ptir_rng.generated.metal")
+    PIE_MSL_RNG_PREAMBLE="${PIE_KERNELS_METAL_DIR}/ptir_rng.generated.metal")
   # The tests that load a real checkpoint each take a multi-gigabyte Metal heap
   # -- `gemma4_forward_test` asks for 6 GiB and `gemma4_prefill_numerics_test`
   # for 8 -- so two of them scheduled together can exhaust the device where
