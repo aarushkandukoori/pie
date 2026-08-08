@@ -40,7 +40,7 @@ fn write_snapshot(dir: &Path) {
 
 fn contract_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../tests/golden/contracts/convert_bf16_to_mxfp4.json")
+        .join("../model-loader/tests/golden/contracts/convert_bf16_to_mxfp4.json")
 }
 
 /// What `convert` writes, end to end. `.zt` is the only output: an MXFP4

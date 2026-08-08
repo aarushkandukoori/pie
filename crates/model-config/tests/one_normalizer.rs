@@ -30,7 +30,7 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("model/config has two ancestors")
+        .expect("crates/model-config has two ancestors")
         .to_path_buf()
 }
 
@@ -155,7 +155,7 @@ fn the_metal_driver_boot_has_no_config_json_parser() {
 fn the_runtime_does_not_read_config_json() {
     let root = repo_root();
     let mut found = Vec::new();
-    for rel in ["model/src", "runtime/engine/src"] {
+    for rel in ["crates/model/src", "crates/engine/src"] {
         let dir = root.join(rel);
         let mut stack = vec![dir];
         while let Some(dir) = stack.pop() {

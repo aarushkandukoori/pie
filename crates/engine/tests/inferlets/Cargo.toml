@@ -41,5 +41,5 @@ members = [
 ]
 
 [workspace.dependencies]
-inferlet = { path = "../../../../sdk/rust/inferlet" }
-inferlet-macros = { path = "../../../../sdk/rust/inferlet-macros" }
+inferlet = { path = "../../../../crates/inferlet" }
+inferlet-macros = { path = "../../../../crates/inferlet-macros" }

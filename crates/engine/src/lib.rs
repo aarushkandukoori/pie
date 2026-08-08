@@ -1,5 +1,19 @@
 //! Pie - Programmable Inference Engine
 
+// ── The native execution shells ──────────────────────────────────────
+//
+// This crate's `driver::backend::{cuda,metal}` declare the `extern "C"`
+// entry points; the archives that define them are built by these crates. A
+// crate rustc never loads contributes no native-library records, so without
+// `extern crate ... as _` the declarations link against nothing -- which is
+// exactly what `cargo test -p pie-engine --features driver-cuda` did before
+// the drivers were crates: undefined `pie_cuda_create`, `pie_cuda_launch`,
+// and eight more. `as _` because there is nothing to call.
+#[cfg(feature = "driver-cuda")]
+extern crate driver_cuda as _;
+#[cfg(feature = "driver-metal")]
+extern crate driver_metal as _;
+
 pub mod bootstrap;
 pub mod driver;
 pub mod inferlet;

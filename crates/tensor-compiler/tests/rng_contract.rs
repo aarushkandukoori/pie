@@ -43,11 +43,11 @@ fn generated_rng_artifacts_are_uptodate() {
     let cuda = generate_cuda_header();
     let msl = generate_msl_preamble();
     check_or_regenerate(
-        &root.join("compiler/codegen/include/rng_contract.generated.h"),
+        &root.join("crates/tensor-compiler/include/rng_contract.generated.h"),
         &cuda,
     );
     check_or_regenerate(
-        &root.join("compiler/codegen/include/ptir_rng.generated.metal"),
+        &root.join("crates/tensor-compiler/include/ptir_rng.generated.metal"),
         &msl,
     );
 }
@@ -193,9 +193,9 @@ fn rng_magic_is_owned_by_the_contract() {
     // Repo-wide on purpose: the point is that nobody outside the contract — a
     // driver, a kernel, the engine — re-types these constants.
     let owners = [
-        Path::new("compiler/ir/src/rng.rs"),
-        Path::new("compiler/codegen/include/rng_contract.generated.h"),
-        Path::new("compiler/codegen/include/ptir_rng.generated.metal"),
+        Path::new("crates/tensor-ir/src/rng.rs"),
+        Path::new("crates/tensor-compiler/include/rng_contract.generated.h"),
+        Path::new("crates/tensor-compiler/include/ptir_rng.generated.metal"),
         // Staged into crates/driver-metal/csrc/src/kernels by CMake at configure time so
         // ptir_m0.metal / ptir_m1_runtime.metal can `#include` it by name.
         Path::new("crates/driver-metal/csrc/src/kernels/ptir_rng.generated.metal"),
@@ -204,28 +204,46 @@ fn rng_magic_is_owned_by_the_contract() {
         Path::new("crates/driver-cuda/csrc/src/batch/forward_graph.hpp"),
         Path::new("crates/driver-cuda/csrc/src/loader/weight_store_codec.hpp"),
         Path::new("crates/driver-cuda/csrc/src/pipeline/program_identity.hpp"),
-        Path::new("gateway/src/route.rs"),
-        Path::new("runtime/engine/src/inferlet/linker.rs"),
+        Path::new("crates/gateway/src/route.rs"),
+        Path::new("crates/engine/src/inferlet/linker.rs"),
         // splitmix64 id generation: the canonical splitmix increment happens
         // to be the same golden-ratio word; not a keyed-RNG transcription.
-        Path::new("runtime/engine/src/pipeline/offload.rs"),
+        Path::new("crates/engine/src/pipeline/offload.rs"),
+        // Same word, same reason: two splitmix mixers fingerprinting what a
+        // captured graph body bakes (the NS-3 spatial-split plan, and the
+        // staged lora table). Added by `f4a63579b` / `d7df4b575` without a
+        // row here, which is why this guard only started reporting them once
+        // the workspace test sweep could reach this suite again.
+        Path::new("crates/driver-cuda/csrc/src/model/llama_like/llama_like.cpp"),
         // boost-style `hash_combine` for the GEMM autotune cache key; the
         // golden-ratio word again, and nothing to do with the PTIR stream.
         Path::new("crates/driver-cuda/csrc/src/ops/gemm.cpp"),
         Path::new("crates/driver-cuda/csrc/src/ops/tuning_cache.hpp"),
+        // And again, for the stage-hook fingerprint's `hash_combine`.
+        Path::new("crates/driver-cuda/csrc/src/pipeline/dispatch.cu"),
     ];
     let unrelated_mask_users = [
         Path::new("crates/driver-cuda/csrc/tests/ptir_tier0_test.cu"),
-        Path::new("runtime/grammar/src/brle.rs"),
+        Path::new("crates/grammar/src/brle.rs"),
     ];
+    // The float conversion's shift is the weakest needle here: any 64-bit ->
+    // float reduction that wants 24 mantissa bits writes it. A murmur3
+    // finalizer in a driver test is not a PTIR stream.
+    //
+    // (Spelled in fragments below like every other constant, and for the
+    // reason this guard exists: writing it out in a comment makes THIS file a
+    // transcription, which is exactly what the first draft of this comment
+    // did and what the guard then reported.)
+    let unrelated_shift_users = [Path::new("crates/driver-metal/csrc/tests/llama_numerics_test.cpp")];
     let stride = ["9e37", "79b9", "7f4a", "7c15"].concat();
     let ambient_mask = ["a5a5", "a5a5"].concat();
+    let float_shift = [">>", "40"].concat();
     let magic = [
         ["3c79", "ac49", "2ba7", "b653"].concat(),
         ["1c69", "b3f7", "4ac4", "ae35"].concat(),
         stride.clone(),
         ambient_mask.clone(),
-        [">>", "40"].concat(),
+        float_shift.clone(),
         ["16777216", ".0"].concat(),
     ];
 
@@ -244,6 +262,9 @@ fn rng_magic_is_owned_by_the_contract() {
                 continue;
             }
             if needle == &ambient_mask && unrelated_mask_users.contains(&relative.as_path()) {
+                continue;
+            }
+            if needle == &float_shift && unrelated_shift_users.contains(&relative.as_path()) {
                 continue;
             }
             panic!(

@@ -2904,7 +2904,9 @@ mod tests {
 
     fn cbindgen_config() -> String {
         std::fs::read_to_string(format!(
-            "{}/cbindgen/cbindgen.toml",
+            // The satellite is a sibling crate now, not a subdirectory:
+            // `-cbindgen` sits flat beside its parent (rule 6).
+            "{}/../driver-abi-cbindgen/cbindgen.toml",
             env!("CARGO_MANIFEST_DIR")
         ))
         .expect("read cbindgen.toml")
@@ -2912,7 +2914,7 @@ mod tests {
 
     fn cbindgen_main() -> String {
         std::fs::read_to_string(format!(
-            "{}/cbindgen/src/main.rs",
+            "{}/../driver-abi-cbindgen/src/main.rs",
             env!("CARGO_MANIFEST_DIR")
         ))
         .expect("read pie-driver-abi-cbindgen main.rs")

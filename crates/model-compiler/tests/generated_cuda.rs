@@ -9,7 +9,7 @@ use pie_forward::{LlamaLikeCudaFacts, LlamaLikeFacts};
 
 fn check(name: &str, fresh: &str) {
     let path = format!(
-        "{}/../crates/driver-cuda/csrc/src/model/llama_like/generated/{name}.inc",
+        "{}/../driver-cuda/csrc/src/model/llama_like/generated/{name}.inc",
         env!("CARGO_MANIFEST_DIR")
     );
     let committed = std::fs::read_to_string(&path).expect("committed generated .inc");
@@ -131,7 +131,7 @@ fn committed_incs_are_regeneration_clean() {
 
 fn check_q35(name: &str, fresh: &str) {
     let path = format!(
-        "{}/../crates/driver-cuda/csrc/src/model/qwen3_5/generated/{name}.inc",
+        "{}/../driver-cuda/csrc/src/model/qwen3_5/generated/{name}.inc",
         env!("CARGO_MANIFEST_DIR")
     );
     let committed = std::fs::read_to_string(&path).expect("committed generated .inc");
