@@ -19,9 +19,7 @@ pie-forward = { path = "../model-compiler" }
 pie-driver-abi = { path = "../driver-abi" }
 pie-driver-dummy = { path = "../driver-dummy" }
 pie-ir = { path = "../tensor-ir" }
-pie-plan = { path = "../../compiler/plan" }
-pie-codegen = { path = "../../compiler/codegen" }
-pie-eval = { path = "../../compiler/eval" }
+tensor-compiler = { path = "../tensor-compiler" }
 pie-client = { path = "../client" }
 tokio = { version = "1.53", features = ["full"] }
 tokio-util = "0.7"

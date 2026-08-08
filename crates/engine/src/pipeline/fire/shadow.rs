@@ -3,7 +3,7 @@
 //!
 //! The engine mirrors, per bound pass, what each channel's committed cells
 //! hold: seeds at bind, then per fire the net effect of folding the trace's
-//! stage programs through [`pie_eval::pareval`] (a device-decided value —
+//! stage programs through [`tensor_compiler::eval::pareval`] (a device-decided value —
 //! sampler output, kernel result — shadows as *unknown* rather than a wrong
 //! guess). A fire's submission-time value for a channel is the Writer put
 //! staged for that fire, else the shadow's front cell.
@@ -16,8 +16,8 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
-use pie_eval::interp::Value;
-use pie_eval::pareval::{EvalBlocker, fold_stage};
+use tensor_compiler::eval::interp::Value;
+use tensor_compiler::eval::pareval::{EvalBlocker, fold_stage};
 use pie_ir::container::PortSource;
 use pie_ir::op::Op;
 use pie_ir::registry::Stage;
@@ -89,7 +89,7 @@ impl ShadowPlan {
         //    decode trace the sampler feeds the epilogue's put, which is
         //    exactly this case — so the last surviving whole-trace evaluation
         //    goes too.
-        let device_decided = pie_eval::pareval::geometry_taint(bound).device_decided;
+        let device_decided = tensor_compiler::eval::pareval::geometry_taint(bound).device_decided;
         let phase_of = |stage: Stage| -> Option<Phase> {
             let mut puts: Vec<u32> = Vec::new();
             let mut all_tainted = true;
@@ -100,7 +100,7 @@ impl ShadowPlan {
                 .filter(|program| program.stage == stage)
             {
                 for (chan, tainted) in
-                    pie_eval::pareval::stage_put_taint(&program.ops, &device_decided)
+                    tensor_compiler::eval::pareval::stage_put_taint(&program.ops, &device_decided)
                 {
                     puts.push(chan);
                     all_tainted &= tainted;

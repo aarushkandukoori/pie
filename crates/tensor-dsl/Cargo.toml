@@ -37,8 +37,7 @@ pie-ir = { path = "../tensor-ir", default-features = false }
 # Host-only: the CPU reference interpreter for tier-0 result-parity tests.
 # Dev-deps are excluded from the wasm build, so this never reaches the SDK.
 [dev-dependencies]
-pie-eval = { path = "../../compiler/eval" }
-pie-plan = { path = "../../compiler/plan" }
+tensor-compiler = { path = "../tensor-compiler" }
 
 # Shared ratchet from the root manifest. These six crates are gated with
 # `-D warnings` in CI; see `[workspace.lints]` in the workspace `Cargo.toml`.

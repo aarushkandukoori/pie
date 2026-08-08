@@ -914,8 +914,8 @@ mod tests {
 
     #[test]
     fn register_instantiate_run_on_mock_interp() {
-        use pie_eval::interp::Value;
-        use pie_eval::interp::{Instance as Interp, NoKernels, PassInputs};
+        use tensor_compiler::eval::interp::Value;
+        use tensor_compiler::eval::interp::{Instance as Interp, NoKernels, PassInputs};
 
         let prog = register(
             greedy().encode(),

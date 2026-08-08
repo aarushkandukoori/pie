@@ -678,7 +678,7 @@ target_compile_options(pie_driver_cuda_lib PRIVATE
 
 target_include_directories(pie_driver_cuda_lib
   PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     # tart: the declared-forward FFI headers (pie_forward/*.hpp). Taken from
     # the variable `worker/build.rs` passes, not by walking out of the driver
@@ -1198,7 +1198,7 @@ pie_add_cuda_target(test_graph_variant SOURCES tests/graph_variant_test.cpp)
 # though nothing in the test names it directly.
 pie_add_cuda_target(test_decode_envelope_contract
   SOURCES tests/decode_envelope_contract_test.cpp
-  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include ${PIE_DRIVER_ABI_INCLUDE_DIR})
+  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include ${PIE_DRIVER_ABI_INCLUDE_DIR})
 pie_add_cuda_target(test_tp_gate
   SOURCES tests/tp_gate_test.cpp
   INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -1223,7 +1223,7 @@ if(PIE_LOADER_STATICLIB)
     SOURCES tests/group_stream_cache_test.cpp
     INCLUDE_DIRS
       ${CMAKE_CURRENT_SOURCE_DIR}/../common/include
-      ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
       ${PIE_DRIVER_ABI_INCLUDE_DIR}
       ${PIE_LOADER_INCLUDE_DIR}
     LIBS pie_driver_cuda_lib nlohmann_json::nlohmann_json ${PIE_LOADER_STATICLIB} dl pthread)
@@ -1253,14 +1253,14 @@ pie_add_cuda_target(test_chunked_argmax
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_nucleus_region
   SOURCES tests/nucleus_region_test.cpp
-  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
+  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
   TEST_ARGS ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures)
 pie_add_cuda_target(test_page_translation
   SOURCES tests/page_translation_test.cpp)
 pie_add_cuda_target(test_ptir_graph_key
   SOURCES tests/ptir_graph_key_test.cpp
   INCLUDE_DIRS
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
     ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
   LIBS CUDA::cudart tomlplusplus::tomlplusplus)
 pie_add_cuda_target(test_frame_carrier_device
@@ -1278,13 +1278,13 @@ pie_add_cuda_target(test_pipeline_dispatch_race
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 pie_add_cuda_target(test_ptir_tier0
   SOURCES tests/ptir_tier0_test.cu
-  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
+  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_ptir_runner
   SOURCES tests/ptir_runner_test.cu
   INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
     ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
   LIBS CUDA::cudart)
 # Emits + NVRTC-compiles a fused epilogue kernel; asserts tier-1 == tier-0.
@@ -1292,7 +1292,7 @@ pie_add_cuda_target(test_ptir_tier1
   SOURCES tests/ptir_tier1_test.cu
   INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
     ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
   LIBS CUDA::cudart CUDA::cuda_driver CUDA::nvrtc)
 pie_add_cuda_target(test_ptir_grouped_dispatch
@@ -1317,7 +1317,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
       src/pipeline/frame_carrier_kernels.cu
     INCLUDE_DIRS
       ${CMAKE_CURRENT_SOURCE_DIR}/tests
-      ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
       ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
     LIBS pie_driver_cuda_lib CUDA::cudart CUDA::cuda_driver CUDA::nvrtc
     TEST_ARGS ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures)
@@ -1334,7 +1334,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 pie_add_cuda_target(test_ptir_golden_exec
   SOURCES tests/ptir_golden_exec_test.cu
-  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
+  INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
   LIBS CUDA::cudart
   TEST_ARGS ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures)
 # Validation the `extern "C"` entry points owe their caller. Reaches
@@ -1353,13 +1353,13 @@ pie_add_cuda_target(test_rs_descriptor_validation
   SOURCES tests/rs_descriptor_validation_test.cpp
   INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
     ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR})
 pie_add_cuda_target(test_precomputed_embeddings
   SOURCES tests/precomputed_embeddings_test.cpp
   INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
     ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
   LIBS CUDA::cudart)
 # Structural proof for model/registry.{hpp,cpp}: every model_type resolves to its

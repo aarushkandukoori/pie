@@ -8,7 +8,7 @@
 //! session-wide (a `NameIndex` is container-wide, not stage-wide), and the
 //! emitted op survives `bind` against a profile that advertises the kernel.
 
-use pie_eval::interp::{Instance, KernelHost, PassInputs, Value};
+use tensor_compiler::eval::interp::{Instance, KernelHost, PassInputs, Value};
 use pie_ir::op::Op;
 use pie_ir::registry::{KernelInfo, ModelProfile};
 use pie_ir::validate::bind;

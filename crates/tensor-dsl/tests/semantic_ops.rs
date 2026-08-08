@@ -13,8 +13,8 @@ use pie_dsl::ptir::registry::ModelProfile;
 use pie_dsl::ptir::types::{Literal, Predicate, RngKind};
 use pie_dsl::ptir::validate::{BoundTrace, bind};
 use pie_dsl::{Channel, Traced};
-use pie_eval::interp::{Instance, NoKernels, PassInputs, Value};
-use pie_plan::{LibraryOp, NodeIndex, RegionKind, compile_stage, debug_stage_plan};
+use tensor_compiler::eval::interp::{Instance, NoKernels, PassInputs, Value};
+use tensor_compiler::plan::{LibraryOp, NodeIndex, RegionKind, compile_stage, debug_stage_plan};
 
 #[test]
 fn row_membership_is_general_ssa_and_evaluates_per_row() {

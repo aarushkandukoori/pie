@@ -151,7 +151,7 @@ target_include_directories(pie_driver_metal_lib
     # CUDA-free,
     # namespace pie::driver::launch). Metal no longer reaches into
     # driver/cuda/src for anything.
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
     ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR})
 
 target_compile_options(pie_driver_metal_lib PRIVATE
@@ -191,7 +191,7 @@ set_source_files_properties(src/batch/forward.cpp
 # at compile time because Metal's runtime shader compiler does no filesystem
 # include lookup.
 configure_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include/ptir_rng.generated.metal
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include/ptir_rng.generated.metal
   ${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/ptir_rng.generated.metal
   COPYONLY)
 
@@ -302,7 +302,7 @@ if(NOT APPLE)
       -I${CMAKE_CURRENT_SOURCE_DIR}/src/store
       -I${CMAKE_CURRENT_SOURCE_DIR}/src/loader
       -I${CMAKE_CURRENT_SOURCE_DIR}/../common/include
-      -I${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+      -I${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
       -I${PIE_DRIVER_ABI_INCLUDE_DIR}
       -I${PIE_LOADER_INCLUDE_DIR}
       ${CMAKE_CURRENT_SOURCE_DIR}/src/loader/heap_bind.cpp)
@@ -315,7 +315,7 @@ function(add_metal_host_test target source)
   # here lists it; without it these two do not compile.
   target_include_directories(${target} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
     ${PIE_DRIVER_ABI_INCLUDE_DIR})
   add_test(NAME ${target} COMMAND ${target})
 endfunction()
@@ -357,7 +357,7 @@ add_executable(pipeline_launch_conformance_test
 target_include_directories(pipeline_launch_conformance_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/driver-abi/include)
 # The fixture directory is generated, so it is passed as an absolute path
 # rather than relied on as a working directory that may not exist yet.
@@ -572,14 +572,14 @@ if(APPLE)
   # file's part 3.)
   add_metal_linked_test(loader_fill_test tests/loader_fill_test.cpp)
   # The host MSL emitter's whole corpus, through Apple's shader compiler. The
-  # goldens are the emitter's own bytes (`compiler/tests/tests/metal_msl_golden.rs`
+  # goldens are the emitter's own bytes (`crates/tensor-compiler/tests/metal_msl_golden.rs`
   # pins Rust == golden); this pins golden == compilable, which nothing did
   # while the driver still carried an emitter of its own.
   add_metal_linked_test(msl_compile_test tests/msl_compile_test.cpp)
   target_compile_definitions(msl_compile_test PRIVATE
-    PIE_MSL_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/tests/golden-msl"
-    PIE_MSL_RUNTIME_TEMPLATE="${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/runtime/metal/ptir_m1_runtime.metal"
-    PIE_MSL_GROUPED_PREAMBLE="${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/runtime/metal/ptir_m1_grouped.metal"
+    PIE_MSL_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/tests/golden-msl"
+    PIE_MSL_RUNTIME_TEMPLATE="${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/runtime/metal/ptir_m1_runtime.metal"
+    PIE_MSL_GROUPED_PREAMBLE="${CMAKE_CURRENT_SOURCE_DIR}/../../crates/tensor-compiler/runtime/metal/ptir_m1_grouped.metal"
     PIE_MSL_RNG_PREAMBLE="${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/ptir_rng.generated.metal")
   # The tests that load a real checkpoint each take a multi-gigabyte Metal heap
   # -- `gemma4_forward_test` asks for 6 GiB and `gemma4_prefill_numerics_test`

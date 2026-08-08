@@ -8,10 +8,12 @@
 //! can be authored/lowered without `std`; the host uses the default `std`
 //! feature to parse and validate.
 //!
-//! This crate is the **dependency floor** of `compiler/`: [`pie-plan`] decides
-//! how to execute a program, [`pie-eval`] computes what it produces, and
-//! [`pie-codegen`] emits backend source — all three read the vocabulary defined
-//! here and none of them depend on each other.
+//! This crate is the **dependency floor** the toolchain sits on:
+//! `tensor-compiler`'s `plan` decides how to execute a program, its `eval`
+//! computes what it produces, and its `codegen` emits backend source — all
+//! three read the vocabulary defined here. It stays a crate of its own, and
+//! did not fold with them, because it is the half a GUEST imports: `no_std`,
+//! and reached by every wasm inferlet through `tensor-dsl`.
 //!
 //! ## Layers (each its own module)
 //!
@@ -20,7 +22,7 @@
 //!   `{ shape: list<u32>, dtype }`.
 //! * [`op`] — the PTIR op enum + the **op table** (ids, names, families,
 //!   arities): the single source of truth the generated C++ header
-//!   (`compiler/codegen/include/ptir_abi.h`) is emitted from.
+//!   (`crates/tensor-compiler/include/ptir_abi.h`) is emitted from.
 //! * [`container`] — the trace container data model + canonical LE
 //!   encode/decode. Program identity = [`container_hash`] (FNV-1a 64) over the
 //!   canonical container bytes (contract C3).
@@ -37,15 +39,12 @@
 //!   projections between it and the typed enum. [`container`]'s encoder and
 //!   decoder are both walks over the layout declared in the op table.
 //! * [`rng`] — the canonical keyed-RNG formula. Its deterministic CUDA/C++ and
-//!   MSL projections live in `pie-codegen`.
+//!   MSL projections live in `tensor-compiler`'s `codegen`.
 //!
-//! [`pie-plan`]: https://github.com/pie-project/pie/tree/dev/compiler/plan
-//! [`pie-eval`]: https://github.com/pie-project/pie/tree/dev/compiler/eval
-//! [`pie-codegen`]: https://github.com/pie-project/pie/tree/dev/compiler/codegen
 
 #![cfg_attr(not(feature = "std"), no_std)]
 // This crate turns bytes it did not write into the vocabulary every other
-// crate trusts, and it is the one crate under `compiler/` with no truncating
+// crate trusts, and it is the one crate in the toolchain with no truncating
 // cast left in it. A narrowing `as` here would silently re-describe a decoded
 // count, extent or index as a smaller one, and the program that results is
 // well-formed -- so the failure surfaces as a wrong answer rather than a
@@ -85,7 +84,7 @@ pub const PTIR_VERSION_EXTERN: u16 = 2;
 ///
 /// This is the *primitive*. It is not an identity: what a hash means depends on
 /// what was fed to it, so the named contracts below (and
-/// [`compile::stage_identity`](../pie_plan/compile/fn.stage_identity.html)) say
+/// [`compile::stage_identity`](../tensor_compiler/plan/compile/fn.stage_identity.html)) say
 /// which bytes they walk. Two callers hashing different byte sets must not be
 /// read as agreeing just because they share this function.
 ///

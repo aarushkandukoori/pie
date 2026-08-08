@@ -14,7 +14,7 @@ crate-type = ["rlib"]
 [dependencies]
 pie-driver-abi = { path = "../driver-abi" }
 pie-ir = { path = "../tensor-ir" }
-pie-eval = { path = "../../compiler/eval" }
+tensor-compiler = { path = "../tensor-compiler" }
 anyhow = "1.0"
 
 [dev-dependencies]

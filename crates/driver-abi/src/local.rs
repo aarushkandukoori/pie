@@ -528,7 +528,7 @@ pub const PIE_KERNEL_COMMIT: u32 = 4;
 /// One host-emitted kernel: the backend source, its entry point, and where it
 /// belongs in the program.
 ///
-/// The host runs the code generator (`compiler/codegen`) and ships the result;
+/// The host runs the code generator (`tensor-compiler`'s `codegen`) and ships the result;
 /// the driver compiles and launches it. `source.len == 0` means the host could
 /// not emit this kernel, and `error` says why — that is not fatal by itself,
 /// because a driver may have a slower path for the same region (a fused region

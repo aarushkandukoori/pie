@@ -11,8 +11,8 @@
 //! these native parity tests bind explicitly against a test profile (the same
 //! validator `forward-pass.new` runs host-side).
 
-use pie_eval::interp::Value;
-use pie_eval::interp::{HostError, Instance, NoKernels, PassInputs};
+use tensor_compiler::eval::interp::Value;
+use tensor_compiler::eval::interp::{HostError, Instance, NoKernels, PassInputs};
 use pie_ir::container;
 use pie_ir::registry::ModelProfile;
 use pie_ir::validate::{BoundTrace, bind};

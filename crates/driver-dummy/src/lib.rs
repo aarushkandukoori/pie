@@ -21,7 +21,7 @@ use pie_driver_abi::{
     validate_state_copy_desc,
 };
 use pie_driver_abi::plan::ProgramRegistration;
-use pie_eval::interp::{
+use tensor_compiler::eval::interp::{
     ExternChannel, HostError, Instance as InterpInstance, NoKernels, PassInputs, Value,
 };
 use pie_ir::container::{self, ExternDir, HostRole};

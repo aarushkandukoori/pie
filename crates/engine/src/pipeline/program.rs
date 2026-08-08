@@ -32,14 +32,14 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use lru::LruCache;
-use pie_codegen::program::{Backend, EmittedKernel, emit_program};
+use tensor_compiler::codegen::program::{Backend, EmittedKernel, emit_program};
 use pie_driver_abi::plan::{DirectArgmax, RegionAnalysis};
 use pie_ir::container::{self, ContainerDecodeError, PortSource, TraceContainer};
 use pie_ir::container_hash;
 use pie_ir::op::Op;
 use pie_ir::registry::{ModelProfile, Port};
 use pie_ir::validate::{BoundTrace, ValidateError, bind};
-use pie_plan::CompiledStage;
+use tensor_compiler::plan::CompiledStage;
 
 /// Registration-time pricing (thrust-3 P2.3): per-instance costs computed once
 /// per program and attached to its identity (feeds thrust-2's capacity
@@ -85,7 +85,7 @@ pub struct RegisteredProgram {
     /// boundary a whole herd instantiates at once, so re-deriving a
     /// whole-trace taint fixpoint per instance lands squarely on the
     /// critical path.
-    geometry_taint: std::sync::OnceLock<pie_eval::pareval::GeometryTaint>,
+    geometry_taint: std::sync::OnceLock<tensor_compiler::eval::pareval::GeometryTaint>,
     shadow_plan: std::sync::OnceLock<Arc<crate::pipeline::fire::shadow::ShadowPlan>>,
     /// Registration-time pricing. Computed by [`price`] on every register,
     /// but nothing consumes it yet (thrust-2 capacity accounting is
@@ -110,14 +110,14 @@ impl RegisteredProgram {
     /// plan to re-derive (`ptir-refactor.md` §2.3).
     pub fn launch(&self) -> &pie_driver_abi::plan::LaunchPackage {
         self.launch
-            .get_or_init(|| pie_codegen::launch::build(&self.bound, &self.compiled_stages))
+            .get_or_init(|| tensor_compiler::codegen::launch::build(&self.bound, &self.compiled_stages))
     }
 
     /// Whether the host can derive this program's submission geometry, and
     /// which channels the device decides. Derived once — see the field.
-    pub fn geometry_taint(&self) -> &pie_eval::pareval::GeometryTaint {
+    pub fn geometry_taint(&self) -> &tensor_compiler::eval::pareval::GeometryTaint {
         self.geometry_taint
-            .get_or_init(|| pie_eval::pareval::geometry_taint(&self.bound))
+            .get_or_init(|| tensor_compiler::eval::pareval::geometry_taint(&self.bound))
     }
 
     /// The per-pass fold schedule every instance's [`HostShadow`] runs.
@@ -140,7 +140,7 @@ impl RegisteredProgram {
     /// why it must not be answered twice. Shipped on the same terms as
     /// `stage_identities` — the driver compares while both exist.
     pub fn region_analysis(&self) -> Vec<RegionAnalysis> {
-        pie_codegen::cuda::region_analysis::analyze_program(&self.compiled_stages)
+        tensor_compiler::codegen::cuda::region_analysis::analyze_program(&self.compiled_stages)
             .into_iter()
             .map(|region| RegionAnalysis {
                 stage_index: region.stage_index,
@@ -237,7 +237,7 @@ impl Registry {
         let pricing = price(&decoded);
         let channel_accesses = Self::channel_accesses(&decoded);
         let bound = bind(decoded, profile.clone()).map_err(RegisterError::Bind)?;
-        let compiled_stages = pie_plan::compile_bound(&bound);
+        let compiled_stages = tensor_compiler::plan::compile_bound(&bound);
         let launch = std::sync::OnceLock::new();
         let entry = Arc::new(RegisteredProgram {
             bytes,

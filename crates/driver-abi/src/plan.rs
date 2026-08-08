@@ -310,7 +310,7 @@ pub struct LaunchChannelRule {
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LaunchStagePlan {
     pub signature_hash: u64,
-    /// Graph-cache identity (`pie_plan::stage_identity`).
+    /// Graph-cache identity (`tensor_compiler::plan::stage_identity`).
     pub identity: u64,
     /// `PIE_STAGE_REQUIRES_*` bits.
     pub flags: u32,

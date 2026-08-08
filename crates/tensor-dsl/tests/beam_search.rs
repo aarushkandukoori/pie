@@ -26,7 +26,7 @@
 //! descriptor, on the IR's reference interpreter. They are the Design B contract;
 //! they replaced the retired Design A `ptir_beam.rs`/`beam_goldens` vectors (B5).
 
-use pie_eval::interp::{Instance, NoKernels, PassInputs, Value};
+use tensor_compiler::eval::interp::{Instance, NoKernels, PassInputs, Value};
 use pie_ir::registry::{ModelProfile, Port};
 use pie_ir::validate::{BoundTrace, bind};
 

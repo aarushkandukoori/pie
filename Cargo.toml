@@ -98,10 +98,7 @@ members = [
     # reference interpreter every backend diffs against.
     "crates/tensor-ir",
     "crates/tensor-dsl",
-    "compiler/plan",
-    "compiler/eval",
-    "compiler/codegen",
-    "compiler/tests",
+    "crates/tensor-compiler",
 
     # -- guest-target members (outside default-members, see below) ----------
     "crates/inferlet",
@@ -174,10 +171,7 @@ default-members = [
     "crates/model-loader-capi-cbindgen",
     "crates/tensor-ir",
     "crates/tensor-dsl",
-    "compiler/plan",
-    "compiler/eval",
-    "compiler/codegen",
-    "compiler/tests",
+    "crates/tensor-compiler",
     "crates/inferlet-macros",
     "sdk/python-server",
     "bin/controller",

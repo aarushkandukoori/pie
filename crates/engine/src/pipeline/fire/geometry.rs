@@ -540,7 +540,7 @@ impl FireAttnMask {
 pub(crate) fn lower_attn_mask_evaluated(
     container: &TraceContainer,
     qo_indptr: &[u32],
-    evaluated: &[(Port, Result<pie_eval::interp::Value, String>)],
+    evaluated: &[(Port, Result<tensor_compiler::eval::interp::Value, String>)],
 ) -> Result<FireAttnMask, String> {
     let Some(binding) = container
         .ports
@@ -564,7 +564,7 @@ pub(crate) fn lower_attn_mask_evaluated(
             ));
         }
     };
-    let pie_eval::interp::Value::Bool(dense) = value else {
+    let tensor_compiler::eval::interp::Value::Bool(dense) = value else {
         return Err(format!(
             "attention-mask evaluated as {:?}, expected bool",
             value.dtype()
@@ -606,7 +606,7 @@ pub(crate) fn lower_attn_mask_evaluated(
 /// Evaluate and lower the mask against this fire's host-shadow value oracle.
 pub(crate) fn evaluate_attn_mask(
     bound: &pie_ir::validate::BoundTrace,
-    known: &mut dyn FnMut(u32) -> Option<pie_eval::interp::Value>,
+    known: &mut dyn FnMut(u32) -> Option<tensor_compiler::eval::interp::Value>,
     qo_indptr: &[u32],
 ) -> Result<FireAttnMask, String> {
     if !bound
@@ -617,7 +617,7 @@ pub(crate) fn evaluate_attn_mask(
     {
         return Ok(FireAttnMask::Omitted);
     }
-    let evaluated = pie_eval::pareval::eval_descriptor_ports(bound, known)
+    let evaluated = tensor_compiler::eval::pareval::eval_descriptor_ports(bound, known)
         .map_err(|blocker| format!("attention-mask evaluation failed: {blocker}"))?
         .into_iter()
         .map(|(port, value)| (port, value.map_err(|blocker| blocker.to_string())))
@@ -668,7 +668,7 @@ fn port_dims(container: &TraceContainer, port: Port) -> Option<Vec<u32>> {
 }
 
 /// Map a pass's descriptor ports to forward geometry by **evaluating** the
-/// geometry prologue over host-known channel values (`pie_eval::pareval`) —
+/// geometry prologue over host-known channel values (`tensor_compiler::eval::pareval`) —
 /// the general form of [`map_geometry`], which reads only directly-present
 /// values and is its degenerate case. Returns the geometry plus every port's
 /// evaluated value (the canonical-KV gate verifies evidence against these).
@@ -678,19 +678,19 @@ fn port_dims(container: &TraceContainer, port: Port) -> Option<Vec<u32>> {
 /// the driver's descriptor resolution; rank-1 pages pass through flat.
 pub fn map_geometry_evaluated(
     bound: &pie_ir::validate::BoundTrace,
-    known: &mut dyn FnMut(u32) -> Option<pie_eval::interp::Value>,
+    known: &mut dyn FnMut(u32) -> Option<tensor_compiler::eval::interp::Value>,
     page_size: u32,
 ) -> Result<
     (
         ReqGeometry,
-        Vec<(Port, Result<pie_eval::interp::Value, String>)>,
+        Vec<(Port, Result<tensor_compiler::eval::interp::Value, String>)>,
     ),
     EvaluatedGeometryError,
 > {
-    use pie_eval::interp::Value;
+    use tensor_compiler::eval::interp::Value;
 
     let container = &bound.container;
-    let ports = pie_eval::pareval::eval_descriptor_ports(bound, known).map_err(|blocker| {
+    let ports = tensor_compiler::eval::pareval::eval_descriptor_ports(bound, known).map_err(|blocker| {
         EvaluatedGeometryError::BadValue {
             port: Port::EmbedTokens,
             reason: blocker.to_string(),
@@ -827,8 +827,8 @@ pub fn map_geometry_evaluated(
 
 /// Reinterpret an evaluated value's lanes as `u32` (i32 tokens bit-cast, the
 /// driver's `token_ids` convention; bool as 0/1).
-pub(crate) fn value_as_u32(value: &pie_eval::interp::Value) -> Vec<u32> {
-    use pie_eval::interp::Value;
+pub(crate) fn value_as_u32(value: &tensor_compiler::eval::interp::Value) -> Vec<u32> {
+    use tensor_compiler::eval::interp::Value;
     match value {
         Value::U32(v) => v.clone(),
         Value::I32(v) => v.iter().map(|&x| x as u32).collect(),
@@ -1427,7 +1427,7 @@ mod tests {
         let dense = vec![true, true, false, true, false, true, true, false];
         let evaluated = vec![(
             Port::AttnMask,
-            Ok(pie_eval::interp::Value::Bool(dense.clone())),
+            Ok(tensor_compiler::eval::interp::Value::Bool(dense.clone())),
         )];
         let lowered = lower_attn_mask_evaluated(&mask_container(), &[0, 1, 2], &evaluated).unwrap();
         let FireAttnMask::Host { masks, mask_indptr } = &lowered else {
@@ -1456,7 +1456,7 @@ mod tests {
         let container = mask_container();
         let host = vec![(
             Port::AttnMask,
-            Ok(pie_eval::interp::Value::Bool(vec![true; 8])),
+            Ok(tensor_compiler::eval::interp::Value::Bool(vec![true; 8])),
         )];
         assert!(matches!(
             lower_attn_mask_evaluated(&container, &[0, 1, 2], &host).unwrap(),
