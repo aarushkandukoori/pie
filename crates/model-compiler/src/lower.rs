@@ -1023,6 +1023,26 @@ impl Buffers {
                 live.push(out);
                 continue;
             }
+            // An IN-PLACE kernel writes over an operand, so its output
+            // is that operand's bytes — `kernel!`'s `in_place` says
+            // which. Giving it an allocation of its own would be a copy
+            // the model does not make, and for a text that accumulates
+            // into a `select` window it would be worse than wasteful:
+            // the window would keep its pre-update value and the streams
+            // would silently never see the add.
+            if let OpKind::Launch { kernel, .. } = &op.kind {
+                if let Some(idx) = crate::kernels::in_place_operand(plan, kernel) {
+                    if let (Some(&src), Some(&out)) =
+                        (op.inputs.get(idx as usize), op.outputs.first())
+                    {
+                        offset[out as usize] = offset[src as usize];
+                        size[out as usize] =
+                            value_bytes(plan, out, n_tokens, n_requests);
+                        live.push(out);
+                        continue;
+                    }
+                }
+            }
             for &v in &op.outputs {
                 if pinned.binary_search(&v).is_ok() {
                     // Reachable by name from outside the trace — the
