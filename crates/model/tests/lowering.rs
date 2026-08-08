@@ -965,3 +965,21 @@ fn the_gemma3n_decode_text_lowers() {
     );
     assert_eq!(out.coverage(), 1.0);
 }
+
+/// gemma-2's CUDA decode text lowers with nothing left over — the last
+/// family in the driver that had no declaration at all.
+#[test]
+fn the_gemma_2_decode_text_lowers() {
+    use model::gemma_2::forward::facts::Gemma2Facts;
+    let facts = Gemma2Facts::gemma_2_9b();
+    let plan = model::gemma_2::forward::gemma2_cuda(&facts, FireClass::Decode);
+    let out = lower(&plan, &sampled(1), Fire::default())
+        .unwrap_or_else(|e| panic!("gemma-2's decode text must lower: {e:?}"));
+    assert!(
+        out.residue.is_empty(),
+        "{} statement(s) still owe a declaration: {:#?}",
+        out.residue.len(),
+        out.residue
+    );
+    assert_eq!(out.coverage(), 1.0);
+}
