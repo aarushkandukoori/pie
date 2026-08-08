@@ -50,6 +50,7 @@
 #include <cstdint>
 
 #include "model/qwen3_5/declared_facts.hpp"
+#include "model/qwen3_5/qwen3_5_moe.hpp"
 #include "model/qwen3_5/qwen3_5.hpp"
 #include "model/qwen3_5/qwen3_5_forward.hpp"
 #include "model/stage_hooks.hpp"
@@ -80,6 +81,52 @@ void qwen35_validate_stated_kernels(const pie_forward::ForwardPlan& plan);
 bool qwen3_5_forward_declared(
     const Qwen35DeclaredPlan& declared,
     const Qwen3_5Weights& w,
+    const HfConfig& cfg,
+    const Qwen3_5ForwardCfg& fwd_cfg,
+    const Qwen3_5PlanState& plan_state,
+    Workspace& ws,
+    Qwen3_5LinearAttnWorkspace& la,
+    KvCache& cache,
+    RecurrentStateCache& state_cache,
+    AttentionWorkspace& attn_ws,
+    ops::CublasHandle& cublas,
+    const std::int32_t* token_ids,
+    const std::int32_t* positions,
+    const std::uint32_t* qo_indptr,
+    const std::uint32_t* kv_page_indices,
+    const std::uint32_t* kv_page_indptr,
+    const std::uint32_t* kv_last_page_lens,
+    const std::uint32_t* qo_indptr_h,
+    const std::uint32_t* kv_page_indptr_h,
+    int total_tokens,
+    int num_requests,
+    bool is_pure_decode,
+    const std::uint32_t* w_page_d,
+    const std::uint32_t* w_off_d,
+    const std::uint8_t* row_valid_d,
+    bool has_write_desc,
+    const std::int32_t* slot_ids_h,
+    const std::uint8_t* is_fresh_h,
+    const std::int32_t* slot_ids_d,
+    const std::uint8_t* is_fresh_d,
+    const std::int32_t* logit_row_indices_d,
+    int num_logit_rows,
+    // Recurrent-only commit-advance (spec-decode repair): non-null device
+    // [R] confirmed-prefix lengths — the hand-written `commit_len`
+    // threading (`in.commit_advance_gather_d`; the rs_buffer_fold flavor
+    // stays gate-excluded, so this is always the verify-stash replay).
+    const std::int32_t* commit_lens,
+    // A4: the fire's attached stage-hook programs (null = none). The
+    // class traces carry the HookSite ops; qwen3_5's sites are
+    // observation-only, so nothing else crosses.
+    const StageHooks* stage_hooks);
+
+// The same executor over the MoE weights. Two overloads rather than one
+// generic parameter: the caller knows which family it is, and the template
+// that serves both lives in the .cpp.
+bool qwen3_5_forward_declared(
+    const Qwen35DeclaredPlan& declared,
+    const Qwen3_5MoeWeights& w,
     const HfConfig& cfg,
     const Qwen3_5ForwardCfg& fwd_cfg,
     const Qwen3_5PlanState& plan_state,

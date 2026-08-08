@@ -1,4 +1,6 @@
 #include "model/qwen3_5/declared_forward.hpp"
+#include "model/qwen3_5/qwen3_5_moe.hpp"
+#include <type_traits>
 #include "model/declared/arms.hpp"
 #include "model/declared/weights.hpp"
 
@@ -46,6 +48,64 @@ using pie_forward::PieForwardRopeKind;
 using declared::ParsedWeightName;
 using declared::parse_weight_name;
 using declared::throw_unknown_weight;
+
+const DeviceTensor* bind_qwen3_5_weight(
+    const void* ctx, const ParsedWeightName& nm, std::string_view name);
+
+// The MoE family's half of `declared::WeightBinder` — the same TRACE
+// vocabulary the dense binder answers, over the MoE struct's own spellings,
+// plus the MoE block's own names.
+const DeviceTensor* bind_qwen3_5_moe_weight(
+    const void* ctx, const ParsedWeightName& nm, std::string_view name)
+{
+    const auto& w = *static_cast<const Qwen3_5MoeWeights*>(ctx);
+    if (nm.layer < 0) {
+        if (nm.field == "embed") return w.embed;
+        if (nm.field == "final_norm") return w.final_norm;
+        if (nm.field == "lm_head") return w.lm_head;
+        throw_unknown_weight(name);
+    }
+    if (nm.layer >= static_cast<int>(w.layers.size())) throw_unknown_weight(name);
+    const Qwen3_5MoeLayerWeights& l = w.layers[static_cast<std::size_t>(nm.layer)];
+    if (nm.field == "attn_norm") return l.attn_norm_pre;
+    if (nm.field == "mlp_norm") return l.mlp_norm_pre;
+    if (nm.field == "in_proj_qkv") return l.la_in_proj_qkv;
+    if (nm.field == "in_proj_z") return l.la_in_proj_z;
+    if (nm.field == "in_proj_b") return l.la_in_proj_b;
+    if (nm.field == "in_proj_a") return l.la_in_proj_a;
+    if (nm.field == "conv") return l.la_conv1d_w;
+    if (nm.field == "conv_bias") return l.la_conv1d_b;
+    if (nm.field == "dt_bias") return l.la_dt_bias;
+    if (nm.field == "out_proj") return l.la_out_proj;
+    if (nm.field == "q_proj") return l.fa_q_proj;
+    if (nm.field == "k_proj") return l.fa_k_proj;
+    if (nm.field == "v_proj") return l.fa_v_proj;
+    // Same rule the dense binder states: `o_proj` is the trace's name for
+    // whichever bank this LAYER KIND projects out of.
+    if (nm.field == "o_proj") {
+        return l.kind == Qwen3_5MoeLayerWeights::Kind::FullAttn ? l.fa_o_proj
+                                                                : l.la_out_proj;
+    }
+    if (nm.field == "q_norm") return l.fa_q_norm;
+    if (nm.field == "k_norm") return l.fa_k_norm;
+    if (nm.field == "router") return l.moe_router;
+    if (nm.field == "expert_gate_up") return l.moe_gate_up_proj;
+    if (nm.field == "expert_down") return l.moe_down_proj;
+    if (nm.field == "shared_gate") return l.shared_gate_proj;
+    if (nm.field == "shared_gate_up") return l.shared_gate_up_proj;
+    if (nm.field == "shared_down") return l.shared_down_proj;
+    throw_unknown_weight(name);
+}
+
+// Which binder a weights type wants. `WeightBinder` is type-erased, so this
+// is the whole of what the two families need to share.
+template <class W> declared::WeightBinder::Fn binder_for();
+template <> declared::WeightBinder::Fn binder_for<Qwen3_5Weights>() {
+    return &bind_qwen3_5_weight;
+}
+template <> declared::WeightBinder::Fn binder_for<Qwen3_5MoeWeights>() {
+    return &bind_qwen3_5_moe_weight;
+}
 
 // This family's half of `declared::WeightBinder`. Note `attn_norm` /
 // `mlp_norm`: the SAME traced names llama_like binds, spelled `_pre` in
@@ -106,8 +166,9 @@ const DeviceTensor* bind_qwen3_5_weight(
     throw_unknown_weight(name);
 }
 
-const Qwen3_5LayerWeights& layer_of(
-    const Qwen3_5Weights& w, const ParsedWeightName& nm,
+template <class W>
+const auto& layer_of(
+    const W& w, const ParsedWeightName& nm,
     std::string_view name)
 {
     if (nm.layer < 0 || nm.layer >= static_cast<int>(w.layers.size())) {
@@ -220,9 +281,16 @@ bool qwen35_declared_exec_trace_enabled() {
     return enabled;
 }
 
-bool qwen3_5_forward_declared(
+// The executor, over EITHER weights family.
+//
+// A template rather than accessors: every `layer.<field>` below is checked
+// against the struct the fire actually has, so a field the MoE struct spells
+// differently is a compile error rather than a silent read of the wrong
+// tensor. The two families share no base -- this stands in for one.
+template <class W>
+bool forward_declared_tmpl(
     const Qwen35DeclaredPlan& declared,
-    const Qwen3_5Weights& w,
+    const W& w,
     const HfConfig& cfg,
     const Qwen3_5ForwardCfg& fwd_cfg,
     const Qwen3_5PlanState& plan_state,
@@ -257,7 +325,9 @@ bool qwen3_5_forward_declared(
     const StageHooks* stage_hooks)
 {
     // Weights reach the arms only through the binder (see its header).
-    const declared::WeightBinder wb{&bind_qwen3_5_weight, &w};
+    using LayerW = std::decay_t<decltype(w.layers[0])>;
+    constexpr bool kIsDense = std::is_same_v<W, Qwen3_5Weights>;
+    const declared::WeightBinder wb{binder_for<W>(), &w};
     // Rung 4c-iii: normal decode/prefill fires walk the CLASS trace, in
     // which the declaration stated every kernel; the MTP/verify/legacy
     // service fires keep the semantic walk until 4c-iv brings their
@@ -325,6 +395,9 @@ bool qwen3_5_forward_declared(
     // The static form (decode/prefill classes; the services stay on the
     // interpreter walk). Digest-gated: a mismatch prints once under the
     // trace env and the interpreter serves, loudly recoverable.
+    // The generated bodies are emitted per DENSE deployment digest and take
+    // the dense weights by reference, so only that instantiation has them.
+    if constexpr (kIsDense) {
     if (state_dtype_ok && q35_generated_forward_enabled()) {
         if (declared.facts_digest == kQ35GeneratedDigest_qwen3_5_0_8b) {
             // EVERY class emits (rung 3, second family, full width).
@@ -378,6 +451,7 @@ bool qwen3_5_forward_declared(
                          kQ35GeneratedDigest_qwen3_5_0_8b);
         }
     }
+    }  // if constexpr (dense): the generated bodies
     const pie_forward::ForwardPlan& plan = *class_plan;
     if (qwen35_declared_exec_trace_enabled()) {
         std::fprintf(stderr,
@@ -427,7 +501,7 @@ bool qwen3_5_forward_declared(
     if (has_write_desc) {
         const bool has_full_attention = std::any_of(
             w.layers.begin(), w.layers.end(), [](const auto& layer) {
-                return layer.kind == Qwen3_5LayerWeights::Kind::FullAttn;
+                return layer.kind == LayerW::Kind::FullAttn;
             });
         if (w_page_d == nullptr || w_off_d == nullptr ||
             !cache.format().is_native_bf16() || !has_full_attention) {
@@ -607,7 +681,7 @@ bool qwen3_5_forward_declared(
             const auto& layer = layer_of(w, nm, name);
             const float beta = op.param0 != 0 ? 1.f : 0.f;
             const bool linear =
-                layer.kind == Qwen3_5LayerWeights::Kind::LinearAttn;
+                layer.kind == LayerW::Kind::LinearAttn;
             // ── GDN in-projections (read norm_x, the pre-attn norm) ──
             if (nm.field == "in_proj_qkv") {
                 ops::gemm_act_x_w(cublas.handle(),
@@ -677,6 +751,11 @@ bool qwen3_5_forward_declared(
                 // One traced matmul; whether the binding materialised it
                 // fused is this emitter's call — the hand-written
                 // qwen35_dense_mlp_block's dispatch, verbatim.
+                //
+                // The fence is inside the arm, not around the chain: a MoE
+                // layer has no dense MLP bank to name, so the arm is simply
+                // unreachable there and the fields it reads do not exist.
+                if constexpr (kIsDense) {
                 gate_up_used_fused =
                     layer.gate_up_proj_fused != nullptr &&
                     !ws.gate_up_fused.empty();
@@ -699,12 +778,15 @@ bool qwen3_5_forward_declared(
                             layer.up_proj_quant),
                         ws.up.data(), N, I, H);
                 }
+                } else { throw_unknown_weight(name); }
             } else if (nm.field == "down") {
+                if constexpr (kIsDense) {
                 ops::gemm_act_x_w(cublas.handle(),
                     ws.gate.data(),
                     make_weight_view(&wb.require(name),
                                      layer.down_proj_quant),
                     ws.y.data(), N, H, I, beta);
+                } else { throw_unknown_weight(name); }
             } else {
                 throw_unknown_weight(name);
             }
@@ -881,7 +963,7 @@ case PieForwardOpKind::Launch: {
             // kernels, the MODEL layer for KV-side ones — the compact
             // kv slot derives from the binding, mechanical knowledge).
             const int SL = static_cast<int>(op.param1);
-            const auto conv_weight = [&]() -> const Qwen3_5LayerWeights& {
+            const auto conv_weight = [&]() -> const LayerW& {
                 const auto aux = plan.aux_names(op);
                 if (aux.size != 1) {
                     throw_drift("conv launch names " +
@@ -1042,7 +1124,7 @@ case PieForwardOpKind::Launch: {
                 int linear_idx = 0;
                 for (int l = 0; l < SL; ++l) {
                     if (w.layers[l].kind ==
-                        Qwen3_5LayerWeights::Kind::LinearAttn) {
+                        LayerW::Kind::LinearAttn) {
                         ++linear_idx;
                     }
                 }
@@ -1188,7 +1270,7 @@ case PieForwardOpKind::Launch: {
                 : StageHookPoint::OnAttn;
             const bool full_attn =
                 L >= 0 && L < static_cast<int>(w.layers.size()) &&
-                w.layers[L].kind == Qwen3_5LayerWeights::Kind::FullAttn;
+                w.layers[L].kind == LayerW::Kind::FullAttn;
             // forward-hybrid.wit ruling (2026-08-05): "the attention taps
             // fire on attention layers only" — a HookSite op on a GDN
             // layer is a no-op, and the hook ledger counts the
@@ -1286,6 +1368,64 @@ case PieForwardOpKind::Launch: {
         execute_op(plan.op(at_op));
     }
     return true;
+}
+
+bool qwen3_5_forward_declared(
+    const Qwen35DeclaredPlan& declared, const Qwen3_5Weights& w,
+    const HfConfig& cfg, const Qwen3_5ForwardCfg& fwd_cfg,
+    const Qwen3_5PlanState& plan_state, Workspace& ws,
+    Qwen3_5LinearAttnWorkspace& la, KvCache& cache,
+    RecurrentStateCache& state_cache, AttentionWorkspace& attn_ws,
+    ops::CublasHandle& cublas,
+    const std::int32_t* token_ids, const std::int32_t* positions,
+    const std::uint32_t* qo_indptr, const std::uint32_t* kv_page_indices,
+    const std::uint32_t* kv_page_indptr, const std::uint32_t* kv_last_page_lens,
+    const std::uint32_t* qo_indptr_h, const std::uint32_t* kv_page_indptr_h,
+    int total_tokens, int num_requests, bool is_pure_decode,
+    const std::uint32_t* w_page_d, const std::uint32_t* w_off_d,
+    const std::uint8_t* row_valid_d, bool has_write_desc,
+    const std::int32_t* slot_ids_h, const std::uint8_t* is_fresh_h,
+    const std::int32_t* slot_ids_d, const std::uint8_t* is_fresh_d,
+    const std::int32_t* logit_row_indices_d, int num_logit_rows,
+    const std::int32_t* commit_lens, const StageHooks* stage_hooks)
+{
+    return forward_declared_tmpl(
+        declared, w, cfg, fwd_cfg, plan_state, ws, la, cache, state_cache,
+        attn_ws, cublas, token_ids, positions, qo_indptr, kv_page_indices,
+        kv_page_indptr, kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
+        total_tokens, num_requests, is_pure_decode, w_page_d, w_off_d,
+        row_valid_d, has_write_desc, slot_ids_h, is_fresh_h, slot_ids_d,
+        is_fresh_d, logit_row_indices_d, num_logit_rows, commit_lens,
+        stage_hooks);
+}
+
+bool qwen3_5_forward_declared(
+    const Qwen35DeclaredPlan& declared, const Qwen3_5MoeWeights& w,
+    const HfConfig& cfg, const Qwen3_5ForwardCfg& fwd_cfg,
+    const Qwen3_5PlanState& plan_state, Workspace& ws,
+    Qwen3_5LinearAttnWorkspace& la, KvCache& cache,
+    RecurrentStateCache& state_cache, AttentionWorkspace& attn_ws,
+    ops::CublasHandle& cublas,
+    const std::int32_t* token_ids, const std::int32_t* positions,
+    const std::uint32_t* qo_indptr, const std::uint32_t* kv_page_indices,
+    const std::uint32_t* kv_page_indptr, const std::uint32_t* kv_last_page_lens,
+    const std::uint32_t* qo_indptr_h, const std::uint32_t* kv_page_indptr_h,
+    int total_tokens, int num_requests, bool is_pure_decode,
+    const std::uint32_t* w_page_d, const std::uint32_t* w_off_d,
+    const std::uint8_t* row_valid_d, bool has_write_desc,
+    const std::int32_t* slot_ids_h, const std::uint8_t* is_fresh_h,
+    const std::int32_t* slot_ids_d, const std::uint8_t* is_fresh_d,
+    const std::int32_t* logit_row_indices_d, int num_logit_rows,
+    const std::int32_t* commit_lens, const StageHooks* stage_hooks)
+{
+    return forward_declared_tmpl(
+        declared, w, cfg, fwd_cfg, plan_state, ws, la, cache, state_cache,
+        attn_ws, cublas, token_ids, positions, qo_indptr, kv_page_indices,
+        kv_page_indptr, kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
+        total_tokens, num_requests, is_pure_decode, w_page_d, w_off_d,
+        row_valid_d, has_write_desc, slot_ids_h, is_fresh_h, slot_ids_d,
+        is_fresh_d, logit_row_indices_d, num_logit_rows, commit_lens,
+        stage_hooks);
 }
 
 }  // namespace pie_cuda_driver::model
