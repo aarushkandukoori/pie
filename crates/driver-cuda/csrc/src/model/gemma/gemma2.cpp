@@ -119,9 +119,9 @@ void gemma2_forward_paged(
     const bool use_decode_path = is_pure_decode && !fwd_cfg.force_prefill_path;
 
     // Step 1: embed and Gemma's √hidden_size scale.
-    kernels::launch_embed_bf16(
+    kernels::layout::embed_bf16(
         token_ids, w.embed->data(), ws.y.data(), N, H, V, stream);
-    kernels::launch_scalar_mul_bf16(
+    kernels::norm::scalar_mul_bf16(
         ws.y.data(), std::sqrt(static_cast<float>(H)),
         static_cast<std::size_t>(N) * H, stream);
 
@@ -151,7 +151,7 @@ void gemma2_forward_paged(
 
         // ── Attention block ──
         // 1a. pre-attn norm.
-        kernels::launch_rmsnorm_gemma_bf16(
+        kernels::norm::rmsnorm_gemma_bf16(
             ws.y.data(), layer.attn_norm_pre->data(), ws.norm_x.data(),
             N, H, eps, stream);
 
@@ -167,18 +167,18 @@ void gemma2_forward_paged(
         // pre-scale and before RoPE, matching HF's
         // `Gemma3Attention.forward`.
         if (fwd_cfg.use_qk_norm && layer.q_norm) {
-            kernels::launch_rmsnorm_gemma_bf16(
+            kernels::norm::rmsnorm_gemma_bf16(
                 ws.q.data(), layer.q_norm->data(), ws.q.data(),
                 N * num_q_heads_local, d, eps, stream);
         }
         if (fwd_cfg.use_qk_norm && layer.k_norm) {
-            kernels::launch_rmsnorm_gemma_bf16(
+            kernels::norm::rmsnorm_gemma_bf16(
                 ws.k.data(), layer.k_norm->data(), ws.k.data(),
                 N * num_kv_heads_local, d, eps, stream);
         }
 
         if (need_q_pre_scale) {
-            kernels::launch_scalar_mul_bf16(
+            kernels::norm::scalar_mul_bf16(
                 ws.q.data(), q_pre_scale,
                 static_cast<std::size_t>(N) * Hq, stream);
         }
@@ -257,16 +257,16 @@ void gemma2_forward_paged(
             tp->all_reduce_bf16(ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, ncclSum, stream);
         }
-        kernels::launch_rmsnorm_gemma_bf16(
+        kernels::norm::rmsnorm_gemma_bf16(
             ws.norm_x.data(), layer.attn_norm_post->data(), ws.norm_y.data(),
             N, H, eps, stream);
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             ws.y.data(), ws.norm_y.data(),
             static_cast<std::size_t>(N) * H, stream);
 
         // ── MLP block ──
         // 2a. pre-MLP norm.
-        kernels::launch_rmsnorm_gemma_bf16(
+        kernels::norm::rmsnorm_gemma_bf16(
             ws.y.data(), layer.mlp_norm_pre->data(), ws.norm_x.data(),
             N, H, eps, stream);
 
@@ -288,15 +288,15 @@ void gemma2_forward_paged(
             tp->all_reduce_bf16(ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, ncclSum, stream);
         }
-        kernels::launch_rmsnorm_gemma_bf16(
+        kernels::norm::rmsnorm_gemma_bf16(
             ws.norm_x.data(), layer.mlp_norm_post->data(), ws.norm_y.data(),
             N, H, eps, stream);
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             ws.y.data(), ws.norm_y.data(),
             static_cast<std::size_t>(N) * H, stream);
     }
 
-    kernels::launch_rmsnorm_gemma_bf16(
+    kernels::norm::rmsnorm_gemma_bf16(
         ws.y.data(), w.final_norm->data(), ws.norm_x.data(),
         N, H, eps, stream);
     ops::gemm_act_x_wt_bf16(cublas.handle(),

@@ -3,7 +3,7 @@
 #include <cuda_bf16.h>
 #include <cstdio>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
 namespace {
 
@@ -55,7 +55,7 @@ __global__ void altup_correct_kernel(
 
 }  // namespace
 
-void launch_altup_predict_bf16(
+void altup_predict_bf16(
     const void* streams, const float* coefs, void* predictions,
     int K, int T, int H, cudaStream_t stream)
 {
@@ -68,7 +68,7 @@ void launch_altup_predict_bf16(
         K, T, H);
 }
 
-void launch_altup_correct_bf16(
+void altup_correct_bf16(
     const void* predictions, const void* activated,
     const float* correction_coefs_plus_one, void* corrected,
     int K, int T, int H, int active_idx, cudaStream_t stream)
@@ -84,4 +84,4 @@ void launch_altup_correct_bf16(
         K, T, H, active_idx);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

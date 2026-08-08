@@ -22,7 +22,7 @@ const float* gather_selected_logits_f32(
     if (engine.ptir_logits_f32.size() < n_conv) {
         engine.ptir_logits_f32 = DeviceBuffer<float>::alloc(n_conv);
     }
-    kernels::launch_gather_bf16_rows(
+    kernels::layout::gather_bf16_rows(
         static_cast<const std::uint16_t*>(engine.ws.logits.data()),
         engine.inputs.sample_idx.data(),
         engine.ptir_logits_bf16.data(),

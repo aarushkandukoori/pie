@@ -12,16 +12,16 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
-void launch_add_bias_bf16(
+void add_bias_bf16(
     void* out,                 // [num_rows, dim] bf16, in-place
     const void* bias,          // [dim] bf16
     int num_rows,
     int dim,
     cudaStream_t stream);
 
-void launch_add_bias_bf16_strided(
+void add_bias_bf16_strided(
     void* out,                 // [num_rows, stride] bf16, in-place
     const void* bias,          // [dim] bf16
     int num_rows,
@@ -29,4 +29,4 @@ void launch_add_bias_bf16_strided(
     int stride,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

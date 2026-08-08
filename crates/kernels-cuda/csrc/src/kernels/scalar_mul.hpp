@@ -12,12 +12,12 @@
 #include <cstddef>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
-void launch_scalar_mul_bf16(
+void scalar_mul_bf16(
     void* x,
     float s,
     std::size_t n,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

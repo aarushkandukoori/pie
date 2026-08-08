@@ -17,7 +17,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
 // `coefs` is the [T, K, K] per-token coefficient tensor produced by
 // `tanh(modality_router(router_norm(active) / H)) @ prediction_coefs`.
@@ -26,7 +26,7 @@ namespace pie_cuda_driver::kernels {
 //
 // Layout: streams / predictions are [K, T, H] row-major (stream-major,
 // matching how the workspace lays them out).
-void launch_altup_predict_bf16(
+void altup_predict_bf16(
     const void*  streams,        // bf16 [K, T, H]
     const float* coefs,          // fp32 [T, K, K]
     void*        predictions,    // bf16 [K, T, H]
@@ -35,7 +35,7 @@ void launch_altup_predict_bf16(
 
 // `correction_coefs` is the [T, K] result of `correction_coefs(modalities)`.
 // We pre-add the +1.0 here to keep the kernel small.
-void launch_altup_correct_bf16(
+void altup_correct_bf16(
     const void*  predictions,    // bf16 [K, T, H]
     const void*  activated,      // bf16 [T, H]
     const float* correction_coefs_plus_one,  // fp32 [T, K]
@@ -43,4 +43,4 @@ void launch_altup_correct_bf16(
     int K, int T, int H, int active_idx,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

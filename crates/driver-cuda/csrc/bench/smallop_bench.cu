@@ -350,13 +350,13 @@ int main() {
           [](cudaStream_t s) { empty_kernel<<<49, 128, 0, s>>>(); });
 
     bench("rmsnorm_bf16", [&](cudaStream_t s) {
-        pie_cuda_driver::kernels::launch_rmsnorm_bf16(x, w, y, N, H, 1e-6f, s);
+        pie_cuda_driver::kernels::norm::rmsnorm_bf16(x, w, y, N, H, 1e-6f, s);
     });
     // pie runs a separate bf16_to_fp16_kernel once per layer (42 us/step).
     // This variant already folds that copy into the norm; if it costs the
     // same as the plain one, that whole kernel is deletable.
     bench("rmsnorm_bf16_with_fp16 (fused cast)", [&](cudaStream_t s) {
-        pie_cuda_driver::kernels::launch_rmsnorm_bf16_with_fp16(
+        pie_cuda_driver::kernels::norm::rmsnorm_bf16_with_fp16(
             x, w, y, yf, N, H, 1e-6f, s);
     });
     // The warp form must pick the SAME experts as the block form. A routing

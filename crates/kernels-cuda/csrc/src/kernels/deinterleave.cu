@@ -2,7 +2,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 namespace {
 
@@ -38,7 +38,7 @@ __global__ void deinterleave_vec_bf16_kernel(
 
 }  // namespace
 
-void launch_deinterleave_rows_bf16(
+void deinterleave_rows_bf16(
     const void* fused, void* gate_out, void* up_out,
     int I, int H, cudaStream_t stream)
 {
@@ -51,7 +51,7 @@ void launch_deinterleave_rows_bf16(
         I, H);
 }
 
-void launch_deinterleave_vec_bf16(
+void deinterleave_vec_bf16(
     const void* fused, void* gate_out, void* up_out,
     int I, cudaStream_t stream)
 {
@@ -89,7 +89,7 @@ __global__ void split_q_gate_bf16_kernel(
 
 }  // namespace
 
-void launch_split_q_gate_bf16(
+void split_q_gate_bf16(
     const void* packed, void* q_out, void* gate_out,
     int N, int num_heads, int head_dim, cudaStream_t stream)
 {
@@ -180,7 +180,7 @@ __global__ void repeat_interleave_heads_bf16_kernel(
 
 }  // namespace
 
-void launch_concat_bf16_rows(
+void concat_bf16_rows(
     const void* left, const void* right, void* out,
     int N, int left_dim, int right_dim, cudaStream_t stream)
 {
@@ -192,7 +192,7 @@ void launch_concat_bf16_rows(
         N, left_dim, right_dim);
 }
 
-void launch_split_bf16_rows(
+void split_bf16_rows(
     const void* src, void* left, void* right,
     int N, int left_dim, int right_dim, cudaStream_t stream)
 {
@@ -204,7 +204,7 @@ void launch_split_bf16_rows(
         left_dim, right_dim);
 }
 
-void launch_split_qwen_gdn_ba_bf16(
+void split_qwen_gdn_ba_bf16(
     const void* ba, void* b_out, void* a_out,
     int N, int v_h, cudaStream_t stream)
 {
@@ -216,7 +216,7 @@ void launch_split_qwen_gdn_ba_bf16(
         v_h);
 }
 
-void launch_repeat_interleave_heads_bf16(
+void repeat_interleave_heads_bf16(
     const void* in, void* out,
     int N, int kv_heads, int q_heads, int head_dim, cudaStream_t stream)
 {
@@ -230,4 +230,4 @@ void launch_repeat_interleave_heads_bf16(
         N, kv_heads, q_heads, head_dim);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

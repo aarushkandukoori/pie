@@ -2,7 +2,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::ssm {
 
 namespace {
 
@@ -325,7 +325,7 @@ __global__ void causal_conv1d_update_batched_kernel(
 
 }  // namespace
 
-void launch_causal_conv1d_prefill_bf16(
+void causal_conv1d_prefill_bf16(
     const void* x, const void* weight, const void* bias,
     void* y, void* state_out,
     int N, int C, int K, cudaStream_t stream)
@@ -343,7 +343,7 @@ void launch_causal_conv1d_prefill_bf16(
         N, C, K);
 }
 
-void launch_causal_conv1d_update_bf16(
+void causal_conv1d_update_bf16(
     const void* x, const void* weight, const void* bias,
     void* state, void* y,
     int C, int K, cudaStream_t stream)
@@ -361,7 +361,7 @@ void launch_causal_conv1d_update_bf16(
         C, K);
 }
 
-void launch_causal_conv1d_update_batched_bf16(
+void causal_conv1d_update_batched_bf16(
     const void* x, const void* weight, const void* bias,
     void* state_base,
     const std::int32_t* slot_ids,
@@ -384,7 +384,7 @@ void launch_causal_conv1d_update_batched_bf16(
         R, C, K);
 }
 
-void launch_causal_conv1d_prefill_batched_bf16(
+void causal_conv1d_prefill_batched_bf16(
     const void* x, const void* weight, const void* bias,
     void* y, void* state_out_base,
     const std::int32_t* slot_ids,
@@ -424,4 +424,4 @@ void launch_causal_conv1d_prefill_batched_bf16(
         C, K, write_state, write_state_mask, commit_len);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::ssm

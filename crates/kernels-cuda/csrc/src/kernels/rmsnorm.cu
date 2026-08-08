@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
 namespace {
 
@@ -500,11 +500,11 @@ inline bool rmsnorm_vec8_ok(const void* x, const void* y, const void* weight,
 
 }  // namespace
 
-void launch_rmsnorm_bf16(
+void rmsnorm_bf16(
     const void* x, const void* weight, void* y,
     int num_rows, int hidden, float eps, cudaStream_t stream)
 {
-    launch_rmsnorm_strided_bf16(
+    rmsnorm_strided_bf16(
         x, weight, y, num_rows, hidden, hidden, hidden, eps, stream);
 }
 
@@ -512,16 +512,16 @@ void launch_rmsnorm_bf16(
 // wants fp16 -- the MXFP4 decode GEMV. Falls back to the plain launcher plus a
 // cast when the vectorised path does not apply, so the caller never has to ask
 // whether its shape qualifies.
-void launch_rmsnorm_bf16_with_fp16(
+void rmsnorm_bf16_with_fp16(
     const void* x, const void* weight, void* y, void* y_fp16,
     int num_rows, int hidden, float eps, cudaStream_t stream)
 {
     if (y_fp16 == nullptr) {
-        launch_rmsnorm_bf16(x, weight, y, num_rows, hidden, eps, stream);
+        rmsnorm_bf16(x, weight, y, num_rows, hidden, eps, stream);
         return;
     }
     if (!rmsnorm_vec8_ok(x, y, weight, hidden, hidden, hidden)) {
-        launch_rmsnorm_bf16(x, weight, y, num_rows, hidden, eps, stream);
+        rmsnorm_bf16(x, weight, y, num_rows, hidden, eps, stream);
         launch_bf16_to_fp16(y, y_fp16,
                             static_cast<std::size_t>(num_rows) * hidden,
                             stream);
@@ -539,7 +539,7 @@ void launch_rmsnorm_bf16_with_fp16(
             hidden, hidden, hidden, eps);
 }
 
-void launch_rmsnorm_strided_bf16(
+void rmsnorm_strided_bf16(
     const void* x, const void* weight, void* y,
     int num_rows, int hidden, int x_row_stride, int y_row_stride,
     float eps, cudaStream_t stream)
@@ -564,7 +564,7 @@ void launch_rmsnorm_strided_bf16(
         hidden, x_row_stride, y_row_stride, eps);
 }
 
-void launch_residual_add_rmsnorm_bf16(
+void residual_add_rmsnorm_bf16(
     void* hidden,
     const void* residual,
     const void* weight,
@@ -597,7 +597,7 @@ void launch_residual_add_rmsnorm_bf16(
         hidden_size, eps);
 }
 
-void launch_residual_add_scale_rmsnorm_bf16(
+void residual_add_scale_rmsnorm_bf16(
     void* hidden,
     const void* residual,
     float scale,
@@ -620,7 +620,7 @@ void launch_residual_add_scale_rmsnorm_bf16(
         hidden_size, eps);
 }
 
-void launch_rmsnorm_residual_add_bf16(
+void rmsnorm_residual_add_bf16(
     const void* x,
     const void* weight,
     void* hidden,
@@ -639,7 +639,7 @@ void launch_rmsnorm_residual_add_bf16(
         hidden_size, eps);
 }
 
-void launch_rmsnorm_residual_add_scale_rmsnorm_bf16(
+void rmsnorm_residual_add_scale_rmsnorm_bf16(
     const void* x,
     const void* weight,
     void* hidden,
@@ -712,7 +712,7 @@ void launch_rmsnorm_residual_add_scale_rmsnorm_bf16(
             hidden_size, eps);
 }
 
-void launch_rmsnorm_gemma_bf16(
+void rmsnorm_gemma_bf16(
     const void* x, const void* weight, void* y,
     int num_rows, int hidden, float eps, cudaStream_t stream)
 {
@@ -769,7 +769,7 @@ __global__ void rmsnorm_no_scale_bf16_kernel(
 
 }  // namespace
 
-void launch_rmsnorm_no_scale_bf16(
+void rmsnorm_no_scale_bf16(
     const void* x, void* y,
     int num_rows, int hidden, float eps, cudaStream_t stream)
 {
@@ -869,7 +869,7 @@ __global__ void rmsnorm_gated_fp32_in_bf16_kernel(
 
 }  // namespace
 
-void launch_rmsnorm_gated_fp32_in_bf16(
+void rmsnorm_gated_fp32_in_bf16(
     const void* x, const void* gate, const void* weight, void* y,
     int num_rows, int hidden, float eps, cudaStream_t stream)
 {
@@ -884,7 +884,7 @@ void launch_rmsnorm_gated_fp32_in_bf16(
         hidden, eps);
 }
 
-void launch_rmsnorm_gated_bf16(
+void rmsnorm_gated_bf16(
     const void* x, const void* gate, const void* weight, void* y,
     int num_rows, int hidden, float eps, cudaStream_t stream)
 {
@@ -904,7 +904,7 @@ void launch_rmsnorm_gated_bf16(
 // both how many threads sit idle (hidden 2816 is 352 vec8 vectors, so 160 of
 // 512 threads do nothing) and how deep the block reduction is (9 rounds at
 // 512 vs 7 at 128). Shapes for the sweep come from the models' configs.
-bool launch_rmsnorm_bf16_tuned(
+bool rmsnorm_bf16_tuned(
     const void* x, const void* weight, void* y, int num_rows, int hidden,
     float eps, int vblock, cudaStream_t stream)
 {
@@ -933,7 +933,7 @@ bool launch_rmsnorm_bf16_tuned(
 // the plain kernel records that vectorizing the same walk cut it ~7x. It
 // measures 10.79 us/call in-engine against 2.51 for the vectorized plain
 // norm, and is 8% of gemma-4-26B's decode step.
-bool launch_rmsnorm_rasr_tuned(
+bool rmsnorm_rasr_tuned(
     const void* x, const void* weight, void* hidden, float scale,
     const void* next_weight, void* norm_out, int num_rows, int hidden_size,
     float eps, int block, cudaStream_t stream)
@@ -981,4 +981,4 @@ bool launch_rmsnorm_rasr_tuned(
     return false;
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

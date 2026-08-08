@@ -23,7 +23,7 @@ namespace pie_cuda_driver::kernels {
 //
 // `bias` is optional (nullptr = none). When present the epilogue computes
 // `out[n] = bf16(bf16(dot) + bias[n])`, which is bit-identical to running
-// `launch_add_bias_bf16` afterwards -- the double rounding is intentional.
+// `kernels::norm::add_bias_bf16` afterwards -- the double rounding is intentional.
 // This removes a whole kernel launch per biased projection; on gpt-oss-20b
 // that is 120 launches per decode step, each ~3.6 us against a 2.2 us
 // empty-launch floor, for a few KB of arithmetic.

@@ -5,7 +5,7 @@
 #include <cuda_bf16.h>
 #include <cstdint>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::ssm {
 
 namespace {
 
@@ -253,7 +253,7 @@ __global__ void kda_o_norm_gated_kernel(
 
 // ── Launchers ──────────────────────────────────────────────────────
 
-void launch_kda_gate_beta_bf16(
+void kda_gate_beta_bf16(
     const void* raw_g, const void* raw_beta, const float* A_log,
     const float* dt_bias, float* gate_out, float* beta_out,
     int T, int H, int D, float lower_bound, cudaStream_t stream)
@@ -267,7 +267,7 @@ void launch_kda_gate_beta_bf16(
         A_log, dt_bias, gate_out, beta_out, T, H, D, lower_bound);
 }
 
-void launch_kda_recurrent_step_batched(
+void kda_recurrent_step_batched(
     const float* q_norm, const float* k_norm, const float* v,
     const float* gate, const float* beta, float* state_base,
     const std::int32_t* slot_ids, long long slot_stride_elems, float* out,
@@ -283,7 +283,7 @@ void launch_kda_recurrent_step_batched(
         slot_stride_elems, out, H, D);
 }
 
-void launch_kda_prefill_batched(
+void kda_prefill_batched(
     const float* q_norm, const float* k_norm, const float* v,
     const float* gate, const float* beta, float* state_base,
     const std::int32_t* slot_ids, const std::uint32_t* qo_indptr,
@@ -307,7 +307,7 @@ void launch_kda_prefill_batched(
         slot_stride_elems, out, H, D);
 }
 
-void launch_kda_o_norm_gated_bf16(
+void kda_o_norm_gated_bf16(
     const float* o, const void* g, const float* weight, void* out,
     int T, int H, int D, float eps, cudaStream_t stream)
 {
@@ -319,4 +319,4 @@ void launch_kda_o_norm_gated_bf16(
         static_cast<__nv_bfloat16*>(out), H, D, eps);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::ssm

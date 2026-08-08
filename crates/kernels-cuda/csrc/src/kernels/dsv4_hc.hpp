@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
 // HC pre: extract one stream for attention/FFN from the multi-stream residual.
 //
@@ -17,7 +17,7 @@ namespace pie_cuda_driver::kernels {
 // mixes_and_residual layout:
 //   mixes: [N, mix_hc] F32 (GEMM output, already RMSNorm'd)
 //   residual: [N, hc_mult, H] BF16 (multi-stream residual)
-void launch_hc_pre_postprocess_bf16(
+void hc_pre_postprocess_bf16(
     const float* mixes,           // [N, mix_hc] GEMM output
     const float* scale,           // [3]
     const float* base,            // [mix_hc]
@@ -35,7 +35,7 @@ void launch_hc_pre_postprocess_bf16(
 
 // HC post: combine layer output with multi-stream residual.
 //   new_residual_j = comb_mix_{ij} * residual_i + post_mix_j * x
-void launch_hc_post_bf16(
+void hc_post_bf16(
     const void* x,                // [N, H] BF16 (layer output)
     const void* residual,         // [N, hc_mult, H] BF16 (current residual)
     const float* post_mix,        // [N, hc_mult]
@@ -49,7 +49,7 @@ void launch_hc_post_bf16(
 // HC head: collapse multi-stream residual to single stream.
 //   out = sum_i(gate_i * residual_i)
 // where gate = sigmoid(rmsnorm(residual_flat) @ fn^T * scale + base)
-void launch_hc_head_postprocess_bf16(
+void hc_head_postprocess_bf16(
     const float* mixes,           // [N, hc_mult] GEMM output (RMSNorm'd)
     const float* scale,           // [1]
     const float* base,            // [hc_mult]
@@ -62,7 +62,7 @@ void launch_hc_head_postprocess_bf16(
     float hc_eps = 1e-6f);
 
 // Expand embedding [N, H] → [N, hc_mult, H] by replicating.
-void launch_hc_expand_bf16(
+void hc_expand_bf16(
     const void* input,            // [N, H] BF16
     void* output,                 // [N, hc_mult, H] BF16
     int N,
@@ -72,7 +72,7 @@ void launch_hc_expand_bf16(
 
 // RMSNorm for the flattened HC residual → F32.
 // input [N, hc_mult * H] BF16 → output [N, hc_mult * H] F32
-void launch_hc_rmsnorm_to_f32(
+void hc_rmsnorm_to_f32(
     const void* input,            // [N, hc_mult * H] BF16
     float* output,                // [N, hc_mult * H] F32
     int N,
@@ -83,7 +83,7 @@ void launch_hc_rmsnorm_to_f32(
 // Post-hoc attention sink correction: o *= sigmoid(lse - sink_h)
 // Applied per-head after standard attention to account for V4's learnable
 // denominator extension.
-void launch_attn_sink_correction_bf16(
+void attn_sink_correction_bf16(
     void* attn_out,               // [N, num_heads, head_dim] BF16 (in-place)
     const float* lse,             // [N, num_heads] FP32
     const float* sink,            // [num_heads] FP32
@@ -94,7 +94,7 @@ void launch_attn_sink_correction_bf16(
 
 // Per-head RMSNorm without gamma weight: q *= rsqrt(mean(q^2) + eps).
 // Used by V4 attention on Q after wq_b (applied per head independently).
-void launch_per_head_rmsnorm_bf16(
+void per_head_rmsnorm_bf16(
     void* q,                      // [N, num_heads, head_dim] BF16 (in-place)
     int N,
     int num_heads,
@@ -102,4 +102,4 @@ void launch_per_head_rmsnorm_bf16(
     float eps,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

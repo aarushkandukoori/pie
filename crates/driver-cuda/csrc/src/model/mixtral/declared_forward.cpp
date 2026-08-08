@@ -67,7 +67,7 @@ GoKernel resolve_go_kernel(std::string_view k) {
     if (k == "mlp::gpt_oss_glu_bf16") return GoKernel::GptOssGlu;
     if (k == "launch_token_batched_weighted_sum_bf16")
         return GoKernel::WeightedSum;
-    if (k == "launch_residual_add_bf16") return GoKernel::ResidualAdd;
+    if (k == "norm::residual_add_bf16") return GoKernel::ResidualAdd;
     throw std::runtime_error(
         "declared gptoss: stated kernel '" + std::string(k) +
         "' is not in this executor's registry (the trace and the driver "
@@ -316,7 +316,7 @@ bool gpt_oss_forward_declared(
         enter(op.layer);
         switch (op.kind) {
         case PieForwardOpKind::Embed:
-            kernels::launch_embed_bf16(
+            kernels::layout::embed_bf16(
                 token_ids, require(w, plan.weight_name(op)).data(),
                 ws.y.data(), N, H, V, stream);
             break;
@@ -333,7 +333,7 @@ bool gpt_oss_forward_declared(
                 nm.field != "final_norm") {
                 throw_drift("rmsnorm on '" + std::string(name) + "'");
             }
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), require(w, name).data(), out, N, H, eps, stream);
             break;
         }
@@ -358,7 +358,7 @@ bool gpt_oss_forward_declared(
             if (nm.field != "o_bias") {
                 throw_drift("add_bias on '" + std::string(name) + "'");
             }
-            kernels::launch_add_bias_bf16(
+            kernels::norm::add_bias_bf16(
                 ws.y.data(), require(w, name).data(), N, H, stream);
             break;
         }
@@ -374,7 +374,7 @@ bool gpt_oss_forward_declared(
             int rows = N;
             if (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
                 num_logit_rows < N) {
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.norm_x.data()),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_y.data()),
@@ -535,7 +535,7 @@ bool gpt_oss_forward_declared(
                     N, top_k, H, stream);
                 break;
             case GoKernel::ResidualAdd:
-                kernels::launch_residual_add_bf16(
+                kernels::norm::residual_add_bf16(
                     ws.y.data(), d_moe_out.data(), N * H, stream);
                 break;
             }

@@ -44,7 +44,7 @@
 //! ```text
 //!   for (int k = 0; k < K; ++k) {
 //!       if (k == act_idx) continue;
-//!       kernels::launch_residual_add_bf16(corrected + k * N * H, ple, ...);
+//!       kernels::norm::residual_add_bf16(corrected + k * N * H, ple, ...);
 //!   }
 //! ```
 //!
@@ -58,7 +58,7 @@
 //! page-mask substitution), and `Buffers` gives every op output its own
 //! offset by construction. It is a separable primitive with its own
 //! design question — whether in-placeness is a property of the KERNEL
-//! (it is: `launch_residual_add_bf16` accumulates into its first
+//! (it is: `kernels::norm::residual_add_bf16` accumulates into its first
 //! argument) or of the statement — and it deserves the same treatment
 //! `select` got rather than being bolted on to finish one body.
 //!

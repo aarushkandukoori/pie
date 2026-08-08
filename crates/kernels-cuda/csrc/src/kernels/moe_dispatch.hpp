@@ -8,7 +8,7 @@
 //
 // Routing decisions live on host (built from a D2H copy of `topk_idx`)
 // since they are cheap O(N*K) bookkeeping. The corresponding "gather
-// expert input rows" step reuses the existing `launch_gather_bf16_rows`.
+// expert input rows" step reuses the existing `kernels::layout::gather_bf16_rows`.
 
 #include <cstdlib>
 #include <cstdint>

@@ -24,7 +24,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::ssm {
 
 // Single-token decode step. One block per (request, head).
 //
@@ -36,7 +36,7 @@ namespace pie_cuda_driver::kernels {
 //     out            : [B, V_h, V_d] fp32
 //
 // The kernel allocates K_d + V_d fp32 entries of shared memory.
-void launch_recurrent_gated_delta_step(
+void recurrent_gated_delta_step(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -46,7 +46,7 @@ void launch_recurrent_gated_delta_step(
     float*       out,
     int B, int V_h, int K_d, int V_d,
     cudaStream_t stream);
-void launch_recurrent_gated_delta_step_state_bf16(
+void recurrent_gated_delta_step_state_bf16(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -71,7 +71,7 @@ void launch_recurrent_gated_delta_step_state_bf16(
 //
 // One launch covers all R requests on the decode path; prefer over
 // host-looping `_step` per request.
-void launch_recurrent_gated_delta_step_batched(
+void recurrent_gated_delta_step_batched(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -83,7 +83,7 @@ void launch_recurrent_gated_delta_step_batched(
     float*       out,
     int R, int V_h, int K_d, int V_d,
     cudaStream_t stream);
-void launch_recurrent_gated_delta_step_batched_state_bf16(
+void recurrent_gated_delta_step_batched_state_bf16(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -98,7 +98,7 @@ void launch_recurrent_gated_delta_step_batched_state_bf16(
 
 // Batched decode variant for grouped-query GDN layouts where Q/K have K_h
 // heads and V has V_h heads. Avoids materializing repeated Q/K heads.
-void launch_recurrent_gated_delta_step_batched_gqa(
+void recurrent_gated_delta_step_batched_gqa(
     const float* q_norm_kh,
     const float* k_norm_kh,
     const float* v,
@@ -110,7 +110,7 @@ void launch_recurrent_gated_delta_step_batched_gqa(
     float*       out,
     int R, int K_h, int V_h, int K_d, int V_d,
     cudaStream_t stream);
-void launch_recurrent_gated_delta_step_batched_gqa_state_bf16(
+void recurrent_gated_delta_step_batched_gqa_state_bf16(
     const float* q_norm_kh,
     const float* k_norm_kh,
     const float* v,
@@ -137,9 +137,9 @@ void launch_recurrent_gated_delta_step_batched_gqa_state_bf16(
 //     chunk_size     : 64 by default (must divide T after padding)
 //
 // Single-request entry. Multi-request callers use
-// `launch_chunk_gated_delta_prefill_batched` below — this one is kept
+// `chunk_gated_delta_prefill_batched` below — this one is kept
 // for the legacy parity entrypoint and as a single-request fast path.
-void launch_chunk_gated_delta_prefill(
+void chunk_gated_delta_prefill(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -150,7 +150,7 @@ void launch_chunk_gated_delta_prefill(
     int T, int V_h, int K_d, int V_d,
     int chunk_size,
     cudaStream_t stream);
-void launch_chunk_gated_delta_prefill_state_bf16(
+void chunk_gated_delta_prefill_state_bf16(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -186,7 +186,7 @@ void launch_chunk_gated_delta_prefill_state_bf16(
 // scatter/gather adapter or a templated flashinfer collective_load that
 // takes a slot_ids indirection would do; pre-SM90 hardware always falls
 // through to this kernel.
-void launch_chunk_gated_delta_prefill_batched(
+void chunk_gated_delta_prefill_batched(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -209,7 +209,7 @@ void launch_chunk_gated_delta_prefill_batched(
     // null or `mask[r] != 0`. A MIXED fire folds some rows and leaves others
     // buffered; they share an initial state and outputs and differ only here.
     const std::uint8_t* write_state_mask = nullptr);
-void launch_chunk_gated_delta_prefill_batched_state_bf16(
+void chunk_gated_delta_prefill_batched_state_bf16(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -236,7 +236,7 @@ void launch_chunk_gated_delta_prefill_batched_state_bf16(
 // write_state=false runs a frozen verify: produce outputs but persist no
 // recurrent state (the committed slot stays at its pre-verify value, advanced
 // later by the repair forward). Default true = normal writeback.
-void launch_chunk_gated_delta_prefill_batched_cached(
+void chunk_gated_delta_prefill_batched_cached(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -250,7 +250,7 @@ void launch_chunk_gated_delta_prefill_batched_cached(
     int R, int V_h, int K_d, int V_d,
     cudaStream_t stream, bool write_state = true,
     const std::uint8_t* write_state_mask = nullptr);
-void launch_chunk_gated_delta_prefill_batched_cached_state_bf16(
+void chunk_gated_delta_prefill_batched_cached_state_bf16(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -269,7 +269,7 @@ void launch_chunk_gated_delta_prefill_batched_cached_state_bf16(
 // Same warp-tiled small-T recurrence, but Q/K are stored with fewer heads
 // than V and are repeated logically (`V_h % K_h == 0`). This avoids
 // materialising repeat_interleave(Q/K) for GQA-style GDN layers.
-void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa(
+void chunk_gated_delta_prefill_batched_warp_tiled_gqa(
     const float* q_norm_kh,
     const float* k_norm_kh,
     const float* v,
@@ -283,7 +283,7 @@ void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa(
     int R, int K_h, int V_h, int K_d, int V_d,
     cudaStream_t stream, bool write_state = true,
     const std::uint8_t* write_state_mask = nullptr);
-void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
+void chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
     const float* q_norm_kh,
     const float* k_norm_kh,
     const float* v,
@@ -303,7 +303,7 @@ void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
 // to prep Q/K for the gated-delta step.
 //
 //     y[r, c] = (x[r, c] / sqrt(Σ x[r, .]^2 + eps)) * scale
-void launch_l2norm_scale_bf16_to_fp32(
+void l2norm_scale_bf16_to_fp32(
     const void* x,        // [N, hidden] bf16
     float*      y,        // [N, hidden] fp32
     int N, int hidden,
@@ -313,7 +313,7 @@ void launch_l2norm_scale_bf16_to_fp32(
 
 // Helper: bf16 → fp32 widen (vec cast). For passing v_t to the kernel
 // when v lives in bf16 in workspace.
-void launch_bf16_to_fp32(
+void bf16_to_fp32(
     const void* x, float* y, std::size_t n, cudaStream_t stream);
 
 // repeat_interleave on the head dimension: duplicate each of K_h heads
@@ -322,14 +322,14 @@ void launch_bf16_to_fp32(
 //
 //     in  : [N, K_h, D] fp32
 //     out : [N, V_h, D] fp32   where  out[n, h_v, d] = in[n, h_v / repeat, d]
-void launch_repeat_interleave_heads_fp32(
+void repeat_interleave_heads_fp32(
     const float* in, float* out,
     int N, int K_h, int V_h, int D,
     cudaStream_t stream);
 
 // fp32 → bf16 narrow. For shipping the recurrent kernel's fp32 output
 // into the bf16 workspace consumed by the post-norm + out_proj stage.
-void launch_fp32_to_bf16(
+void fp32_to_bf16(
     const float* x, void* y, std::size_t n, cudaStream_t stream);
 
 // Compute per-step (g_log, beta) from the four small per-head inputs:
@@ -342,7 +342,7 @@ void launch_fp32_to_bf16(
 //     a       : [N, V_h] bf16   (per-token from in_proj_a)
 //     b       : [N, V_h] bf16   (per-token from in_proj_b)
 //     g_log_out, beta_out : [N, V_h] fp32
-void launch_gated_delta_g_beta(
+void gated_delta_g_beta(
     const void* a,
     const void* b,
     const void* A_log,
@@ -356,7 +356,7 @@ void launch_gated_delta_g_beta(
 //   q/k split + L2 normalization, v bf16-to-fp32, and g/beta gating.
 // `qkv_post` is [N, 2*K_h*K_d + V_h*V_d] bf16 in [q | k | v] channel order.
 // `a` and `b` are [N, V_h] bf16.
-void launch_qwen_gdn_post_conv_prep_bf16(
+void qwen_gdn_post_conv_prep_bf16(
     const void* qkv_post,
     const void* a,
     const void* b,
@@ -370,4 +370,4 @@ void launch_qwen_gdn_post_conv_prep_bf16(
     int N, int K_h, int V_h, int K_d, int V_d, int conv_dim,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::ssm

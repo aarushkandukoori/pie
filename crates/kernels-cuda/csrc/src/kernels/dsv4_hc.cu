@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
 namespace {
 
@@ -265,7 +265,7 @@ __global__ void hc_rmsnorm_to_f32_kernel(
 
 }  // namespace
 
-void launch_hc_pre_postprocess_bf16(
+void hc_pre_postprocess_bf16(
     const float* mixes,
     const float* scale,
     const float* base,
@@ -290,7 +290,7 @@ void launch_hc_pre_postprocess_bf16(
         hc_mult, hidden_size, hc_eps, hc_post_alpha, sinkhorn_iters);
 }
 
-void launch_hc_post_bf16(
+void hc_post_bf16(
     const void* x,
     const void* residual,
     const float* post_mix,
@@ -312,7 +312,7 @@ void launch_hc_post_bf16(
         N, hc_mult, hidden_size);
 }
 
-void launch_hc_head_postprocess_bf16(
+void hc_head_postprocess_bf16(
     const float* mixes,
     const float* scale,
     const float* base,
@@ -332,7 +332,7 @@ void launch_hc_head_postprocess_bf16(
         hc_mult, hidden_size, hc_eps);
 }
 
-void launch_hc_expand_bf16(
+void hc_expand_bf16(
     const void* input,
     void* output,
     int N,
@@ -349,7 +349,7 @@ void launch_hc_expand_bf16(
         N, hc_mult, hidden_size);
 }
 
-void launch_hc_rmsnorm_to_f32(
+void hc_rmsnorm_to_f32(
     const void* input,
     float* output,
     int N,
@@ -385,7 +385,7 @@ __global__ void attn_sink_correction_kernel(
 
 }  // namespace
 
-void launch_attn_sink_correction_bf16(
+void attn_sink_correction_bf16(
     void* attn_out,
     const float* lse,
     const float* sink,
@@ -447,7 +447,7 @@ __global__ void per_head_rmsnorm_kernel(
 
 }  // namespace
 
-void launch_per_head_rmsnorm_bf16(
+void per_head_rmsnorm_bf16(
     void* q, int N, int num_heads, int head_dim,
     float eps, cudaStream_t stream)
 {
@@ -458,4 +458,4 @@ void launch_per_head_rmsnorm_bf16(
         static_cast<__nv_bfloat16*>(q), head_dim, eps);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

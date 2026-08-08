@@ -556,19 +556,19 @@ void dsv4_forward_paged(
 
     // ── Embedding ────────────────────────────────────────────────────
     if (w.embed_tp_sharded) {
-        kernels::launch_embed_bf16_vocab_shard(
+        kernels::layout::embed_bf16_vocab_shard(
             token_ids, w.embed->data(), ws.y.data(),
             N, H, static_cast<int>(w.embed->shape()[0]),
             w.embed_tp_vocab_offset, stream);
     } else {
-        kernels::launch_embed_bf16(
+        kernels::layout::embed_bf16(
             token_ids, w.embed->data(), ws.y.data(), N, H, cfg.vocab_size, stream);
     }
 
 
     // Expand embedding [N, H] → [N, hc_mult, H]
     if (M > 1) {
-        kernels::launch_hc_expand_bf16(
+        kernels::norm::hc_expand_bf16(
             ws.y.data(), ws.hc_residual.data(),
             N, M, H, stream);
     } else {
@@ -606,7 +606,7 @@ void dsv4_forward_paged(
         // Extract layer_input [N, H] from multi-stream residual
         if (M > 1 && Lw.hc_attn_fn != nullptr) {
             // RMSNorm the flattened residual → F32
-            kernels::launch_hc_rmsnorm_to_f32(
+            kernels::norm::hc_rmsnorm_to_f32(
                 ws.hc_residual.data(), static_cast<float*>(ws.hc_mixes_f32.data()),
                 N, M * H, eps, stream);
 
@@ -625,7 +625,7 @@ void dsv4_forward_paged(
             }
 
             // Post-process: sigmoid, sinkhorn, weighted sum
-            kernels::launch_hc_pre_postprocess_bf16(
+            kernels::norm::hc_pre_postprocess_bf16(
                 static_cast<const float*>(ws.hc_gemm_out.data()),
                 static_cast<const float*>(Lw.hc_attn_scale->data()),
                 static_cast<const float*>(Lw.hc_attn_base->data()),
@@ -636,7 +636,7 @@ void dsv4_forward_paged(
                 N, M, H, hc_eps, hc_post_alpha, sinkhorn_iters, stream);
         } else {
             // No HC: just RMSNorm the residual
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.hc_residual.data(), Lw.attn_norm->data(), ws.norm_x.data(),
                 N, H, eps, stream);
         }
@@ -646,7 +646,7 @@ void dsv4_forward_paged(
 
         // Apply attn RMSNorm if HC was used (HC pre already normalizes)
         if (M > 1 && Lw.hc_attn_fn != nullptr) {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), Lw.attn_norm->data(), ws.norm_x.data(),
                 N, H, eps, stream);
         }
@@ -661,7 +661,7 @@ void dsv4_forward_paged(
             ws.norm_x.data(), make_weight_view(Lw.wq_a, Lw.wq_a_quant), ws.q_a.data(),
             N, q_lora, H);
 
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.q_a.data(), Lw.q_norm->data(), ws.q_a.data(),
             N, q_lora, eps, stream);
 
@@ -680,7 +680,7 @@ void dsv4_forward_paged(
             static_cast<std::uint32_t>(li), stream);
 
         // Per-head RMSNorm on Q (no gamma weight) — reference: q *= rsqrt(...)
-        kernels::launch_per_head_rmsnorm_bf16(
+        kernels::norm::per_head_rmsnorm_bf16(
             ws.q.data(), N, num_heads, head_dim, eps, stream);
 
         // KV path: wkv → kv_norm
@@ -688,7 +688,7 @@ void dsv4_forward_paged(
             ws.norm_x.data(), make_weight_view(Lw.wkv, Lw.wkv_quant), ws.kv.data(),
             N, head_dim, H);
 
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.kv.data(), Lw.kv_norm->data(), ws.kv.data(),
             N, head_dim, eps, stream);
         act_dump_bf16(act_dump_layer_tag("kv", li).c_str(),
@@ -791,7 +791,7 @@ void dsv4_forward_paged(
                         stream);
 
                     if (Lw.compressor.norm != nullptr) {
-                        kernels::launch_rmsnorm_bf16(
+                        kernels::norm::rmsnorm_bf16(
                             ws.comp_kv.data(), Lw.compressor.norm->data(),
                             ws.comp_kv.data(),
                             cb.count, head_dim, eps, stream);
@@ -844,7 +844,7 @@ void dsv4_forward_paged(
             prof_beg();
             // Attention sink correction: o *= sigmoid(lse - sink_h)
             if (Lw.attn_sink != nullptr) {
-                kernels::launch_attn_sink_correction_bf16(
+                kernels::norm::attn_sink_correction_bf16(
                     ws.attn_out.data(),
                     static_cast<const float*>(ws.attn_lse.data()),
                     static_cast<const float*>(Lw.attn_sink->data()),
@@ -1052,7 +1052,7 @@ void dsv4_forward_paged(
         prof_beg();
         // ── HC post (attention) ──────────────────────────────────────
         if (M > 1 && Lw.hc_attn_fn != nullptr) {
-            kernels::launch_hc_post_bf16(
+            kernels::norm::hc_post_bf16(
                 ws.y.data(),             // layer output [N, H]
                 ws.hc_residual.data(),   // residual [N, M, H]
                 static_cast<const float*>(ws.hc_post_mix.data()),
@@ -1060,7 +1060,7 @@ void dsv4_forward_paged(
                 ws.hc_residual.data(),   // output (in-place)
                 N, M, H, stream);
         } else {
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.hc_residual.data(), ws.y.data(), N * H, stream);
         }
 
@@ -1070,7 +1070,7 @@ void dsv4_forward_paged(
 
         // ── HC pre (FFN) ─────────────────────────────────────────────
         if (M > 1 && Lw.hc_ffn_fn != nullptr) {
-            kernels::launch_hc_rmsnorm_to_f32(
+            kernels::norm::hc_rmsnorm_to_f32(
                 ws.hc_residual.data(), static_cast<float*>(ws.hc_mixes_f32.data()),
                 N, M * H, eps, stream);
 
@@ -1086,7 +1086,7 @@ void dsv4_forward_paged(
                     static_cast<float*>(ws.hc_gemm_out.data()), mix_hc);
             }
 
-            kernels::launch_hc_pre_postprocess_bf16(
+            kernels::norm::hc_pre_postprocess_bf16(
                 static_cast<const float*>(ws.hc_gemm_out.data()),
                 static_cast<const float*>(Lw.hc_ffn_scale->data()),
                 static_cast<const float*>(Lw.hc_ffn_base->data()),
@@ -1096,14 +1096,14 @@ void dsv4_forward_paged(
                 ws.norm_y.data(),
                 N, M, H, hc_eps, hc_post_alpha, sinkhorn_iters, stream);
         } else {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.hc_residual.data(), Lw.ffn_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
         }
 
         // Apply FFN RMSNorm
         if (M > 1 && Lw.hc_ffn_fn != nullptr) {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_y.data(), Lw.ffn_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
         }
@@ -1345,7 +1345,7 @@ void dsv4_forward_paged(
                     static_cast<std::size_t>(Ne) * sizeof(float),
                     cudaMemcpyHostToDevice, stream));
 
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.norm_y.data()),
                     static_cast<const std::int32_t*>(ws.route_idx.data()),
                     static_cast<std::uint16_t*>(ws.expert_in.data()),
@@ -1429,7 +1429,7 @@ void dsv4_forward_paged(
                 N, H, local_shared_I);
             act_dump_bf16(act_dump_layer_tag("shared_out", li).c_str(),
                 ws.shared_out.data(), N, H, stream);
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.moe_out.data(), ws.shared_out.data(), N * H, stream);
         }
 
@@ -1447,7 +1447,7 @@ void dsv4_forward_paged(
         act_dump_bf16(act_dump_layer_tag("ffn_out", li).c_str(),
             ws.moe_out.data(), N, H, stream);
         if (M > 1 && Lw.hc_ffn_fn != nullptr) {
-            kernels::launch_hc_post_bf16(
+            kernels::norm::hc_post_bf16(
                 ws.moe_out.data(),
                 ws.hc_residual.data(),
                 static_cast<const float*>(ws.hc_post_mix.data()),
@@ -1455,7 +1455,7 @@ void dsv4_forward_paged(
                 ws.hc_residual.data(),
                 N, M, H, stream);
         } else {
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.hc_residual.data(), ws.moe_out.data(), N * H, stream);
         }
         act_dump_bf16(act_dump_layer_tag("out", li).c_str(),
@@ -1466,7 +1466,7 @@ void dsv4_forward_paged(
     prof_beg();
     // ── HC head: collapse multi-stream → single-stream ───────────────
     if (M > 1 && w.hc_head_fn != nullptr) {
-        kernels::launch_hc_rmsnorm_to_f32(
+        kernels::norm::hc_rmsnorm_to_f32(
             ws.hc_residual.data(), static_cast<float*>(ws.hc_mixes_f32.data()),
             N, M * H, eps, stream);
 
@@ -1483,7 +1483,7 @@ void dsv4_forward_paged(
                 static_cast<float*>(ws.hc_head_gemm.data()), M);
         }
 
-        kernels::launch_hc_head_postprocess_bf16(
+        kernels::norm::hc_head_postprocess_bf16(
             static_cast<const float*>(ws.hc_head_gemm.data()),
             static_cast<const float*>(w.hc_head_scale->data()),
             static_cast<const float*>(w.hc_head_base->data()),
@@ -1501,7 +1501,7 @@ void dsv4_forward_paged(
     int rows = N;
     void* final_in = ws.y.data();
     if (logit_row_indices_d != nullptr && num_logit_rows > 0 && num_logit_rows < N) {
-        kernels::launch_gather_bf16_rows(
+        kernels::layout::gather_bf16_rows(
             static_cast<const std::uint16_t*>(ws.y.data()),
             logit_row_indices_d,
             static_cast<std::uint16_t*>(ws.norm_x.data()),
@@ -1510,7 +1510,7 @@ void dsv4_forward_paged(
         rows = num_logit_rows;
     }
 
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         final_in, w.final_norm->data(), ws.norm_y.data(),
         rows, H, eps, stream);
     act_dump_bf16("hc_head", final_in, rows, H, stream);

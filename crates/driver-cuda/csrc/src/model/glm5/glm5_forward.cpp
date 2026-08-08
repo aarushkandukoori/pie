@@ -320,7 +320,7 @@ void glm5_forward_paged(
         if (tp == nullptr) {
             throw std::runtime_error("glm5: sharded embed requires TP communicator");
         }
-        kernels::launch_embed_bf16_vocab_shard(
+        kernels::layout::embed_bf16_vocab_shard(
             token_ids, w.embed->data(), ws.y.data(),
             total_tokens, H, static_cast<int>(w.embed->shape()[0]),
             w.embed_tp_vocab_offset, stream);
@@ -328,7 +328,7 @@ void glm5_forward_paged(
             static_cast<std::size_t>(total_tokens) * static_cast<std::size_t>(H),
             ncclSum, stream);
     } else {
-        kernels::launch_embed_bf16(
+        kernels::layout::embed_bf16(
             token_ids, w.embed->data(), ws.y.data(),
             total_tokens, H, cfg.vocab_size, stream);
     }
@@ -352,12 +352,12 @@ void glm5_forward_paged(
 
         // ── MLA attention ────────────────────────────────────────────
         if (pending_residual != nullptr) {
-            kernels::launch_residual_add_rmsnorm_bf16(
+            kernels::norm::residual_add_rmsnorm_bf16(
                 ws.y.data(), pending_residual, Lw.attn_norm->data(),
                 ws.norm_x.data(), total_tokens, H, eps, stream);
             pending_residual = nullptr;
         } else {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), Lw.attn_norm->data(), ws.norm_x.data(),
                 total_tokens, H, eps, stream);
         }
@@ -371,7 +371,7 @@ void glm5_forward_paged(
             make_weight_view(Lw.kv_a_proj_with_mqa, Lw.kv_a_proj_with_mqa_quant),
             ws.kv_a_mqa.data(), total_tokens, kv_lora + q_rope, H);
 
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.q_a.data(), Lw.q_a_norm->data(), ws.q_a.data(),
             total_tokens, q_lora, eps, stream);
         ops::gemm_act_x_w(cublas.handle(),
@@ -506,7 +506,7 @@ void glm5_forward_paged(
                 ws.norm_x.data(), total_tokens, H, heads * v_dim);
             tp->all_reduce_bf16(ws.norm_x.data(),
                 static_cast<std::size_t>(total_tokens) * H, ncclSum, stream);
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.norm_x.data(),
                 static_cast<std::size_t>(total_tokens) * H, stream);
         }
@@ -514,7 +514,7 @@ void glm5_forward_paged(
         // ── MLP / MoE ────────────────────────────────────────────────
         act_dump_bf16(act_dump_layer_tag("post_attn", li).c_str(),
             ws.y.data(), total_tokens, H, stream);
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.y.data(), Lw.mlp_norm->data(), ws.norm_y.data(),
             total_tokens, H, eps, stream);
 
@@ -542,7 +542,7 @@ void glm5_forward_paged(
                     ws.norm_x.data(), total_tokens, H, dense_I);
                 tp->all_reduce_bf16(ws.norm_x.data(),
                     static_cast<std::size_t>(total_tokens) * H, ncclSum, stream);
-                kernels::launch_residual_add_bf16(
+                kernels::norm::residual_add_bf16(
                     ws.y.data(), ws.norm_x.data(),
                     static_cast<std::size_t>(total_tokens) * H, stream);
             }
@@ -733,7 +733,7 @@ void glm5_forward_paged(
                 ws.route_w.data(), wts.data(),
                 static_cast<std::size_t>(Ne) * sizeof(float),
                 cudaMemcpyHostToDevice, stream));
-            kernels::launch_gather_bf16_rows(
+            kernels::layout::gather_bf16_rows(
                 static_cast<const std::uint16_t*>(ws.norm_y.data()),
                 static_cast<const std::int32_t*>(ws.route_idx.data()),
                 static_cast<std::uint16_t*>(ws.expert_in.data()),
@@ -778,7 +778,7 @@ void glm5_forward_paged(
                 ws.shared_act.data(),
                 make_expert_weight_view(Lw.shared_down_proj, Lw.shared_down_quant),
                 ws.shared_out.data(), total_tokens, H, shared_I);
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.moe_out.data(), ws.shared_out.data(),
                 static_cast<std::size_t>(total_tokens) * H, stream);
         }
@@ -790,7 +790,7 @@ void glm5_forward_paged(
         if (!act_dump_enabled()) {
             pending_residual = ws.moe_out.data();
         } else {
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.moe_out.data(),
                 static_cast<std::size_t>(total_tokens) * H, stream);
         }
@@ -809,13 +809,13 @@ void glm5_forward_paged(
     const void* final_in = ws.y.data();
     if (pending_residual != nullptr && compact_logits) {
         // The gather reads `y`, so it has to be finalised first.
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             ws.y.data(), pending_residual,
             static_cast<std::size_t>(total_tokens) * H, stream);
         pending_residual = nullptr;
     }
     if (compact_logits) {
-        kernels::launch_gather_bf16_rows(
+        kernels::layout::gather_bf16_rows(
             static_cast<const std::uint16_t*>(ws.y.data()),
             logit_row_indices_d,
             static_cast<std::uint16_t*>(ws.norm_x.data()),
@@ -823,12 +823,12 @@ void glm5_forward_paged(
         final_in = ws.norm_x.data();
     }
     if (pending_residual != nullptr) {
-        kernels::launch_residual_add_rmsnorm_bf16(
+        kernels::norm::residual_add_rmsnorm_bf16(
             ws.y.data(), pending_residual, w.final_norm->data(),
             ws.norm_y.data(), rows, H, eps, stream);
         pending_residual = nullptr;
     } else {
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             final_in, w.final_norm->data(), ws.norm_y.data(),
             rows, H, eps, stream);
     }

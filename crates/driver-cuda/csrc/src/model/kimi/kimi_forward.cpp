@@ -542,7 +542,7 @@ void kimi_forward_paged(
             if (tp == nullptr) {
                 throw std::runtime_error("kimi: sharded embed requires TP communicator");
             }
-            kernels::launch_embed_bf16_vocab_shard(
+            kernels::layout::embed_bf16_vocab_shard(
                 token_ids, w.embed->data(), kimi_ws.y.data(),
                 total_tokens, H, static_cast<int>(w.embed->shape()[0]),
                 w.embed_tp_vocab_offset, stream);
@@ -584,7 +584,7 @@ void kimi_forward_paged(
                 }
             }
         } else {
-            kernels::launch_embed_bf16(
+            kernels::layout::embed_bf16(
                 token_ids, w.embed->data(), kimi_ws.y.data(),
                 total_tokens, H, cfg.vocab_size, stream);
         }
@@ -598,7 +598,7 @@ void kimi_forward_paged(
             act_dump_bf16("embed", kimi_ws.y.data(), total_tokens, H, stream);
         }
         profile_cuda_stage(&profile, &profile.attn_proj_ms, stream, [&] {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 kimi_ws.y.data(), Lw.attn_norm->data(), kimi_ws.norm_x.data(),
                 total_tokens, H, eps, stream);
             act_dump_bf16(act_dump_layer_tag("norm_x", li).c_str(),
@@ -620,7 +620,7 @@ void kimi_forward_paged(
                 kv_a_src = static_cast<const char*>(kimi_ws.qkv_a.data()) +
                     static_cast<std::size_t>(q_lora) * sizeof(std::uint16_t);
                 kv_a_row_stride = q_lora + kv_lora + q_rope;
-                kernels::launch_rmsnorm_strided_bf16(
+                kernels::norm::rmsnorm_strided_bf16(
                     kimi_ws.qkv_a.data(), Lw.q_a_norm->data(), kimi_ws.q_a.data(),
                     total_tokens, q_lora,
                     /*x_row_stride=*/q_lora + kv_lora + q_rope,
@@ -632,7 +632,7 @@ void kimi_forward_paged(
                 ops::gemm_act_x_w(cublas.handle(),
                     kimi_ws.norm_x.data(), *Lw.kv_a_proj_with_mqa,
                     kimi_ws.kv_a_mqa.data(), total_tokens, kv_lora + q_rope, H);
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     kimi_ws.q_a.data(), Lw.q_a_norm->data(), kimi_ws.q_a.data(),
                     total_tokens, q_lora, eps, stream);
             }
@@ -778,14 +778,14 @@ void kimi_forward_paged(
                     kimi_ws.norm_x.data(), total_tokens, H, heads * v_dim);
                 tp->all_reduce_bf16(kimi_ws.norm_x.data(),
                     static_cast<std::size_t>(total_tokens) * H, ncclSum, stream);
-                kernels::launch_residual_add_bf16(
+                kernels::norm::residual_add_bf16(
                     kimi_ws.y.data(), kimi_ws.norm_x.data(),
                     static_cast<std::size_t>(total_tokens) * H, stream);
             }
             });
         });
 
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             kimi_ws.y.data(), Lw.mlp_norm->data(), kimi_ws.norm_y.data(),
             total_tokens, H, eps, stream);
         act_dump_bf16(act_dump_layer_tag("post_attn", li).c_str(),
@@ -812,7 +812,7 @@ void kimi_forward_paged(
                         kimi_ws.norm_x.data(), total_tokens, H, dense_I);
                     tp->all_reduce_bf16(kimi_ws.norm_x.data(),
                         static_cast<std::size_t>(total_tokens) * H, ncclSum, stream);
-                    kernels::launch_residual_add_bf16(
+                    kernels::norm::residual_add_bf16(
                         kimi_ws.y.data(), kimi_ws.norm_x.data(),
                         static_cast<std::size_t>(total_tokens) * H, stream);
                 }
@@ -1023,7 +1023,7 @@ void kimi_forward_paged(
                     kimi_ws.route_w.data(), wts.data(),
                     static_cast<std::size_t>(Ne) * sizeof(float),
                     cudaMemcpyHostToDevice, stream));
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(kimi_ws.norm_y.data()),
                     static_cast<const std::int32_t*>(kimi_ws.route_idx.data()),
                     static_cast<std::uint16_t*>(kimi_ws.expert_in.data()),
@@ -1080,7 +1080,7 @@ void kimi_forward_paged(
                 ops::gemm_act_x_w(cublas.handle(),
                     kimi_ws.shared_act.data(), *Lw.shared_down_proj,
                     kimi_ws.shared_out.data(), total_tokens, H, shared_I);
-                kernels::launch_residual_add_bf16(
+                kernels::norm::residual_add_bf16(
                     kimi_ws.moe_out.data(), kimi_ws.shared_out.data(),
                     static_cast<std::size_t>(total_tokens) * H, stream);
             });
@@ -1092,7 +1092,7 @@ void kimi_forward_paged(
             });
         }
         profile_cuda_stage(&profile, &profile.residual_ms, stream, [&] {
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 kimi_ws.y.data(), kimi_ws.moe_out.data(),
                 static_cast<std::size_t>(total_tokens) * H, stream);
         });
@@ -1115,14 +1115,14 @@ void kimi_forward_paged(
     const void* final_in = kimi_ws.y.data();
     profile_cuda_stage(&profile, &profile.lm_head_ms, stream, [&] {
         if (compact_logits) {
-            kernels::launch_gather_bf16_rows(
+            kernels::layout::gather_bf16_rows(
                 static_cast<const std::uint16_t*>(kimi_ws.y.data()),
                 logit_row_indices_d,
                 static_cast<std::uint16_t*>(kimi_ws.norm_x.data()),
                 num_logit_rows, H, stream);
             final_in = kimi_ws.norm_x.data();
         }
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             final_in, w.final_norm->data(), kimi_ws.norm_y.data(),
             rows, H, eps, stream);
     });

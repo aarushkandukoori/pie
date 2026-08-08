@@ -81,12 +81,13 @@ const fn total() -> usize {
 
 const EMPTY: KernelSig = KernelSig {
     name: "", symbol: "", whole: false, needs: Prepare::None,
-    lacks: &[], sink: None, depth_prefix_plan: false,
+    lacks: &[], sink: None, depth_prefix_plan: false, axes: &[],
 };
 
 const fn copy_sig(k: &KernelSig) -> KernelSig {
     KernelSig {
         name: k.name, symbol: k.symbol, whole: k.whole, needs: k.needs,
         lacks: k.lacks, sink: k.sink, depth_prefix_plan: k.depth_prefix_plan,
+        axes: k.axes,
     }
 }

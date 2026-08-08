@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::ssm {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -295,7 +295,7 @@ __global__ void qwen_gdn_v_g_beta_kernel(
 
 }  // namespace
 
-void launch_bf16_to_fp32(
+void bf16_to_fp32(
     const void* x, float* y, std::size_t n, cudaStream_t stream)
 {
     if (n == 0) return;
@@ -305,7 +305,7 @@ void launch_bf16_to_fp32(
         static_cast<const __nv_bfloat16*>(x), y, n);
 }
 
-void launch_fp32_to_bf16(
+void fp32_to_bf16(
     const float* x, void* y, std::size_t n, cudaStream_t stream)
 {
     if (n == 0) return;
@@ -315,7 +315,7 @@ void launch_fp32_to_bf16(
         x, static_cast<__nv_bfloat16*>(y), n);
 }
 
-void launch_repeat_interleave_heads_fp32(
+void repeat_interleave_heads_fp32(
     const float* in, float* out,
     int N, int K_h, int V_h, int D,
     cudaStream_t stream)
@@ -328,7 +328,7 @@ void launch_repeat_interleave_heads_fp32(
         in, out, K_h, V_h, D, repeat);
 }
 
-void launch_l2norm_scale_bf16_to_fp32(
+void l2norm_scale_bf16_to_fp32(
     const void* x, float* y,
     int N, int hidden,
     float scale, float eps,
@@ -342,7 +342,7 @@ void launch_l2norm_scale_bf16_to_fp32(
         static_cast<const __nv_bfloat16*>(x), y, hidden, scale, eps);
 }
 
-void launch_gated_delta_g_beta(
+void gated_delta_g_beta(
     const void* a, const void* b,
     const void* A_log, const void* dt_bias,
     float* g_log_out, float* beta_out,
@@ -360,7 +360,7 @@ void launch_gated_delta_g_beta(
         g_log_out, beta_out, N, V_h);
 }
 
-void launch_qwen_gdn_post_conv_prep_bf16(
+void qwen_gdn_post_conv_prep_bf16(
     const void* qkv_post,
     const void* a,
     const void* b,
@@ -1873,7 +1873,7 @@ constexpr bool qwen_gdn_fla_prefill_enabled() { return true; }
 
 }  // namespace
 
-void launch_recurrent_gated_delta_step(
+void recurrent_gated_delta_step(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     float* state, float* out,
@@ -1894,7 +1894,7 @@ void launch_recurrent_gated_delta_step(
     }
 }
 
-void launch_recurrent_gated_delta_step_state_bf16(
+void recurrent_gated_delta_step_state_bf16(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     void* state, float* out,
@@ -1919,7 +1919,7 @@ void launch_recurrent_gated_delta_step_state_bf16(
     }
 }
 
-void launch_recurrent_gated_delta_step_batched(
+void recurrent_gated_delta_step_batched(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     float* state_base,
@@ -1971,7 +1971,7 @@ void launch_recurrent_gated_delta_step_batched(
     }
 }
 
-void launch_recurrent_gated_delta_step_batched_state_bf16(
+void recurrent_gated_delta_step_batched_state_bf16(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     void* state_base,
@@ -2018,7 +2018,7 @@ void launch_recurrent_gated_delta_step_batched_state_bf16(
     }
 }
 
-void launch_recurrent_gated_delta_step_batched_gqa(
+void recurrent_gated_delta_step_batched_gqa(
     const float* q_norm_kh, const float* k_norm_kh, const float* v,
     const float* g_log, const float* beta,
     float* state_base,
@@ -2079,7 +2079,7 @@ void launch_recurrent_gated_delta_step_batched_gqa(
     }
 }
 
-void launch_recurrent_gated_delta_step_batched_gqa_state_bf16(
+void recurrent_gated_delta_step_batched_gqa_state_bf16(
     const float* q_norm_kh, const float* k_norm_kh, const float* v,
     const float* g_log, const float* beta,
     void* state_base,
@@ -2146,7 +2146,7 @@ void launch_recurrent_gated_delta_step_batched_gqa_state_bf16(
 }
 
 // Chunked prefill — for now, implemented as a sequential per-token
-// loop over `launch_recurrent_gated_delta_step`. Mathematically
+// loop over `recurrent_gated_delta_step`. Mathematically
 // identical to the chunked algorithm, just leaves chunk-parallelism
 // on the table. Each recurrent step is a single grid launch of
 // (1, V_h) blocks, so a T-token prefill costs T launches plus the
@@ -2159,7 +2159,7 @@ void launch_recurrent_gated_delta_step_batched_gqa_state_bf16(
 // (Schur-expanded) triangular inverse + batched GEMMs, which on
 // 2k+ token prefills is the difference between launch-bound and
 // SM-bound.
-void launch_chunk_gated_delta_prefill(
+void chunk_gated_delta_prefill(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     float* state, float* out,
@@ -2173,7 +2173,7 @@ void launch_chunk_gated_delta_prefill(
     const long long stride_v  = (long long)V_h * V_d;
     const long long stride_h  = (long long)V_h;
     for (int t = 0; t < T; ++t) {
-        launch_recurrent_gated_delta_step(
+        recurrent_gated_delta_step(
             q_norm + t * stride_qk,
             k_norm + t * stride_qk,
             v      + t * stride_v,
@@ -2185,7 +2185,7 @@ void launch_chunk_gated_delta_prefill(
     }
 }
 
-void launch_chunk_gated_delta_prefill_state_bf16(
+void chunk_gated_delta_prefill_state_bf16(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     void* state, float* out,
@@ -2200,7 +2200,7 @@ void launch_chunk_gated_delta_prefill_state_bf16(
     const long long stride_h  = (long long)V_h;
     auto* state_bf16 = static_cast<__nv_bfloat16*>(state);
     for (int t = 0; t < T; ++t) {
-        launch_recurrent_gated_delta_step_state_bf16(
+        recurrent_gated_delta_step_state_bf16(
             q_norm + t * stride_qk,
             k_norm + t * stride_qk,
             v      + t * stride_v,
@@ -2212,7 +2212,7 @@ void launch_chunk_gated_delta_prefill_state_bf16(
     }
 }
 
-void launch_chunk_gated_delta_prefill_batched(
+void chunk_gated_delta_prefill_batched(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     float* state_base,
@@ -2267,7 +2267,7 @@ void launch_chunk_gated_delta_prefill_batched(
     }
 }
 
-void launch_chunk_gated_delta_prefill_batched_state_bf16(
+void chunk_gated_delta_prefill_batched_state_bf16(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     void* state_base,
@@ -2319,7 +2319,7 @@ void launch_chunk_gated_delta_prefill_batched_state_bf16(
     }
 }
 
-void launch_chunk_gated_delta_prefill_batched_cached(
+void chunk_gated_delta_prefill_batched_cached(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     float* state_base,
@@ -2358,7 +2358,7 @@ void launch_chunk_gated_delta_prefill_batched_cached(
     }
 }
 
-void launch_chunk_gated_delta_prefill_batched_cached_state_bf16(
+void chunk_gated_delta_prefill_batched_cached_state_bf16(
     const float* q_norm, const float* k_norm, const float* v,
     const float* g_log, const float* beta,
     void* state_base,
@@ -2401,7 +2401,7 @@ void launch_chunk_gated_delta_prefill_batched_cached_state_bf16(
 
 
 
-void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa(
+void chunk_gated_delta_prefill_batched_warp_tiled_gqa(
     const float* q_norm_kh, const float* k_norm_kh, const float* v,
     const float* g_log, const float* beta,
     float* state_base,
@@ -2416,7 +2416,7 @@ void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa(
     if (R <= 0 || K_h <= 0 || V_h <= 0 || K_d <= 0 || V_d <= 0) return;
     if (K_d > 256 || V_h % K_h != 0) {
         throw std::runtime_error(
-            "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa: "
+            "chunk_gated_delta_prefill_batched_warp_tiled_gqa: "
             "unsupported GQA dimensions");
     }
     constexpr int WARPS = 4;
@@ -2458,7 +2458,7 @@ void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa(
     }
 }
 
-void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
+void chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
     const float* q_norm_kh, const float* k_norm_kh, const float* v,
     const float* g_log, const float* beta,
     void* state_base,
@@ -2473,7 +2473,7 @@ void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
     if (R <= 0 || K_h <= 0 || V_h <= 0 || K_d <= 0 || V_d <= 0) return;
     if (K_d > 256 || V_h % K_h != 0) {
         throw std::runtime_error(
-            "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16: "
+            "chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16: "
             "unsupported GQA dimensions");
     }
     constexpr int WARPS = 4;
@@ -2519,4 +2519,4 @@ void launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
     }
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::ssm

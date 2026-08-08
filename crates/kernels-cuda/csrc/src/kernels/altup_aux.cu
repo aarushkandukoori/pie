@@ -3,7 +3,7 @@
 #include <cuda_bf16.h>
 #include <cooperative_groups.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
 namespace cg = cooperative_groups;
 
@@ -134,7 +134,7 @@ __global__ void tanh_kernel(__nv_bfloat16* x, int n) {
 
 }  // namespace
 
-void launch_compute_rms_bf16(
+void compute_rms_bf16(
     const void* ref, float* out, int T, int H, float eps, cudaStream_t stream)
 {
     if (T <= 0 || H <= 0) return;
@@ -144,7 +144,7 @@ void launch_compute_rms_bf16(
         static_cast<const __nv_bfloat16*>(ref), out, H, eps);
 }
 
-void launch_magnitude_rescale_bf16(
+void magnitude_rescale_bf16(
     void* x, const float* target_rms, int T, int H, float eps, cudaStream_t stream)
 {
     if (T <= 0 || H <= 0) return;
@@ -154,7 +154,7 @@ void launch_magnitude_rescale_bf16(
         static_cast<__nv_bfloat16*>(x), target_rms, H, eps);
 }
 
-void launch_mean_streams_bf16(
+void mean_streams_bf16(
     const void* streams, void* out, int K, int T, int H, cudaStream_t stream)
 {
     if (T <= 0 || K <= 0 || H <= 0) return;
@@ -166,7 +166,7 @@ void launch_mean_streams_bf16(
         K, T, H);
 }
 
-void launch_altup_unpack_predict_coefs(
+void altup_unpack_predict_coefs(
     const void* in_bf16, float* out_fp32, int T, int K, cudaStream_t stream)
 {
     if (T <= 0 || K <= 0) return;
@@ -174,7 +174,7 @@ void launch_altup_unpack_predict_coefs(
         static_cast<const __nv_bfloat16*>(in_bf16), out_fp32, T, K);
 }
 
-void launch_altup_unpack_correct_coefs(
+void altup_unpack_correct_coefs(
     const void* in_bf16, float* out_fp32, int T, int K, cudaStream_t stream)
 {
     if (T <= 0 || K <= 0) return;
@@ -182,11 +182,11 @@ void launch_altup_unpack_correct_coefs(
         static_cast<const __nv_bfloat16*>(in_bf16), out_fp32, T, K);
 }
 
-void launch_tanh_bf16(void* x, int numel, cudaStream_t stream) {
+void tanh_bf16(void* x, int numel, cudaStream_t stream) {
     if (numel <= 0) return;
     constexpr int BLOCK = 256;
     const int grid = (numel + BLOCK - 1) / BLOCK;
     tanh_kernel<<<grid, BLOCK, 0, stream>>>(static_cast<__nv_bfloat16*>(x), numel);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

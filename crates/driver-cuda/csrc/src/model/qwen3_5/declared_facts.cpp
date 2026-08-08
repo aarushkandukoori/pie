@@ -510,7 +510,7 @@ Qwen35DeclaredPlan build_impl(const HfConfig& cfg, const W& w, int tp_size) {
     }
 
     // The norm fold: the dense qwen3_5 forward launches
-    // launch_rmsnorm_gemma_bf16 unconditionally; the MoE forward folds
+    // kernels::norm::rmsnorm_gemma_bf16 unconditionally; the MoE forward folds
     // Gemma for everything but plain qwen3_moe
     // (qwen3_5_moe_forward.cpp::uses_gemma_rmsnorm).
     PieForwardNormVariant variant = PieForwardNormVariant::Gemma;

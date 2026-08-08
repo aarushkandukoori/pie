@@ -10,7 +10,7 @@
 //     out           = sum_e (top_k_w * Expert_e(norm_y))
 //
 // We loop the experts on the host: for each expert e, gather the rows
-// routed to it (via `launch_gather_bf16_rows`), run the expert's
+// routed to it (via `kernels::layout::gather_bf16_rows`), run the expert's
 // gate/up/down GEMMs through cuBLAS, then `launch_scatter_add_weighted`
 // the result back into the residual stream. Top-K and renormalization
 // happen on-device via `launch_topk_softmax_bf16`.

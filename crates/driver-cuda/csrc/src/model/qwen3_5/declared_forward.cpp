@@ -241,19 +241,19 @@ enum class Q35Kernel {
 };
 
 Q35Kernel resolve_q35_kernel(std::string_view k) {
-    if (k == "launch_causal_conv1d_update_batched_bf16") return Q35Kernel::ConvUpdateBatched;
-    if (k == "launch_causal_conv1d_prefill_batched_bf16") return Q35Kernel::ConvPrefillBatched;
-    if (k == "launch_recurrent_gated_delta_step_batched") return Q35Kernel::StepBatched;
-    if (k == "launch_recurrent_gated_delta_step_batched_state_bf16") return Q35Kernel::StepBatchedBf16;
-    if (k == "launch_recurrent_gated_delta_step_batched_gqa") return Q35Kernel::StepBatchedGqa;
-    if (k == "launch_recurrent_gated_delta_step_batched_gqa_state_bf16") return Q35Kernel::StepBatchedGqaBf16;
-    if (k == "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa") return Q35Kernel::PrefillWarpTiledGqa;
-    if (k == "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16") return Q35Kernel::PrefillWarpTiledGqaBf16;
-    if (k == "launch_chunk_gated_delta_prefill_batched_cached") return Q35Kernel::PrefillCached;
-    if (k == "launch_chunk_gated_delta_prefill_batched_cached_state_bf16") return Q35Kernel::PrefillCachedBf16;
-    if (k == "launch_chunk_gated_delta_prefill_batched") return Q35Kernel::PrefillFla;
-    if (k == "launch_chunk_gated_delta_prefill_batched_state_bf16") return Q35Kernel::PrefillFlaBf16;
-    if (k == "launch_repeat_interleave_heads_fp32") return Q35Kernel::RepeatInterleave;
+    if (k == "ssm::causal_conv1d_update_batched_bf16") return Q35Kernel::ConvUpdateBatched;
+    if (k == "ssm::causal_conv1d_prefill_batched_bf16") return Q35Kernel::ConvPrefillBatched;
+    if (k == "ssm::recurrent_gated_delta_step_batched") return Q35Kernel::StepBatched;
+    if (k == "ssm::recurrent_gated_delta_step_batched_state_bf16") return Q35Kernel::StepBatchedBf16;
+    if (k == "ssm::recurrent_gated_delta_step_batched_gqa") return Q35Kernel::StepBatchedGqa;
+    if (k == "ssm::recurrent_gated_delta_step_batched_gqa_state_bf16") return Q35Kernel::StepBatchedGqaBf16;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa") return Q35Kernel::PrefillWarpTiledGqa;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16") return Q35Kernel::PrefillWarpTiledGqaBf16;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_cached") return Q35Kernel::PrefillCached;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_cached_state_bf16") return Q35Kernel::PrefillCachedBf16;
+    if (k == "ssm::chunk_gated_delta_prefill_batched") return Q35Kernel::PrefillFla;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_state_bf16") return Q35Kernel::PrefillFlaBf16;
+    if (k == "ssm::repeat_interleave_heads_fp32") return Q35Kernel::RepeatInterleave;
     if (k == "qwen35_verify_stash_load") return Q35Kernel::VerifyStashLoad;
     if (k == "qwen35_verify_stash_store") return Q35Kernel::VerifyStashStore;
     if (k == "dispatch_attention_flashinfer_decode") return Q35Kernel::AttnFlashinferDecode;
@@ -669,7 +669,7 @@ bool forward_declared_tmpl(
         case PieForwardOpKind::Embed: {
             const std::string_view name = plan.weight_name(op);
             if (name != "embed") throw_unknown_weight(name);
-            kernels::launch_embed_bf16(
+            kernels::layout::embed_bf16(
                 token_ids, wb.require(name).data(), ws.y.data(),
                 N, H, cfg.vocab_size, stream);
             break;
@@ -686,14 +686,14 @@ bool forward_declared_tmpl(
             const ParsedWeightName nm = parse_weight_name(name);
             if (nm.field == "attn_norm") {
                 const auto& layer = layer_of(w, nm, name);
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.y.data(), wb.require(name).data(),
                     ws.norm_x.data(), N, H, eps, stream);
             } else if (nm.field == "mlp_norm") {
                 // The qwen3_5 MLP reads norm_x (not llama_like's norm_y):
                 // qwen3_5_forward_paged's post-attention norm, verbatim.
                 const auto& layer = layer_of(w, nm, name);
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.y.data(), wb.require(name).data(),
                     ws.norm_x.data(), N, H, eps, stream);
             } else if (nm.layer < 0 && nm.field == "final_norm") {
@@ -702,7 +702,7 @@ bool forward_declared_tmpl(
                 // compact-logit rows afterwards (norm-then-gather — the
                 // opposite interleave from llama_like's epilogue), so the
                 // LmHead arm below only gathers and multiplies.
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.y.data(), wb.require(name).data(),
                     ws.norm_x.data(), N, H, eps, stream);
             } else {
@@ -875,12 +875,12 @@ bool forward_declared_tmpl(
             // ([V_h | V_h]) — family.rs's fused gdn body.
             if (op.param0 == static_cast<std::uint32_t>(conv_dim) &&
                 op.param1 == static_cast<std::uint32_t>(V_dim)) {
-                kernels::launch_split_bf16_rows(
+                kernels::layout::split_bf16_rows(
                     la.mixed_qkvz.data(), la.mixed_qkv.data(), la.z.data(),
                     N, conv_dim, V_dim, stream);
             } else if (op.param0 == static_cast<std::uint32_t>(V_h) &&
                        op.param1 == static_cast<std::uint32_t>(V_h)) {
-                kernels::launch_split_qwen_gdn_ba_bf16(
+                kernels::layout::split_qwen_gdn_ba_bf16(
                     la.ba.data(), la.b.data(), la.a.data(), N, V_h, stream);
             } else {
                 throw_drift("SplitGdn widths (" +
@@ -909,7 +909,7 @@ bool forward_declared_tmpl(
             }
             const auto& layer = layer_of(w, nm, name);
             if (layer.la_A_log_fp32 == nullptr) throw_unknown_weight(name);
-            kernels::launch_qwen_gdn_post_conv_prep_bf16(
+            kernels::ssm::qwen_gdn_post_conv_prep_bf16(
                 la.mixed_qkv_post.data(), la.a.data(), la.b.data(),
                 layer.la_A_log_fp32,
                 require(layer.la_dt_bias, dt_name)->data(),
@@ -941,7 +941,7 @@ bool forward_declared_tmpl(
             if (nm.field != "gate_norm") throw_unknown_weight(name);
             const auto& layer = layer_of(w, nm, name);
             if (layer.la_norm_w_fp32 == nullptr) throw_unknown_weight(name);
-            kernels::launch_rmsnorm_gated_fp32_in_bf16(
+            kernels::norm::rmsnorm_gated_fp32_in_bf16(
                 la.core_out.data(), la.z.data(), layer.la_norm_w_fp32,
                 la.core_out_bf16.data(),
                 N * V_h, V_d, /*eps=*/eps, stream);
@@ -957,14 +957,14 @@ bool forward_declared_tmpl(
                             std::to_string(op.param1) +
                             ") != config's heads/head_dim");
             }
-            kernels::launch_split_q_gate_bf16(
+            kernels::layout::split_q_gate_bf16(
                 la.fa_qg_packed.data(), ws.q.data(), la.fa_gate.data(),
                 N, num_q_heads, d, stream);
             break;
         }
         case PieForwardOpKind::RmsnormPerHead: {
             // Gemma fold, in place, one row per head — the hand-written
-            // q/k norms (`launch_rmsnorm_gemma_bf16` over N·heads rows).
+            // q/k norms (`kernels::norm::rmsnorm_gemma_bf16` over N·heads rows).
             if (op.param1 !=
                 static_cast<std::uint32_t>(PieForwardNormVariant::Gemma)) {
                 throw_drift("only the Gemma per-head norm is emitted");
@@ -973,11 +973,11 @@ bool forward_declared_tmpl(
             const ParsedWeightName nm = parse_weight_name(name);
             const auto& layer = layer_of(w, nm, name);
             if (nm.field == "q_norm") {
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.q.data(), wb.require(name).data(),
                     ws.q.data(), N * num_q_heads, d, eps, stream);
             } else if (nm.field == "k_norm") {
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.k.data(), wb.require(name).data(),
                     ws.k.data(), N * num_kv_heads, d, eps, stream);
             } else {
@@ -1059,7 +1059,7 @@ case PieForwardOpKind::Launch: {
             switch (resolve_q35_kernel(plan.weight_name(op))) {
             case Q35Kernel::ConvUpdateBatched: {
                 const auto& layer = conv_weight();
-                kernels::launch_causal_conv1d_update_batched_bf16(
+                kernels::ssm::causal_conv1d_update_batched_bf16(
                     la.mixed_qkv.data(), layer.la_conv1d_w->data(),
                     layer.la_conv1d_b ? layer.la_conv1d_b->data() : nullptr,
                     state_cache.conv_state(SL, /*slot=*/0),
@@ -1072,7 +1072,7 @@ case PieForwardOpKind::Launch: {
             }
             case Q35Kernel::ConvPrefillBatched: {
                 const auto& layer = conv_weight();
-                kernels::launch_causal_conv1d_prefill_batched_bf16(
+                kernels::ssm::causal_conv1d_prefill_batched_bf16(
                     la.mixed_qkv.data(), layer.la_conv1d_w->data(),
                     layer.la_conv1d_b ? layer.la_conv1d_b->data() : nullptr,
                     la.mixed_qkv_post.data(),
@@ -1085,35 +1085,35 @@ case PieForwardOpKind::Launch: {
                 break;
             }
             case Q35Kernel::StepBatched:
-                kernels::launch_recurrent_gated_delta_step_batched(
+                kernels::ssm::recurrent_gated_delta_step_batched(
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
                     la.core_out.data(), R, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedBf16:
-                kernels::launch_recurrent_gated_delta_step_batched_state_bf16(
+                kernels::ssm::recurrent_gated_delta_step_batched_state_bf16(
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, slot_stride,
                     la.core_out.data(), R, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedGqa:
-                kernels::launch_recurrent_gated_delta_step_batched_gqa(
+                kernels::ssm::recurrent_gated_delta_step_batched_gqa(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
                     la.core_out.data(), R, K_h, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedGqaBf16:
-                kernels::launch_recurrent_gated_delta_step_batched_gqa_state_bf16(
+                kernels::ssm::recurrent_gated_delta_step_batched_gqa_state_bf16(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, slot_stride,
                     la.core_out.data(), R, K_h, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::PrefillWarpTiledGqa:
-                kernels::launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa(
+                kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
@@ -1121,7 +1121,7 @@ case PieForwardOpKind::Launch: {
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillWarpTiledGqaBf16:
-                kernels::launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
+                kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, qo_indptr,
@@ -1129,7 +1129,7 @@ case PieForwardOpKind::Launch: {
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillCached:
-                kernels::launch_chunk_gated_delta_prefill_batched_cached(
+                kernels::ssm::chunk_gated_delta_prefill_batched_cached(
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
@@ -1137,7 +1137,7 @@ case PieForwardOpKind::Launch: {
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillCachedBf16:
-                kernels::launch_chunk_gated_delta_prefill_batched_cached_state_bf16(
+                kernels::ssm::chunk_gated_delta_prefill_batched_cached_state_bf16(
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, qo_indptr,
@@ -1145,7 +1145,7 @@ case PieForwardOpKind::Launch: {
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillFla:
-                kernels::launch_chunk_gated_delta_prefill_batched(
+                kernels::ssm::chunk_gated_delta_prefill_batched(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
@@ -1154,7 +1154,7 @@ case PieForwardOpKind::Launch: {
                     commit_lens);
                 break;
             case Q35Kernel::PrefillFlaBf16:
-                kernels::launch_chunk_gated_delta_prefill_batched_state_bf16(
+                kernels::ssm::chunk_gated_delta_prefill_batched_state_bf16(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, qo_indptr,
@@ -1169,7 +1169,7 @@ case PieForwardOpKind::Launch: {
                                                     : la.q_pre.data();
                 float* dst = repeat_next_is_k ? la.k_norm.data()
                                               : la.q_norm.data();
-                kernels::launch_repeat_interleave_heads_fp32(
+                kernels::ssm::repeat_interleave_heads_fp32(
                     src, dst, N, K_h, V_h, K_d, stream);
                 repeat_next_is_k = !repeat_next_is_k;
                 break;
@@ -1515,7 +1515,7 @@ case PieForwardOpKind::Launch: {
             if (logit_row_indices_d != nullptr &&
                 num_logit_rows > 0 &&
                 num_logit_rows < N) {
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.norm_x.data()),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_y.data()),

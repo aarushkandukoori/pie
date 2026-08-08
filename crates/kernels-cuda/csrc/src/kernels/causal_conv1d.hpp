@@ -3,13 +3,13 @@
 // Depthwise causal 1D convolution used by the Qwen3.5 GatedDeltaNet
 // in-projection step. Two entry points:
 //
-//   * `launch_causal_conv1d_prefill_bf16`: full-prefill of N tokens
+//   * `causal_conv1d_prefill_bf16`: full-prefill of N tokens
 //     for a single request. Each output position t convolves the K
 //     prior input positions (0-padded for t < K-1). Fused silu.
 //     Optionally writes the trailing K elements of input into the
 //     conv_state buffer for downstream decode steps.
 //
-//   * `launch_causal_conv1d_update_bf16`: single-token (T=1) update
+//   * `causal_conv1d_update_bf16`: single-token (T=1) update
 //     for decode. Shifts conv_state left by 1, appends the new x,
 //     emits one silu(conv) output token, and persists the updated
 //     state. Used per request per linear-attn layer.
@@ -27,11 +27,11 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::ssm {
 
 // Single-request prefill. `state_out` may be nullptr to skip persisting
 // the trailing K-window into a state buffer.
-void launch_causal_conv1d_prefill_bf16(
+void causal_conv1d_prefill_bf16(
     const void* x,
     const void* weight,
     const void* bias,
@@ -44,7 +44,7 @@ void launch_causal_conv1d_prefill_bf16(
 
 // Single-token decode update. Reads state, appends `x` (one row),
 // writes the conv output to `y` (one row), updates `state` in place.
-void launch_causal_conv1d_update_bf16(
+void causal_conv1d_update_bf16(
     const void* x,
     const void* weight,
     const void* bias,
@@ -68,7 +68,7 @@ void launch_causal_conv1d_update_bf16(
 //
 // Eliminates `R × num_linear_layers` per-token launch overhead on the
 // decode hot path.
-void launch_causal_conv1d_update_batched_bf16(
+void causal_conv1d_update_batched_bf16(
     const void* x,
     const void* weight,
     const void* bias,
@@ -95,7 +95,7 @@ void launch_causal_conv1d_update_batched_bf16(
 // write_state=false runs a frozen verify: compute y but leave the committed
 // conv state at its pre-verify value (the repair forward advances it through
 // [input|accepted]). Default true = normal trailing-window writeback.
-void launch_causal_conv1d_prefill_batched_bf16(
+void causal_conv1d_prefill_batched_bf16(
     const void* x,
     const void* weight,
     const void* bias,
@@ -114,4 +114,4 @@ void launch_causal_conv1d_prefill_batched_bf16(
     // null or `mask[r] != 0`. A MIXED fire folds some rows and buffers others.
     const std::uint8_t* write_state_mask = nullptr);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::ssm

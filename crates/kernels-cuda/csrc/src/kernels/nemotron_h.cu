@@ -4,7 +4,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::ssm {
 
 namespace {
 
@@ -539,7 +539,7 @@ __global__ void build_nemotron_moe_ptrs_aligned_kernel(
 
 }  // namespace
 
-void launch_nemotron_mamba_split_bf16(
+void nemotron_mamba_split_bf16(
     const void* projected,
     void* gate,
     void* conv_in,
@@ -574,7 +574,7 @@ void launch_nemotron_mamba_split_bf16(
         projection_dim, intermediate, conv_dim, num_heads, total);
 }
 
-void launch_nemotron_prepare_mamba_params(
+void nemotron_prepare_mamba_params(
     const void* A_log,
     const void* D,
     const void* dt_bias,
@@ -594,7 +594,7 @@ void launch_nemotron_prepare_mamba_params(
         A, D_f32, dt_bias_f32, num_heads);
 }
 
-void launch_nemotron_prepare_mamba_dt_da(
+void nemotron_prepare_mamba_dt_da(
     const void* dt,
     const float* A,
     const float* dt_bias,
@@ -614,7 +614,7 @@ void launch_nemotron_prepare_mamba_dt_da(
         A, dt_bias, dt_out, dA_out, total, num_heads, time_step_min);
 }
 
-void launch_nemotron_mamba_ssm_batched_bf16(
+void nemotron_mamba_ssm_batched_bf16(
     const void* conv_out,
     const void* dt,
     const float* A,
@@ -716,7 +716,7 @@ void launch_nemotron_mamba_ssm_batched_bf16(
         conv_dim, intermediate, time_step_min);
 }
 
-void launch_zamba_rmsnorm_gated_bf16(
+void zamba_rmsnorm_gated_bf16(
     const void* x,
     const void* gate,
     const void* weight,
@@ -741,7 +741,7 @@ void launch_zamba_rmsnorm_gated_bf16(
         hidden, gate_stride, group_size, eps);
 }
 
-void launch_build_nemotron_moe_ptrs_decode_batched_bf16(
+void build_nemotron_moe_ptrs_decode_batched_bf16(
     const std::int32_t* topk_idx,
     const float* topk_w,
     const void* const* up_weight_ptrs,
@@ -784,7 +784,7 @@ void launch_build_nemotron_moe_ptrs_decode_batched_bf16(
         weights_out, routes, top_k, hidden, intermediate);
 }
 
-void launch_build_nemotron_moe_ptrs_aligned_bf16(
+void build_nemotron_moe_ptrs_aligned_bf16(
     const std::int32_t* expert_ids,
     const void* const* up_weight_ptrs,
     const void* const* down_weight_ptrs,
@@ -827,4 +827,4 @@ void launch_build_nemotron_moe_ptrs_aligned_bf16(
         max_blocks, block_size, hidden, intermediate);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::ssm

@@ -42,7 +42,7 @@ pub enum NormPlacement {
 /// the global form shares one scale across heads — so the tri-state is a
 /// fact, and the traced ops differ: per-head traces `RmsnormPerHead`,
 /// global traces a plain row `Rmsnorm` (which is exactly what the kernel
-/// launches: `launch_rmsnorm_bf16` over `[N, heads * head_dim]`).
+/// launches: `kernels::norm::rmsnorm_bf16` over `[N, heads * head_dim]`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QkNorm {
     #[default]

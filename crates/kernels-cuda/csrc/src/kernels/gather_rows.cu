@@ -2,7 +2,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 namespace {
 
@@ -113,7 +113,7 @@ __global__ void embed_scaled_concat_bf16_kernel(
 
 }  // namespace
 
-void launch_gather_bf16_rows(
+void gather_bf16_rows(
     const std::uint16_t* src,
     const std::int32_t*  row_indices,
     std::uint16_t*       dst,
@@ -126,7 +126,7 @@ void launch_gather_bf16_rows(
         src, row_indices, dst, vocab);
 }
 
-void launch_transpose_bf16_nld_to_lnd(
+void transpose_bf16_nld_to_lnd(
     const std::uint16_t* src,
     std::uint16_t*       dst,
     int                  n,
@@ -158,7 +158,7 @@ void launch_transpose_bf16_nld_to_lnd(
     }
 }
 
-void launch_embed_scaled_concat_bf16(
+void embed_scaled_concat_bf16(
     const std::int32_t* token_ids,
     const void*         embed_weight,
     const std::uint16_t* hidden,
@@ -183,4 +183,4 @@ void launch_embed_scaled_concat_bf16(
         hidden_cols, vocab, scale, hidden_first, total);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

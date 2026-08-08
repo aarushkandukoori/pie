@@ -19,12 +19,12 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 // Split a fused [2*I, H] bf16 matrix into two [I, H] outputs by row
 // parity. `gate_out[i, :] = fused[2*i, :]`, `up_out[i, :] =
 // fused[2*i + 1, :]`.
-void launch_deinterleave_rows_bf16(
+void deinterleave_rows_bf16(
     const void* fused,    // bf16 [2*I, H]
     void*       gate_out, // bf16 [I, H]
     void*       up_out,   // bf16 [I, H]
@@ -34,7 +34,7 @@ void launch_deinterleave_rows_bf16(
 
 // Split a fused [2*I] bf16 vector into two [I] outputs by parity.
 // Used for the per-expert gate_up_proj_bias.
-void launch_deinterleave_vec_bf16(
+void deinterleave_vec_bf16(
     const void* fused,    // bf16 [2*I]
     void*       gate_out, // bf16 [I]
     void*       up_out,   // bf16 [I]
@@ -49,7 +49,7 @@ void launch_deinterleave_vec_bf16(
 //
 //     q[n, h*d + i]    = packed[n, h*2*d + i]
 //     gate[n, h*d + i] = packed[n, h*2*d + d + i]
-void launch_split_q_gate_bf16(
+void split_q_gate_bf16(
     const void* packed,    // bf16 [N, num_heads * 2 * head_dim]
     void*       q_out,     // bf16 [N, num_heads * head_dim]
     void*       gate_out,  // bf16 [N, num_heads * head_dim]
@@ -58,16 +58,16 @@ void launch_split_q_gate_bf16(
 
 // Concatenate two bf16 row-major matrices with the same row count:
 // `out[n] = [left[n], right[n]]`.
-void launch_concat_bf16_rows(
+void concat_bf16_rows(
     const void* left,   // bf16 [N, left_dim]
     const void* right,  // bf16 [N, right_dim]
     void*       out,    // bf16 [N, left_dim + right_dim]
     int N, int left_dim, int right_dim,
     cudaStream_t stream);
 
-// Inverse of `launch_concat_bf16_rows`:
+// Inverse of `concat_bf16_rows`:
 //   src: [N, left_dim + right_dim] -> left [N, left_dim], right [N, right_dim]
-void launch_split_bf16_rows(
+void split_bf16_rows(
     const void* src,
     void*       left,
     void*       right,
@@ -76,7 +76,7 @@ void launch_split_bf16_rows(
 
 // Split just Qwen GDN's tiny fused b/a projection:
 //   ba: [N, 2 * v_h] -> b [N, v_h], a [N, v_h]
-void launch_split_qwen_gdn_ba_bf16(
+void split_qwen_gdn_ba_bf16(
     const void* ba,
     void*       b_out,
     void*       a_out,
@@ -85,10 +85,10 @@ void launch_split_qwen_gdn_ba_bf16(
 
 // Repeat-interleave KV heads to query heads for the one-token attention
 // case used by MTP. `out[n, qh] = in[n, qh / repeat]`.
-void launch_repeat_interleave_heads_bf16(
+void repeat_interleave_heads_bf16(
     const void* in,    // bf16 [N, kv_heads, head_dim]
     void*       out,   // bf16 [N, q_heads, head_dim]
     int N, int kv_heads, int q_heads, int head_dim,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

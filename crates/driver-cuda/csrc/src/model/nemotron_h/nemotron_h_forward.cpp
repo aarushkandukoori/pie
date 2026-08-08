@@ -305,12 +305,12 @@ void attention_layer(
                 ws.norm_y.data(), ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, ncclSum, stream);
             if (next_norm_w != nullptr) {
-                kernels::launch_residual_add_rmsnorm_bf16(
+                kernels::norm::residual_add_rmsnorm_bf16(
                     ws.y.data(), ws.norm_x.data(), next_norm_w,
                     ws.norm_x.data(), N, H, eps, stream);
                 if (produced_next_norm != nullptr) *produced_next_norm = true;
             } else {
-                kernels::launch_residual_add_bf16(
+                kernels::norm::residual_add_bf16(
                     ws.y.data(), ws.norm_x.data(),
                     static_cast<std::size_t>(N) * H, stream);
             }
@@ -371,7 +371,7 @@ void mamba_layer(
     });
     profile_cuda_stage(profile, profile ? &profile->mamba_split_ms : nullptr,
         stream, [&] {
-        kernels::launch_nemotron_mamba_split_bf16(
+        kernels::ssm::nemotron_mamba_split_bf16(
             nem_ws.mamba_projected.data(),
             nullptr,
             nem_ws.mamba_conv_in.data(),
@@ -383,7 +383,7 @@ void mamba_layer(
         stream, [&] {
         if (is_pure_decode) {
             if (slot_ids_d != nullptr) {
-                kernels::launch_causal_conv1d_update_batched_bf16(
+                kernels::ssm::causal_conv1d_update_batched_bf16(
                     nem_ws.mamba_conv_in.data(),
                     conv_w,
                     conv_b,
@@ -394,7 +394,7 @@ void mamba_layer(
                     nem_ws.mamba_conv_out.data(),
                     R, conv_dim, cfg.mamba_conv_kernel, stream);
             } else {
-                kernels::launch_causal_conv1d_update_bf16(
+                kernels::ssm::causal_conv1d_update_bf16(
                     nem_ws.mamba_conv_in.data(),
                     conv_w,
                     conv_b,
@@ -403,7 +403,7 @@ void mamba_layer(
                     conv_dim, cfg.mamba_conv_kernel, stream);
             }
         } else {
-            kernels::launch_causal_conv1d_prefill_batched_bf16(
+            kernels::ssm::causal_conv1d_prefill_batched_bf16(
                 nem_ws.mamba_conv_in.data(),
                 conv_w,
                 conv_b,
@@ -422,7 +422,7 @@ void mamba_layer(
         const float* dt_precomputed = nullptr;
         const float* dA_precomputed = nullptr;
         if (!is_pure_decode) {
-            kernels::launch_nemotron_prepare_mamba_dt_da(
+            kernels::ssm::nemotron_prepare_mamba_dt_da(
                 nem_ws.mamba_dt.data(),
                 Lw.mamba_A.data(),
                 Lw.mamba_dt_bias_f32.data(),
@@ -434,7 +434,7 @@ void mamba_layer(
         }
         const bool used_flashinfer_ssu =
             is_pure_decode && dt_precomputed == nullptr &&
-            ops::flashinfer_mamba_ssu_bf16(
+            kernels::ssm::flashinfer_mamba_ssu_bf16(
                 nem_ws.mamba_conv_out.data(),
                 nem_ws.mamba_dt.data(),
                 Lw.mamba_A.data(),
@@ -448,7 +448,7 @@ void mamba_layer(
                 m_groups, conv_dim, m_intermediate,
                 state_cache.max_slots(), stream);
         if (!used_flashinfer_ssu) {
-            kernels::launch_nemotron_mamba_ssm_batched_bf16(
+            kernels::ssm::nemotron_mamba_ssm_batched_bf16(
                 nem_ws.mamba_conv_out.data(),
                 nem_ws.mamba_dt.data(),
                 Lw.mamba_A.data(),
@@ -468,7 +468,7 @@ void mamba_layer(
 
     profile_cuda_stage(profile, profile ? &profile->mamba_norm_ms : nullptr,
         stream, [&] {
-        kernels::launch_zamba_rmsnorm_gated_bf16(
+        kernels::ssm::zamba_rmsnorm_gated_bf16(
             nem_ws.mamba_core.data(), nem_ws.mamba_projected.data(),
             norm_w, nem_ws.mamba_core.data(),
             N, m_intermediate, projection_dim,
@@ -494,12 +494,12 @@ void mamba_layer(
                     ws.norm_y.data(), ws.norm_x.data(),
                     static_cast<std::size_t>(N) * H, ncclSum, stream);
                 if (next_norm_w != nullptr) {
-                    kernels::launch_residual_add_rmsnorm_bf16(
+                    kernels::norm::residual_add_rmsnorm_bf16(
                         ws.y.data(), ws.norm_x.data(), next_norm_w,
                         ws.norm_x.data(), N, H, eps, stream);
                     if (produced_next_norm != nullptr) *produced_next_norm = true;
                 } else {
-                    kernels::launch_residual_add_bf16(
+                    kernels::norm::residual_add_bf16(
                         ws.y.data(), ws.norm_x.data(),
                         static_cast<std::size_t>(N) * H, stream);
                 }
@@ -579,7 +579,7 @@ void moe_layer(
             if (ran) return;
         }
         if (is_pure_decode && N == 1) {
-            kernels::launch_build_nemotron_moe_ptrs_decode_batched_bf16(
+            kernels::ssm::build_nemotron_moe_ptrs_decode_batched_bf16(
                 nem_ws.topk_idx.data(),
                 nem_ws.topk_weights.data(),
                 reinterpret_cast<const void* const*>(Lw.expert_up_ptrs.data()),
@@ -749,7 +749,7 @@ void moe_layer(
                     nem_ws.expert_in.data(), routes, aligned_rows,
                     K, H, /*shared_row_begin=*/-1,
                     /*num_tokens=*/0, stream);
-                kernels::launch_build_nemotron_moe_ptrs_aligned_bf16(
+                kernels::ssm::build_nemotron_moe_ptrs_aligned_bf16(
                     expert_ids,
                     reinterpret_cast<const void* const*>(Lw.expert_up_ptrs.data()),
                     reinterpret_cast<const void* const*>(Lw.expert_down_ptrs.data()),
@@ -835,7 +835,7 @@ void moe_layer(
                     nem_ws.expert_idx.data() + offset;
                 const float* expert_w_d =
                     nem_ws.expert_w.data() + offset;
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.norm_x.data()),
                     expert_idx_d,
                     nem_ws.expert_in.data(), Ne, H, stream);
@@ -870,7 +870,7 @@ void moe_layer(
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             nem_ws.shared_act.data(), Lw.shared_down->data(),
             nem_ws.shared_out.data(), N, H, Is);
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             ws.norm_y.data(), nem_ws.shared_out.data(),
             static_cast<std::size_t>(N) * H, stream);
     }
@@ -891,7 +891,7 @@ void moe_layer(
                     ws.norm_y.data(), ws.norm_x.data(),
                     static_cast<std::size_t>(N) * H, ncclSum, stream);
                 if (next_norm_w != nullptr) {
-                    kernels::launch_residual_add_rmsnorm_bf16(
+                    kernels::norm::residual_add_rmsnorm_bf16(
                         ws.y.data(), ws.norm_x.data(), next_norm_w,
                         ws.norm_x.data(), N, H, eps, stream);
                     if (produced_next_norm != nullptr) *produced_next_norm = true;
@@ -899,12 +899,12 @@ void moe_layer(
             }
         });
         if (produced_next_norm == nullptr || !*produced_next_norm) {
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, stream);
         }
     } else {
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             ws.y.data(), ws.norm_y.data(),
             static_cast<std::size_t>(N) * H, stream);
     }
@@ -1113,7 +1113,7 @@ void nemotron_h_forward_paged(
     }
 
     profile_cuda_stage(&profile, &profile.embed_ms, stream, [&] {
-        kernels::launch_embed_bf16(
+        kernels::layout::embed_bf16(
             token_ids, w.embed->data(), ws.y.data(),
             N, H, cfg.vocab_size, stream);
     });
@@ -1125,7 +1125,7 @@ void nemotron_h_forward_paged(
             have_norm_x = false;
         } else {
             profile_cuda_stage(&profile, &profile.norm_ms, stream, [&] {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.y.data(), Lw.norm->data(), ws.norm_x.data(),
                     N, H, eps, stream);
             });
@@ -1173,17 +1173,17 @@ void nemotron_h_forward_paged(
         int lm_head_rows = N;
         const void* lm_head_input = ws.norm_y.data();
         if (compact_logits) {
-            kernels::launch_gather_bf16_rows(
+            kernels::layout::gather_bf16_rows(
                 static_cast<const std::uint16_t*>(ws.y.data()),
                 logit_row_indices_d,
                 static_cast<std::uint16_t*>(ws.norm_x.data()),
                 num_logit_rows, H, stream);
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), w.final_norm->data(), ws.norm_y.data(),
                 num_logit_rows, H, eps, stream);
             lm_head_rows = num_logit_rows;
         } else {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), w.final_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
         }

@@ -1157,7 +1157,7 @@ void llama_like_forward_declared(
         case PieForwardOpKind::Embed: {
             const std::string_view name = plan.weight_name(op);
             if (name != "embed") throw_unknown_weight(name);
-            kernels::launch_embed_bf16(
+            kernels::layout::embed_bf16(
                 token_ids, wb.require(name).data(), ws.y.data(),
                 N, H, V, stream);
             break;
@@ -1176,10 +1176,10 @@ void llama_like_forward_declared(
             const auto norm = [&](const void* x, const void* weight,
                                   void* y, int rows, int width) {
                 if (gemma_fold) {
-                    kernels::launch_rmsnorm_gemma_bf16(
+                    kernels::norm::rmsnorm_gemma_bf16(
                         x, weight, y, rows, width, eps, stream);
                 } else {
-                    kernels::launch_rmsnorm_bf16(
+                    kernels::norm::rmsnorm_bf16(
                         x, weight, y, rows, width, eps, stream);
                 }
             };
@@ -1247,15 +1247,15 @@ void llama_like_forward_declared(
             const ParsedWeightName nm = parse_weight_name(name);
             const auto& layer = layer_of(w, nm, name);
             if (nm.field == "q_bias") {
-                kernels::launch_add_bias_bf16(
+                kernels::norm::add_bias_bf16(
                     ws.q.data(), wb.require(name).data(),
                     N, Hq, stream);
             } else if (nm.field == "k_bias") {
-                kernels::launch_add_bias_bf16(
+                kernels::norm::add_bias_bf16(
                     ws.k.data(), wb.require(name).data(),
                     N, Hk, stream);
             } else if (nm.field == "v_bias") {
-                kernels::launch_add_bias_bf16(
+                kernels::norm::add_bias_bf16(
                     ws.v.data(), wb.require(name).data(),
                     N, Hk, stream);
             } else {
@@ -1437,11 +1437,11 @@ void llama_like_forward_declared(
             const ParsedWeightName nm = parse_weight_name(name);
             const auto& layer = layer_of(w, nm, name);
             if (nm.field == "q_norm") {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.q.data(), wb.require(name).data(),
                     ws.q.data(), N * num_q_heads, d, eps, stream);
             } else if (nm.field == "k_norm") {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.k.data(), wb.require(name).data(),
                     ws.k.data(), N * num_kv_heads, d, eps, stream);
             } else {
@@ -2158,9 +2158,9 @@ void llama_like_forward_declared(
             // The post-norm landing: `y += norm_y` — the sub-layer's
             // normed output (Rmsnorm above wrote norm_y) accumulated onto
             // the residual stream by its own launch, exactly the
-            // hand-written `launch_residual_add_bf16` calls after the
+            // hand-written `kernels::norm::residual_add_bf16` calls after the
             // attn_norm and mlp_norm blocks.
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.norm_y.data(),
                 static_cast<std::size_t>(N) * H, stream);
             break;
@@ -2196,18 +2196,18 @@ void llama_like_forward_declared(
             const void* lm_head_input = nullptr;
             int lm_head_rows = N_fire;
             if (compact_logits) {
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.y.data()),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_x.data()),
                     num_logit_rows, H, stream);
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.norm_x.data(), w.final_norm->data(),
                     ws.norm_y.data(), num_logit_rows, H, eps, stream);
                 lm_head_input = ws.norm_y.data();
                 lm_head_rows = num_logit_rows;
             } else {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.y.data(), w.final_norm->data(), ws.norm_y.data(),
                     N_fire, H, eps, stream);
                 lm_head_input = ws.norm_y.data();

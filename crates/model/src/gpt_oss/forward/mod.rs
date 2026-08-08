@@ -227,7 +227,7 @@ pub fn gpt_oss_cuda(
 
             // o_proj folds the RESIDUAL (beta=1) and not its bias: the
             // hand-written tp=1 arm calls the plain gemm and then
-            // `launch_add_bias_bf16`. The one place in this layer where
+            // `kernels::norm::add_bias_bf16`. The one place in this layer where
             // the split spelling is the truthful one.
             y += matmul(&a, &w.o_proj);
             if facts.attention_bias {

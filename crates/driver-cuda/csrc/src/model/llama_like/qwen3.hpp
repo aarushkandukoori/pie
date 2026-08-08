@@ -34,7 +34,7 @@ struct Qwen3LayerWeights {
 
     // Optional QKV bias terms. Set on Qwen-2 / OLMo-3 / GPT-OSS, null on
     // Llama-3 / Qwen-3 / Phi-3 / Mistral. When non-null, applied
-    // post-projection via `launch_add_bias_bf16`.
+    // post-projection via `kernels::norm::add_bias_bf16`.
     const DeviceTensor* q_bias = nullptr;      // [num_q_heads*head_dim]
     const DeviceTensor* k_bias = nullptr;      // [num_kv_heads*head_dim]
     const DeviceTensor* v_bias = nullptr;      // [num_kv_heads*head_dim]

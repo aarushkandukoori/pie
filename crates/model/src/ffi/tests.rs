@@ -902,7 +902,7 @@ fn lowered_qwen3_5_trace_round_trips_through_the_arena() {
         .find(|op| {
             op.layer == 0
                 && op.kind == PieForwardOpKind::Launch
-                && view::name(&out, op.weight_name) == "launch_causal_conv1d_update_batched_bf16"
+                && view::name(&out, op.weight_name) == "ssm::causal_conv1d_update_batched_bf16"
         })
         .expect("decode class states the batched conv update");
     let aux = view::ids(&out, conv.aux_names);
@@ -920,7 +920,7 @@ fn lowered_qwen3_5_trace_round_trips_through_the_arena() {
             op.layer == 0
                 && op.kind == PieForwardOpKind::Launch
                 && view::name(&out, op.weight_name)
-                    == "launch_recurrent_gated_delta_step_batched_state_bf16"
+                    == "ssm::recurrent_gated_delta_step_batched_state_bf16"
         })
         .expect("decode class states the batched recurrence step");
     assert_eq!(step.param0, 2);

@@ -3,9 +3,9 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::ssm {
 
-void launch_nemotron_mamba_split_bf16(
+void nemotron_mamba_split_bf16(
     const void* projected,  // [N, projection_dim]
     void* gate,             // [N, intermediate]
     void* conv_in,          // [N, conv_dim]
@@ -17,7 +17,7 @@ void launch_nemotron_mamba_split_bf16(
     int num_heads,
     cudaStream_t stream);
 
-void launch_nemotron_prepare_mamba_params(
+void nemotron_prepare_mamba_params(
     const void* A_log,     // [num_heads], bf16
     const void* D,         // [num_heads], bf16
     const void* dt_bias,   // [num_heads], bf16
@@ -27,7 +27,7 @@ void launch_nemotron_prepare_mamba_params(
     int num_heads,
     cudaStream_t stream);
 
-void launch_nemotron_prepare_mamba_dt_da(
+void nemotron_prepare_mamba_dt_da(
     const void* dt,        // [N, num_heads], bf16
     const float* A,        // [num_heads], fp32
     const float* dt_bias,  // [num_heads], fp32
@@ -38,7 +38,7 @@ void launch_nemotron_prepare_mamba_dt_da(
     float time_step_min,
     cudaStream_t stream);
 
-void launch_nemotron_mamba_ssm_batched_bf16(
+void nemotron_mamba_ssm_batched_bf16(
     const void* conv_out,       // [N, conv_dim], bf16
     const void* dt,             // [N, num_heads], bf16
     const float* A,             // [num_heads], fp32, -exp(A_log)
@@ -61,7 +61,7 @@ void launch_nemotron_mamba_ssm_batched_bf16(
     bool sequence_prefill,
     cudaStream_t stream);
 
-void launch_zamba_rmsnorm_gated_bf16(
+void zamba_rmsnorm_gated_bf16(
     const void* x,          // [N, hidden]
     const void* gate,       // [N, hidden]
     const void* weight,     // [hidden] bf16
@@ -73,7 +73,7 @@ void launch_zamba_rmsnorm_gated_bf16(
     float eps,
     cudaStream_t stream);
 
-void launch_build_nemotron_moe_ptrs_decode_batched_bf16(
+void build_nemotron_moe_ptrs_decode_batched_bf16(
     const std::int32_t* topk_idx,
     const float* topk_w,
     const void* const* up_weight_ptrs,
@@ -95,7 +95,7 @@ void launch_build_nemotron_moe_ptrs_decode_batched_bf16(
     int intermediate,
     cudaStream_t stream);
 
-void launch_build_nemotron_moe_ptrs_aligned_bf16(
+void build_nemotron_moe_ptrs_aligned_bf16(
     const std::int32_t* expert_ids,
     const void* const* up_weight_ptrs,
     const void* const* down_weight_ptrs,
@@ -115,4 +115,4 @@ void launch_build_nemotron_moe_ptrs_aligned_bf16(
     int intermediate,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::ssm

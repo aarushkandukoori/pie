@@ -2,7 +2,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
 namespace {
 
@@ -37,7 +37,7 @@ __global__ void add_bias_bf16_strided_kernel(
 
 }  // namespace
 
-void launch_add_bias_bf16(
+void add_bias_bf16(
     void* out, const void* bias,
     int num_rows, int dim,
     cudaStream_t stream)
@@ -50,7 +50,7 @@ void launch_add_bias_bf16(
         num_rows, dim);
 }
 
-void launch_add_bias_bf16_strided(
+void add_bias_bf16_strided(
     void* out, const void* bias,
     int num_rows, int dim, int stride,
     cudaStream_t stream)
@@ -64,4 +64,4 @@ void launch_add_bias_bf16_strided(
         num_rows, dim, stride);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

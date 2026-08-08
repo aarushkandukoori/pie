@@ -36,10 +36,6 @@ pub static KERNELS: &[KernelSig] = &[
     // host reads to build cuBLAS grouped shapes. `whole` for the same reason
     // -- the sort is over all routes.
     kernel!(moe_bucket_exact "launch_moe_bucket_exact", whole = true),
-    kernel!(build_nemotron_moe_ptrs_aligned "launch_build_nemotron_moe_ptrs_aligned_bf16",
-        whole = true),
-    kernel!(build_nemotron_moe_ptrs_decode "launch_build_nemotron_moe_ptrs_decode_batched_bf16",
-        whole = true),
     kernel!(token_batched_weighted_sum_aligned "launch_token_batched_weighted_sum_aligned_bf16",
         whole = true),
     // glm5 and kimi_k3 route through a permutation rather than a loop: every

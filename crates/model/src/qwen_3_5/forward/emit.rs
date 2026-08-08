@@ -396,7 +396,7 @@ fn emit_op(
     match &op.kind {
         OpKind::Embed { weight } => {
             assert_eq!(weight, "embed");
-            b.stmt("kernels::launch_embed_bf16(");
+            b.stmt("kernels::layout::embed_bf16(");
             b.stmt("    token_ids, require(w.embed, \"embed\")->data(), ws.y.data(),");
             b.stmt("    N, H, cfg.vocab_size, stream);");
         }
@@ -404,7 +404,7 @@ fn emit_op(
             // Gemma fold everywhere (the walk's drift check is emission-
             // time here: the trace carries the variant the facts stated).
             if weight == "final_norm" {
-                b.stmt("kernels::launch_rmsnorm_gemma_bf16(");
+                b.stmt("kernels::norm::rmsnorm_gemma_bf16(");
                 b.stmt("    ws.y.data(), require(w.final_norm, \"final_norm\")->data(),");
                 b.stmt("    ws.norm_x.data(), N, H, eps, stream);");
                 return;
@@ -416,7 +416,7 @@ fn emit_op(
                 "mlp_norm" => "mlp_norm_pre",
                 other => panic!("emitter(q35): row-norm field {other}"),
             };
-            b.stmt("kernels::launch_rmsnorm_gemma_bf16(");
+            b.stmt("kernels::norm::rmsnorm_gemma_bf16(");
             b.stmt(&format!(
                 "    ws.y.data(), require(w.layers[{layer}].{member}, \"{weight}\")->data(),"
             ));
@@ -538,18 +538,18 @@ fn emit_op(
             let cd = facts.gdn.conv_dim();
             let vd = facts.gdn.value_heads * facts.gdn.value_head_dim;
             if *width0 == cd && *width1 == vd {
-                b.stmt("kernels::launch_split_bf16_rows(");
+                b.stmt("kernels::layout::split_bf16_rows(");
                 b.stmt("    la.mixed_qkvz.data(), la.mixed_qkv.data(), la.z.data(),");
                 b.stmt("    N, conv_dim, V_dim, stream);");
             } else {
-                b.stmt("kernels::launch_split_qwen_gdn_ba_bf16(");
+                b.stmt("kernels::layout::split_qwen_gdn_ba_bf16(");
                 b.stmt("    la.ba.data(), la.b.data(), la.a.data(), N, V_h, stream);");
             }
         }
         OpKind::GdnPrep { a_log, .. } => {
             let (layer, _) = split_layer_weight(a_log)
                 .unwrap_or_else(|| panic!("emitter(q35): prep weight {a_log}"));
-            b.stmt("kernels::launch_qwen_gdn_post_conv_prep_bf16(");
+            b.stmt("kernels::ssm::qwen_gdn_post_conv_prep_bf16(");
             b.stmt("    la.mixed_qkv_post.data(), la.a.data(), la.b.data(),");
             b.stmt(&format!("    w.layers[{layer}].la_A_log_fp32,"));
             b.stmt(&format!(
@@ -562,7 +562,7 @@ fn emit_op(
         OpKind::RmsnormGated { weight } => {
             let (layer, _) = split_layer_weight(weight)
                 .unwrap_or_else(|| panic!("emitter(q35): gate_norm {weight}"));
-            b.stmt("kernels::launch_rmsnorm_gated_fp32_in_bf16(");
+            b.stmt("kernels::norm::rmsnorm_gated_fp32_in_bf16(");
             b.stmt(&format!(
                 "    la.core_out.data(), la.z.data(), w.layers[{layer}].la_norm_w_fp32,"
             ));
@@ -570,7 +570,7 @@ fn emit_op(
             b.stmt("    N * V_h, V_d, /*eps=*/eps, stream);");
         }
         OpKind::SplitQGate { .. } => {
-            b.stmt("kernels::launch_split_q_gate_bf16(");
+            b.stmt("kernels::layout::split_q_gate_bf16(");
             b.stmt("    la.fa_qg_packed.data(), ws.q.data(), la.fa_gate.data(),");
             b.stmt("    N, num_q_heads, d, stream);");
         }
@@ -582,7 +582,7 @@ fn emit_op(
                 "k_norm" => ("ws.k.data()", "num_kv_heads", "fa_k_norm"),
                 other => panic!("emitter(q35): per-head field {other}"),
             };
-            b.stmt("kernels::launch_rmsnorm_gemma_bf16(");
+            b.stmt("kernels::norm::rmsnorm_gemma_bf16(");
             b.stmt(&format!(
                 "    {buf}, require(w.layers[{layer}].{member}, \"{weight}\")->data(),"
             ));
@@ -634,7 +634,7 @@ fn emit_op(
             b.stmt("if (logit_row_indices_d != nullptr &&");
             b.stmt("    num_logit_rows > 0 &&");
             b.stmt("    num_logit_rows < N) {");
-            b.stmt("    kernels::launch_gather_bf16_rows(");
+            b.stmt("    kernels::layout::gather_bf16_rows(");
             b.stmt("        static_cast<const std::uint16_t*>(ws.norm_x.data()),");
             b.stmt("        logit_row_indices_d,");
             b.stmt("        static_cast<std::uint16_t*>(ws.norm_y.data()),");
@@ -704,9 +704,9 @@ fn emit_launch(
             b.stmt("    ws.gate.data(), ws.up.data(), ws.gate.data(),");
             b.stmt("    N * I, stream);");
         }
-        "launch_causal_conv1d_update_batched_bf16" => {
+        "ssm::causal_conv1d_update_batched_bf16" => {
             conv_pre(b);
-            b.stmt("  kernels::launch_causal_conv1d_update_batched_bf16(");
+            b.stmt("  kernels::ssm::causal_conv1d_update_batched_bf16(");
             b.stmt("      la.mixed_qkv.data(), cl.la_conv1d_w->data(),");
             b.stmt("      cl.la_conv1d_b ? cl.la_conv1d_b->data() : nullptr,");
             b.stmt(&format!("      state_cache.conv_state({sl}, /*slot=*/0),"));
@@ -716,9 +716,9 @@ fn emit_launch(
             b.stmt("      la.mixed_qkv_post.data(),");
             b.stmt("      R, conv_dim, conv_K, stream); }");
         }
-        "launch_causal_conv1d_prefill_batched_bf16" => {
+        "ssm::causal_conv1d_prefill_batched_bf16" => {
             conv_pre(b);
-            b.stmt("  kernels::launch_causal_conv1d_prefill_batched_bf16(");
+            b.stmt("  kernels::ssm::causal_conv1d_prefill_batched_bf16(");
             b.stmt("      la.mixed_qkv.data(), cl.la_conv1d_w->data(),");
             b.stmt("      cl.la_conv1d_b ? cl.la_conv1d_b->data() : nullptr,");
             b.stmt("      la.mixed_qkv_post.data(),");
@@ -729,10 +729,10 @@ fn emit_launch(
             b.stmt("      R, conv_dim, conv_K, stream, write_state,");
             b.stmt(&format!("      {commit_arg}); }}"));
         }
-        k @ ("launch_recurrent_gated_delta_step_batched"
-        | "launch_recurrent_gated_delta_step_batched_state_bf16"
-        | "launch_recurrent_gated_delta_step_batched_gqa"
-        | "launch_recurrent_gated_delta_step_batched_gqa_state_bf16") => {
+        k @ ("ssm::recurrent_gated_delta_step_batched"
+        | "ssm::recurrent_gated_delta_step_batched_state_bf16"
+        | "ssm::recurrent_gated_delta_step_batched_gqa"
+        | "ssm::recurrent_gated_delta_step_batched_gqa_state_bf16") => {
             let gqa = k.contains("_gqa");
             let bf16 = k.ends_with("state_bf16");
             let cast = if bf16 { "" } else { "static_cast<float*>" };
@@ -755,12 +755,12 @@ fn emit_launch(
         }
         k @ ("launch_chunk_gated_delta_prefill_batched_warp_tiled"
         | "launch_chunk_gated_delta_prefill_batched_warp_tiled_state_bf16"
-        | "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa"
-        | "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16"
-        | "launch_chunk_gated_delta_prefill_batched_cached"
-        | "launch_chunk_gated_delta_prefill_batched_cached_state_bf16"
-        | "launch_chunk_gated_delta_prefill_batched"
-        | "launch_chunk_gated_delta_prefill_batched_state_bf16") => {
+        | "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa"
+        | "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16"
+        | "ssm::chunk_gated_delta_prefill_batched_cached"
+        | "ssm::chunk_gated_delta_prefill_batched_cached_state_bf16"
+        | "ssm::chunk_gated_delta_prefill_batched"
+        | "ssm::chunk_gated_delta_prefill_batched_state_bf16") => {
             let gqa_direct = k.contains("_gqa") || (!k.contains("warp_tiled") && !k.contains("cached"));
             let bf16 = k.ends_with("state_bf16");
             let fla = !k.contains("warp_tiled") && !k.contains("cached");
@@ -788,7 +788,7 @@ fn emit_launch(
                 b.stmt("    R, V_h, K_d, V_d, stream, write_state);");
             }
         }
-        "launch_repeat_interleave_heads_fp32" => {
+        "ssm::repeat_interleave_heads_fp32" => {
             // The declaration states the pair q-then-k; emission binds
             // them in that order, statically.
             let (src, dst) = if *repeat_next_is_k {
@@ -797,7 +797,7 @@ fn emit_launch(
                 ("la.q_pre.data()", "la.q_norm.data()")
             };
             *repeat_next_is_k = !*repeat_next_is_k;
-            b.stmt("kernels::launch_repeat_interleave_heads_fp32(");
+            b.stmt("kernels::ssm::repeat_interleave_heads_fp32(");
             b.stmt(&format!("    {src}, {dst}, N, K_h, V_h, K_d, stream);"));
         }
         "dispatch_attention_flashinfer_decode" => {

@@ -4,7 +4,7 @@
 
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::ssm {
 
 bool flashinfer_mamba_ssu_enabled();
 
@@ -27,4 +27,4 @@ bool flashinfer_mamba_ssu_bf16(
     int state_cache_size,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::ssm

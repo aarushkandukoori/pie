@@ -133,7 +133,7 @@ std::uint32_t declared_full_depth_rows)
                ? static_cast<int>(hooks->hook_free_prefix_rows)
                : R);
 
-    kernels::launch_embed_bf16(
+    kernels::layout::embed_bf16(
         token_ids, require(w.embed, "embed")->data(), ws.y.data(),
         N, H, V, stream);
     {
@@ -201,10 +201,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[0].q_norm, "layer.0.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[0].k_norm, "layer.0.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -535,10 +535,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[0].attn_norm, "layer.0.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -551,10 +551,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[0].mlp_norm, "layer.0.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -624,10 +624,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[1].q_norm, "layer.1.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[1].k_norm, "layer.1.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -958,10 +958,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[1].attn_norm, "layer.1.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -974,10 +974,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[1].mlp_norm, "layer.1.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -1047,10 +1047,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[2].q_norm, "layer.2.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[2].k_norm, "layer.2.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -1381,10 +1381,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[2].attn_norm, "layer.2.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -1397,10 +1397,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[2].mlp_norm, "layer.2.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -1470,10 +1470,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[3].q_norm, "layer.3.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[3].k_norm, "layer.3.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -1804,10 +1804,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[3].attn_norm, "layer.3.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -1820,10 +1820,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[3].mlp_norm, "layer.3.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -1893,10 +1893,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[4].q_norm, "layer.4.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[4].k_norm, "layer.4.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -2227,10 +2227,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[4].attn_norm, "layer.4.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -2243,10 +2243,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[4].mlp_norm, "layer.4.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -2316,10 +2316,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[5].q_norm, "layer.5.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[5].k_norm, "layer.5.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -2650,10 +2650,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[5].attn_norm, "layer.5.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -2666,10 +2666,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[5].mlp_norm, "layer.5.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -2739,10 +2739,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[6].q_norm, "layer.6.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[6].k_norm, "layer.6.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -3073,10 +3073,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[6].attn_norm, "layer.6.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -3089,10 +3089,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[6].mlp_norm, "layer.6.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -3162,10 +3162,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[7].q_norm, "layer.7.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[7].k_norm, "layer.7.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -3496,10 +3496,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[7].attn_norm, "layer.7.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -3512,10 +3512,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[7].mlp_norm, "layer.7.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -3585,10 +3585,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[8].q_norm, "layer.8.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[8].k_norm, "layer.8.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -3919,10 +3919,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[8].attn_norm, "layer.8.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -3935,10 +3935,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[8].mlp_norm, "layer.8.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -4008,10 +4008,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[9].q_norm, "layer.9.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[9].k_norm, "layer.9.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -4342,10 +4342,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[9].attn_norm, "layer.9.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -4358,10 +4358,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[9].mlp_norm, "layer.9.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -4431,10 +4431,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[10].q_norm, "layer.10.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[10].k_norm, "layer.10.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -4765,10 +4765,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[10].attn_norm, "layer.10.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -4781,10 +4781,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[10].mlp_norm, "layer.10.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -4854,10 +4854,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[11].q_norm, "layer.11.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[11].k_norm, "layer.11.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -5188,10 +5188,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[11].attn_norm, "layer.11.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -5204,10 +5204,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[11].mlp_norm, "layer.11.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -5277,10 +5277,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[12].q_norm, "layer.12.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[12].k_norm, "layer.12.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -5611,10 +5611,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[12].attn_norm, "layer.12.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -5627,10 +5627,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[12].mlp_norm, "layer.12.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -5700,10 +5700,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[13].q_norm, "layer.13.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[13].k_norm, "layer.13.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -6034,10 +6034,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[13].attn_norm, "layer.13.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -6050,10 +6050,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[13].mlp_norm, "layer.13.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -6123,10 +6123,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[14].q_norm, "layer.14.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[14].k_norm, "layer.14.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -6457,10 +6457,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[14].attn_norm, "layer.14.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -6473,10 +6473,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[14].mlp_norm, "layer.14.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -6546,10 +6546,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[15].q_norm, "layer.15.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[15].k_norm, "layer.15.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -6880,10 +6880,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[15].attn_norm, "layer.15.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -6896,10 +6896,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[15].mlp_norm, "layer.15.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -6914,18 +6914,18 @@ std::uint32_t declared_full_depth_rows)
         const void* lm_head_input = nullptr;
         int lm_head_rows = N;
         if (compact_logits) {
-            kernels::launch_gather_bf16_rows(
+            kernels::layout::gather_bf16_rows(
                 static_cast<const std::uint16_t*>(ws.y.data()),
                 logit_row_indices_d,
                 static_cast<std::uint16_t*>(ws.norm_x.data()),
                 num_logit_rows, H, stream);
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), w.final_norm->data(),
                 ws.norm_y.data(), num_logit_rows, H, eps, stream);
             lm_head_input = ws.norm_y.data();
             lm_head_rows = num_logit_rows;
         } else {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), w.final_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
             lm_head_input = ws.norm_y.data();
@@ -7057,7 +7057,7 @@ std::uint32_t declared_full_depth_rows)
                ? static_cast<int>(hooks->hook_free_prefix_rows)
                : R);
 
-    kernels::launch_embed_bf16(
+    kernels::layout::embed_bf16(
         token_ids, require(w.embed, "embed")->data(), ws.y.data(),
         N, H, V, stream);
     {
@@ -7125,10 +7125,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[0].q_norm, "layer.0.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[0].k_norm, "layer.0.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -7379,10 +7379,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[0].attn_norm, "layer.0.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -7395,10 +7395,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[0].mlp_norm, "layer.0.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -7468,10 +7468,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[1].q_norm, "layer.1.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[1].k_norm, "layer.1.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -7722,10 +7722,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[1].attn_norm, "layer.1.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -7738,10 +7738,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[1].mlp_norm, "layer.1.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -7811,10 +7811,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[2].q_norm, "layer.2.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[2].k_norm, "layer.2.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -8065,10 +8065,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[2].attn_norm, "layer.2.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -8081,10 +8081,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[2].mlp_norm, "layer.2.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -8154,10 +8154,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[3].q_norm, "layer.3.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[3].k_norm, "layer.3.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -8408,10 +8408,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[3].attn_norm, "layer.3.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -8424,10 +8424,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[3].mlp_norm, "layer.3.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -8497,10 +8497,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[4].q_norm, "layer.4.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[4].k_norm, "layer.4.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -8751,10 +8751,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[4].attn_norm, "layer.4.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -8767,10 +8767,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[4].mlp_norm, "layer.4.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -8840,10 +8840,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[5].q_norm, "layer.5.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[5].k_norm, "layer.5.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -9094,10 +9094,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[5].attn_norm, "layer.5.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -9110,10 +9110,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[5].mlp_norm, "layer.5.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -9183,10 +9183,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[6].q_norm, "layer.6.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[6].k_norm, "layer.6.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -9437,10 +9437,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[6].attn_norm, "layer.6.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -9453,10 +9453,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[6].mlp_norm, "layer.6.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -9526,10 +9526,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[7].q_norm, "layer.7.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[7].k_norm, "layer.7.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -9780,10 +9780,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[7].attn_norm, "layer.7.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -9796,10 +9796,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[7].mlp_norm, "layer.7.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -9869,10 +9869,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[8].q_norm, "layer.8.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[8].k_norm, "layer.8.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -10123,10 +10123,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[8].attn_norm, "layer.8.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -10139,10 +10139,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[8].mlp_norm, "layer.8.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -10212,10 +10212,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[9].q_norm, "layer.9.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[9].k_norm, "layer.9.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -10466,10 +10466,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[9].attn_norm, "layer.9.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -10482,10 +10482,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[9].mlp_norm, "layer.9.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -10555,10 +10555,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[10].q_norm, "layer.10.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[10].k_norm, "layer.10.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -10809,10 +10809,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[10].attn_norm, "layer.10.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -10825,10 +10825,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[10].mlp_norm, "layer.10.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -10898,10 +10898,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[11].q_norm, "layer.11.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[11].k_norm, "layer.11.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -11152,10 +11152,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[11].attn_norm, "layer.11.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -11168,10 +11168,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[11].mlp_norm, "layer.11.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -11241,10 +11241,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[12].q_norm, "layer.12.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[12].k_norm, "layer.12.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -11495,10 +11495,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[12].attn_norm, "layer.12.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -11511,10 +11511,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[12].mlp_norm, "layer.12.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -11584,10 +11584,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[13].q_norm, "layer.13.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[13].k_norm, "layer.13.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -11838,10 +11838,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[13].attn_norm, "layer.13.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -11854,10 +11854,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[13].mlp_norm, "layer.13.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -11927,10 +11927,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[14].q_norm, "layer.14.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[14].k_norm, "layer.14.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -12181,10 +12181,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[14].attn_norm, "layer.14.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -12197,10 +12197,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[14].mlp_norm, "layer.14.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -12270,10 +12270,10 @@ std::uint32_t declared_full_depth_rows)
     const int N = depth_banded ? band_live : (depth_tail ? depth_split : total_tokens);
     const int R = depth_banded ? band_live : (depth_tail ? depth_split : num_requests);
     (void)N; (void)R;
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[15].q_norm, "layer.15.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[15].k_norm, "layer.15.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -12524,10 +12524,10 @@ std::uint32_t declared_full_depth_rows)
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[15].attn_norm, "layer.15.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -12540,10 +12540,10 @@ std::uint32_t declared_full_depth_rows)
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[15].mlp_norm, "layer.15.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     }
@@ -12558,18 +12558,18 @@ std::uint32_t declared_full_depth_rows)
         const void* lm_head_input = nullptr;
         int lm_head_rows = N;
         if (compact_logits) {
-            kernels::launch_gather_bf16_rows(
+            kernels::layout::gather_bf16_rows(
                 static_cast<const std::uint16_t*>(ws.y.data()),
                 logit_row_indices_d,
                 static_cast<std::uint16_t*>(ws.norm_x.data()),
                 num_logit_rows, H, stream);
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), w.final_norm->data(),
                 ws.norm_y.data(), num_logit_rows, H, eps, stream);
             lm_head_input = ws.norm_y.data();
             lm_head_rows = num_logit_rows;
         } else {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), w.final_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
             lm_head_input = ws.norm_y.data();
@@ -12709,7 +12709,7 @@ std::uint32_t declared_full_depth_rows,
         stream = sg.stream();
         cublas.set_stream(stream);
         {
-    kernels::launch_embed_bf16(
+    kernels::layout::embed_bf16(
         token_ids, require(w.embed, "embed")->data(), ws.y.data(),
         N, H, V, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -12724,10 +12724,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[0].v_proj, "layer.0.v_proj"), w.layers[0].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[0].q_norm, "layer.0.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[0].k_norm, "layer.0.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -12785,10 +12785,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[0].attn_norm, "layer.0.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -12801,10 +12801,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[0].mlp_norm, "layer.0.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -12819,10 +12819,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[1].v_proj, "layer.1.v_proj"), w.layers[1].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[1].q_norm, "layer.1.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[1].k_norm, "layer.1.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -12880,10 +12880,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[1].attn_norm, "layer.1.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -12896,10 +12896,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[1].mlp_norm, "layer.1.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -12914,10 +12914,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[2].v_proj, "layer.2.v_proj"), w.layers[2].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[2].q_norm, "layer.2.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[2].k_norm, "layer.2.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -12975,10 +12975,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[2].attn_norm, "layer.2.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -12991,10 +12991,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[2].mlp_norm, "layer.2.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13009,10 +13009,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[3].v_proj, "layer.3.v_proj"), w.layers[3].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[3].q_norm, "layer.3.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[3].k_norm, "layer.3.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13070,10 +13070,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[3].attn_norm, "layer.3.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13086,10 +13086,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[3].mlp_norm, "layer.3.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13104,10 +13104,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[4].v_proj, "layer.4.v_proj"), w.layers[4].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[4].q_norm, "layer.4.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[4].k_norm, "layer.4.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13165,10 +13165,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[4].attn_norm, "layer.4.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13181,10 +13181,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[4].mlp_norm, "layer.4.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13199,10 +13199,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[5].v_proj, "layer.5.v_proj"), w.layers[5].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[5].q_norm, "layer.5.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[5].k_norm, "layer.5.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13260,10 +13260,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[5].attn_norm, "layer.5.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13276,10 +13276,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[5].mlp_norm, "layer.5.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13294,10 +13294,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[6].v_proj, "layer.6.v_proj"), w.layers[6].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[6].q_norm, "layer.6.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[6].k_norm, "layer.6.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13355,10 +13355,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[6].attn_norm, "layer.6.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13371,10 +13371,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[6].mlp_norm, "layer.6.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13389,10 +13389,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[7].v_proj, "layer.7.v_proj"), w.layers[7].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[7].q_norm, "layer.7.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[7].k_norm, "layer.7.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13450,10 +13450,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[7].attn_norm, "layer.7.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13466,10 +13466,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[7].mlp_norm, "layer.7.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13484,10 +13484,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[8].v_proj, "layer.8.v_proj"), w.layers[8].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[8].q_norm, "layer.8.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[8].k_norm, "layer.8.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13545,10 +13545,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[8].attn_norm, "layer.8.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13561,10 +13561,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[8].mlp_norm, "layer.8.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13579,10 +13579,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[9].v_proj, "layer.9.v_proj"), w.layers[9].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[9].q_norm, "layer.9.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[9].k_norm, "layer.9.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13640,10 +13640,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[9].attn_norm, "layer.9.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13656,10 +13656,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[9].mlp_norm, "layer.9.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13674,10 +13674,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[10].v_proj, "layer.10.v_proj"), w.layers[10].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[10].q_norm, "layer.10.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[10].k_norm, "layer.10.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13735,10 +13735,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[10].attn_norm, "layer.10.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13751,10 +13751,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[10].mlp_norm, "layer.10.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13769,10 +13769,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[11].v_proj, "layer.11.v_proj"), w.layers[11].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[11].q_norm, "layer.11.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[11].k_norm, "layer.11.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13830,10 +13830,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[11].attn_norm, "layer.11.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13846,10 +13846,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[11].mlp_norm, "layer.11.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13864,10 +13864,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[12].v_proj, "layer.12.v_proj"), w.layers[12].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[12].q_norm, "layer.12.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[12].k_norm, "layer.12.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -13925,10 +13925,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[12].attn_norm, "layer.12.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13941,10 +13941,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[12].mlp_norm, "layer.12.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -13959,10 +13959,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[13].v_proj, "layer.13.v_proj"), w.layers[13].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[13].q_norm, "layer.13.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[13].k_norm, "layer.13.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -14020,10 +14020,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[13].attn_norm, "layer.13.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14036,10 +14036,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[13].mlp_norm, "layer.13.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14054,10 +14054,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[14].v_proj, "layer.14.v_proj"), w.layers[14].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[14].q_norm, "layer.14.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[14].k_norm, "layer.14.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -14115,10 +14115,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[14].attn_norm, "layer.14.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14131,10 +14131,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[14].mlp_norm, "layer.14.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14149,10 +14149,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[15].v_proj, "layer.15.v_proj"), w.layers[15].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[15].q_norm, "layer.15.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[15].k_norm, "layer.15.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -14210,10 +14210,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[15].attn_norm, "layer.15.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14226,10 +14226,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[15].mlp_norm, "layer.15.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     // final_norm: deferred into the LmHead epilogue below.
@@ -14242,18 +14242,18 @@ std::uint32_t declared_full_depth_rows,
         const void* lm_head_input = nullptr;
         int lm_head_rows = N;
         if (compact_logits) {
-            kernels::launch_gather_bf16_rows(
+            kernels::layout::gather_bf16_rows(
                 static_cast<const std::uint16_t*>(ws.y.data()),
                 logit_row_indices_d,
                 static_cast<std::uint16_t*>(ws.norm_x.data()),
                 num_logit_rows, H, stream);
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), w.final_norm->data(),
                 ws.norm_y.data(), num_logit_rows, H, eps, stream);
             lm_head_input = ws.norm_y.data();
             lm_head_rows = num_logit_rows;
         } else {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), w.final_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
             lm_head_input = ws.norm_y.data();
@@ -14268,7 +14268,7 @@ std::uint32_t declared_full_depth_rows,
         stream = sg.stream();
         cublas.set_stream(stream);
         {
-    kernels::launch_embed_bf16(
+    kernels::layout::embed_bf16(
         token_ids, require(w.embed, "embed")->data(), ws.y.data(),
         N, H, V, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14283,10 +14283,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[0].v_proj, "layer.0.v_proj"), w.layers[0].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[0].q_norm, "layer.0.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[0].k_norm, "layer.0.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -14369,10 +14369,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[0].attn_norm, "layer.0.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14385,10 +14385,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[0].mlp_norm, "layer.0.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14403,10 +14403,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[1].v_proj, "layer.1.v_proj"), w.layers[1].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[1].q_norm, "layer.1.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[1].k_norm, "layer.1.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -14489,10 +14489,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[1].attn_norm, "layer.1.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14505,10 +14505,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[1].mlp_norm, "layer.1.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14523,10 +14523,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[2].v_proj, "layer.2.v_proj"), w.layers[2].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[2].q_norm, "layer.2.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[2].k_norm, "layer.2.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -14609,10 +14609,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[2].attn_norm, "layer.2.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14625,10 +14625,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[2].mlp_norm, "layer.2.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14643,10 +14643,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[3].v_proj, "layer.3.v_proj"), w.layers[3].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[3].q_norm, "layer.3.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[3].k_norm, "layer.3.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -14729,10 +14729,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[3].attn_norm, "layer.3.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14745,10 +14745,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[3].mlp_norm, "layer.3.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14763,10 +14763,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[4].v_proj, "layer.4.v_proj"), w.layers[4].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[4].q_norm, "layer.4.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[4].k_norm, "layer.4.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -14849,10 +14849,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[4].attn_norm, "layer.4.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14865,10 +14865,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[4].mlp_norm, "layer.4.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14883,10 +14883,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[5].v_proj, "layer.5.v_proj"), w.layers[5].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[5].q_norm, "layer.5.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[5].k_norm, "layer.5.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -14969,10 +14969,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[5].attn_norm, "layer.5.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -14985,10 +14985,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[5].mlp_norm, "layer.5.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15003,10 +15003,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[6].v_proj, "layer.6.v_proj"), w.layers[6].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[6].q_norm, "layer.6.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[6].k_norm, "layer.6.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -15089,10 +15089,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[6].attn_norm, "layer.6.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15105,10 +15105,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[6].mlp_norm, "layer.6.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15123,10 +15123,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[7].v_proj, "layer.7.v_proj"), w.layers[7].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[7].q_norm, "layer.7.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[7].k_norm, "layer.7.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -15209,10 +15209,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[7].attn_norm, "layer.7.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15225,10 +15225,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[7].mlp_norm, "layer.7.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15243,10 +15243,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[8].v_proj, "layer.8.v_proj"), w.layers[8].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[8].q_norm, "layer.8.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[8].k_norm, "layer.8.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -15329,10 +15329,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[8].attn_norm, "layer.8.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15345,10 +15345,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[8].mlp_norm, "layer.8.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15363,10 +15363,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[9].v_proj, "layer.9.v_proj"), w.layers[9].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[9].q_norm, "layer.9.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[9].k_norm, "layer.9.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -15449,10 +15449,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[9].attn_norm, "layer.9.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15465,10 +15465,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[9].mlp_norm, "layer.9.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15483,10 +15483,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[10].v_proj, "layer.10.v_proj"), w.layers[10].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[10].q_norm, "layer.10.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[10].k_norm, "layer.10.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -15569,10 +15569,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[10].attn_norm, "layer.10.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15585,10 +15585,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[10].mlp_norm, "layer.10.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15603,10 +15603,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[11].v_proj, "layer.11.v_proj"), w.layers[11].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[11].q_norm, "layer.11.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[11].k_norm, "layer.11.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -15689,10 +15689,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[11].attn_norm, "layer.11.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15705,10 +15705,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[11].mlp_norm, "layer.11.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15723,10 +15723,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[12].v_proj, "layer.12.v_proj"), w.layers[12].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[12].q_norm, "layer.12.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[12].k_norm, "layer.12.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -15809,10 +15809,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[12].attn_norm, "layer.12.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15825,10 +15825,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[12].mlp_norm, "layer.12.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15843,10 +15843,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[13].v_proj, "layer.13.v_proj"), w.layers[13].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[13].q_norm, "layer.13.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[13].k_norm, "layer.13.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -15929,10 +15929,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[13].attn_norm, "layer.13.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15945,10 +15945,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[13].mlp_norm, "layer.13.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -15963,10 +15963,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[14].v_proj, "layer.14.v_proj"), w.layers[14].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[14].q_norm, "layer.14.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[14].k_norm, "layer.14.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -16049,10 +16049,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[14].attn_norm, "layer.14.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -16065,10 +16065,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[14].mlp_norm, "layer.14.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -16083,10 +16083,10 @@ std::uint32_t declared_full_depth_rows,
         ws.y.data(),
         make_weight_view(require(w.layers[15].v_proj, "layer.15.v_proj"), w.layers[15].v_proj_quant),
         ws.v.data(), N, Hk, H);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.q.data(), require(w.layers[15].q_norm, "layer.15.q_norm")->data(),
         ws.q.data(), N, Hq, eps, stream);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.k.data(), require(w.layers[15].k_norm, "layer.15.k_norm")->data(),
         ws.k.data(), N, Hk, eps, stream);
     kernels::rope::rope_bf16(
@@ -16169,10 +16169,10 @@ std::uint32_t declared_full_depth_rows,
         ws.attn_out.data(),
         make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
         ws.norm_x.data(), N, H, Hq, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[15].attn_norm, "layer.15.attn_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     ops::gemm_act_x_w(cublas.handle(),
@@ -16185,10 +16185,10 @@ std::uint32_t declared_full_depth_rows,
         ws.gate.data(),
         make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
         ws.norm_x.data(), N, H, I, 0.f);
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.norm_x.data(), require(w.layers[15].mlp_norm, "layer.15.mlp_norm")->data(),
         ws.norm_y.data(), N, H, eps, stream);
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ws.y.data(), ws.norm_y.data(),
         static_cast<std::size_t>(N) * H, stream);
     // final_norm: deferred into the LmHead epilogue below.
@@ -16201,18 +16201,18 @@ std::uint32_t declared_full_depth_rows,
         const void* lm_head_input = nullptr;
         int lm_head_rows = N;
         if (compact_logits) {
-            kernels::launch_gather_bf16_rows(
+            kernels::layout::gather_bf16_rows(
                 static_cast<const std::uint16_t*>(ws.y.data()),
                 logit_row_indices_d,
                 static_cast<std::uint16_t*>(ws.norm_x.data()),
                 num_logit_rows, H, stream);
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), w.final_norm->data(),
                 ws.norm_y.data(), num_logit_rows, H, eps, stream);
             lm_head_input = ws.norm_y.data();
             lm_head_rows = num_logit_rows;
         } else {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), w.final_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
             lm_head_input = ws.norm_y.data();

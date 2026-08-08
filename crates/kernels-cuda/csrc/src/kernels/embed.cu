@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
 namespace {
 
@@ -63,7 +63,7 @@ __global__ void embed_bf16_vocab_shard_kernel(
 
 }  // namespace
 
-void launch_embed_bf16(
+void embed_bf16(
     const std::int32_t* token_ids,
     const void* weight,
     void* y,
@@ -94,7 +94,7 @@ void launch_embed_bf16(
     }
 }
 
-void launch_embed_bf16_vocab_shard(
+void embed_bf16_vocab_shard(
     const std::int32_t* token_ids,
     const void* weight,
     void* y,
@@ -111,4 +111,4 @@ void launch_embed_bf16_vocab_shard(
         hidden, local_vocab, vocab_offset);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

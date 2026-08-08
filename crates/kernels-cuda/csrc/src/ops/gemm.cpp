@@ -2127,7 +2127,7 @@ void gemm_int8_w_bf16_act_impl(
         void* dq_dst = ctx.dequant.ensure(mn_bytes);
         kernels::dequant_int32_w8a8_to_bf16(
             acc_int32, act_scale, w_scale_inv, dq_dst, M, N, stream);
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             y_bf16, dq_dst,
             static_cast<std::size_t>(M) * static_cast<std::size_t>(N),
             stream);
@@ -2221,7 +2221,7 @@ void gemm_act_x_w(
             /*use_fp32_reduce=*/false,
             stream);
         if (beta != 0.f) {
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 y, dst,
                 static_cast<std::size_t>(M) * static_cast<std::size_t>(N),
                 stream);
@@ -2390,7 +2390,7 @@ void gemm_act_x_wt_bias_bf16(
     }
     gemm_bf16_impl(handle, act, W, y, M, N, K, beta);
     if (bias != nullptr) {
-        kernels::launch_add_bias_bf16(y, bias, M, N, stream);
+        kernels::norm::add_bias_bf16(y, bias, M, N, stream);
     }
 }
 

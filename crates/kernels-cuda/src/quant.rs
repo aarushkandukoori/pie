@@ -8,7 +8,6 @@ use kernels::KernelSig;
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
-    kernel!(dequant "launch_dequant_kv_cache_layer_to_bf16_active"),
     // 4-bit weights with a bf16 scale per group along K. Distinct from MXFP4
     // (E8M0 byte per 32) and from fp8 -- three quantizations, three
     // statements, because which one a checkpoint ships is a fact the
@@ -24,7 +23,6 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(dequant_fp8_e4m3_per_channel "launch_dequant_fp8_e4m3_to_bf16_per_channel"),
     kernel!(dequant_fp8_e4m3_per_group "launch_dequant_fp8_e4m3_to_bf16_per_group"),
     kernel!(dequant_mxfp4 "launch_dequant_mxfp4_to_bf16"),
-    kernel!(bf16_to_f32 "launch_bf16_to_fp32"),
-    kernel!(f32_to_bf16 "launch_fp32_to_bf16"),
     kernel!(bf16_to_fp16 "launch_bf16_to_fp16"),
+    kernel!(scale_rows "launch_scale_rows_bf16"),
 ];

@@ -797,7 +797,7 @@ fn emit_op(
     match &op.kind {
         OpKind::Embed { weight } => {
             assert_eq!(weight, "embed");
-            b.stmt("kernels::launch_embed_bf16(");
+            b.stmt("kernels::layout::embed_bf16(");
             b.stmt("    token_ids, require(w.embed, \"embed\")->data(), ws.y.data(),");
             b.stmt("    N, H, V, stream);");
         }
@@ -828,7 +828,7 @@ fn emit_op(
                 "k_norm" => ("ws.k.data()", "ws.k.data()", "Hk"),
                 other => panic!("emitter: row-norm field {other} out of scope"),
             };
-            b.stmt(&format!("kernels::launch_rmsnorm_bf16("));
+            b.stmt(&format!("kernels::norm::rmsnorm_bf16("));
             b.stmt(&format!(
                 "    {input}, {},",
                 require(layer, field, weight)
@@ -848,7 +848,7 @@ fn emit_op(
                 "v_bias" => ("ws.v.data()", "Hk"),
                 other => panic!("emitter: bias field {other} out of scope"),
             };
-            b.stmt("kernels::launch_add_bias_bf16(");
+            b.stmt("kernels::norm::add_bias_bf16(");
             b.stmt(&format!("    {buf}, {},", require(layer, field, weight)));
             b.stmt(&format!("    N, {width}, stream);"));
         }
@@ -1016,7 +1016,7 @@ fn emit_op(
         OpKind::ResidualAdd => {
             // The post-norm landing: `y += norm_y` — the interpreter's
             // arm verbatim.
-            b.stmt("kernels::launch_residual_add_bf16(");
+            b.stmt("kernels::norm::residual_add_bf16(");
             b.stmt("    ws.y.data(), ws.norm_y.data(),");
             b.stmt("    static_cast<std::size_t>(N) * H, stream);");
         }
@@ -1065,18 +1065,18 @@ fn emit_op(
             b.stmt("    const void* lm_head_input = nullptr;");
             b.stmt("    int lm_head_rows = N;");
             b.stmt("    if (compact_logits) {");
-            b.stmt("        kernels::launch_gather_bf16_rows(");
+            b.stmt("        kernels::layout::gather_bf16_rows(");
             b.stmt("            static_cast<const std::uint16_t*>(ws.y.data()),");
             b.stmt("            logit_row_indices_d,");
             b.stmt("            static_cast<std::uint16_t*>(ws.norm_x.data()),");
             b.stmt("            num_logit_rows, H, stream);");
-            b.stmt("        kernels::launch_rmsnorm_bf16(");
+            b.stmt("        kernels::norm::rmsnorm_bf16(");
             b.stmt("            ws.norm_x.data(), w.final_norm->data(),");
             b.stmt("            ws.norm_y.data(), num_logit_rows, H, eps, stream);");
             b.stmt("        lm_head_input = ws.norm_y.data();");
             b.stmt("        lm_head_rows = num_logit_rows;");
             b.stmt("    } else {");
-            b.stmt("        kernels::launch_rmsnorm_bf16(");
+            b.stmt("        kernels::norm::rmsnorm_bf16(");
             b.stmt("            ws.y.data(), w.final_norm->data(), ws.norm_y.data(),");
             b.stmt("            N, H, eps, stream);");
             b.stmt("        lm_head_input = ws.norm_y.data();");

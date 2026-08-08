@@ -99,7 +99,7 @@ pub struct Qwen35GdnFacts {
     /// the same way).
     pub fused_in_proj: bool,
     /// qwen3.5/3.6 use the Gemma `(1 + w)` fold for the block norms
-    /// (`launch_rmsnorm_gemma_bf16` on the pre-attention norm). The GATED
+    /// (`kernels::norm::rmsnorm_gemma_bf16` on the pre-attention norm). The GATED
     /// norm inside the block is not governed by this: its weight fold is
     /// plain by kernel contract (`rmsnorm.hpp`).
     pub norm_variant: NormVariant,
@@ -143,7 +143,7 @@ impl Qwen35GdnFacts {
     /// * `fused_in_proj: false` is the live default binding
     ///   (`PIE_QWEN35_FUSED_GDN_PROJ` unset — see the field doc).
     /// * `norm_variant: Gemma`: `qwen3_5_forward.cpp` launches
-    ///   `launch_rmsnorm_gemma_bf16` for every block norm, and the Metal
+    ///   `kernels::norm::rmsnorm_gemma_bf16` for every block norm, and the Metal
     ///   port states "All RMSNorm gains use the Gemma (1+w) convention"
     ///   (`crates/driver-metal/csrc/tests/mlx/model/qwen3_5.hpp`).
     pub fn qwen3_5_0_8b() -> Self {
@@ -166,11 +166,11 @@ impl Qwen35GdnFacts {
 /// This is NOT llama_like's attention, which is why it gets its own facts
 /// instead of a `LlamaLikeFacts` configuration: the q projection is 2× wide
 /// with an interleaved per-head `[query | gate]` split
-/// (`launch_split_q_gate_bf16`), the attention output is multiplied by
+/// (`kernels::layout::split_q_gate_bf16`), the attention output is multiplied by
 /// `sigmoid(gate)` (`kernels::mlp::sigmoid_gate_inplace_bf16` — no residual, not
 /// the shared-expert `SigmoidGateAdd`), rope is PARTIAL
 /// (`partial_rotary_factor`, `kernels::rope::rope_partial_bf16`), and the per-head
-/// q/k norms fold Gemma-style (`launch_rmsnorm_gemma_bf16` over `N * heads`
+/// q/k norms fold Gemma-style (`kernels::norm::rmsnorm_gemma_bf16` over `N * heads`
 /// rows of `head_dim`). The qk-norm is not a tri-state here: the
 /// hand-written `full_attn_layer_body` launches the per-head pair
 /// unconditionally, so the declaration does too, and only the fold is a
@@ -201,7 +201,7 @@ pub struct Qwen35FullAttnFacts {
     pub fused_qkv: bool,
     /// qwen3.5 folds `(1 + w)` on every norm of this block — the
     /// pre-attention norm AND the per-head q/k norms
-    /// (`launch_rmsnorm_gemma_bf16` throughout `full_attn_layer_body`).
+    /// (`kernels::norm::rmsnorm_gemma_bf16` throughout `full_attn_layer_body`).
     pub norm_variant: NormVariant,
 }
 
@@ -235,7 +235,7 @@ impl Qwen35FullAttnFacts {
     /// * `fused_qkv: false` is the live default binding
     ///   (`PIE_QWEN35_FUSED_FULL_ATTN_QGKV` unset — see the field doc).
     /// * `norm_variant: Gemma`: `full_attn_layer_body` launches
-    ///   `launch_rmsnorm_gemma_bf16` for the block norm and both per-head
+    ///   `kernels::norm::rmsnorm_gemma_bf16` for the block norm and both per-head
     ///   q/k norms, and the Metal port states "All RMSNorm gains use the
     ///   Gemma (1+w) convention" (`crates/driver-metal/csrc/tests/mlx/model/qwen3_5.hpp`).
     pub fn qwen3_5_0_8b() -> Self {
@@ -327,7 +327,7 @@ pub struct Qwen35HybridFacts {
 pub struct Qwen35CudaFacts {
     /// The recurrent-state store dtype is bf16 (vs fp32) — the
     /// `state_bf16` parameter every GDN recurrence launcher family
-    /// suffixes (`launch_recurrent_gated_delta_step_batched[_state_bf16]`
+    /// suffixes (`kernels::ssm::recurrent_gated_delta_step_batched[_state_bf16]`
     /// and the chunked prefill families).
     pub state_bf16: bool,
     /// The warp-tiled prefill arm EXISTS at all: `K_d <= 256` && the

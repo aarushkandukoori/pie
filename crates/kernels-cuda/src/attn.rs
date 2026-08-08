@@ -78,7 +78,6 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(build_full_split_view "launch_build_full_split_view", whole = true),
     kernel!(flashinfer_decode_bf16 "dispatch_attention_flashinfer_decode_bf16",
         needs = Prepare::DecodePlan, sink = Some("kv.pages")),
-    kernel!(attn_sink_correction "launch_attn_sink_correction_bf16"),
     // A SECOND KV cache beside the fine-grained one, holding one entry per
     // `ratio` tokens. Every query attends both and the outputs are merged by
     // their log-sum-exps -- exact, not an approximation: the same algebra
@@ -142,4 +141,7 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(qkv_packed_post "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
         sink = Some("kv.pages")),
     kernel!(attention_sink_rescale "launch_attention_sink_rescale_bf16"),
+    kernel!(mtp_shift_hidden "launch_mtp_shift_hidden_bf16", whole = true),
+    kernel!(mtp_update_pending_hidden "launch_mtp_update_pending_hidden_bf16", whole = true),
+    kernel!(dequant "launch_dequant_kv_cache_layer_to_bf16_active"),
 ];

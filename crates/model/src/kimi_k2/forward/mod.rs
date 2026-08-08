@@ -99,7 +99,7 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
 
             // The two latents, fused or not. The FUSED arm norms the
             // query half in place with a pitch, which is a different
-            // kernel and not a buffer detail — `launch_rmsnorm_strided_bf16`
+            // kernel and not a buffer detail — `kernels::norm::rmsnorm_strided_bf16`
             // reads a row stride the plain one has no parameter for.
             let (q_a_n, kv_a) = if cuda.q_kv_a_fused {
                 let qkv_a = matmul(&x, &w.q_kv_a);

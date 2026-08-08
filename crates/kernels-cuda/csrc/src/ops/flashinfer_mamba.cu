@@ -29,7 +29,7 @@ constexpr int PHILOX_ROUNDS = 0;
 
 #include <flashinfer/mamba/selective_state_update.cuh>
 
-namespace pie_cuda_driver::ops {
+namespace pie_cuda_driver::kernels::ssm {
 namespace {
 
 bool env_truthy(const char* value) {
@@ -157,4 +157,4 @@ bool flashinfer_mamba_ssu_bf16(
     return true;
 }
 
-}  // namespace pie_cuda_driver::ops
+}  // namespace pie_cuda_driver::kernels::ssm

@@ -18,11 +18,11 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
 // Compute per-row RMS of `ref` ([T, H]) into `target_rms_out` ([T]).
 //   target_rms_out[t] = sqrt(max(mean(ref[t, :]^2), eps))
-void launch_compute_rms_bf16(
+void compute_rms_bf16(
     const void*  ref,
     float*       target_rms_out,
     int          T,
@@ -33,7 +33,7 @@ void launch_compute_rms_bf16(
 // Rescale `x` ([T, H]) in place so each row matches `target_rms[t]`:
 //   new_rms = sqrt(max(mean(x[t, :]^2), eps))
 //   x[t, :] *= target_rms[t] / new_rms
-void launch_magnitude_rescale_bf16(
+void magnitude_rescale_bf16(
     void*        x,
     const float* target_rms,
     int          T,
@@ -42,7 +42,7 @@ void launch_magnitude_rescale_bf16(
     cudaStream_t stream);
 
 // Mean across the K-stream axis: out[t, h] = (1/K) Σ_k streams[k, t, h].
-void launch_mean_streams_bf16(
+void mean_streams_bf16(
     const void*  streams,        // [K, T, H]
     void*        out,             // [T, H]
     int K, int T, int H,
@@ -54,7 +54,7 @@ void launch_mean_streams_bf16(
 // `prediction_coefs(...).reshape(*, K, K).permute(0, 1, 3, 2)` does:
 //
 //     coefs_out[t, j, k] = bfloat_in[t, k * K + j]
-void launch_altup_unpack_predict_coefs(
+void altup_unpack_predict_coefs(
     const void*  in_bf16,         // [T, K*K]
     float*       out_fp32,        // [T, K, K]
     int T, int K,
@@ -63,7 +63,7 @@ void launch_altup_unpack_predict_coefs(
 // Convert bf16 `[T, K]` (the cuBLAS output of `correction_coefs @
 // modalities`) into the fp32 `[T, K]` tensor that `altup_correct`
 // expects, adding +1.0 along the way to match HF's `+ 1.0`.
-void launch_altup_unpack_correct_coefs(
+void altup_unpack_correct_coefs(
     const void*  in_bf16,         // [T, K]
     float*       out_fp32,        // [T, K]
     int T, int K,
@@ -72,9 +72,9 @@ void launch_altup_unpack_correct_coefs(
 // Element-wise tanh, in-place. Used on AltUp's modality-router output
 // (HF computes it in fp32 then casts back; we fold both into the
 // kernel to avoid a round-trip).
-void launch_tanh_bf16(
+void tanh_bf16(
     void* x,
     int   numel,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

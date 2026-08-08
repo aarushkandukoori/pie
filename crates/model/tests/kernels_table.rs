@@ -176,6 +176,9 @@ fn the_table_is_exactly_the_dsl_surface() {
                 // One line per family as step 3 lands; when the last
                 // `launch_` is gone the first five entries can go too.
                 "rope::",
+                "layout::",
+                "norm::",
+                "ssm::",
                 "mlp::",
                 "sample::",
             ]

@@ -32,7 +32,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::ssm {
 
 // Gate + beta preprocessing.
 //
@@ -45,7 +45,7 @@ namespace pie_cuda_driver::kernels {
 //
 // `lower_bound` of 0 selects the softplus form; any negative value selects the
 // bounded sigmoid form and is used as the bound.
-void launch_kda_gate_beta_bf16(
+void kda_gate_beta_bf16(
     const void*  raw_g,
     const void*  raw_beta,
     const float* A_log,
@@ -69,7 +69,7 @@ void launch_kda_gate_beta_bf16(
 //
 // The state is laid out `[H][v][k]` — v-major — because that is the layout the
 // reference kernels write and the one a per-`v` thread walks contiguously.
-void launch_kda_recurrent_step_batched(
+void kda_recurrent_step_batched(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -92,7 +92,7 @@ void launch_kda_recurrent_step_batched(
 //
 // TODO(perf): the chunked form (`chunk_kda`) blocks the recurrence into
 // tiles and turns most of the work into GEMMs, the way
-// `launch_chunk_gated_delta_prefill_batched` does for GDN. Sequential is what
+// `chunk_gated_delta_prefill_batched` does for GDN. Sequential is what
 // the bring-up needed -- it is the definition of the recurrence, so a parity
 // mismatch here is a real mismatch and not a chunking artifact -- and parity
 // is settled now, so that reason has expired. It is 30.6% of a 2048-token
@@ -112,7 +112,7 @@ void launch_kda_recurrent_step_batched(
 //     decomposition -- intra-chunk, then the sequential scan, then an output
 //     pass parallel across chunks -- so that output work is not serialised
 //     behind the scan.
-void launch_kda_prefill_batched(
+void kda_prefill_batched(
     const float* q_norm,
     const float* k_norm,
     const float* v,
@@ -134,7 +134,7 @@ void launch_kda_prefill_batched(
 //     g      : [T, H*D]    bf16 (g_proj(x))
 //     weight : [D]         fp32
 //     out    : [T, H*D]    bf16
-void launch_kda_o_norm_gated_bf16(
+void kda_o_norm_gated_bf16(
     const float* o,
     const void*  g,
     const float* weight,
@@ -143,4 +143,4 @@ void launch_kda_o_norm_gated_bf16(
     float eps,
     cudaStream_t stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::ssm

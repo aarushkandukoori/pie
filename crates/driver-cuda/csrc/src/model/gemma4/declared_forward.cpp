@@ -67,7 +67,7 @@ G4Kernel resolve_g4_kernel(std::string_view k) {
         return G4Kernel::QkRmsnormRopeRounded;
     if (k == "rope::rope_bf16") return G4Kernel::RopeQOnly;
     if (k == "rope::rope_partial_bf16") return G4Kernel::RopeQOnlyPartial;
-    if (k == "launch_rmsnorm_no_scale_bf16") return G4Kernel::RmsnormNoScale;
+    if (k == "norm::rmsnorm_no_scale_bf16") return G4Kernel::RmsnormNoScale;
     if (k == "launch_write_kv_to_pages") return G4Kernel::WriteKvToPages;
     if (k == "dispatch_attention_flashinfer_decode")
         return G4Kernel::AttnFlashinferDecode;
@@ -81,14 +81,14 @@ G4Kernel resolve_g4_kernel(std::string_view k) {
         return G4Kernel::AttnNaivePaged;
     if (k == "mlp::geglu_tanh_bf16") return G4Kernel::GegluTanh;
     if (k == "mlp::chunked_geglu_tanh_bf16") return G4Kernel::ChunkedGegluTanh;
-    if (k == "launch_rmsnorm_residual_add_scale_rmsnorm_bf16")
+    if (k == "norm::rmsnorm_residual_add_scale_rmsnorm_bf16")
         return G4Kernel::NormResidualScaleNorm;
-    if (k == "launch_rmsnorm_residual_add_bf16") return G4Kernel::NormResidualAdd;
-    if (k == "launch_scalar_mul_bf16") return G4Kernel::ScalarMul;
-    if (k == "launch_transpose_bf16_nld_to_lnd")
+    if (k == "norm::rmsnorm_residual_add_bf16") return G4Kernel::NormResidualAdd;
+    if (k == "norm::scalar_mul_bf16") return G4Kernel::ScalarMul;
+    if (k == "layout::transpose_bf16_nld_to_lnd")
         return G4Kernel::TransposeNldToLnd;
     if (k == "launch_logit_softcap_bf16") return G4Kernel::LogitSoftcap;
-    if (k == "launch_residual_add_bf16") return G4Kernel::ResidualAdd;
+    if (k == "norm::residual_add_bf16") return G4Kernel::ResidualAdd;
     if (k == "pie_lora_qkv_correction") return G4Kernel::LoraQkvCorrection;
     throw std::runtime_error(
         "declared gemma4: stated kernel '" + std::string(k) +
@@ -367,10 +367,10 @@ bool gemma4_forward_declared(
         case PieForwardOpKind::Embed: {
             const std::string_view name = plan.weight_name(op);
             if (name == "embed") {
-                kernels::launch_embed_bf16(token_ids, require(w, name).data(),
+                kernels::layout::embed_bf16(token_ids, require(w, name).data(),
                                            ws.y.data(), N, H, V, stream);
             } else {
-                kernels::launch_embed_bf16(
+                kernels::layout::embed_bf16(
                     token_ids, require(w, name).data(), per_layer_token,
                     N, L * ple_dim, V, stream);
             }
@@ -423,11 +423,11 @@ bool gemma4_forward_declared(
             if (nm.field == "attn_norm") {
                 // Layer 0's only: every later layer's input norm arrives
                 // fused into the previous layer's PLE landing.
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.y.data(), require(w, name).data(), ws.norm_x.data(),
                     N, H, eps, stream);
             } else if (nm.field == "final_norm") {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.y.data(), require(w, name).data(), ws.norm_x.data(),
                     N, H, eps, stream);
             } else {
@@ -439,15 +439,15 @@ bool gemma4_forward_declared(
             const std::string_view name = plan.weight_name(op);
             const ParsedName nm = parse_name(name);
             if (nm.field == "ple_model_norm") {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     per_layer_proj, require(w, name).data(), per_layer_proj,
                     N * L, ple_dim, eps, stream);
             } else if (nm.field == "q_norm") {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.q.data(), require(w, name).data(), ws.q.data(),
                     N * cfg.num_attention_heads, cur_d, eps, stream);
             } else if (nm.field == "k_norm") {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.k.data(), require(w, name).data(), ws.k.data(),
                     N * (cur_hk / cur_d), cur_d, eps, stream);
             } else {
@@ -476,7 +476,7 @@ bool gemma4_forward_declared(
             int rows = N;
             if (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
                 num_logit_rows < N) {
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.norm_x.data()),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_y.data()),
@@ -498,19 +498,19 @@ bool gemma4_forward_declared(
             case G4Kernel::ScalarMul: {
                 const std::string_view which = aux(0);
                 if (which == "scale.sqrt_hidden") {
-                    kernels::launch_scalar_mul_bf16(
+                    kernels::norm::scalar_mul_bf16(
                         ws.y.data(), std::sqrt(static_cast<float>(H)),
                         static_cast<std::size_t>(N) * H, stream);
                 } else if (which == "scale.sqrt_ple_dim") {
-                    kernels::launch_scalar_mul_bf16(
+                    kernels::norm::scalar_mul_bf16(
                         per_layer_token, std::sqrt(static_cast<float>(ple_dim)),
                         static_cast<std::size_t>(N) * L * ple_dim, stream);
                 } else if (which == "scale.rsqrt_hidden") {
-                    kernels::launch_scalar_mul_bf16(
+                    kernels::norm::scalar_mul_bf16(
                         per_layer_proj, 1.0f / std::sqrt(static_cast<float>(H)),
                         static_cast<std::size_t>(N) * L * ple_dim, stream);
                 } else if (which == "scale.rsqrt_2") {
-                    kernels::launch_scalar_mul_bf16(
+                    kernels::norm::scalar_mul_bf16(
                         per_layer_proj, 1.0f / std::sqrt(2.0f),
                         static_cast<std::size_t>(N) * L * ple_dim, stream);
                 } else {
@@ -528,12 +528,12 @@ bool gemma4_forward_declared(
                     "has no adapter support on either side (arc 2 should "
                     "have declined this fire)");
             case G4Kernel::ResidualAdd:
-                kernels::launch_residual_add_bf16(
+                kernels::norm::residual_add_bf16(
                     per_layer_proj, per_layer_token,
                     static_cast<std::size_t>(N) * L * ple_dim, stream);
                 break;
             case G4Kernel::TransposeNldToLnd:
-                kernels::launch_transpose_bf16_nld_to_lnd(
+                kernels::layout::transpose_bf16_nld_to_lnd(
                     static_cast<const std::uint16_t*>(per_layer_proj),
                     static_cast<std::uint16_t*>(per_layer_token),
                     N, L, ple_dim, stream);
@@ -572,7 +572,7 @@ bool gemma4_forward_declared(
                     stream);
                 break;
             case G4Kernel::RmsnormNoScale:
-                kernels::launch_rmsnorm_no_scale_bf16(
+                kernels::norm::rmsnorm_no_scale_bf16(
                     ws.v.data(), ws.v.data(), N * (cur_hk / cur_d), cur_d,
                     eps, stream);
                 break;
@@ -655,7 +655,7 @@ bool gemma4_forward_declared(
                     ple ? w.layers[static_cast<std::size_t>(cur_layer)]
                               .layer_scalar_value
                         : 1.f;
-                kernels::launch_rmsnorm_residual_add_scale_rmsnorm_bf16(
+                kernels::norm::rmsnorm_residual_add_scale_rmsnorm_bf16(
                     ple ? ws.norm_y.data() : ws.norm_x.data(),
                     require(w, first).data(), ws.y.data(), scale,
                     require(w, aux(1)).data(), ws.norm_x.data(),
@@ -666,7 +666,7 @@ bool gemma4_forward_declared(
                 const std::string_view first = aux(0);
                 const ParsedName nm = parse_name(first);
                 const bool ple = nm.field == "ple_norm";
-                kernels::launch_rmsnorm_residual_add_bf16(
+                kernels::norm::rmsnorm_residual_add_bf16(
                     ple ? ws.norm_y.data() : ws.norm_x.data(),
                     require(w, first).data(), ws.y.data(), N, H, eps, stream);
                 break;

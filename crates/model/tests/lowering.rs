@@ -542,7 +542,7 @@ fn the_epilogue_is_a_row_count_not_a_branch() {
     assert_eq!(
         all,
         vec![
-            ("launch_rmsnorm_bf16".to_string(), 0..4),
+            ("norm::rmsnorm_bf16".to_string(), 0..4),
             ("gemm_act_x_w".to_string(), 0..4),
         ]
     );
@@ -553,8 +553,8 @@ fn the_epilogue_is_a_row_count_not_a_branch() {
     assert_eq!(
         epilogue(&gathered(4)),
         vec![
-            ("launch_gather_bf16_rows".to_string(), 0..1),
-            ("launch_rmsnorm_bf16".to_string(), 0..1),
+            ("layout::gather_bf16_rows".to_string(), 0..1),
+            ("norm::rmsnorm_bf16".to_string(), 0..1),
             ("gemm_act_x_w".to_string(), 0..1),
         ]
     );

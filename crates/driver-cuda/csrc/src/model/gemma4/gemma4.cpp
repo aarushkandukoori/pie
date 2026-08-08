@@ -1816,7 +1816,7 @@ void gemma4_moe_block(
     // Step 1+2: rmsnorm-no-scale(y) * (router_scale * 1/sqrt(H)).
     // The combined scale was baked at bind time, so this collapses to
     // a single weighted-rmsnorm call.
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.y.data(), Lw.router_scale->data(), moe_ws.router_x.data(),
         N, H, eps, stream);
     // Step 3: linear projection to expert logits.
@@ -1838,7 +1838,7 @@ void gemma4_moe_block(
     // pre_feedforward_layernorm_2(y) → moe_input. Note: HF flattens the
     // residual `y`, NOT the dense MLP's pre-norm (`ws.norm_x` was
     // already overwritten by the dense path).
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.y.data(), Lw.moe_norm_pre->data(), moe_ws.moe_input.data(),
         N, H, eps, stream);
 
@@ -1976,7 +1976,7 @@ void gemma4_moe_block(
             moe_ws.expert_w.data(), wts.data(),
             Ne * sizeof(float), cudaMemcpyHostToDevice, stream));
 
-        kernels::launch_gather_bf16_rows(
+        kernels::layout::gather_bf16_rows(
             static_cast<const std::uint16_t*>(moe_ws.moe_input.data()),
             moe_ws.expert_idx.data(),
             moe_ws.expert_in.data(),
@@ -2125,11 +2125,11 @@ void gemma4_forward_paged(
         }
     }
     profile_gemma4_cuda_stage(profile, profile.embed_ms, stream, [&] {
-        kernels::launch_embed_bf16(
+        kernels::layout::embed_bf16(
             token_ids, w.embed->data(), ws.y.data(), N, H, V, stream);
         dbg_sync_dump_bf16("embed_pre_scale", ws.y.data(),
                       static_cast<std::size_t>(N) * H);
-        kernels::launch_scalar_mul_bf16(
+        kernels::norm::scalar_mul_bf16(
             ws.y.data(), std::sqrt(static_cast<float>(H)),
             static_cast<std::size_t>(N) * H, stream);
     });
@@ -2198,10 +2198,10 @@ void gemma4_forward_paged(
         profile_gemma4_cuda_stage(
             profile, profile.ple_inputs_ms, stream, [&] {
         // Embed lookup into the per-layer table.
-        kernels::launch_embed_bf16(
+        kernels::layout::embed_bf16(
             token_ids, w.embed_per_layer->data(), per_layer_token,
             N, per_layer_total, V, stream);
-        kernels::launch_scalar_mul_bf16(
+        kernels::norm::scalar_mul_bf16(
             per_layer_token, std::sqrt(static_cast<float>(ple_dim)),
             static_cast<std::size_t>(N) * per_layer_total, stream);
 
@@ -2209,28 +2209,28 @@ void gemma4_forward_paged(
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             ws.y.data(), w.ple_model_proj->data(), per_layer_proj,
             N, per_layer_total, H);
-        kernels::launch_scalar_mul_bf16(
+        kernels::norm::scalar_mul_bf16(
             per_layer_proj, 1.0f / std::sqrt(static_cast<float>(H)),
             static_cast<std::size_t>(N) * per_layer_total, stream);
 
         // RMSNorm per ple_dim row. We reshape mentally to
         // [N*L, ple_dim] and run our row-wise rmsnorm at that shape.
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             per_layer_proj, w.ple_model_norm->data(), per_layer_proj,
             N * L, ple_dim, eps, stream);
 
         // (per_layer_proj + per_layer_token) * 1/sqrt(2). residual_add
         // gives us in-place add; then scale.
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             per_layer_proj, per_layer_token,
             static_cast<std::size_t>(N) * per_layer_total, stream);
-        kernels::launch_scalar_mul_bf16(
+        kernels::norm::scalar_mul_bf16(
             per_layer_proj, 1.0f / std::sqrt(2.0f),
             static_cast<std::size_t>(N) * per_layer_total, stream);
         // The layer loop consumes one `[N, ple_dim]` slice at a time.
         // Re-layout once here instead of launching a slice-pack kernel
         // for every layer and fire.
-        kernels::launch_transpose_bf16_nld_to_lnd(
+        kernels::layout::transpose_bf16_nld_to_lnd(
             static_cast<const std::uint16_t*>(per_layer_proj),
             static_cast<std::uint16_t*>(per_layer_token),
             N, L, ple_dim, stream);
@@ -2297,7 +2297,7 @@ void gemma4_forward_paged(
         profile_gemma4_cuda_stage(
             profile, profile.attn_prep_ms, stream, [&] {
         if (!attn_norm_precomputed) {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), layer.attn_norm_pre->data(), ws.norm_x.data(),
                 N, H, eps, stream);
         }
@@ -2407,7 +2407,7 @@ void gemma4_forward_paged(
                 // V-Norm: pure RMSNorm (no learnable scale) on V before the
                 // KV write. Gemma-4 trained against this; skipping it
                 // produces gibberish even though softmax stays well-formed.
-                kernels::launch_rmsnorm_no_scale_bf16(
+                kernels::norm::rmsnorm_no_scale_bf16(
                     ws.v.data(), ws.v.data(),
                     N * num_kv_heads_local, d, eps, stream);
             }
@@ -2421,14 +2421,14 @@ void gemma4_forward_paged(
         } else {
             // Per-head Q/K RMSNorm (Gemma-4 always has it).
             {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.q.data(), layer.q_norm->data(), ws.q.data(),
                     N * num_q_heads_local, d, eps, stream);
                 if (!layer.is_shared) {
-                    kernels::launch_rmsnorm_bf16(
+                    kernels::norm::rmsnorm_bf16(
                         ws.k.data(), layer.k_norm->data(), ws.k.data(),
                         N * num_kv_heads_local, d, eps, stream);
-                    kernels::launch_rmsnorm_no_scale_bf16(
+                    kernels::norm::rmsnorm_no_scale_bf16(
                         ws.v.data(), ws.v.data(),
                         N * num_kv_heads_local, d, eps, stream);
                 }
@@ -2706,17 +2706,17 @@ void gemma4_forward_paged(
         dump_l0("o_proj_out", ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H);
         if (!dbg_dumps_enabled()) {
-            kernels::launch_rmsnorm_residual_add_scale_rmsnorm_bf16(
+            kernels::norm::rmsnorm_residual_add_scale_rmsnorm_bf16(
                 ws.norm_x.data(), layer.attn_norm_post->data(), ws.y.data(),
                 1.f, layer.mlp_norm_pre->data(), ws.norm_x.data(),
                 N, H, eps, stream);
         } else {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), layer.attn_norm_post->data(), ws.norm_y.data(),
                 N, H, eps, stream);
             dump_l0("attn_norm_post", ws.norm_y.data(),
                     static_cast<std::size_t>(N) * H);
-            kernels::launch_residual_add_rmsnorm_bf16(
+            kernels::norm::residual_add_rmsnorm_bf16(
                 ws.y.data(), ws.norm_y.data(), layer.mlp_norm_pre->data(),
                 ws.norm_x.data(), N, H, eps, stream);
         }
@@ -2785,7 +2785,7 @@ void gemma4_forward_paged(
                                 layer.router_proj != nullptr;
         if (moe_active) {
             // branch_1 = post_feedforward_layernorm_1(dense_out)
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), layer.mlp_norm_post_dense->data(),
                 ws.norm_y.data(), N, H, eps, stream);
             // experts → moe_ws.moe_out (raw, no post-norm).
@@ -2796,34 +2796,34 @@ void gemma4_forward_paged(
             // branch_2 = post_feedforward_layernorm_2(moe_out) → norm_x
             // (norm_x's prior contents — dense_out — are no longer
             // needed).
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 moe_ws.moe_out.data(), layer.moe_norm_post->data(),
                 ws.norm_x.data(), N, H, eps, stream);
             // combined = branch_1 + branch_2 (in norm_y).
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.norm_y.data(), ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, stream);
             // final = post_feedforward_layernorm(combined) → norm_x.
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_y.data(), layer.mlp_norm_post->data(),
                 ws.norm_x.data(), N, H, eps, stream);
             dump_l0("mlp_norm_post", ws.norm_x.data(),
                     static_cast<std::size_t>(N) * H);
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, stream);
         } else {
             if (!dbg_dumps_enabled()) {
-                kernels::launch_rmsnorm_residual_add_bf16(
+                kernels::norm::rmsnorm_residual_add_bf16(
                     ws.norm_x.data(), layer.mlp_norm_post->data(),
                     ws.y.data(), N, H, eps, stream);
             } else {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.norm_x.data(), layer.mlp_norm_post->data(),
                     ws.norm_y.data(), N, H, eps, stream);
                 dump_l0("mlp_norm_post", ws.norm_y.data(),
                         static_cast<std::size_t>(N) * H);
-                kernels::launch_residual_add_bf16(
+                kernels::norm::residual_add_bf16(
                     ws.y.data(), ws.norm_y.data(),
                     static_cast<std::size_t>(N) * H, stream);
             }
@@ -2876,25 +2876,25 @@ void gemma4_forward_paged(
             ws.norm_x.data(), layer.ple_projection->data(), ws.norm_y.data(),
             N, H, ple_dim, /*beta=*/0.f);
         if (l + 1 < debug_max_layers && !dbg_dumps_enabled()) {
-            kernels::launch_rmsnorm_residual_add_scale_rmsnorm_bf16(
+            kernels::norm::rmsnorm_residual_add_scale_rmsnorm_bf16(
                 ws.norm_y.data(), layer.ple_norm->data(), ws.y.data(),
                 layer_scalar, w.layers[l + 1].attn_norm_pre->data(),
                 ws.norm_x.data(), N, H, eps, stream);
             scalar_applied_in_ple = true;
             next_attn_norm_ready = true;
         } else {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_y.data(), layer.ple_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
         if (l + 1 < debug_max_layers) {
-            kernels::launch_residual_add_scale_rmsnorm_bf16(
+            kernels::norm::residual_add_scale_rmsnorm_bf16(
                 ws.y.data(), ws.norm_y.data(), layer_scalar,
                 w.layers[l + 1].attn_norm_pre->data(), ws.norm_x.data(),
                 N, H, eps, stream);
             scalar_applied_in_ple = true;
             next_attn_norm_ready = true;
         } else {
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.norm_y.data(),
                 static_cast<std::size_t>(N) * H, stream);
         }
@@ -2913,7 +2913,7 @@ void gemma4_forward_paged(
 
         // ── 3d. Per-layer learnable scalar ────────────────────────────
         if (layer_scalar_active && !scalar_applied_in_ple) {
-            kernels::launch_scalar_mul_bf16(
+            kernels::norm::scalar_mul_bf16(
                 ws.y.data(), layer_scalar,
                 static_cast<std::size_t>(N) * H, stream);
         }
@@ -2941,10 +2941,10 @@ void gemma4_forward_paged(
         // rows, then compact only the expensive lm_head input.
         profile_gemma4_cuda_stage(
             profile, profile.final_norm_ms, stream, [&] {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.y.data(), w.final_norm->data(), ws.norm_x.data(),
                     N, H, eps, stream);
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.norm_x.data()),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_y.data()),
@@ -2955,7 +2955,7 @@ void gemma4_forward_paged(
     } else {
         profile_gemma4_cuda_stage(
             profile, profile.final_norm_ms, stream, [&] {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.y.data(), w.final_norm->data(), ws.norm_x.data(),
                     N, H, eps, stream);
             });

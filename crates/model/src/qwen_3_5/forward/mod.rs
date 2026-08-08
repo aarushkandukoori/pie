@@ -52,7 +52,7 @@ use model_compiler::trace::{
 ///
 /// | trace op                       | hand-written kernel(s)                      |
 /// |--------------------------------|---------------------------------------------|
-/// | Rmsnorm(mlp_norm)              | launch_rmsnorm_gemma_bf16                   |
+/// | Rmsnorm(mlp_norm)              | kernels::norm::rmsnorm_gemma_bf16                   |
 /// | Matmul(router)                 | ops::gemm_act_x_wt_bf16 (router logits)     |
 /// | TopK                           | launch_topk_softmax_bf16                    |
 /// | Matmul(expert.{e}.gate_up, sel)| grouped GEMM (batched/aligned/CUTLASS)      |
@@ -64,7 +64,7 @@ use model_compiler::trace::{
 /// | Matmul(shared_expert.down)     | ops::gemm_act_x_w                           |
 /// | Matmul(shared_expert_gate)     | ops::gemm_act_x_w ([Tokens, 1] logit)       |
 /// | SigmoidGateAdd                 | kernels::mlp::sigmoid_scalar_gate_add_bf16         |
-/// | ResidualAdd                    | launch_residual_add_bf16                    |
+/// | ResidualAdd                    | kernels::norm::residual_add_bf16                    |
 ///
 /// The five shared-expert ops fold away when the facts say the checkpoint
 /// has none (`shared_expert_intermediate == 0`, the qwen3_moe shape), the
@@ -379,20 +379,20 @@ fn moe_mlp_body_cuda(
 ///
 /// | trace op                | hand-written kernel(s)                          |
 /// |-------------------------|--------------------------------------------------|
-/// | Rmsnorm(attn_norm)      | launch_rmsnorm_gemma_bf16                        |
+/// | Rmsnorm(attn_norm)      | kernels::norm::rmsnorm_gemma_bf16                        |
 /// | Matmul(in_proj_qkv)     | ops::gemm_act_x_w                                |
 /// | Matmul(in_proj_z)       | ops::gemm_act_x_w                                |
 /// | Matmul(in_proj_a)       | ops::gemm_act_x_w                                |
 /// | Matmul(in_proj_b)       | ops::gemm_act_x_w                                |
 /// | CausalConv1d            | launch_causal_conv1d_update[_batched]_bf16       |
-/// | GdnPrep                 | launch_qwen_gdn_post_conv_prep_bf16              |
+/// | GdnPrep                 | kernels::ssm::qwen_gdn_post_conv_prep_bf16              |
 /// | GatedDelta              | launch_recurrent_gated_delta_step_* (decode)     |
-/// | RmsnormGated            | launch_rmsnorm_gated_fp32_in_bf16                |
+/// | RmsnormGated            | kernels::norm::rmsnorm_gated_fp32_in_bf16                |
 /// | Matmul(o_proj)+res      | ops::gemm_act_x_w beta=1                         |
 ///
 /// With the fused binding (`fused_in_proj`, `PIE_QWEN35_FUSED_GDN_PROJ`)
 /// the four projections become two matmuls + two [`SplitGdn`] launches
-/// (`launch_split_bf16_rows`, `launch_split_qwen_gdn_ba_bf16`) — same op
+/// (`kernels::layout::split_bf16_rows`, `kernels::layout::split_qwen_gdn_ba_bf16`) — same op
 /// count, different ops, resolved at trace time like llama_like's
 /// `fused_qkv`.
 ///
@@ -682,13 +682,13 @@ fn gdn_attn_body_cuda(
 ///
 /// | trace op                  | hand-written kernel(s)                       |
 /// |---------------------------|-----------------------------------------------|
-/// | Rmsnorm(attn_norm)        | launch_rmsnorm_gemma_bf16                     |
+/// | Rmsnorm(attn_norm)        | kernels::norm::rmsnorm_gemma_bf16                     |
 /// | Matmul(q_proj) [2×-wide]  | ops::gemm_act_x_w → [N, 2·Hq]                 |
 /// | Matmul(k_proj)            | ops::gemm_act_x_w → [N, Hk]                   |
 /// | Matmul(v_proj)            | ops::gemm_act_x_w → [N, Hk]                   |
-/// | SplitQGate                | launch_split_q_gate_bf16 (per-head q‖gate)    |
-/// | RmsnormPerHead(q, Gemma)  | launch_rmsnorm_gemma_bf16 over N·Hq rows of d |
-/// | RmsnormPerHead(k, Gemma)  | launch_rmsnorm_gemma_bf16 over N·Hkv rows of d|
+/// | SplitQGate                | kernels::layout::split_q_gate_bf16 (per-head q‖gate)    |
+/// | RmsnormPerHead(q, Gemma)  | kernels::norm::rmsnorm_gemma_bf16 over N·Hq rows of d |
+/// | RmsnormPerHead(k, Gemma)  | kernels::norm::rmsnorm_gemma_bf16 over N·Hkv rows of d|
 /// | Rope(partial)             | kernels::rope::rope_partial_bf16 (rotary_dim chans)   |
 /// | KvAppend                  | launch_write_kv_to_pages / _explicit          |
 /// | Attention                 | dispatch_attention_flashinfer_{decode,prefill}|
@@ -1029,8 +1029,8 @@ fn dense_mlp_body_cuda(
 /// marking and binding facts holds here per layer.
 ///
 /// Mirrors `qwen3_5_forward.cpp::qwen3_5_forward_paged`'s walk: embed
-/// (`launch_embed_bf16`) → per layer {pre-attn norm + attention body,
-/// pre-MLP norm + MLP body} → final norm (`launch_rmsnorm_gemma_bf16`) →
+/// (`kernels::layout::embed_bf16`) → per layer {pre-attn norm + attention body,
+/// pre-MLP norm + MLP body} → final norm (`kernels::norm::rmsnorm_gemma_bf16`) →
 /// lm_head (`gemm_act_x_w`). The compact-logit gather, the state-only and
 /// commit-advance fires, MTP and the verify/rs-buffer services are
 /// per-fire services around this one pass, not ops of it.
@@ -2095,11 +2095,11 @@ mod tests {
         assert_eq!(
             kernels,
             [
-                "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16",
-                "launch_repeat_interleave_heads_fp32",
-                "launch_repeat_interleave_heads_fp32",
-                "launch_chunk_gated_delta_prefill_batched_cached_state_bf16",
-                "launch_chunk_gated_delta_prefill_batched_state_bf16",
+                "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16",
+                "ssm::repeat_interleave_heads_fp32",
+                "ssm::repeat_interleave_heads_fp32",
+                "ssm::chunk_gated_delta_prefill_batched_cached_state_bf16",
+                "ssm::chunk_gated_delta_prefill_batched_state_bf16",
             ]
         );
         // Region launches are output-less lowerings of the guard's value,
@@ -2119,7 +2119,7 @@ mod tests {
         assert!(decode.ops.iter().any(|op| matches!(
             &op.kind,
             OpKind::Launch { kernel, .. }
-                if kernel == "launch_recurrent_gated_delta_step_batched_gqa_state_bf16"
+                if kernel == "ssm::recurrent_gated_delta_step_batched_gqa_state_bf16"
         )));
     }
 

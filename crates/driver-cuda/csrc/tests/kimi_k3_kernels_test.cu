@@ -26,10 +26,10 @@
 #include "kernels/swiglu.hpp"
 
 using pie_cuda_driver::kernels::launch_attn_res_blend_bf16;
-using pie_cuda_driver::kernels::launch_kda_gate_beta_bf16;
-using pie_cuda_driver::kernels::launch_kda_o_norm_gated_bf16;
-using pie_cuda_driver::kernels::launch_kda_prefill_batched;
-using pie_cuda_driver::kernels::launch_kda_recurrent_step_batched;
+using pie_cuda_driver::kernels::ssm::kda_gate_beta_bf16;
+using pie_cuda_driver::kernels::ssm::kda_o_norm_gated_bf16;
+using pie_cuda_driver::kernels::ssm::kda_prefill_batched;
+using pie_cuda_driver::kernels::ssm::kda_recurrent_step_batched;
 using pie_cuda_driver::kernels::mlp::situ_bf16;
 
 namespace {
@@ -214,7 +214,7 @@ void test_kda() {
     CUDA_OK(cudaMalloc(&d_gate, (std::size_t)T * H * D * sizeof(float)));
     CUDA_OK(cudaMalloc(&d_beta, (std::size_t)T * H * sizeof(float)));
 
-    launch_kda_gate_beta_bf16(d_raw_g, d_raw_beta, d_A, d_dt, d_gate, d_beta, T,
+    kernels::ssm::kda_gate_beta_bf16(d_raw_g, d_raw_beta, d_A, d_dt, d_gate, d_beta, T,
                               H, D, kLowerBound, nullptr);
     CUDA_OK(cudaDeviceSynchronize());
 
@@ -270,7 +270,7 @@ void test_kda() {
     float* d_out = nullptr;
     CUDA_OK(cudaMalloc(&d_out, (std::size_t)T * H * D * sizeof(float)));
 
-    launch_kda_prefill_batched(d_q, d_k, d_v, d_gate, d_beta, d_state,
+    kernels::ssm::kda_prefill_batched(d_q, d_k, d_v, d_gate, d_beta, d_state,
                                d_slots, d_indptr, slot_stride, d_out, R, H, D,
                                nullptr);
     CUDA_OK(cudaDeviceSynchronize());
@@ -332,7 +332,7 @@ void test_kda() {
     float* d_dout = nullptr;
     CUDA_OK(cudaMalloc(&d_dout, (std::size_t)R * H * D * sizeof(float)));
 
-    launch_kda_recurrent_step_batched(d_dq, d_dk, d_dv, d_dgate, d_dbeta,
+    kernels::ssm::kda_recurrent_step_batched(d_dq, d_dk, d_dv, d_dgate, d_dbeta,
                                       d_state, d_slots, slot_stride, d_dout, R,
                                       H, D, nullptr);
     CUDA_OK(cudaDeviceSynchronize());
@@ -382,7 +382,7 @@ void test_kda_o_norm() {
     __nv_bfloat16* d_out = nullptr;
     CUDA_OK(cudaMalloc(&d_out, (std::size_t)T * H * D * sizeof(__nv_bfloat16)));
 
-    launch_kda_o_norm_gated_bf16(d_o, d_g, d_w, d_out, T, H, D, kEps, nullptr);
+    kernels::ssm::kda_o_norm_gated_bf16(d_o, d_g, d_w, d_out, T, H, D, kEps, nullptr);
     CUDA_OK(cudaDeviceSynchronize());
 
     std::vector<__nv_bfloat16> h_out(T * H * D);

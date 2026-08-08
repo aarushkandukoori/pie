@@ -6,9 +6,9 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::layout {
 
-void launch_gather_bf16_rows(
+void gather_bf16_rows(
     const std::uint16_t* src,        // [num_src_rows, vocab] bf16
     const std::int32_t*  row_indices, // [num_dst_rows] device — source rows
     std::uint16_t*       dst,         // [num_dst_rows, vocab] bf16
@@ -16,7 +16,7 @@ void launch_gather_bf16_rows(
     int                  vocab,
     cudaStream_t         stream);
 
-void launch_transpose_bf16_nld_to_lnd(
+void transpose_bf16_nld_to_lnd(
     const std::uint16_t* src,        // [N, L, D] bf16
     std::uint16_t*       dst,        // [L, N, D] bf16
     int                  n,
@@ -24,7 +24,7 @@ void launch_transpose_bf16_nld_to_lnd(
     int                  dim,
     cudaStream_t         stream);
 
-void launch_embed_scaled_concat_bf16(
+void embed_scaled_concat_bf16(
     const std::int32_t* token_ids,    // [rows]
     const void*         embed_weight, // [vocab, hidden] bf16
     const std::uint16_t* hidden,      // [rows, hidden] bf16
@@ -36,4 +36,4 @@ void launch_embed_scaled_concat_bf16(
     bool                 hidden_first,
     cudaStream_t         stream);
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::layout

@@ -133,7 +133,7 @@ inline void maybe_add_bias(
     int N, int dim, cudaStream_t stream)
 {
     if (bias_tensor == nullptr) return;
-    kernels::launch_add_bias_bf16(out, bias_tensor->data(), N, dim, stream);
+    kernels::norm::add_bias_bf16(out, bias_tensor->data(), N, dim, stream);
 }
 
 // Row `row` of a row-major bf16 buffer of width `width`. Used to hand a
@@ -1744,7 +1744,7 @@ void llama_like_forward_paged(
         : -1.f;  // -1 = let the dispatch pick `1/sqrt(dk)`
 
     // 1. Embed.
-    kernels::launch_embed_bf16(
+    kernels::layout::embed_bf16(
         token_ids, w.embed->data(), ws.y.data(),
         N, H, cfg.vocab_size, stream);
 
@@ -1866,7 +1866,7 @@ void llama_like_forward_paged(
         const void* qkv_in = ws.y.data();
         if (!post_norm) {
             if (!have_next_attn_norm) {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.y.data(), layer.attn_norm->data(), ws.norm_x.data(),
                     N, H, eps, stream);
             }
@@ -2058,10 +2058,10 @@ void llama_like_forward_paged(
             const bool global_norm = (w->shape().size() == 1 &&
                                       w->shape()[0] == per_rank_H);
             if (global_norm) {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     x, w->data(), x, N, per_rank_H, eps, stream);
             } else {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     x, w->data(), x,
                     N * num_heads_local, d, eps, stream);
             }
@@ -2717,7 +2717,7 @@ void llama_like_forward_paged(
                 } else {
                     tp->all_reduce_bf16_out(ws.norm_x.data(), ws.norm_y.data(),
                         static_cast<std::size_t>(N) * H, ncclSum, stream);
-                    kernels::launch_residual_add_rmsnorm_bf16(
+                    kernels::norm::residual_add_rmsnorm_bf16(
                         ws.y.data(), ws.norm_y.data(), layer.mlp_norm->data(),
                         ws.norm_y.data(), N, H, eps, stream);
                 }
@@ -2733,10 +2733,10 @@ void llama_like_forward_paged(
                 tp->all_reduce_bf16(ws.norm_x.data(),
                     static_cast<std::size_t>(N) * H, ncclSum, stream);
             }
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), layer.attn_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.norm_y.data(), N * H, stream);
         }
 
@@ -2744,7 +2744,7 @@ void llama_like_forward_paged(
         const void* mlp_in = ws.y.data();
         if (!post_norm) {
             if (!have_mlp_norm) {
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.y.data(), layer.mlp_norm->data(), ws.norm_y.data(),
                     N, H, eps, stream);
             }
@@ -2805,7 +2805,7 @@ void llama_like_forward_paged(
                 } else {
                     tp->all_reduce_bf16_out(ws.norm_x.data(), ws.norm_y.data(),
                         static_cast<std::size_t>(N) * H, ncclSum, stream);
-                    kernels::launch_residual_add_bf16(
+                    kernels::norm::residual_add_bf16(
                         ws.y.data(), ws.norm_y.data(), N * H, stream);
                 }
             }
@@ -2818,10 +2818,10 @@ void llama_like_forward_paged(
                 tp->all_reduce_bf16(ws.norm_x.data(),
                     static_cast<std::size_t>(N) * H, ncclSum, stream);
             }
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.norm_x.data(), layer.mlp_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.norm_y.data(), N * H, stream);
         }
 
@@ -2834,7 +2834,7 @@ void llama_like_forward_paged(
             const auto* ds = static_cast<const std::uint16_t*>(
                                  vision->deepstack_scratch) +
                              static_cast<std::size_t>(L) * N * H;
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ds, static_cast<std::size_t>(N) * H, stream);
         }
     };
@@ -3055,19 +3055,19 @@ void llama_like_forward_paged(
         int lm_head_rows = N;
         if (compact_logits) {
             if (have_final_norm) {
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(final_norm_buf),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_x.data()),
                     num_logit_rows, H, stream);
                 lm_head_input = ws.norm_x.data();
             } else {
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.y.data()),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_x.data()),
                     num_logit_rows, H, stream);
-                kernels::launch_rmsnorm_bf16(
+                kernels::norm::rmsnorm_bf16(
                     ws.norm_x.data(), w.final_norm->data(), ws.norm_y.data(),
                     num_logit_rows, H, eps, stream);
                 lm_head_input = ws.norm_y.data();
@@ -3083,7 +3083,7 @@ void llama_like_forward_paged(
             // the full pre-norm hidden (the fused-AR updates it in place via
             // `residual_inout`), so `rmsnorm(ws.y)` reproduces the correct
             // final-normed activation.
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), w.final_norm->data(), ws.norm_y.data(),
                 N, H, eps, stream);
             lm_head_input = ws.norm_y.data();

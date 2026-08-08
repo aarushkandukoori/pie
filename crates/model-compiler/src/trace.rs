@@ -361,14 +361,14 @@ pub enum OpKind {
     /// Qwen-2 family's attention biases (`{q,k,v}_proj.bias`), applied to
     /// the raw projections after the lora correction and before
     /// norms/rope — the hand-written `maybe_add_bias` position
-    /// (llama_like.cpp). The kernel is 1:1 (`launch_add_bias_bf16`), so
+    /// (llama_like.cpp). The kernel is 1:1 (`kernels::norm::add_bias_bf16`), so
     /// the semantic and lowered traces state the same op.
     AddBias { weight: String },
     /// Per-head RMSNorm of packed `[rows, heads * head_dim]` Q or K.
     /// `variant` selects the weight fold exactly as on [`OpKind::Rmsnorm`]:
     /// qwen3/olmo-style checkpoints multiply `w` directly (`Plain`), while
     /// qwen3.5's full-attention q/k norms fold `(1 + w)` (`Gemma` —
-    /// `full_attn_layer_body` launches `launch_rmsnorm_gemma_bf16` over
+    /// `full_attn_layer_body` launches `kernels::norm::rmsnorm_gemma_bf16` over
     /// `N * heads` rows of `head_dim`). Serde-defaulted to `Plain` and
     /// skipped there, so every pre-variant golden stays byte-identical.
     RmsnormPerHead {
@@ -412,7 +412,7 @@ pub enum OpKind {
     /// the residual stream by its own launch, because the norm between the
     /// projection GEMM and the add is what makes the pre-norm `beta=1`
     /// fold impossible. A separate op because it is a separate launch in
-    /// the hand-written pass (`launch_residual_add_bf16`).
+    /// the hand-written pass (`kernels::norm::residual_add_bf16`).
     ResidualAdd,
     /// The WINDOW of a value along its leading dim — `x[index]`.
     ///
@@ -458,7 +458,7 @@ pub enum OpKind {
     /// Split a packed `[rows, w0 + w1]` value at `w0` into two (two
     /// results). The GDN in-projection splits when the deployment binds the
     /// fused banks: `in_proj_qkvz` → (mixed qkv, z gate) and `in_proj_ba` →
-    /// (b, a) — `launch_split_bf16_rows` and `launch_split_qwen_gdn_ba_bf16`
+    /// (b, a) — `kernels::layout::split_bf16_rows` and `kernels::layout::split_qwen_gdn_ba_bf16`
     /// respectively, one op each because each is one launch. Distinct from
     /// [`OpKind::SplitQkv`], which is the three-way attention split.
     SplitGdn { width0: u32, width1: u32 },
@@ -477,7 +477,7 @@ pub enum OpKind {
         layer: u32,
         kernel: u32,
     },
-    /// The post-conv GDN prep (`launch_qwen_gdn_post_conv_prep_bf16`): one
+    /// The post-conv GDN prep (`kernels::ssm::qwen_gdn_post_conv_prep_bf16`): one
     /// launch that unpacks the conv output's `[q_raw | k_raw | v_raw]`,
     /// L2-normalizes q/k into compact per-head fp32, converts v to fp32,
     /// and folds `a`/`b` with the `a_log`/`dt_bias` parameters into the
@@ -497,7 +497,7 @@ pub enum OpKind {
     /// lowerings the backend picks per fire. `layer` marks the implicit
     /// per-request state slab ([`OpKind::state_ref`]).
     GatedDelta { layer: u32 },
-    /// Gated RMSNorm (`launch_rmsnorm_gated_fp32_in_bf16`): per (row,
+    /// Gated RMSNorm (`kernels::norm::rmsnorm_gated_fp32_in_bf16`): per (row,
     /// head), `out = w * rmsnorm(x) * silu(gate)`, normalizing the trailing
     /// head dim of the rank-3 f32 core output and flattening to the gate's
     /// `[Tokens, Vh * Vd]` bf16 shape (the fp32→bf16 conversion is fused
@@ -509,7 +509,7 @@ pub enum OpKind {
     RmsnormGated { weight: String },
     /// The interleaved per-head `[query | gate]` split of qwen3.5 full
     /// attention's 2×-wide gated q projection
-    /// (`launch_split_q_gate_bf16`): the packed `[rows, heads * 2 *
+    /// (`kernels::layout::split_q_gate_bf16`): the packed `[rows, heads * 2 *
     /// head_dim]` input carries, PER HEAD, `head_dim` query channels then
     /// `head_dim` gate channels — `q[n, h*d + i] = packed[n, h*2d + i]`,
     /// `gate[n, h*d + i] = packed[n, h*2d + d + i]` — so this is NOT a row

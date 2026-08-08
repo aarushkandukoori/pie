@@ -212,7 +212,7 @@ impl LlamaLikeFacts {
     ///   `post_attention_layernorm` + `post_feedforward_layernorm` and NO
     ///   `input_layernorm`; each sub-layer reads the residual stream raw,
     ///   norms its own output, and a separate residual add lands it
-    ///   (`launch_residual_add_bf16` in the hand-written post-norm walk).
+    ///   (`kernels::norm::residual_add_bf16` in the hand-written post-norm walk).
     /// * `qk_norm: Global` — the checkpoint's `q_norm`/`k_norm` weights
     ///   are shape `[2048]` = heads x head_dim (verified against the
     ///   safetensors header), NOT `[128]`: one RMSNorm over the flattened

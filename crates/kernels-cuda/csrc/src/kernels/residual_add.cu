@@ -2,7 +2,7 @@
 
 #include <cuda_bf16.h>
 
-namespace pie_cuda_driver::kernels {
+namespace pie_cuda_driver::kernels::norm {
 
 namespace {
 
@@ -22,7 +22,7 @@ __global__ void residual_add_bf16_kernel(
 
 }  // namespace
 
-void launch_residual_add_bf16(
+void residual_add_bf16(
     void* y, const void* x,
     std::size_t n,
     cudaStream_t stream)
@@ -35,4 +35,4 @@ void launch_residual_add_bf16(
         n);
 }
 
-}  // namespace pie_cuda_driver::kernels
+}  // namespace pie_cuda_driver::kernels::norm

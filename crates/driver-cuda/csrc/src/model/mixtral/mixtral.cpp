@@ -420,7 +420,7 @@ void mixtral_forward_paged(
         lse_ptr = d_lse.data();
     }
 
-    kernels::launch_embed_bf16(
+    kernels::layout::embed_bf16(
         token_ids, w.embed->data(), ws.y.data(), N, H, V, stream);
 
     ops::DecodePlanCachePtr decode_plan;
@@ -772,7 +772,7 @@ void mixtral_forward_paged(
 
         // ── Attention block (identical to llama_like pre-norm path) ──
         if (prof.enabled) prof.open(&prof.attn, stream);
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.y.data(), layer.attn_norm->data(), ws.norm_x.data(),
             N, H, eps, stream);
         // Bias folded into the projection: at decode these route to the
@@ -985,7 +985,7 @@ void mixtral_forward_paged(
                 ws.norm_x.data(), N, H, Hq, stream);
             tp->all_reduce_bf16(ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, ncclSum, stream);
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.norm_x.data(), N * H, stream);
         }
 
@@ -995,7 +995,7 @@ void mixtral_forward_paged(
         // The MoE input is wanted in fp16 by the decode GEMV, and this norm is
         // where it is produced; emitting both here retires the cast kernel
         // that used to read it straight back.
-        kernels::launch_rmsnorm_bf16_with_fp16(
+        kernels::norm::rmsnorm_bf16_with_fp16(
             ws.y.data(), layer.mlp_norm->data(), ws.norm_y.data(),
             d_mxfp4_act_fp16.data(),
             N, H, eps, stream);
@@ -1274,7 +1274,7 @@ void mixtral_forward_paged(
                 tp->all_reduce_bf16(d_mxfp4_moe_out.data(),
                     static_cast<std::size_t>(N) * H, ncclSum, stream);
             }
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), d_mxfp4_moe_out.data(), N * H, stream);
             continue;
         }
@@ -1285,7 +1285,7 @@ void mixtral_forward_paged(
             const int routes = N * top_k;
             if (prof.enabled) { prof.close(stream); prof.open(&prof.moe_align, stream); }
             // No cast here: the mlp_norm above already emitted this exact
-            // buffer. `launch_rmsnorm_bf16_with_fp16` writes ws.norm_y and its
+            // buffer. `kernels::norm::rmsnorm_bf16_with_fp16` writes ws.norm_y and its
             // fp16 image in one pass, `d_mxfp4_act_fp16` is only allocated
             // when use_mxfp4_decode_gemv (the condition guarding this branch),
             // and nothing between the two writes ws.norm_y. Re-casting it cost
@@ -1388,7 +1388,7 @@ void mixtral_forward_paged(
                     N, top_k, H, stream);
                 tp->all_reduce_bf16(d_mxfp4_moe_out.data(),
                     static_cast<std::size_t>(N) * H, ncclSum, stream);
-                kernels::launch_residual_add_bf16(
+                kernels::norm::residual_add_bf16(
                     ws.y.data(), d_mxfp4_moe_out.data(), N * H, stream);
             }
             if (prof.enabled) prof.close(stream);   // moe_reduce
@@ -1458,7 +1458,7 @@ void mixtral_forward_paged(
                 Ne * sizeof(float), cudaMemcpyHostToDevice, stream));
 
             // Gather norm_y rows routed to this expert.
-            kernels::launch_gather_bf16_rows(
+            kernels::layout::gather_bf16_rows(
                 static_cast<const std::uint16_t*>(ws.norm_y.data()),
                 d_expert_idx.data(),
                 d_expert_in.data(),
@@ -1513,10 +1513,10 @@ void mixtral_forward_paged(
                     ops::WeightView::mxfp4_marlin(
                         *expert.w_up_mxfp4, *expert.w_up_mxfp4_scale),
                     d_expert_up.data(), Ne, Ip, H);
-                if (expert.b_gate) kernels::launch_add_bias_bf16_strided(
+                if (expert.b_gate) kernels::norm::add_bias_bf16_strided(
                     d_expert_gate.data(), expert.b_gate->data(), Ne, I, Ip,
                     stream);
-                if (expert.b_up) kernels::launch_add_bias_bf16_strided(
+                if (expert.b_up) kernels::norm::add_bias_bf16_strided(
                     d_expert_up.data(), expert.b_up->data(), Ne, I, Ip,
                     stream);
                 if (cfg.swiglu_limit > 0.f) {
@@ -1536,7 +1536,7 @@ void mixtral_forward_paged(
                     ops::WeightView::mxfp4_marlin(
                         *expert.w_down_mxfp4, *expert.w_down_mxfp4_scale),
                     d_expert_out.data(), Ne, H, Ip);
-                if (expert.b_down && tp_is_leader) kernels::launch_add_bias_bf16(
+                if (expert.b_down && tp_is_leader) kernels::norm::add_bias_bf16(
                     d_expert_out.data(), expert.b_down->data(), Ne, H, stream);
                 kernels::launch_scatter_add_weighted_bf16(
                     moe_target, d_expert_out.data(),
@@ -1567,7 +1567,7 @@ void mixtral_forward_paged(
                         expert.w_down_scale->data()),
                     w.mxfp4_down_bf16_scratch.data(),
                     H, I, stream);
-                kernels::launch_deinterleave_rows_bf16(
+                kernels::layout::deinterleave_rows_bf16(
                     w.mxfp4_gate_up_bf16_scratch.data(),
                     w.mxfp4_gate_bf16_scratch.data(),
                     w.mxfp4_up_bf16_scratch.data(),
@@ -1586,9 +1586,9 @@ void mixtral_forward_paged(
             ops::gemm_act_x_wt_bf16(cublas.handle(),
                 d_expert_in.data(), up_w,
                 d_expert_up.data(), Ne, I, H);
-            if (expert.b_gate) kernels::launch_add_bias_bf16(
+            if (expert.b_gate) kernels::norm::add_bias_bf16(
                 d_expert_gate.data(), expert.b_gate->data(), Ne, I, stream);
-            if (expert.b_up) kernels::launch_add_bias_bf16(
+            if (expert.b_up) kernels::norm::add_bias_bf16(
                 d_expert_up.data(), expert.b_up->data(), Ne, I, stream);
             if (cfg.swiglu_limit > 0.f) {
                 kernels::mlp::gpt_oss_glu_bf16(
@@ -1608,7 +1608,7 @@ void mixtral_forward_paged(
             // b_down is replicated across ranks; only the leader applies
             // it so the all-reduce sums it once. Plain Mixtral has no
             // b_down so this branch is dead until GPT-OSS.
-            if (expert.b_down && tp_is_leader) kernels::launch_add_bias_bf16(
+            if (expert.b_down && tp_is_leader) kernels::norm::add_bias_bf16(
                 d_expert_out.data(), expert.b_down->data(), Ne, H, stream);
 
             // Scatter into ws.y (TP=1) or moe_target scratch (TP>1) with
@@ -1622,7 +1622,7 @@ void mixtral_forward_paged(
         if (T > 1) {
             tp->all_reduce_bf16(ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, ncclSum, stream);
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 ws.y.data(), ws.norm_x.data(), N * H, stream);
         }
     }
@@ -1640,12 +1640,12 @@ void mixtral_forward_paged(
         num_logit_rows < N;
     const int lm_head_rows = compact_logits ? num_logit_rows : N;
     if (compact_logits) {
-        kernels::launch_gather_bf16_rows(
+        kernels::layout::gather_bf16_rows(
             static_cast<const std::uint16_t*>(ws.y.data()),
             logit_row_indices_d,
             static_cast<std::uint16_t*>(ws.norm_x.data()),
             num_logit_rows, H, stream);
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.norm_x.data(), w.final_norm->data(), ws.norm_y.data(),
             num_logit_rows, H, eps, stream);
         ops::gemm_act_x_wt_bf16(cublas.handle(),
@@ -1654,7 +1654,7 @@ void mixtral_forward_paged(
         if (prof.enabled) prof.close(stream);
         return;
     }
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.y.data(), w.final_norm->data(), ws.norm_x.data(),
         N, H, eps, stream);
     ops::gemm_act_x_wt_bf16(cublas.handle(),

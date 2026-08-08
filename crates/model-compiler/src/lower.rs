@@ -543,9 +543,9 @@ impl Lowerer<'_> {
         }
         let out = 0..sampled;
         if sampled < window.len() as u32 {
-            self.emit(at, "launch_gather_bf16_rows", op, &out)?;
+            self.emit(at, "layout::gather_bf16_rows", op, &out)?;
         }
-        self.emit(at, "launch_rmsnorm_bf16", op, &out)?;
+        self.emit(at, "norm::rmsnorm_bf16", op, &out)?;
         self.emit(at, "gemm_act_x_w", op, &out)?;
         Ok(())
     }
@@ -696,9 +696,9 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // table kernel. Stating that bracket is what `seam!` is for.
         HookSite { .. } => Semantic::Structural,
 
-        Embed { .. } => Semantic::Kernels(&["launch_embed_bf16"]),
-        AddBias { .. } => Semantic::Kernels(&["launch_add_bias_bf16"]),
-        ResidualAdd => Semantic::Kernels(&["launch_residual_add_bf16"]),
+        Embed { .. } => Semantic::Kernels(&["layout::embed_bf16"]),
+        AddBias { .. } => Semantic::Kernels(&["norm::add_bias_bf16"]),
+        ResidualAdd => Semantic::Kernels(&["norm::residual_add_bf16"]),
 
         // The GDN and full-attention kinds. Each is ONE kernel with no
         // branch — no fact to read, no variant to dispatch on, nothing
@@ -709,9 +709,9 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // Their operand plumbing (the per-layer `la.*` scratch, the fp32
         // parameter banks) is the EMITTER's, exactly as it is for the
         // kinds above — naming the symbol is what the lowering owes.
-        GdnPrep { .. } => Semantic::Kernels(&["launch_qwen_gdn_post_conv_prep_bf16"]),
-        RmsnormGated { .. } => Semantic::Kernels(&["launch_rmsnorm_gated_fp32_in_bf16"]),
-        SplitQGate { .. } => Semantic::Kernels(&["launch_split_q_gate_bf16"]),
+        GdnPrep { .. } => Semantic::Kernels(&["ssm::qwen_gdn_post_conv_prep_bf16"]),
+        RmsnormGated { .. } => Semantic::Kernels(&["norm::rmsnorm_gated_fp32_in_bf16"]),
+        SplitQGate { .. } => Semantic::Kernels(&["layout::split_q_gate_bf16"]),
         SigmoidGateMul => Semantic::Kernels(&["mlp::sigmoid_gate_inplace_bf16"]),
 
         // Gemma folds `(1 + w)` — different arithmetic, so a different
@@ -726,9 +726,9 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // both kinds fan onto the same pair.
         Rmsnorm { variant, .. } | RmsnormPerHead { variant, .. } => {
             Semantic::Kernels(if variant.is_plain() {
-                &["launch_rmsnorm_bf16"]
+                &["norm::rmsnorm_bf16"]
             } else {
-                &["launch_rmsnorm_gemma_bf16"]
+                &["norm::rmsnorm_gemma_bf16"]
             })
         }
 

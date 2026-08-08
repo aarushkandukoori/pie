@@ -333,9 +333,9 @@ void gemma3n_forward_paged(
         static_cast<std::size_t>(N) * H_ple);
 
     // ── Step 1: embed + sqrt(H) scale → ws.y (active stream's initial value). ──
-    kernels::launch_embed_bf16(
+    kernels::layout::embed_bf16(
         token_ids, w.embed->data(), ws.y.data(), N, H, V, stream);
-    kernels::launch_scalar_mul_bf16(
+    kernels::norm::scalar_mul_bf16(
         ws.y.data(), std::sqrt(static_cast<float>(H)),
         static_cast<std::size_t>(N) * H, stream);
 
@@ -343,28 +343,28 @@ void gemma3n_forward_paged(
     // per_layer_inputs = (per_layer_projection + embed_per_layer) / sqrt(2)
     //
     // 2a. embed_per_layer: lookup with sqrt(H_ple) scale, layout [N, L*H_ple].
-    kernels::launch_embed_bf16(
+    kernels::layout::embed_bf16(
         token_ids, w.embed_per_layer->data(), ple_embed_buf.data(),
         N, L_total * H_ple, V_ple, stream);
-    kernels::launch_scalar_mul_bf16(
+    kernels::norm::scalar_mul_bf16(
         ple_embed_buf.data(), std::sqrt(static_cast<float>(H_ple)),
         static_cast<std::size_t>(N) * L_total * H_ple, stream);
     // 2b. per_layer_model_projection @ ws.y → [N, L*H_ple], then * 1/sqrt(H).
     ops::gemm_act_x_wt_bf16(cublas.handle(),
         ws.y.data(), w.ple_model_proj->data(), ple_proj_buf.data(),
         N, L_total * H_ple, H);
-    kernels::launch_scalar_mul_bf16(
+    kernels::norm::scalar_mul_bf16(
         ple_proj_buf.data(), 1.f / std::sqrt(static_cast<float>(H)),
         static_cast<std::size_t>(N) * L_total * H_ple, stream);
     // 2c. per_layer_projection_norm: RMSNorm on each H_ple chunk.
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ple_proj_buf.data(), w.ple_model_proj_norm->data(), ple_proj_buf.data(),
         N * L_total, H_ple, eps, stream);
     // 2d. ple_proj_buf += ple_embed_buf, then * 1/sqrt(2).
-    kernels::launch_residual_add_bf16(
+    kernels::norm::residual_add_bf16(
         ple_proj_buf.data(), ple_embed_buf.data(),
         static_cast<std::size_t>(N) * L_total * H_ple, stream);
-    kernels::launch_scalar_mul_bf16(
+    kernels::norm::scalar_mul_bf16(
         ple_proj_buf.data(), sqrt2_inv,
         static_cast<std::size_t>(N) * L_total * H_ple, stream);
     // 2e. Transpose [N, L*H_ple] → [L, N, H_ple]. We do it via N strided
@@ -403,13 +403,13 @@ void gemma3n_forward_paged(
         cudaMemcpyDeviceToDevice, stream));
     // HF hardcodes magnitude-rescale eps to 1e-5, separate from rms_norm_eps.
     constexpr float kAltupEps = 1e-5f;
-    kernels::launch_compute_rms_bf16(ws.y.data(), target_rms.data(), N, H, kAltupEps, stream);
+    kernels::norm::compute_rms_bf16(ws.y.data(), target_rms.data(), N, H, kAltupEps, stream);
     for (int k = 1; k < K; ++k) {
         std::uint16_t* dst = static_cast<std::uint16_t*>(streams_in)
             + static_cast<std::size_t>(k) * N * H;
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             ws.y.data(), w.altup_projections[k - 1]->data(), dst, N, H, H);
-        kernels::launch_magnitude_rescale_bf16(
+        kernels::norm::magnitude_rescale_bf16(
             dst, target_rms.data(), N, H, kAltupEps, stream);
     }
 
@@ -441,27 +441,27 @@ void gemma3n_forward_paged(
 
         // ── AltUp.predict ──
         // 1. modalities = tanh(modality_router(router_norm(active_in) / H))
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             active_in, layer.altup_router_norm->data(),
             router_in_buf.data(), N, H, eps, stream);
-        kernels::launch_scalar_mul_bf16(
+        kernels::norm::scalar_mul_bf16(
             router_in_buf.data(), router_scale,
             static_cast<std::size_t>(N) * H, stream);
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             router_in_buf.data(), layer.altup_modality_router->data(),
             modality_buf.data(), N, K, H);
-        kernels::launch_tanh_bf16(modality_buf.data(), N * K, stream);
+        kernels::norm::tanh_bf16(modality_buf.data(), N * K, stream);
 
         // 2. all_coefs = prediction_coefs(modalities) → [N, K*K], then
         //    unpack/permute to fp32 [N, K, K].
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             modality_buf.data(), layer.altup_prediction_coefs->data(),
             pred_coefs_bf16.data(), N, K * K, K);
-        kernels::launch_altup_unpack_predict_coefs(
+        kernels::norm::altup_unpack_predict_coefs(
             pred_coefs_bf16.data(), pred_coefs_fp32.data(), N, K, stream);
 
         // 3. predict: predictions = streams_in + Σ_j coefs[t,j,k] · streams_in[j].
-        kernels::launch_altup_predict_bf16(
+        kernels::norm::altup_predict_bf16(
             streams_in, pred_coefs_fp32.data(), streams_out,
             K, N, H, stream);
 
@@ -476,7 +476,7 @@ void gemma3n_forward_paged(
             cudaMemcpyDeviceToDevice, stream));
 
         // Pre-attention norm.
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.y.data(), layer.attn_norm_pre->data(), ws.norm_x.data(),
             N, H, eps, stream);
 
@@ -487,10 +487,10 @@ void gemma3n_forward_paged(
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             ws.gate.data(), layer.laurel_right->data(), ws.up.data(),
             N, H, laurel_rank);
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.up.data(), layer.laurel_post_norm->data(), ws.up.data(),
             N, H, eps, stream);
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             ws.up.data(), ws.norm_x.data(),
             static_cast<std::size_t>(N) * H, stream);
 
@@ -503,16 +503,16 @@ void gemma3n_forward_paged(
             ops::gemm_act_x_wt_bf16(cublas.handle(),
                 ws.norm_x.data(), layer.v_proj->data(), ws.v.data(), N, Hk, H);
         }
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.q.data(), layer.q_norm->data(), ws.q.data(),
             N * num_q_heads_local, d, eps, stream);
         if (!layer.is_shared) {
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.k.data(), layer.k_norm->data(), ws.k.data(),
                 N * num_kv_heads_local, d, eps, stream);
             // Gemma3n applies a *weightless* RMSNorm to V before storing
             // into the KV cache (Gemma3nRMSNorm with `with_scale=False`).
-            kernels::launch_rmsnorm_no_scale_bf16(
+            kernels::norm::rmsnorm_no_scale_bf16(
                 ws.v.data(), ws.v.data(),
                 N * num_kv_heads_local, d, eps, stream);
         }
@@ -592,21 +592,21 @@ void gemma3n_forward_paged(
             tp->all_reduce_bf16(ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, ncclSum, stream);
         }
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.norm_x.data(), layer.attn_norm_post->data(), ws.norm_y.data(),
             N, H, eps, stream);
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             ws.y.data(), ws.norm_y.data(),
             static_cast<std::size_t>(N) * H, stream);
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             ws.y.data(), ws.up.data(),
             static_cast<std::size_t>(N) * H, stream);
-        kernels::launch_scalar_mul_bf16(
+        kernels::norm::scalar_mul_bf16(
             ws.y.data(), sqrt2_inv,
             static_cast<std::size_t>(N) * H, stream);
 
         // MLP.
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.y.data(), layer.mlp_norm_pre->data(), ws.norm_x.data(),
             N, H, eps, stream);
         ops::gemm_act_x_wt_bf16(cublas.handle(),
@@ -630,36 +630,36 @@ void gemma3n_forward_paged(
             tp->all_reduce_bf16(ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, ncclSum, stream);
         }
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.norm_x.data(), layer.mlp_norm_post->data(), ws.norm_y.data(),
             N, H, eps, stream);
-        kernels::launch_residual_add_bf16(
+        kernels::norm::residual_add_bf16(
             ws.y.data(), ws.norm_y.data(),
             static_cast<std::size_t>(N) * H, stream);
         // ws.y now holds `attn_ffw_laurel_gated` in HF terms.
 
         // ── AltUp.correct ──
         // 1. modalities (recomputed on activated = ws.y).
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.y.data(), layer.altup_router_norm->data(),
             router_in_buf.data(), N, H, eps, stream);
-        kernels::launch_scalar_mul_bf16(
+        kernels::norm::scalar_mul_bf16(
             router_in_buf.data(), router_scale,
             static_cast<std::size_t>(N) * H, stream);
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             router_in_buf.data(), layer.altup_modality_router->data(),
             modality_buf.data(), N, K, H);
-        kernels::launch_tanh_bf16(modality_buf.data(), N * K, stream);
+        kernels::norm::tanh_bf16(modality_buf.data(), N * K, stream);
 
         // 2. correction_coefs(modalities) → [N, K], unpack to fp32 +1.0.
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             modality_buf.data(), layer.altup_correction_coefs->data(),
             corr_coefs_bf16.data(), N, K, K);
-        kernels::launch_altup_unpack_correct_coefs(
+        kernels::norm::altup_unpack_correct_coefs(
             corr_coefs_bf16.data(), corr_coefs_fp32.data(), N, K, stream);
 
         // 3. correct: corrected = predictions + (activated - predictions[active]) · coef
-        kernels::launch_altup_correct_bf16(
+        kernels::norm::altup_correct_bf16(
             streams_out, ws.y.data(), corr_coefs_fp32.data(),
             streams_in, K, N, H, act_idx, stream);
         // streams_in now holds `corrected` (we wrote into the OTHER buffer).
@@ -714,7 +714,7 @@ void gemma3n_forward_paged(
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             ple_gate_buf.data(), layer.ple_projection->data(), ws.norm_x.data(),
             N, H, H_ple);
-        kernels::launch_rmsnorm_bf16(
+        kernels::norm::rmsnorm_bf16(
             ws.norm_x.data(), layer.ple_post_norm->data(), ws.norm_x.data(),
             N, H, eps, stream);
 
@@ -723,7 +723,7 @@ void gemma3n_forward_paged(
             if (k == act_idx) continue;
             std::uint16_t* dst = static_cast<std::uint16_t*>(streams_in)
                 + static_cast<std::size_t>(k) * N * H;
-            kernels::launch_residual_add_bf16(
+            kernels::norm::residual_add_bf16(
                 dst, ws.norm_x.data(),
                 static_cast<std::size_t>(N) * H, stream);
         }
@@ -735,7 +735,7 @@ void gemma3n_forward_paged(
     // target_rms from streams_in[0] (active).
     {
         const std::uint16_t* active_final = static_cast<std::uint16_t*>(streams_in);
-        kernels::launch_compute_rms_bf16(active_final, target_rms.data(), N, H, kAltupEps, stream);
+        kernels::norm::compute_rms_bf16(active_final, target_rms.data(), N, H, kAltupEps, stream);
     }
     // For k > 0: streams_in[k] = magnitude_rescale(altup_unembed_projections[k-1] @ streams_in[k]).
     for (int k = 1; k < K; ++k) {
@@ -745,7 +745,7 @@ void gemma3n_forward_paged(
         ops::gemm_act_x_wt_bf16(cublas.handle(),
             slot, w.altup_unembed_projections[k - 1]->data(),
             streams_out, N, H, H);
-        kernels::launch_magnitude_rescale_bf16(
+        kernels::norm::magnitude_rescale_bf16(
             streams_out, target_rms.data(), N, H, kAltupEps, stream);
         CUDA_CHECK(cudaMemcpyAsync(
             slot, streams_out,
@@ -753,10 +753,10 @@ void gemma3n_forward_paged(
             cudaMemcpyDeviceToDevice, stream));
     }
     // Mean over K streams → ws.y.
-    kernels::launch_mean_streams_bf16(streams_in, ws.y.data(), K, N, H, stream);
+    kernels::norm::mean_streams_bf16(streams_in, ws.y.data(), K, N, H, stream);
 
     // ── Final norm + lm_head + soft cap ──
-    kernels::launch_rmsnorm_bf16(
+    kernels::norm::rmsnorm_bf16(
         ws.y.data(), w.final_norm->data(), ws.norm_x.data(),
         N, H, eps, stream);
     ops::gemm_act_x_wt_bf16(cublas.handle(),
