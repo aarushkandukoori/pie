@@ -383,7 +383,7 @@ impl Lowerer<'_> {
                     let outer_region = self.peel_region;
                     let axis = *axis;
                     let grid = window.clone();
-                    let mut run = |me: &mut Self, span: Range<usize>, w: Range<u32>, tail_side: bool| {
+                    let run = |me: &mut Self, span: Range<usize>, w: Range<u32>, tail_side: bool| {
                         if !device && w.is_empty() {
                             return Ok(());
                         }
