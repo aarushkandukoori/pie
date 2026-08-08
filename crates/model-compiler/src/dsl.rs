@@ -717,11 +717,11 @@ impl GuardCtx {
 }
 
 /// Open a side-effect-only guard chain.
-pub fn guarded(m: &M) -> GuardCtx {
-    guarded_on(&m.t)
-}
-
-pub(crate) fn guarded_on(t: &Trace) -> GuardCtx {
+///
+/// Takes the TAPE, not a model context: a guard is a statement about what
+/// gets recorded, and nothing about it is one family's. This used to have an
+/// `&M`-taking twin whose whole body was `guarded(&m.t)`.
+pub fn guarded(t: &Trace) -> GuardCtx {
     let idx = {
         let mut b = t.inner.borrow_mut();
         b.set_layer(None);
@@ -761,8 +761,8 @@ pub fn guarded_value(t: &Trace, layer: Option<u32>, shape: (Shape, DType)) -> (G
 }
 
 /// Two-way sugar over [`GuardCtx`] — the 4a form llama_like writes.
-pub fn guard(m: &M, pred: crate::trace::GuardPred, then_f: impl FnOnce(), else_f: impl FnOnce()) {
-    guarded(m).arm(pred, then_f).otherwise(else_f);
+pub fn guard(t: &Trace, pred: crate::trace::GuardPred, then_f: impl FnOnce(), else_f: impl FnOnce()) {
+    guarded(t).arm(pred, then_f).otherwise(else_f);
 }
 
 // ── The row partition ──────────────────────────────────────────────────
@@ -897,7 +897,7 @@ pub(crate) fn guard_on(
     then_f: impl FnOnce(),
     else_f: impl FnOnce(),
 ) {
-    guarded_on(t).arm(pred, then_f).otherwise(else_f);
+    guarded(t).arm(pred, then_f).otherwise(else_f);
 }
 
 /// Record a [`OpKind::HookSite`] (the HookSite slice): the layer's
@@ -1525,16 +1525,16 @@ pub mod cuda {
     /// `kernels::launch_rope_standard_table`: build the fire's cos/sin
     /// table, once. A value, not a latch — the fused-QKV kernel consumes
     /// it as an operand.
-    pub fn rope_standard_table(m: &M) -> Val {
+    pub fn rope_standard_table(t: &Trace, head_dim: u32) -> Val {
         record(
-            &m.t,
+            t,
             None,
             "launch_rope_standard_table",
             vec![],
             None,
             vec![],
             Some((
-                Shape(vec![Dim::Tokens, Dim::Const(m.facts().head_dim)]),
+                Shape(vec![Dim::Tokens, Dim::Const(head_dim)]),
                 DType::F32,
             )),
         )

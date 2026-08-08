@@ -342,7 +342,7 @@ fn llama_like_cuda_text(
         // once — not the hand-written `rope_table_ready` latch, and
         // hoisted where a once-per-fire launch belongs.
         let table = (fused_post && cuda_of(FireClass::Decode).is_some_and(|c| c.rope_table))
-            .then(|| cuda::rope_standard_table(m));
+            .then(|| cuda::rope_standard_table(m.trace(), f.head_dim));
 
         for l in 0..f.layers {
             let w = m.layer(l);
@@ -418,7 +418,7 @@ fn llama_like_cuda_text(
                 // deployment's mask arm this guard NESTS inside the
                 // HasCustomMask guard (A1 — the walk keeps a stack).
                 dsl::guard(
-                    m,
+                    m.trace(),
                     GuardPred::HasWriteDesc,
                     || cuda::write_kv_explicit(&k, &v, &w.kv),
                     || cuda::write_kv_to_pages(&k, &v, &w.kv),
@@ -522,7 +522,7 @@ fn llama_like_cuda_text(
                                         // the hand-written body's
                                         // `if (score_capture.active())`
                                         // on this same branch.
-                                        dsl::guarded(m)
+                                        dsl::guarded(m.trace())
                                             .arm(GuardPred::WantsAttnScore, || {
                                                 cuda::attention_flashinfer_decode_capture(
                                                     q, &w.kv,
@@ -552,7 +552,7 @@ fn llama_like_cuda_text(
                             // Ragged fires are row-uniform: dequant,
                             // then the score-guarded causal dispatch.
                             cuda::dequant_only(&w.kv);
-                            dsl::guarded(m)
+                            dsl::guarded(m.trace())
                                 .arm(GuardPred::WantsAttnScore, || {
                                     cuda::attention_flashinfer_prefill_capture(q, &w.kv);
                                 })
@@ -565,7 +565,7 @@ fn llama_like_cuda_text(
                             cuda::dequant_only(&w.kv);
                             cuda::attention_flashinfer_prefill(q, &w.kv);
                         } else {
-                            dsl::guarded(m)
+                            dsl::guarded(m.trace())
                                 .arm(GuardPred::WantsAttnScore, || {
                                     cuda::attention_flashinfer_decode_capture(q, &w.kv);
                                 })
@@ -631,7 +631,7 @@ fn llama_like_cuda_text(
                                         let (_qt, kt) =
                                             cuda::qk_rmsnorm_rope(&qt, &kt, &w.q_norm, &w.k_norm);
                                         dsl::guard(
-                                            m,
+                                            m.trace(),
                                             GuardPred::HasWriteDesc,
                                             || cuda::write_kv_explicit(&kt, &vt, &w.kv),
                                             || cuda::write_kv_to_pages(&kt, &vt, &w.kv),
