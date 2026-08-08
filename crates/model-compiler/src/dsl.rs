@@ -1643,6 +1643,251 @@ pub mod cuda {
         .expect("fused post produces q")
     }
 
+    // ── kimi: the WNA16 quantized MoE path ─────────────────────────
+    //
+    // 4-bit weights with a bf16 scale per group of `group_size` along K.
+    // Distinct from MXFP4 (whose scale is an E8M0 exponent byte per 32) and
+    // from fp8 -- three quantizations, three statements, because which one a
+    // checkpoint ships is a fact the declaration reads.
+
+    /// `kernels::launch_dequant_wna16_int4b8_to_bf16`: widen a packed
+    /// int4-b8 weight to bf16.
+    ///
+    /// Weight-shaped: `[out_dim, in_dim/8]` packed to `[out_dim, in_dim]`,
+    /// no token extent.
+    pub fn dequant_wna16_int4b8(t: &Trace, l: u32, w: &str, out_dim: u32, in_dim: u32) -> Val {
+        record(
+            t,
+            Some(l),
+            "launch_dequant_wna16_int4b8_to_bf16",
+            vec![w.to_string()],
+            None,
+            vec![],
+            Some((
+                Shape(vec![Dim::Const(out_dim), Dim::Const(in_dim)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the dequant produces its value")
+    }
+
+    /// `kernels::launch_wna16_gate_up_decode_bf16`: the gate and up
+    /// projections, decode-shaped, straight off the packed weights.
+    ///
+    /// `topk_idx` here is `[N, K]` in TOKEN order -- not the route-major
+    /// order the aligned path sorts into -- so a row window keeps each
+    /// token's routing intact and this is not `whole`.
+    pub fn wna16_gate_up_decode(act: &Val, topk_idx: &Val, intermediate: u32) -> (Val, Val) {
+        let outs = record_many(
+            &act.t,
+            act.layer,
+            "launch_wna16_gate_up_decode_bf16",
+            vec![],
+            vec![act.id, topk_idx.id],
+            vec![
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                    DType::BF16,
+                ),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let gate = it.next().expect("the projection states two outputs");
+        let up = it.next().expect("the projection states two outputs");
+        (gate, up)
+    }
+
+    /// `kernels::launch_wna16_down_decode_bf16`: the down projection, same
+    /// shape.
+    pub fn wna16_down_decode(act: &Val, topk_idx: &Val, hidden: u32) -> Val {
+        record(
+            &act.t,
+            act.layer,
+            "launch_wna16_down_decode_bf16",
+            vec![],
+            None,
+            vec![act.id, topk_idx.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the projection produces its value")
+    }
+
+    /// `kernels::launch_rmsnorm_strided_bf16`: the norm, reading and writing
+    /// a prefix of wider rows.
+    ///
+    /// How a fused projection's halves get normed in place without a copy:
+    /// the stride says where the row really ends.
+    pub fn rmsnorm_strided(x: &Val, weight: &str, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_rmsnorm_strided_bf16",
+            vec![weight.to_string()],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the norm produces its value")
+    }
+
+    // ── the rope variants, and three small shapes ──────────────────
+
+    /// `kernels::launch_rope_yarn_bf16`: YaRN-scaled rope.
+    ///
+    /// A different statement from [`Self::rope_yarn_original`], not a
+    /// parameterization of it: the two interpolate frequencies differently,
+    /// and which a checkpoint wants is a load-time fact.
+    pub fn rope_yarn(q: &Val, k: &Val, q_width: u32) -> Val {
+        record(
+            &q.t,
+            q.layer,
+            "launch_rope_yarn_bf16",
+            vec![],
+            None,
+            vec![q.id, k.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(q_width)]), DType::BF16)),
+        )
+        .expect("the rope produces its value")
+    }
+
+    /// `kernels::launch_qk_rmsnorm_mrope_bf16`: per-head q/k norms and MROPE.
+    ///
+    /// MROPE takes `[num_tokens, 3]` positions — a `(t, h, w)` triple rather
+    /// than one index — because a vision model's tokens sit in a grid. That
+    /// is why it cannot be the plain `qk_rmsnorm_rope` with a different
+    /// theta.
+    pub fn qk_rmsnorm_mrope(q: &Val, k: &Val, q_weight: &str, k_weight: &str, q_width: u32) -> Val {
+        record(
+            &q.t,
+            q.layer,
+            "launch_qk_rmsnorm_mrope_bf16",
+            vec![q_weight.to_string(), k_weight.to_string()],
+            None,
+            vec![q.id, k.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(q_width)]), DType::BF16)),
+        )
+        .expect("the norm+rope produces its value")
+    }
+
+    /// `kernels::launch_split_gate_up_bf16`: split a packed `[N, 2·I]` bank.
+    ///
+    /// By HALVES, unlike [`Self::deinterleave_rows`], which splits by parity.
+    /// Same shape, different layout, and the checkpoint decides which.
+    pub fn split_gate_up(packed: &Val, intermediate: u32) -> (Val, Val) {
+        let outs = record_many(
+            &packed.t,
+            packed.layer,
+            "launch_split_gate_up_bf16",
+            vec![],
+            vec![packed.id],
+            vec![
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                    DType::BF16,
+                ),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let gate = it.next().expect("the split states two outputs");
+        let up = it.next().expect("the split states two outputs");
+        (gate, up)
+    }
+
+    /// `kernels::launch_scale_rows_bf16`: scale each row by its own factor.
+    pub fn scale_rows(x: &Val, scale: &Val, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_scale_rows_bf16",
+            vec![],
+            None,
+            vec![x.id, scale.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the scale produces its value")
+    }
+
+    /// `kernels::launch_cast_fp32_to_bf16`: narrow.
+    pub fn cast_f32_to_bf16(x: &Val, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_cast_fp32_to_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the cast produces its value")
+    }
+
+    /// `kernels::launch_apply_per_expert_scale_bf16`: multiply each route's
+    /// weight by its expert's scale, in place.
+    pub fn apply_per_expert_scale(topk_idx: &Val, topk_w: &Val, scale: &str, top_k: u32) -> Val {
+        record(
+            &topk_w.t,
+            topk_w.layer,
+            "launch_apply_per_expert_scale_bf16",
+            vec![scale.to_string()],
+            None,
+            vec![topk_idx.id, topk_w.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(top_k)]), DType::F32)),
+        )
+        .expect("the scale produces its value")
+    }
+
+    /// `kernels::launch_residual_add_scale_rmsnorm_bf16`: residual add, a
+    /// scalar scale, and the next pre-norm, fused.
+    ///
+    /// gemma-4's end-of-layer shape. The scale sits BETWEEN the add and the
+    /// norm, which is why it is not [`Self::residual_add_rmsnorm`] with an
+    /// extra multiply somewhere.
+    pub fn residual_add_scale_rmsnorm(x: &Val, residual: &Val, weight: &str, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_residual_add_scale_rmsnorm_bf16",
+            vec![weight.to_string()],
+            None,
+            vec![x.id, residual.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the fused norm produces its value")
+    }
+
+    /// `ops::dispatch_attention_flashinfer_prefill_sm90_bf16`: the FA3
+    /// prefill, on Hopper.
+    pub fn flashinfer_prefill_sm90(q: &Val, l: u32, heads: u32, head_dim: u32) -> Val {
+        record(
+            &q.t,
+            Some(l),
+            "dispatch_attention_flashinfer_prefill_sm90_bf16",
+            vec![],
+            Some(StateRef {
+                store: StateStore::KvCache,
+                layer: l,
+            }),
+            vec![q.id],
+            Some((
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(heads),
+                    Dim::Const(head_dim),
+                ]),
+                DType::BF16,
+            )),
+        )
+        .expect("the attention produces its value")
+    }
+
     // ── mixtral / gpt-oss: the MXFP4 MoE path ──────────────────────
     //
     // gpt-oss ships its experts as MXFP4 -- 4-bit values with an E8M0

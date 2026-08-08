@@ -66,6 +66,40 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── kimi: the WNA16 quantized MoE path ─────────────────────────
+    // 4-bit weights with a bf16 scale per group along K. Distinct from MXFP4
+    // (E8M0 byte per 32) and from fp8 -- three quantizations, three
+    // statements, because which one a checkpoint ships is a fact the
+    // declaration reads.
+    kernel!(dequant_wna16_int4b8 "launch_dequant_wna16_int4b8_to_bf16"),
+    // `topk_idx` here is `[N, K]` in TOKEN order, not the route-major order
+    // the aligned path sorts into, so a row window keeps each token's routing
+    // intact and these are not `whole`.
+    kernel!(wna16_gate_up_decode "launch_wna16_gate_up_decode_bf16"),
+    kernel!(wna16_down_decode "launch_wna16_down_decode_bf16"),
+    kernel!(rmsnorm_strided "launch_rmsnorm_strided_bf16"),
+
+    // ── rope variants, and three small shapes ──────────────────────
+    // YaRN and original-YaRN interpolate frequencies differently; which a
+    // checkpoint wants is a load-time fact, so they are two rows.
+    kernel!(rope_yarn "launch_rope_yarn_bf16"),
+    // MROPE takes `[num_tokens, 3]` positions -- a (t, h, w) triple, because
+    // a vision model's tokens sit in a grid. Not the plain qk_rmsnorm_rope
+    // with a different theta.
+    kernel!(qk_rmsnorm_mrope "launch_qk_rmsnorm_mrope_bf16"),
+    // Splits a packed gate/up bank by HALVES, where `deinterleave_rows`
+    // splits by parity. Same shape, different layout, checkpoint decides.
+    kernel!(split_gate_up "launch_split_gate_up_bf16"),
+    kernel!(scale_rows "launch_scale_rows_bf16"),
+    kernel!(cast_f32_to_bf16 "launch_cast_fp32_to_bf16"),
+    kernel!(apply_per_expert_scale "launch_apply_per_expert_scale_bf16"),
+    // gemma-4's end-of-layer shape: the scale sits BETWEEN the add and the
+    // norm, which is why it is not `residual_add_rmsnorm` with a multiply
+    // somewhere.
+    kernel!(residual_add_scale_rmsnorm "launch_residual_add_scale_rmsnorm_bf16"),
+    kernel!(flashinfer_prefill_sm90 "dispatch_attention_flashinfer_prefill_sm90_bf16",
+        needs = Prepare::PrefillPlan, sink = Some("kv.pages")),
+
     // ── mixtral / gpt-oss: the MXFP4 MoE path ──────────────────────
     // gpt-oss ships its experts as MXFP4 -- 4-bit values with an E8M0
     // exponent byte per block of 32 -- and mixtral's shell runs them through
