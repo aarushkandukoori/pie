@@ -109,6 +109,38 @@ fn the_qwen3_5_residue_ledger() {
 /// One entry per (kind, reason), counted per DECODE fire.
 const LEDGER_QWEN35_DECODE: &[&str] = &[];
 
+/// The ALIGNED MoE leg lowers — the wall the north-star doc named.
+///
+/// `the_moe_block_covers_itself_only_in_its_cuda_reading` above already
+/// covered the FUSED CUTLASS leg, which is the one a decode fire inside the
+/// row bound takes. Every other fire fell back to the semantic body, and the
+/// semantic body cannot lower — it names no kernels. That was the wall: the
+/// aligned path's intermediates are `ceil((N·k + min(E, N·k)·(block-1)) /
+/// block) · block` rows tall, an extent no `Dim` spelled.
+///
+/// `Dim::MoeAlignedRoutes` spells it, so the leg has a CUDA text and this
+/// asserts what that buys: residue empty, coverage 1.0, on a deployment
+/// whose facts disqualify the fused leg.
+#[test]
+fn the_aligned_moe_leg_lowers() {
+    let facts = model::qwen_3_5::forward::facts::Qwen35MoeMlpFacts::qwen3_5_35b_a3b();
+    // No CUTLASS workspace: the fused leg does not exist for this
+    // deployment, so the text takes the aligned one.
+    let mut cuda = model::qwen_3_5::forward::facts::Qwen35CudaFacts::qwen3_5_0_8b_synthetic();
+    cuda.moe_cutlass_max_rows = 0;
+
+    let plan = model::qwen_3_5::forward::qwen3_5_moe_mlp_block_cuda(&facts, &cuda);
+    let out = lower(&plan, &sampled(4), Fire::default())
+        .unwrap_or_else(|e| panic!("the aligned MoE leg must lower: {e:?}"));
+    assert!(
+        out.residue.is_empty(),
+        "{} aligned-leg statements still owe a declaration: {:#?}",
+        out.residue.len(),
+        out.residue
+    );
+    assert_eq!(out.coverage(), 1.0);
+}
+
 /// THE QWEN3_5 CUTOVER GATE, in the shape llama_like's takes: every
 /// statement a live fire executes is a rectangle in the flat list,
 /// on both geometries and in both classes.

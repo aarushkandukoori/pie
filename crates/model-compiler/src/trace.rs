@@ -67,6 +67,39 @@ pub enum Dim {
     Requests,
     /// A load-time constant: hidden size, head count x head dim, vocab.
     Const(u32),
+    /// The MoE ALIGNED path's padded route count.
+    ///
+    /// `ceil((N·k + min(E, N·k)·(block-1)) / block) · block` — routes
+    /// bucketed by expert and each bucket padded to a whole block, so one
+    /// batched GEMM covers every expert. The padding is what makes it not
+    /// `Tokens` and not a `Const`: it grows with the fire AND with how
+    /// many experts a fire happens to touch.
+    ///
+    /// Every input but `N` is load-time (`top_k`, `experts` and the block
+    /// size the driver picks from the route count), so the extent is a
+    /// function of the fire's own token count and nothing else — which is
+    /// exactly what a symbolic dim has to be.
+    ///
+    /// This is the extent the north-star doc said "no `Dim` spells", and
+    /// it is why the aligned leg could not be stated.
+    MoeAlignedRoutes {
+        top_k: u32,
+        experts: u32,
+        block: u32,
+    },
+}
+
+impl Dim {
+    /// The aligned route count for a fire of `n` tokens.
+    ///
+    /// The driver computes the same number from `moe_aligned_block`; this
+    /// is the host-side reading, used when a lowering needs the extent to
+    /// size a rectangle.
+    pub fn moe_aligned_rows(n: u32, top_k: u32, experts: u32, block: u32) -> u32 {
+        let routes = n * top_k;
+        let padded = routes + experts.min(routes) * block.saturating_sub(1);
+        padded.div_ceil(block.max(1)) * block.max(1)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

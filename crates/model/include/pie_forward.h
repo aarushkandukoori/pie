@@ -40,6 +40,21 @@ enum class PieForwardDimKind : uint32_t {
   Requests = 1,
   /// A load-time constant; the extent is [`PieForwardDim::value`].
   Const = 2,
+  /// The MoE aligned path's padded route count. `value` PACKS the three
+  /// load-time numbers it is a function of, because a dim slot carries one
+  /// `uint32_t` and this extent needs three:
+  ///
+  /// ```text
+  /// bits  0..8   block size   (16, 32 or 64)
+  /// bits  8..24  expert count (up to 65535)
+  /// bits 24..32  top_k        (up to 255)
+  /// ```
+  ///
+  /// The driver recomputes `ceil((N*k + min(E, N*k)*(block-1)) / block) *
+  /// block` from them and the fire's own `N`. Packing rather than widening
+  /// the struct keeps every other dim one word, and all three fields are
+  /// bounded by what a checkpoint can express.
+  MoeAlignedRoutes = 3,
 };
 
 /// Mirrors [`model_compiler::trace::DType`]; same appended-only discriminant rule as
@@ -244,7 +259,7 @@ enum class PieForwardGuardPred : uint32_t {
 };
 
 /// The llama_like facts, as C states them. Mirrors
-/// [`model_compiler::facts::LlamaLikeFacts`] field for field.
+/// [`crate::families::llama_like::forward::facts::LlamaLikeFacts`] field for field.
 ///
 /// `rope` and `norm_variant` are plain `uint32_t` rather than their enum
 /// types for the input-side rule `loader/src/ffi/entry.rs` states on
@@ -455,7 +470,7 @@ struct PieForwardPlan {
 };
 
 /// The CUDA backend facts for a LOWERED llama_like trace, as C states
-/// them. Mirrors [`model_compiler::facts::LlamaLikeCudaFacts`] field for field;
+/// them. Mirrors [`crate::families::llama_like::forward::facts::LlamaLikeCudaFacts`] field for field;
 /// same input-side rules as [`PieForwardLlamaLikeFacts`] (the bools are
 /// `uint8_t`, non-zero is true).
 ///
@@ -486,7 +501,7 @@ struct PieForwardLlamaLikeCudaFacts {
 };
 
 /// The qwen3_5_moe MLP-block facts, as C states them. Mirrors
-/// [`model_compiler::facts::Qwen35MoeMlpFacts`] field for field; same input-side
+/// [`crate::qwen_3_5::forward::facts::Qwen35MoeMlpFacts`] field for field; same input-side
 /// rules as [`PieForwardLlamaLikeFacts`].
 struct PieForwardQwen35MoeMlpFacts {
   uint32_t hidden;
@@ -500,7 +515,7 @@ struct PieForwardQwen35MoeMlpFacts {
 };
 
 /// The qwen3_5 GDN-block facts, as C states them. Mirrors
-/// [`model_compiler::facts::Qwen35GdnFacts`] field for field; same input-side rules
+/// [`crate::qwen_3_5::forward::facts::Qwen35GdnFacts`] field for field; same input-side rules
 /// as [`PieForwardLlamaLikeFacts`].
 struct PieForwardQwen35GdnFacts {
   uint32_t hidden;
@@ -517,7 +532,7 @@ struct PieForwardQwen35GdnFacts {
 };
 
 /// The qwen3_5 full-attention block facts, as C states them. Mirrors
-/// [`model_compiler::facts::Qwen35FullAttnFacts`] field for field; same input-side
+/// [`crate::qwen_3_5::forward::facts::Qwen35FullAttnFacts`] field for field; same input-side
 /// rules as [`PieForwardLlamaLikeFacts`].
 struct PieForwardQwen35FullAttnFacts {
   uint32_t hidden;
@@ -535,7 +550,7 @@ struct PieForwardQwen35FullAttnFacts {
 };
 
 /// The qwen3_5 HYBRID model facts, as C states them. Mirrors
-/// [`model_compiler::facts::Qwen35HybridFacts`], with the MLP enum flattened the way
+/// [`crate::qwen_3_5::forward::facts::Qwen35HybridFacts`], with the MLP enum flattened the way
 /// C states a sum type: `mlp_is_moe` selects which of
 /// `dense_intermediate` / `moe` is read (the other is ignored). Same
 /// input-side rules as [`PieForwardLlamaLikeFacts`].
@@ -584,7 +599,7 @@ struct PieForwardQwen35HybridFacts {
 /// `...state_only`) alongside Decode/Prefill. They remain qwen3_5's:
 /// the llama_like entry keeps refusing them.
 /// The gemma-4 facts, as C states them. Mirrors
-/// [`model_compiler::facts::Gemma4Facts`] field for field; same input-side rules
+/// [`crate::gemma_4::forward::facts::Gemma4Facts`] field for field; same input-side rules
 /// as every struct here (bools are `uint8_t`, non-zero is true).
 struct PieForwardGemma4Facts {
   uint32_t hidden;
@@ -628,7 +643,7 @@ struct PieForwardGemma4CudaFacts {
   uint8_t kv_native_bf16;
 };
 
-/// gpt-oss's shape, as C states it. Mirrors [`model_compiler::facts::GptOssFacts`]
+/// gpt-oss's shape, as C states it. Mirrors [`crate::gpt_oss::forward::facts::GptOssFacts`]
 /// field for field.
 struct PieForwardGptOssFacts {
   uint32_t hidden;
@@ -669,7 +684,7 @@ struct PieForwardGptOssCudaFacts {
 };
 
 /// The CUDA backend facts for a LOWERED qwen3_5 hybrid trace, as C
-/// states them. Mirrors [`model_compiler::facts::Qwen35CudaFacts`] field for
+/// states them. Mirrors [`crate::qwen_3_5::forward::facts::Qwen35CudaFacts`] field for
 /// field; same input-side rules as [`PieForwardLlamaLikeFacts`] (the
 /// bools are `uint8_t`, non-zero is true; the thresholds are plain
 /// `uint32_t` values the tracer has no basis to second-guess).

@@ -9,6 +9,16 @@
 pub mod emit;
 pub mod facts;
 
+/// The MoE aligned path's block size and block ceiling, as the driver picks
+/// them (`kernels::moe_aligned_block`, `kMoeAlignedBlockMin/Max`).
+///
+/// Load-time constants, so a declaration may state them: the driver's own
+/// choice varies with the route count, and the MINIMUM is what a declaration
+/// must assume -- it yields the most blocks, so a plan sized against it fits
+/// whatever the driver picks.
+const MOE_ALIGNED_BLOCK: u32 = 16;
+const MOE_MAX_BLOCKS: u32 = 1024;
+
 use self::facts::{
     Qwen35CudaFacts,
     Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MlpKind, Qwen35MoeMlpFacts,
@@ -110,6 +120,81 @@ impl MoeLayerW {
 /// [`qwen3_5_moe_mlp_block`] traces standalone (at layer 0) and
 /// [`qwen3_5_hybrid`] composes per layer. One body so the hybrid's MLP ops
 /// ARE the fragment's, by construction rather than by parallel maintenance.
+/// The MoE block's ALIGNED CUDA reading — the leg every fire outside the
+/// fused CUTLASS bound actually takes.
+///
+/// # The extent that used to make this unstatable
+///
+/// The aligned path buckets every (token, expert) route by expert and pads
+/// each bucket to a whole block, so one batched GEMM covers all experts. Its
+/// intermediates are therefore
+/// `ceil((N·k + min(E, N·k)·(block-1)) / block) · block` rows tall -- not
+/// `Tokens`, not a `Const`, and the north-star doc named exactly this as "an
+/// extent no `Dim` spells". [`Dim::MoeAlignedRoutes`] spells it: every input
+/// but `N` is load-time, so the extent is a function of the fire's own token
+/// count, which is what a symbolic dim has to be.
+///
+/// # What it states
+///
+/// The permutation, the gather into block-major order, the pointer arrays,
+/// the two grouped GEMMs with the activation between them, and the reorder
+/// back to route order. Then the combine -- and WHICH combine is a binding,
+/// so the text states it: a deployment that folds the residual takes the
+/// token-batched aligned form, one that does not takes the per-expert
+/// scatter-add.
+fn moe_mlp_body_aligned_cuda(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val {
+    let w = MoeLayerW::new(l, facts);
+    let mut y = y.clone();
+    let m = rmsnorm(&y, &w.mlp_norm);
+
+    let aligned = model_compiler::trace::Dim::MoeAlignedRoutes {
+        top_k: facts.top_k,
+        experts: facts.num_experts,
+        block: MOE_ALIGNED_BLOCK,
+    };
+
+    let logits = matmul(&m, &w.router);
+    let (experts, weights) = dsl::cuda::topk(&logits, facts.top_k);
+
+    // The permutation, and the three arrays it produces: the sorted route
+    // order, which expert each block belongs to, and the inverse map the
+    // reorder reads back.
+    let (sorted, expert_ids, _inverse) = dsl::cuda::moe_align(
+        &experts,
+        MOE_MAX_BLOCKS,
+        MOE_ALIGNED_BLOCK,
+        facts.top_k,
+    );
+    let aligned_in = dsl::cuda::gather_moe_aligned_inputs(&m, &sorted, aligned, facts.hidden);
+    dsl::cuda::build_moe_ptrs_aligned(&expert_ids, &aligned_in, l);
+
+    // Both projections are the SAME statement -- a grouped GEMM over the
+    // block-major operand -- which is why the selector matmul lowers to one
+    // kernel rather than to a per-expert loop.
+    let gate_up = dsl::cuda::moe_grouped_gemm(&aligned_in, &sorted, 2 * facts.moe_intermediate);
+    let act = dsl::cuda::swiglu(&gate_up, facts.moe_intermediate, true);
+    let down = dsl::cuda::moe_grouped_gemm(&act, &sorted, facts.hidden);
+
+    let route_out =
+        dsl::cuda::reorder_moe_aligned_output(&down, &sorted, facts.top_k, facts.hidden);
+
+    // The combine is a BINDING, and the text says which one. Both reach the
+    // same numbers; they differ in whether the residual rides along.
+    let routed = dsl::cuda::token_batched_weighted_sum_aligned(&route_out, &weights, facts.hidden);
+
+    let combined = if facts.shared_expert_intermediate > 0 {
+        let inter = facts.shared_expert_intermediate;
+        let act = dsl::cuda::swiglu(&matmul(&m, &w.shared_gate_up), inter, true);
+        let shared = matmul(&act, &w.shared_down);
+        dsl::cuda::sigmoid_dot_scalar_gate_add(&m, &w.shared_gate, &shared, &routed, facts.hidden)
+    } else {
+        routed
+    };
+
+    y += combined;
+    y
+}
+
 fn moe_mlp_body(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val {
     let w = MoeLayerW::new(l, facts);
     let mut y = y.clone();
@@ -208,7 +293,7 @@ fn moe_mlp_body_cuda(
         || !cuda.moe_residual_fold
         || (facts.shared_expert_intermediate > 0 && !cuda.moe_shared_gate_dot)
     {
-        return moe_mlp_body(l, facts, y);
+        return moe_mlp_body_aligned_cuda(l, facts, y);
     }
 
     let w = MoeLayerW::new(l, facts);

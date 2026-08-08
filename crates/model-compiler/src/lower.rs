@@ -764,7 +764,11 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
             if selector.is_none() {
                 Semantic::Kernels(&["gemm_act_x_w"])
             } else {
-                Semantic::Unlowered("a selector lowers to grouped GEMM, which the trace does not state")
+                // A selector makes the weight per-token, and the grouped
+                // GEMM is that op's lowering. It used to be a refusal
+                // because no text stated the kernel; `moe_mlp_body_cuda`'s
+                // general leg does now.
+                Semantic::Kernels(&["launch_moe_grouped_gemm_bf16"])
             }
         }
 
@@ -793,17 +797,19 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // because they share one cause, and a residue ledger that says
         // "no lowering rule for this kind" three times would read as
         // three gaps instead of one missing text.
-        TopK { .. } => Semantic::Unlowered(
-            "the MoE branch has no CUDA text yet (dsl::cuda::topk states the kernel)",
-        ),
-        WeightedSum { .. } => Semantic::Unlowered(
-            "the MoE combine has two forms (token-batched vs per-expert \
-             scatter-add, and a fused +residual); the CUDA text has to \
-             state which, as the swiglu binding does",
-        ),
-        SigmoidGateAdd => Semantic::Unlowered(
-            "the shared-expert landing awaits the MoE branch's CUDA text",
-        ),
+        // The router. One launch, and the semantic reading takes the
+        // softmax form -- a text that wants the sigmoid or sqrt-softplus
+        // router states it as a `Launch` instead.
+        TopK { .. } => Semantic::Kernels(&["launch_topk_softmax_bf16"]),
+        // The combine, in its TOKEN-BATCHED form. The two other forms --
+        // the per-expert scatter-add and the fused +residual -- are what a
+        // CUDA text states as launches when its binding takes them; this
+        // is the reading a SEMANTIC trace gets, the same way `Swiglu`'s
+        // unpacked form is.
+        WeightedSum { .. } => Semantic::Kernels(&["launch_token_batched_weighted_sum_bf16"]),
+        // The shared expert's landing: `sigmoid(x·g)` scaling the shared
+        // output onto the routed sum, one launch.
+        SigmoidGateAdd => Semantic::Kernels(&["launch_sigmoid_dot_scalar_gate_add_bf16"]),
 
         // Handled by `Lowerer::epilogue`, which needs the row counts and
         // so cannot answer from the kind alone.
@@ -1035,6 +1041,14 @@ pub fn value_bytes(plan: &ForwardPlan, v: ValueId, n_tokens: usize, n_requests: 
             Dim::Tokens => n_tokens,
             Dim::Requests => n_requests,
             Dim::Const(c) => *c as usize,
+            // The padded route count, which is a function of the fire's
+            // tokens and three load-time numbers -- so a residue ledger
+            // sizing this value gets the real footprint, not an estimate.
+            Dim::MoeAlignedRoutes {
+                top_k,
+                experts,
+                block,
+            } => Dim::moe_aligned_rows(n_tokens as u32, *top_k, *experts, *block) as usize,
         };
     }
     elements

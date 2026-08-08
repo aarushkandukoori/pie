@@ -206,6 +206,21 @@ pub enum PieForwardDimKind {
     Requests = 1,
     /// A load-time constant; the extent is [`PieForwardDim::value`].
     Const = 2,
+    /// The MoE aligned path's padded route count. `value` PACKS the three
+    /// load-time numbers it is a function of, because a dim slot carries one
+    /// `uint32_t` and this extent needs three:
+    ///
+    /// ```text
+    /// bits  0..8   block size   (16, 32 or 64)
+    /// bits  8..24  expert count (up to 65535)
+    /// bits 24..32  top_k        (up to 255)
+    /// ```
+    ///
+    /// The driver recomputes `ceil((N*k + min(E, N*k)*(block-1)) / block) *
+    /// block` from them and the fire's own `N`. Packing rather than widening
+    /// the struct keeps every other dim one word, and all three fields are
+    /// bounded by what a checkpoint can express.
+    MoeAlignedRoutes = 3,
 }
 
 /// Mirrors [`model_compiler::trace::NormVariant`].
@@ -426,6 +441,14 @@ impl From<Dim> for PieForwardDim {
             Dim::Const(extent) => Self {
                 kind: PieForwardDimKind::Const,
                 value: extent,
+            },
+            Dim::MoeAlignedRoutes {
+                top_k,
+                experts,
+                block,
+            } => Self {
+                kind: PieForwardDimKind::MoeAlignedRoutes,
+                value: (top_k << 24) | (experts << 8) | block,
             },
         }
     }

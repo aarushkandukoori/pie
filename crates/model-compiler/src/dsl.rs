@@ -3829,7 +3829,12 @@ pub mod cuda {
     /// Returns `(sorted_route_ids, expert_ids, route_to_aligned_row)` — the
     /// permutation, which expert each block belongs to, and the inverse map
     /// the combine reads.
-    pub fn moe_align(topk_idx: &Val, max_blocks: u32, block_size: u32, top_k: u32) -> (Val, Val, Val) {
+    pub fn moe_align(
+        topk_idx: &Val,
+        max_blocks: u32,
+        block_size: u32,
+        top_k: u32,
+    ) -> (Val, Val, Val) {
         let routes = Dim::Const(top_k);
         let outs = record_many(
             &topk_idx.t,
@@ -3858,7 +3863,7 @@ pub mod cuda {
     pub fn gather_moe_aligned_inputs(
         x: &Val,
         sorted_route_ids: &Val,
-        aligned_rows: u32,
+        aligned: Dim,
         hidden: u32,
     ) -> Val {
         record(
@@ -3868,10 +3873,7 @@ pub mod cuda {
             vec![],
             None,
             vec![x.id, sorted_route_ids.id],
-            Some((
-                Shape(vec![Dim::Const(aligned_rows), Dim::Const(hidden)]),
-                DType::BF16,
-            )),
+            Some((Shape(vec![aligned, Dim::Const(hidden)]), DType::BF16)),
         )
         .expect("the gather produces its value")
     }
