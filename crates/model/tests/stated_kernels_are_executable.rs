@@ -18,6 +18,30 @@
 //! Reading C++ as text is the same liberty `kernels_table.rs` takes, for
 //! the same reason: the vocabulary genuinely lives on both sides of the
 //! FFI, and a test that only reads one side cannot see a drift.
+//!
+//! # What this does NOT cover, and why it is not one more loop
+//!
+//! The seams commit broke gemma-4 TWICE, and only the first half is
+//! checked here. The second was an op KIND: `HookSite`, which no arm in
+//! either executor answered, so the first decode fire threw "op kind 25
+//! has no emission rule" — the same model-LOAD failure, from a statement
+//! rather than a symbol.
+//!
+//! The obvious extension (every `OpKind` in the plan must appear as a
+//! `case PieForwardOpKind::` label) reports false positives, and the
+//! reason is worth writing down. The executor does not walk the TRACED
+//! op list; it walks what `lower()` returns, and lowering resolves some
+//! kinds away. llama_like handles thirteen kinds and has no label for
+//! `Guard`, `Peel` or `HookSite` — the first two because lowering turns
+//! them into regions and row splits, and `HookSite` because that family
+//! reads its sites as fire-level sidebands rather than as ops in the
+//! walk. qwen3_5 and gemma-4 DO carry `HookSite` cases: it survives
+//! lowering for them.
+//!
+//! So the honest form of that check compares against the LOWERED list,
+//! per family, and the per-family answer is exactly what makes the naive
+//! version wrong. Left undone rather than shipped wrong; the kernel half
+//! below is verified against the real regression.
 
 use model_compiler::trace::{ForwardPlan, OpKind};
 use model_compiler::trace::FireClass;
