@@ -14,8 +14,14 @@ cannot be missed.
 import re, pathlib, collections
 
 ROOT = pathlib.Path(".")
-HDRS = list((ROOT/"crates/kernels-cuda/csrc/src/ops").glob("*.hpp")) + \
-       list((ROOT/"crates/kernels-cuda/csrc/src/kernels").glob("*.hpp")) + \
+# Every header under csrc/src, at whatever depth. This used to name `ops/` and
+# `kernels/` explicitly; the refactor deleted both directories in favour of one
+# per family, and the glob went on matching nothing but `third_party`. The
+# audit did not notice -- it found five launchers, compared them against a
+# 192-row table, and reported ZERO UNDECLARED. A check that passes because it
+# stopped looking is worse than no check, so `rglob` here and the launcher
+# floor below exist together.
+HDRS = list((ROOT/"crates/kernels-cuda/csrc/src").rglob("*.hpp")) + \
        list((ROOT/"crates/kernels-cuda/csrc/third_party").rglob("*.hpp"))
 
 def params(text, open_at):
@@ -45,6 +51,21 @@ for h in HDRS:
         # already a table entry, so the definition has to admit both.
         if "cudaStream_t" in p or "cublasHandle_t" in p:
             launchers[m.group(1)] = h.name
+
+# The symmetric guard to the one below. `declared` got its floor after an empty
+# table made this audit call every launcher undeclared; the mirror failure --
+# an empty header scan calling every symbol declared -- then happened anyway,
+# because only one side had been fenced. The table is ~192 rows and most rows
+# have a launcher, so anything under 100 means the scan lost the tree, not that
+# the tree lost its launchers.
+if len(launchers) < 100:
+    raise SystemExit(
+        f"only {len(launchers)} launchers found under crates/kernels-cuda/csrc "
+        f"-- the headers moved and HDRS above no longer reaches them. This "
+        f"audit reports nonsense rather than nothing when that happens: too "
+        f"few launchers makes every table symbol look declared, and it prints "
+        f"a clean bill of health. Fix the glob."
+    )
 
 # What the table declares (strip the C++ namespace the symbol may carry).
 #
@@ -101,6 +122,18 @@ print("""EXPECTED RESIDUE -- these SHOULD be absent from the table:
   plan_attention_*        host PREPARES. A prepare is what `needs` names, not
   prepare_attention_*     something a trace records; declaring one would make
                           the table claim a statement exists that does not.
+  all_reduce_*            a COLLECTIVE, and the shell's to schedule. The kernel
+  can_fuse_residual_      moved to kernels-cuda/comm/ because it computes (a
+    rmsnorm                reduction fused with a residual add and an RMSNorm),
+                          but no trace names it: Rust emits nothing for it, the
+                          string dispatcher has no entry, and the model C++
+                          reaches it as a METHOD on the TP plane
+                          (`tp->all_reduce_bf16(...)`), chosen by the
+                          custom-vs-NCCL fallback policy that stays driver-side.
+                          A table row would assert a statement that cannot be
+                          written. `can_fuse_...` is that policy's predicate.
+                          (These match here only because the scan is by name,
+                          and a method call spells the same name as a free one.)
   set_stream              a cuBLAS handle setter.
   maybe_bench_*           a benchmark harness.
   lm_head_argmax_chunked  a host-side chunking helper over the real launcher.
