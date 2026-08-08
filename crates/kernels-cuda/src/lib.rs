@@ -66,6 +66,42 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── mixtral / gpt-oss: the MXFP4 MoE path ──────────────────────
+    // gpt-oss ships its experts as MXFP4 -- 4-bit values with an E8M0
+    // exponent byte per block of 32 -- and mixtral's shell runs them through
+    // Marlin. Several of these operate on WEIGHTS rather than activations
+    // (repacking a scale layout, splitting a fused bias) and have no token
+    // extent at all; they are declared because they are launches the fire
+    // performs.
+    kernel!(add_bias_strided "launch_add_bias_bf16_strided"),
+    // `topk_idx` is route-global, so a row window would pick the wrong
+    // experts' biases.
+    kernel!(add_moe_route_bias "launch_add_moe_route_bias_bf16", whole = true),
+    // Both walk `src_indptr[R+1]`. The window view is how sliding-window
+    // attention is expressed without a second cache -- the window is a VIEW
+    // over the same pages.
+    kernel!(build_window_page_view "launch_build_window_page_view", whole = true),
+    kernel!(build_full_split_view "launch_build_full_split_view", whole = true),
+    // gpt-oss interleaves gate and up ROW BY ROW, so splitting them is a
+    // parity deinterleave and not a slice. Weight-shaped, no token extent.
+    kernel!(deinterleave_rows "launch_deinterleave_rows_bf16"),
+    kernel!(deinterleave_vec "launch_deinterleave_vec_bf16"),
+    kernel!(gemv3 "launch_gemv3_bf16"),
+    kernel!(gpt_oss_glu_strided "launch_gpt_oss_glu_strided_bf16"),
+    // The fp16 copy is what the MXFP4 grouped GEMM consumes; producing it
+    // here rather than casting afterwards is the binding.
+    kernel!(rmsnorm_with_fp16 "launch_rmsnorm_bf16_with_fp16"),
+    kernel!(rope_write_kv "launch_rope_write_kv_bf16", whole = true, sink = Some("kv.pages")),
+    kernel!(mxfp4_scales_to_marlin "launch_mxfp4_scales_to_marlin_e8m0"),
+    kernel!(transpose_expert_scales "launch_transpose_expert_scales_u8"),
+    kernel!(mxfp4_moe_gate_up_decode_grouped "launch_mxfp4_moe_gate_up_decode_grouped_bf16",
+        whole = true),
+    // Namespaced in the symbol because it lives in the vendored `marlin_moe`
+    // tree, the same way the `ops::` entries do.
+    kernel!(mxfp4_moe_gemm_w4a16 "marlin_moe::launch_mxfp4_moe_gemm_w4a16_bf16", whole = true),
+    kernel!(flashinfer_decode_bf16 "dispatch_attention_flashinfer_decode_bf16",
+        needs = Prepare::DecodePlan, sink = Some("kv.pages")),
+
     // ── deepseek_v4: hyper-connections ─────────────────────────────
     // The SECOND rank-K residual scheme here, and not AltUp's. gemma-3n
     // predicts each stream from a learned combination and corrects from one

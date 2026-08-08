@@ -1643,6 +1643,336 @@ pub mod cuda {
         .expect("fused post produces q")
     }
 
+    // ── mixtral / gpt-oss: the MXFP4 MoE path ──────────────────────
+    //
+    // gpt-oss ships its experts as MXFP4 -- 4-bit values with an E8M0
+    // exponent byte per block of 32 -- and mixtral's shell runs them through
+    // Marlin. Several statements here operate on WEIGHTS rather than
+    // activations (repacking a scale layout, splitting a fused bias) and have
+    // no token extent at all. They are stated because they are launches the
+    // fire performs, and a reader tracing where an operand came from should
+    // find them on the tape.
+
+    /// `kernels::launch_add_bias_bf16_strided`: add a bias row into a strided
+    /// destination.
+    pub fn add_bias_strided(x: &Val, bias: &str, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_add_bias_bf16_strided",
+            vec![bias.to_string()],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the bias add produces its value")
+    }
+
+    /// `kernels::launch_add_moe_route_bias_bf16`: add each route's EXPERT
+    /// bias, indexed by that route's expert.
+    ///
+    /// `whole`: `topk_idx` is route-global, so a row window would pick the
+    /// wrong experts' biases.
+    pub fn add_moe_route_bias(x: &Val, topk_idx: &Val, bias: &str, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_add_moe_route_bias_bf16",
+            vec![bias.to_string()],
+            None,
+            vec![x.id, topk_idx.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the bias add produces its value")
+    }
+
+    /// `kernels::launch_build_window_page_view`: a page view keeping only the
+    /// last `keep_pages` of each request.
+    ///
+    /// How sliding-window attention is expressed without a second cache: the
+    /// window is a VIEW over the same pages. `whole` -- it walks
+    /// `src_indptr[R+1]`.
+    pub fn build_window_page_view(t: &Trace, l: u32, keep_pages: u32) -> Val {
+        record(
+            t,
+            Some(l),
+            "launch_build_window_page_view",
+            vec![],
+            Some(StateRef {
+                store: StateStore::KvCache,
+                layer: l,
+            }),
+            vec![],
+            Some((
+                Shape(vec![Dim::Requests, Dim::Const(keep_pages)]),
+                DType::I32,
+            )),
+        )
+        .expect("the view produces its value")
+    }
+
+    /// `kernels::launch_build_full_split_view`: describe one request's page
+    /// range as `splits` separate one-token requests.
+    ///
+    /// The KV-split decode shape: the same pages, presented as several
+    /// requests so the attention kernel parallelises over them, with the
+    /// partials merged afterwards by [`Self::combine_attn_outputs`].
+    pub fn build_full_split_view(t: &Trace, l: u32, splits: u32) -> Val {
+        record(
+            t,
+            Some(l),
+            "launch_build_full_split_view",
+            vec![],
+            Some(StateRef {
+                store: StateStore::KvCache,
+                layer: l,
+            }),
+            vec![],
+            Some((Shape(vec![Dim::Const(splits + 1)]), DType::I32)),
+        )
+        .expect("the view produces its value")
+    }
+
+    /// `kernels::launch_deinterleave_rows_bf16`: split a fused `[2·I, H]`
+    /// weight into its gate and up halves BY PARITY.
+    ///
+    /// A weight-layout fact: gpt-oss interleaves the two projections row by
+    /// row, so this is not the same as slicing the tensor in half. No token
+    /// extent — it transforms a weight.
+    pub fn deinterleave_rows(t: &Trace, l: u32, w: &str, i: u32, h: u32) -> (Val, Val) {
+        let outs = record_many(
+            t,
+            Some(l),
+            "launch_deinterleave_rows_bf16",
+            vec![w.to_string()],
+            vec![],
+            vec![
+                (Shape(vec![Dim::Const(i), Dim::Const(h)]), DType::BF16),
+                (Shape(vec![Dim::Const(i), Dim::Const(h)]), DType::BF16),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let gate = it.next().expect("the split states two outputs");
+        let up = it.next().expect("the split states two outputs");
+        (gate, up)
+    }
+
+    /// `kernels::launch_deinterleave_vec_bf16`: the same, for the fused
+    /// per-expert bias vector.
+    pub fn deinterleave_vec(t: &Trace, l: u32, w: &str, i: u32) -> (Val, Val) {
+        let outs = record_many(
+            t,
+            Some(l),
+            "launch_deinterleave_vec_bf16",
+            vec![w.to_string()],
+            vec![],
+            vec![
+                (Shape(vec![Dim::Const(i)]), DType::BF16),
+                (Shape(vec![Dim::Const(i)]), DType::BF16),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let gate = it.next().expect("the split states two outputs");
+        let up = it.next().expect("the split states two outputs");
+        (gate, up)
+    }
+
+    /// `kernels::launch_gemv3_bf16`: three GEMVs against one activation, in
+    /// one launch.
+    ///
+    /// The decode-shaped q/k/v projection: `N == 1` means each projection is
+    /// a matrix-vector product, and three of them share the activation read.
+    pub fn gemv3(act: &Val, w0: &str, w1: &str, w2: &str, n0: u32, n1: u32, n2: u32) -> (Val, Val, Val) {
+        let outs = record_many(
+            &act.t,
+            act.layer,
+            "launch_gemv3_bf16",
+            vec![w0.to_string(), w1.to_string(), w2.to_string()],
+            vec![act.id],
+            vec![
+                (Shape(vec![Dim::Tokens, Dim::Const(n0)]), DType::BF16),
+                (Shape(vec![Dim::Tokens, Dim::Const(n1)]), DType::BF16),
+                (Shape(vec![Dim::Tokens, Dim::Const(n2)]), DType::BF16),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let o0 = it.next().expect("gemv3 states three outputs");
+        let o1 = it.next().expect("gemv3 states three outputs");
+        let o2 = it.next().expect("gemv3 states three outputs");
+        (o0, o1, o2)
+    }
+
+    /// `kernels::launch_gpt_oss_glu_strided_bf16`: gpt-oss's clamped GLU,
+    /// reading and writing strided.
+    pub fn gpt_oss_glu_strided(gate: &Val, up: &Val, width: u32) -> Val {
+        record(
+            &gate.t,
+            gate.layer,
+            "launch_gpt_oss_glu_strided_bf16",
+            vec![],
+            None,
+            vec![gate.id, up.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the activation produces its value")
+    }
+
+    /// `kernels::launch_rmsnorm_bf16_with_fp16`: the norm, published in both
+    /// bf16 and fp16.
+    ///
+    /// The fp16 copy is what the MXFP4 grouped GEMM below consumes; producing
+    /// it here rather than casting afterwards is the binding, so the
+    /// declaration states it.
+    pub fn rmsnorm_with_fp16(x: &Val, weight: &str, hidden: u32) -> (Val, Val) {
+        let outs = record_many(
+            &x.t,
+            x.layer,
+            "launch_rmsnorm_bf16_with_fp16",
+            vec![weight.to_string()],
+            vec![x.id],
+            vec![
+                (Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16),
+                (Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::F16),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let bf16 = it.next().expect("the norm states two outputs");
+        let fp16 = it.next().expect("the norm states two outputs");
+        (bf16, fp16)
+    }
+
+    /// `kernels::launch_rope_write_kv_bf16`: rope q and k, then commit k/v to
+    /// the pages, in one launch.
+    pub fn rope_write_kv(q: &Val, k: &Val, v: &Val, l: u32, q_width: u32) -> Val {
+        record(
+            &q.t,
+            Some(l),
+            "launch_rope_write_kv_bf16",
+            vec![],
+            Some(StateRef {
+                store: StateStore::KvCache,
+                layer: l,
+            }),
+            vec![q.id, k.id, v.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(q_width)]), DType::BF16)),
+        )
+        .expect("the fused rope+write produces its value")
+    }
+
+    /// `kernels::launch_mxfp4_scales_to_marlin_e8m0`: repack the checkpoint's
+    /// E8M0 scale layout into the one Marlin walks.
+    pub fn mxfp4_scales_to_marlin(t: &Trace, l: u32, w: &str, groups: u32, rows: u32) -> Val {
+        record(
+            t,
+            Some(l),
+            "launch_mxfp4_scales_to_marlin_e8m0",
+            vec![w.to_string()],
+            None,
+            vec![],
+            Some((
+                Shape(vec![Dim::Const(groups), Dim::Const(rows)]),
+                DType::I32,
+            )),
+        )
+        .expect("the repack produces its value")
+    }
+
+    /// `kernels::launch_transpose_expert_scales_u8`: the per-expert group
+    /// scales, `[E, n, k/32]` -> `[E, k/32, n]`.
+    pub fn transpose_expert_scales(t: &Trace, l: u32, w: &str, experts: u32, k_groups: u32, n: u32) -> Val {
+        record(
+            t,
+            Some(l),
+            "launch_transpose_expert_scales_u8",
+            vec![w.to_string()],
+            None,
+            vec![],
+            Some((
+                Shape(vec![
+                    Dim::Const(experts),
+                    Dim::Const(k_groups),
+                    Dim::Const(n),
+                ]),
+                DType::I32,
+            )),
+        )
+        .expect("the transpose produces its value")
+    }
+
+    /// `kernels::launch_mxfp4_moe_gate_up_decode_grouped_bf16`: the gate and
+    /// up projections for every route, grouped by expert.
+    pub fn mxfp4_moe_gate_up_decode_grouped(
+        act: &Val,
+        sorted_route_ids: &Val,
+        counts: &Val,
+        intermediate: u32,
+    ) -> (Val, Val) {
+        let outs = record_many(
+            &act.t,
+            act.layer,
+            "launch_mxfp4_moe_gate_up_decode_grouped_bf16",
+            vec![],
+            vec![act.id, sorted_route_ids.id, counts.id],
+            vec![
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                    DType::BF16,
+                ),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let gate = it.next().expect("the projection states two outputs");
+        let up = it.next().expect("the projection states two outputs");
+        (gate, up)
+    }
+
+    /// `marlin_moe::launch_mxfp4_moe_gemm_w4a16_bf16`: the Marlin W4A16
+    /// grouped MoE GEMM.
+    ///
+    /// Namespaced in the symbol because it lives in the vendored `marlin_moe`
+    /// tree, the same way `ops::` entries do.
+    pub fn mxfp4_moe_gemm_w4a16(act: &Val, sorted_route_ids: &Val, width: u32) -> Val {
+        record(
+            &act.t,
+            act.layer,
+            "marlin_moe::launch_mxfp4_moe_gemm_w4a16_bf16",
+            vec![],
+            None,
+            vec![act.id, sorted_route_ids.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the gemm produces its value")
+    }
+
+    /// `ops::dispatch_attention_flashinfer_decode_bf16`: the bf16-typed
+    /// decode dispatch.
+    pub fn flashinfer_decode_bf16(q: &Val, l: u32, heads: u32, head_dim: u32) -> Val {
+        record(
+            &q.t,
+            Some(l),
+            "dispatch_attention_flashinfer_decode_bf16",
+            vec![],
+            Some(StateRef {
+                store: StateStore::KvCache,
+                layer: l,
+            }),
+            vec![q.id],
+            Some((
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(heads),
+                    Dim::Const(head_dim),
+                ]),
+                DType::BF16,
+            )),
+        )
+        .expect("the attention produces its value")
+    }
+
     // ── deepseek_v4: hyper-connections ─────────────────────────────
     //
     // The SECOND rank-K residual scheme in this table, and it is not AltUp's.

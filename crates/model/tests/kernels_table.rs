@@ -126,7 +126,18 @@ fn the_table_is_exactly_the_dsl_surface() {
         .skip(1)
         .step_by(2)
         .filter(|s| {
-            ["launch_", "dispatch_", "ops::", "pie_lora", "qwen35_verify"]
+            // The prefixes a kernel symbol can start with. `ops::` and
+            // `marlin_moe::` are C++ NAMESPACES the symbol genuinely carries
+            // -- the launcher lives in the vendored tree, and the table
+            // records the name a caller writes.
+            [
+                "launch_",
+                "dispatch_",
+                "ops::",
+                "marlin_moe::",
+                "pie_lora",
+                "qwen35_verify",
+            ]
                 .iter()
                 .any(|p| s.starts_with(p))
         })
