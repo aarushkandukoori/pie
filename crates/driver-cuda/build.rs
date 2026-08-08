@@ -34,9 +34,35 @@ fn main() {
     println!("cargo:rerun-if-changed=csrc/include");
     println!("cargo:rerun-if-changed=csrc/src");
 
+    // Which CMake target to ask for. The default builds the library and
+    // nothing else, which is what a normal `cargo build` wants: the 59 test
+    // and bench executables are minutes of nvcc that a `cargo run` does not
+    // need.
+    //
+    // But "not by default" became "by nobody". Eleven kernel-family renames
+    // ran `cargo build -p driver-cuda`, went green every time, and never
+    // compiled a single harness -- so the harnesses accumulated a dead
+    // `namespace ops` alias, call sites naming a `kernels` not in scope,
+    // tier-0 constants left behind in `kernels::ptir`, a `DType` that
+    // resolved to the WRONG enum, and CMake targets that were never given
+    // kernels-cuda's include path at all. The first real build of them
+    // produced 2 executables out of 59.
+    //
+    // `PIE_DRIVER_CUDA_CHECKS=1` asks for `pie_driver_cuda_checks`, which
+    // depends on the library AND every harness. It belongs in CI, and in the
+    // hands of anyone about to move a header. Building it by hand with
+    // `cmake --build` does NOT work: the defines below -- FlashInfer's fetched
+    // include dirs, `PIE_FORWARD_INCLUDE_DIR`, the loader's -- come from
+    // cargo's `links` handoff and exist nowhere else. A by-hand configure
+    // silently drops them and fails in the library, which is a confusing way
+    // to learn this.
+    let checks = std::env::var_os("PIE_DRIVER_CUDA_CHECKS")
+        .is_some_and(|v| v != "0" && v != "");
+    println!("cargo:rerun-if-env-changed=PIE_DRIVER_CUDA_CHECKS");
+
     let mut cfg = cmake::Config::new(&csrc);
     cfg.out_dir(PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("cuda"));
-    cfg.build_target("pie_driver_cuda_lib")
+    cfg.build_target(if checks { "pie_driver_cuda_checks" } else { "pie_driver_cuda_lib" })
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
         .define("PIE_DRIVER_ABI_INCLUDE_DIR", dep_include("PIE_DRIVER_ABI", "driver-abi"))

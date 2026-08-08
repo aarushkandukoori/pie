@@ -25,6 +25,7 @@
 #include "pipeline/tier0/tier0_launch.hpp"
 
 using namespace pie_cuda_driver::pipeline;
+namespace kernels = pie_cuda_driver::kernels;
 
 namespace {
 

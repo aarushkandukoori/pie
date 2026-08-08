@@ -25,6 +25,20 @@ namespace pie_cuda_driver::pipeline {
 // scope so the CUDA-side tier-0/1 code below can use it unqualified.
 using namespace pie::driver::launch;
 
+// `DType` is NOT safe to take from that using-directive. There are two of
+// them: PTIR's (F32/I32/U32/Bool/Act) and kernels-cuda's tensor dtype in
+// `pie_cuda_driver` (BF16/FP16/FP32/...). A using-directive injects names at
+// the nearest common enclosing namespace -- the global one -- while
+// `pie_cuda_driver::DType` sits closer to this code than that, so it WINS
+// unqualified lookup from inside `pie_cuda_driver::pipeline`.
+//
+// That only became possible when the tier-0 kernels moved into kernels-cuda
+// and pulled tensor.hpp into these TUs. It surfaced as an error solely
+// because the two enums spell their members differently (F32 vs FP32). Had
+// they agreed, this file would have silently switched to the wrong dtype
+// enum. Naming it explicitly is what makes that impossible rather than lucky.
+using DType = pie::driver::launch::DType;
+
 // The runner-resolved launch descriptor for one op.
 struct LaunchOp {
     OpCode code = OpCode::Add;

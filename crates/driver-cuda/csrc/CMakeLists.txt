@@ -189,13 +189,28 @@ function(pie_add_cuda_target NAME)
   cmake_parse_arguments(ARG "NO_CTEST" "TEST_NAME;WORKING_DIRECTORY"
     "SOURCES;INCLUDE_DIRS;LIBS;TEST_ARGS" ${ARGN})
   add_executable(${NAME} ${ARG_SOURCES})
+  # `${PIE_KERNELS_CUDA_INCLUDE_DIRS}` is not optional here. These harnesses
+  # include kernel headers -- `attn/page_compact.hpp`, `layout/envelope.hpp`,
+  # `ssm/causal_conv1d.hpp` -- and several compile a kernels-cuda .cu directly
+  # as one of their SOURCES. That worked while `kernels/` and `ops/` lived
+  # under this crate's src/; the split moved them and no one noticed, because
+  # nothing built these targets. The first run of `pie_driver_cuda_checks`
+  # produced 2 executables out of 59, all the rest on a missing header.
   target_include_directories(${NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src ${ARG_INCLUDE_DIRS})
+    ${CMAKE_CURRENT_SOURCE_DIR}/src ${PIE_KERNELS_CUDA_INCLUDE_DIRS}
+    ${ARG_INCLUDE_DIRS})
   target_compile_options(${NAME} PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr>)
   if(ARG_LIBS)
     target_link_libraries(${NAME} PRIVATE ${ARG_LIBS})
   endif()
+  # Record every target so `pie_driver_cuda_checks` below can depend on all of
+  # them. Without this there is no way to ask for "build the harnesses": they
+  # are configured but nothing references them, so `cargo build -p driver-cuda`
+  # -- which asks CMake for `pie_driver_cuda_lib` and nothing else -- compiled
+  # the library and left 67 targets untouched. Eleven kernel-family renames
+  # landed green over that blind spot.
+  set_property(GLOBAL APPEND PROPERTY PIE_DRIVER_CUDA_CHECK_TARGETS ${NAME})
   if(NOT ARG_NO_CTEST)
     if(NOT ARG_TEST_NAME)
       string(REGEX REPLACE "^test_" "" ARG_TEST_NAME ${NAME})
@@ -632,7 +647,9 @@ pie_add_cuda_target(test_grouped_copy
 # purpose: whether a slab thrashes is decided here, and that must be checkable
 # without a device.
 pie_add_cuda_target(test_group_slot_index
-  SOURCES tests/group_slot_index_test.cpp)
+  SOURCES tests/group_slot_index_test.cpp
+  # The header under test is the loader's, not this crate's.
+  INCLUDE_DIRS ${PIE_LOADER_INCLUDE_DIR})
 # When a pack on disk may be trusted. Header-only, device-free and backend-free
 # on purpose: the pack is a property of the load plan, both drivers can use one,
 # and every check here stands between a mapping and the wrong weights.
@@ -798,3 +815,37 @@ else()
     "test_model_registry: skipped (no libpie_loader_capi.a; build one with "
     "`cargo rustc -p pie-loader-capi --lib --crate-type staticlib`)")
 endif()
+
+# ---- One target that builds every harness ----------------------------------
+#
+# `cargo build -p driver-cuda` asks CMake for `pie_driver_cuda_lib` and stops.
+# The 67 test and bench executables configured above were therefore never
+# compiled by any command anyone runs. Eleven kernel-family renames landed
+# green across them, and left behind: a `namespace ops` alias naming a
+# namespace that no longer exists, call sites qualified with a `kernels` that
+# is not in scope, tier-0 constants that moved to `kernels::ptir`, and -- the
+# one worth the whole exercise -- a `DType` collision that resolved to the
+# WRONG enum and was caught only because the two spell their members
+# differently.
+#
+# Depend on the library too, so this single target is the whole build.
+get_property(_pie_check_targets GLOBAL PROPERTY PIE_DRIVER_CUDA_CHECK_TARGETS)
+add_custom_target(pie_driver_cuda_checks)
+add_dependencies(pie_driver_cuda_checks pie_driver_cuda_lib ${_pie_check_targets})
+list(LENGTH _pie_check_targets _pie_check_count)
+message(STATUS "pie_driver_cuda_checks: ${_pie_check_count} harness targets")
+
+# NOT WIRED IN HERE, and deliberately so: ten .cu files under tests/ and bench/
+# are not sources of any target at all --
+#
+#   bench/gemv_bench          bench/mla_bench          bench/moe_bench
+#   bench/smallop_bench       bench/mxfp4_roof_bench   bench/marlin_moe_verify
+#   bench/mxfp4_cutlass_bench tests/test_peel_window   tests/test_supergraph
+#   tests/test_generated_lane_grid_padding
+#
+# so they compile only when someone types nvcc by hand. That is how
+# gemv_bench came to sweep a `warps=32` that is not instantiated, print the
+# empty interval as a bandwidth number, and go on doing it after
+# `gemv_splitk_tuned` gained an `unroll` parameter it never passed. Adding
+# them needs their vendor gates (cutlass, marlin) decided first, which is a
+# separate change from making the existing targets build.
