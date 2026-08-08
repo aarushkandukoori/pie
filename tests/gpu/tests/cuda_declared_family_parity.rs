@@ -29,15 +29,30 @@
 //! already booted.
 //!
 //! `#[ignore]`, driver-cuda, and each family needs its checkpoint in the
-//! HF cache. Run both polarities; the second invocation gates:
+//! HF cache.
+//!
+//! ONE TEST PER PROCESS, both polarities each. The filter must name a
+//! single test: the engine's `bootstrap` is single-use per process
+//! ("runtime bootstrap is single-use in this process; start a fresh
+//! process for another engine"), so a second test in the same invocation
+//! fails at boot no matter what `--test-threads` says. Running the file
+//! unfiltered therefore CANNOT pass, and reads as four red families when
+//! the failure is the harness. (It also serializes the GPU, which the
+//! 35B-A3B row now needs all of.)
 //!
 //! ```text
-//!   cargo test -p pie-gpu-tests --release --no-default-features \
-//!     --features driver-cuda --test cuda_declared_family_parity \
-//!     -- --ignored --nocapture
-//!   PIE_DECLARED_FORWARD_GEMMA4=0 cargo test ... gemma4 ...   (gemma-4 defaults ON)
-//!   PIE_DECLARED_FORWARD_GPT_OSS=1 cargo test ... gpt_oss ...   (gpt-oss is opt-in)
+//!   for pol in 1 0; do
+//!     PIE_DECLARED_FORWARD_GEMMA4=$pol cargo test -p pie-gpu-tests --release \
+//!       --no-default-features --features driver-cuda \
+//!       --test cuda_declared_family_parity gemma4_declared \
+//!       -- --ignored --nocapture --test-threads=1
+//!   done
 //! ```
+//!
+//! and the same shape for `gemma4_e2b` (same gate), `gpt_oss`
+//! (`PIE_DECLARED_FORWARD_GPT_OSS`) and `qwen35_moe`
+//! (`PIE_DECLARED_MOE`). Note `gemma4_declared` rather than `gemma4` --
+//! the shorter filter matches the e2b row too, which is two tests.
 
 mod common;
 

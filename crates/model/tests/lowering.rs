@@ -773,3 +773,27 @@ fn dump_the_aligned_moe_leg() {
         println!("{i:3}  {:?}", op.kind);
     }
 }
+
+/// Same printout for gemma-4's CUDA decode text — the driver refuses this
+/// plan on a kernel it does not have an arm for, and the trace is where to
+/// see which.
+#[test]
+#[ignore]
+fn dump_gemma4_cuda_kernels() {
+    let f = model::gemma_4::forward::facts::Gemma4Facts::gemma_4_e4b();
+    let cuda = model::gemma_4::forward::facts::Gemma4CudaFacts::gemma_4_e4b_synthetic();
+    let plan = model::gemma_4::forward::gemma4_cuda(&f, &cuda, FireClass::Decode);
+    let mut names: Vec<String> = plan
+        .ops
+        .iter()
+        .filter_map(|o| match &o.kind {
+            OpKind::Launch { kernel, .. } => Some(kernel.clone()),
+            _ => None,
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    for n in names {
+        println!("KERNEL {n}");
+    }
+}
