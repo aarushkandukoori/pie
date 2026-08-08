@@ -1643,6 +1643,272 @@ pub mod cuda {
         .expect("fused post produces q")
     }
 
+    // ── nemotron_h: mamba ──────────────────────────────────────────
+    //
+    // The other linear-attention shape, and it is not GDN's or KDA's. Mamba
+    // carries a `[head_dim, state_size]` slab per head and advances it with a
+    // scalar `dA` derived from a per-token `dt` -- a selective scan, not a
+    // delta rule. The state is a different SHAPE, which is why nothing above
+    // stands in for it and why the todo lists it as its own missing algebra.
+
+    /// `kernels::launch_nemotron_mamba_split_bf16`: split the fused input
+    /// projection into `(gate, conv_in, dt)`.
+    pub fn nemotron_mamba_split(
+        projected: &Val,
+        intermediate: u32,
+        conv_dim: u32,
+        heads: u32,
+    ) -> (Val, Val, Val) {
+        let outs = record_many(
+            &projected.t,
+            projected.layer,
+            "launch_nemotron_mamba_split_bf16",
+            vec![],
+            vec![projected.id],
+            vec![
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                    DType::BF16,
+                ),
+                (Shape(vec![Dim::Tokens, Dim::Const(conv_dim)]), DType::BF16),
+                (Shape(vec![Dim::Tokens, Dim::Const(heads)]), DType::BF16),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let gate = it.next().expect("the split states three outputs");
+        let conv_in = it.next().expect("the split states three outputs");
+        let dt = it.next().expect("the split states three outputs");
+        (gate, conv_in, dt)
+    }
+
+    /// `kernels::launch_nemotron_prepare_mamba_params`: widen `A_log`, `D`
+    /// and `dt_bias` to fp32, storing `A = -exp(A_log)`.
+    ///
+    /// Per HEAD, with no token extent at all — it transforms weights, not
+    /// activations. Stated because it is a launch the fire performs, and a
+    /// reader following where `A` comes from should find it on the tape.
+    pub fn nemotron_prepare_mamba_params(
+        t: &Trace,
+        l: u32,
+        a_log: &str,
+        d: &str,
+        dt_bias: &str,
+        heads: u32,
+    ) -> (Val, Val, Val) {
+        let outs = record_many(
+            t,
+            Some(l),
+            "launch_nemotron_prepare_mamba_params",
+            vec![a_log.to_string(), d.to_string(), dt_bias.to_string()],
+            vec![],
+            vec![
+                (Shape(vec![Dim::Const(heads)]), DType::F32),
+                (Shape(vec![Dim::Const(heads)]), DType::F32),
+                (Shape(vec![Dim::Const(heads)]), DType::F32),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let a = it.next().expect("the prepare states three outputs");
+        let d_f32 = it.next().expect("the prepare states three outputs");
+        let bias = it.next().expect("the prepare states three outputs");
+        (a, d_f32, bias)
+    }
+
+    /// `kernels::launch_nemotron_prepare_mamba_dt_da`: the per-token step
+    /// size and its decay, `(dt, dA)`.
+    pub fn nemotron_prepare_mamba_dt_da(dt_raw: &Val, a: &Val, heads: u32) -> (Val, Val) {
+        let outs = record_many(
+            &dt_raw.t,
+            dt_raw.layer,
+            "launch_nemotron_prepare_mamba_dt_da",
+            vec![],
+            vec![dt_raw.id, a.id],
+            vec![
+                (Shape(vec![Dim::Tokens, Dim::Const(heads)]), DType::F32),
+                (Shape(vec![Dim::Tokens, Dim::Const(heads)]), DType::F32),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let dt = it.next().expect("the prepare states two outputs");
+        let da = it.next().expect("the prepare states two outputs");
+        (dt, da)
+    }
+
+    /// `kernels::launch_nemotron_mamba_ssm_batched_bf16`: the selective scan.
+    ///
+    /// `whole` for both reasons the table collects: it addresses through
+    /// `slot_ids` and `qo_indptr`, AND the scan carries state from token to
+    /// token, so a row window would resume from the wrong slab.
+    pub fn nemotron_mamba_ssm(
+        conv_out: &Val,
+        dt: &Val,
+        l: u32,
+        intermediate: u32,
+    ) -> Val {
+        record(
+            &conv_out.t,
+            Some(l),
+            "launch_nemotron_mamba_ssm_batched_bf16",
+            vec![],
+            Some(StateRef {
+                store: StateStore::RecurrentState,
+                layer: l,
+            }),
+            vec![conv_out.id, dt.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the scan produces its value")
+    }
+
+    /// `kernels::launch_causal_conv1d_update_bf16`: the decode-step conv,
+    /// reading and advancing the per-request conv window.
+    ///
+    /// `whole`: it advances a slot's state in place, so a row window would
+    /// advance the wrong ones.
+    pub fn causal_conv1d_update(x: &Val, weight: &str, bias: &str, l: u32, channels: u32) -> Val {
+        record(
+            &x.t,
+            Some(l),
+            "launch_causal_conv1d_update_bf16",
+            vec![weight.to_string(), bias.to_string()],
+            Some(StateRef {
+                store: StateStore::RecurrentState,
+                layer: l,
+            }),
+            vec![x.id],
+            Some((
+                Shape(vec![Dim::Requests, Dim::Const(channels)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the conv produces its value")
+    }
+
+    /// `kernels::launch_zamba_rmsnorm_gated_bf16`: the grouped, gated output
+    /// norm mamba's block ends with.
+    pub fn zamba_rmsnorm_gated(x: &Val, gate: &Val, weight: &str, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_zamba_rmsnorm_gated_bf16",
+            vec![weight.to_string()],
+            None,
+            vec![x.id, gate.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the norm produces its value")
+    }
+
+    /// `kernels::launch_relu2_bf16`: `relu(x)²`, nemotron_h's MLP activation.
+    pub fn relu2(x: &Val, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_relu2_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the activation produces its value")
+    }
+
+    // ── nemotron_h: its own MoE dispatch ───────────────────────────
+
+    /// `kernels::launch_topk_sigmoid_bias_fp32`: the router, over fp32
+    /// logits and with a per-expert correction bias.
+    pub fn topk_sigmoid_bias(logits: &Val, bias: &str, top_k: u32) -> (Val, Val) {
+        let outs = record_many(
+            &logits.t,
+            logits.layer,
+            "launch_topk_sigmoid_bias_fp32",
+            vec![bias.to_string()],
+            vec![logits.id],
+            vec![
+                (Shape(vec![Dim::Tokens, Dim::Const(top_k)]), DType::I32),
+                (Shape(vec![Dim::Tokens, Dim::Const(top_k)]), DType::F32),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let idx = it.next().expect("the router states two outputs");
+        let w = it.next().expect("the router states two outputs");
+        (idx, w)
+    }
+
+    /// `kernels::launch_moe_bucket_exact`: bucket routes by expert WITHOUT
+    /// padding to fixed blocks.
+    ///
+    /// The unpadded counterpart of [`Self::moe_align`], writing exact
+    /// per-expert counts the host reads to build cuBLAS grouped shapes.
+    /// `whole` for the same reason: the sort is over all routes.
+    pub fn moe_bucket_exact(topk_idx: &Val, num_experts: u32, top_k: u32) -> (Val, Val) {
+        let outs = record_many(
+            &topk_idx.t,
+            topk_idx.layer,
+            "launch_moe_bucket_exact",
+            vec![],
+            vec![topk_idx.id],
+            vec![
+                (Shape(vec![Dim::Tokens, Dim::Const(top_k)]), DType::I32),
+                (Shape(vec![Dim::Const(num_experts)]), DType::I32),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let sorted = it.next().expect("the bucket states two outputs");
+        let counts = it.next().expect("the bucket states two outputs");
+        (sorted, counts)
+    }
+
+    /// `kernels::launch_build_nemotron_moe_ptrs_aligned_bf16`: the pointer
+    /// arrays for the block-aligned batched GEMM.
+    pub fn build_nemotron_moe_ptrs_aligned(expert_ids: &Val, aligned_in: &Val, l: u32) {
+        record(
+            &expert_ids.t,
+            Some(l),
+            "launch_build_nemotron_moe_ptrs_aligned_bf16",
+            vec![],
+            None,
+            vec![expert_ids.id, aligned_in.id],
+            None,
+        );
+    }
+
+    /// `kernels::launch_build_nemotron_moe_ptrs_decode_batched_bf16`: the
+    /// same, for the decode path that skips the permutation entirely.
+    pub fn build_nemotron_moe_ptrs_decode(topk_idx: &Val, topk_w: &Val, x: &Val, l: u32) {
+        record(
+            &topk_idx.t,
+            Some(l),
+            "launch_build_nemotron_moe_ptrs_decode_batched_bf16",
+            vec![],
+            None,
+            vec![topk_idx.id, topk_w.id, x.id],
+            None,
+        );
+    }
+
+    /// `kernels::launch_token_batched_weighted_sum_aligned_bf16`: combine the
+    /// aligned expert outputs back per token.
+    pub fn token_batched_weighted_sum_aligned(
+        aligned_out: &Val,
+        topk_w: &Val,
+        hidden: u32,
+    ) -> Val {
+        record(
+            &aligned_out.t,
+            aligned_out.layer,
+            "launch_token_batched_weighted_sum_aligned_bf16",
+            vec![],
+            None,
+            vec![aligned_out.id, topk_w.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the combine produces its value")
+    }
+
     // ── KDA: Kimi Delta Attention ──────────────────────────────────
     //
     // The linear-attention half of kimi_k3. Same gated delta rule qwen3_5

@@ -66,6 +66,38 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── nemotron_h: mamba ──────────────────────────────────────────
+    // The third linear-attention shape here, and not a variant of the other
+    // two: mamba carries a `[head_dim, state_size]` slab per head and
+    // advances it with a scalar `dA` from a per-token `dt` -- a selective
+    // scan, not a delta rule. A different state SHAPE, which is why none of
+    // the GDN or KDA rows stand in for it.
+    kernel!(nemotron_mamba_split "launch_nemotron_mamba_split_bf16"),
+    kernel!(nemotron_prepare_mamba_params "launch_nemotron_prepare_mamba_params"),
+    kernel!(nemotron_prepare_mamba_dt_da "launch_nemotron_prepare_mamba_dt_da"),
+    // `whole` for both reasons this table collects: it addresses through
+    // `slot_ids` and `qo_indptr`, and the scan carries state token to token,
+    // so a row window would resume from the wrong slab.
+    kernel!(nemotron_mamba_ssm "launch_nemotron_mamba_ssm_batched_bf16", whole = true),
+    // Advances a slot's conv window in place; a row window advances the
+    // wrong slots.
+    kernel!(causal_conv1d_update "launch_causal_conv1d_update_bf16", whole = true),
+    kernel!(zamba_rmsnorm_gated "launch_zamba_rmsnorm_gated_bf16"),
+    kernel!(relu2 "launch_relu2_bf16"),
+
+    // ── nemotron_h: its own MoE dispatch ───────────────────────────
+    kernel!(topk_sigmoid_bias "launch_topk_sigmoid_bias_fp32"),
+    // The UNPADDED counterpart of `moe_align`: exact per-expert counts the
+    // host reads to build cuBLAS grouped shapes. `whole` for the same reason
+    // -- the sort is over all routes.
+    kernel!(moe_bucket_exact "launch_moe_bucket_exact", whole = true),
+    kernel!(build_nemotron_moe_ptrs_aligned "launch_build_nemotron_moe_ptrs_aligned_bf16",
+        whole = true),
+    kernel!(build_nemotron_moe_ptrs_decode "launch_build_nemotron_moe_ptrs_decode_batched_bf16",
+        whole = true),
+    kernel!(token_batched_weighted_sum_aligned "launch_token_batched_weighted_sum_aligned_bf16",
+        whole = true),
+
     // ── KDA: Kimi Delta Attention ──────────────────────────────────
     // kimi_k3's linear-attention half. The gated delta rule qwen3_5 runs,
     // with the decay per KEY CHANNEL rather than per head -- which is why
