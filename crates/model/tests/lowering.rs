@@ -797,3 +797,32 @@ fn dump_gemma4_cuda_kernels() {
         println!("KERNEL {n}");
     }
 }
+
+/// gpt-oss's stated CUDA kernels. The hand-written pass is the broken side
+/// for this family (`.wiki/tart/status.md`), and the declared drive is
+/// clean, so the DIFFERENCE between what the declaration says and what
+/// `mixtral.cpp` fires is the suspect set -- a directed search, where the
+/// env knobs have run out.
+#[test]
+#[ignore]
+fn dump_gpt_oss_cuda_kernels() {
+    let f = model::gpt_oss::forward::facts::GptOssFacts::gpt_oss_20b();
+    let cuda = model::gpt_oss::forward::facts::GptOssCudaFacts::gpt_oss_20b_synthetic();
+    for class in [FireClass::Decode, FireClass::Prefill] {
+        let plan = model::gpt_oss::forward::gpt_oss_cuda(&f, &cuda, class);
+        let mut names: Vec<String> = plan
+            .ops
+            .iter()
+            .filter_map(|o| match &o.kind {
+                OpKind::Launch { kernel, .. } => Some(kernel.clone()),
+                _ => None,
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        println!("== {class:?}");
+        for n in names {
+            println!("  {n}");
+        }
+    }
+}
