@@ -27,8 +27,6 @@ namespace {
 // y[n,o] = sum_k x[n,k]*W[o,k]   (W is [O,K] row-major, PyTorch Linear layout).
 // Per-row RMSNorm over D (fp32 accumulate, matches CsmRMSNorm).
 // SwiGLU MLP fused: out[n,i] = silu(gate[n,i]) * up[n,i].
-__global__ void k_add(bf* a,const bf* b,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t)a[i]=Bf(F(a[i])+F(b[i]));}
-
 // llama3 YaRN inv-freq (mirrors rope.cu::yarn_freq).
 __device__ __forceinline__ float yarn_freq(float base_freq,float factor,
         float low_freq_factor,float high_freq_factor,float orig_max_pos){

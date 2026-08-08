@@ -74,7 +74,6 @@ __global__ void k_av(const float* s,const bf* v,bf* o,int N,int H,int head){
     const float* sr=s+(long)n*N;float a=0;for(int j=0;j<N;j++)a+=sr[j]*F(v[((long)j*H+head)*64+d]);
     o[((long)n*H+head)*64+d]=Bf(a);}
 __global__ void k_gelu_mul(const bf* g,const bf* u,bf* o,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t){float x=F(g[i]);float gl=0.5f*x*(1.f+tanhf(0.7978845608f*(x+0.044715f*x*x*x)));o[i]=Bf(gl*F(u[i]));}}
-__global__ void k_add(bf* h,const bf* x,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t)h[i]=Bf(F(h[i])+F(x[i]));}
 __global__ void k_pool(const bf* h,const int* grp,float* o,int N,int D,float k2){
     int n=blockIdx.y*blockDim.y+threadIdx.y,d=blockIdx.x*blockDim.x+threadIdx.x;if(n>=N||d>=D)return;
     atomicAdd(&o[(long)grp[n]*D+d],F(h[(long)n*D+d])/k2);}

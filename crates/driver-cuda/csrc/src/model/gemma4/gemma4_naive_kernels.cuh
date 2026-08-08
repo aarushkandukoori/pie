@@ -15,9 +15,5 @@ __global__ void k_clamp(const bf* x,bf* o,const bf* lo,const bf* hi,long t){
     long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i>=t)return;
     float v=F(x[i]),l=lo?F(*lo):-CUDART_INF_F,h=hi?F(*hi):CUDART_INF_F;o[i]=Bf(v<l?l:(v>h?h:v));}
 
-__global__ void k_f32_to_bf16(const float* a, bf* o, long n){
-    long i=blockIdx.x*(long)blockDim.x+threadIdx.x; if(i<n) o[i]=Bf(a[i]);
-}
-
 }  // namespace
 }  // namespace pie_cuda_driver::model

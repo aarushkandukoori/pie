@@ -36,6 +36,8 @@
 #include <string>
 #include <vector>
 
+#include "model/tower_naive_kernels.cuh"
+
 namespace pie_cuda_driver::model {
 
 // cuBLAS bf16 GEMM: y[M,N] = x[M,K] @ W[N,K]^T (row-major; bf16 in/out, fp32
@@ -62,13 +64,7 @@ void set_qwen3vl_vision_ckpt(Qwen3VLVisionCkptFn fn, void* user) {
 
 namespace {
 
-typedef __nv_bfloat16 bf;
 #define QCK(x) do{cudaError_t e=(x);if(e)throw std::runtime_error(std::string("qwen3vl_vision: ")+cudaGetErrorString(e));}while(0)
-__device__ __forceinline__ float F(bf x){return __bfloat162float(x);}
-__device__ __forceinline__ bf   Bf(float x){return __float2bfloat16(x);}
-
-// Defined later (also used by scatter); forward-declared for the attention loop.
-__global__ void k_f32_to_bf16(const float* a, bf* o, long n);
 
 // Add bias[col] to y[m,col] (the GEMM epilogue the old k_matmul folded in).
 __global__ void k_bias(bf* y,const bf* b,long M,int N){
@@ -86,19 +82,6 @@ inline void gemm_bias(cublasHandle_t blas,const bf* x,const QVisLinear& lin,
 // k_matmul that lived here has been removed.)
 
 // LayerNorm over the last dim D (mean + variance), gamma+beta.  One block/row.
-__global__ void k_layernorm(const bf* x,const bf* g,const bf* bta,bf* o,int R,int D,float eps){
-    int r=blockIdx.x;if(r>=R)return;const bf* xr=x+(long)r*D;bf* orow=o+(long)r*D;
-    float sum=0;for(int d=threadIdx.x;d<D;d+=blockDim.x)sum+=F(xr[d]);
-    for(int s=warpSize/2;s>0;s>>=1)sum+=__shfl_down_sync(0xffffffff,sum,s);
-    __shared__ float warp[32],smean,svar;if((threadIdx.x&31)==0)warp[threadIdx.x>>5]=sum;__syncthreads();
-    if(threadIdx.x==0){float t=0;int nw=(blockDim.x+31)/32;for(int i=0;i<nw;i++)t+=warp[i];smean=t/D;}__syncthreads();
-    float mean=smean,v=0;for(int d=threadIdx.x;d<D;d+=blockDim.x){float dx=F(xr[d])-mean;v+=dx*dx;}
-    for(int s=warpSize/2;s>0;s>>=1)v+=__shfl_down_sync(0xffffffff,v,s);
-    if((threadIdx.x&31)==0)warp[threadIdx.x>>5]=v;__syncthreads();
-    if(threadIdx.x==0){float t=0;int nw=(blockDim.x+31)/32;for(int i=0;i<nw;i++)t+=warp[i];svar=rsqrtf(t/D+eps);}__syncthreads();
-    float inv=svar;for(int d=threadIdx.x;d<D;d+=blockDim.x){
-        float nrm=(F(xr[d])-mean)*inv;orow[d]=Bf(nrm*(g?F(g[d]):1.f)+(bta?F(bta[d]):0.f));}}
-
 __global__ void k_add_inplace(bf* h,const bf* x,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t)h[i]=Bf(F(h[i])+F(x[i]));}
 
 // Add the precomputed interpolated abs pos-embed `pe[n_patch,D]` into `h`.
@@ -393,10 +376,6 @@ void run_qwen3vl_vision(cublasHandle_t blas,const QwenVisRawWeights& w,
 }
 
 namespace {
-__global__ void k_f32_to_bf16(const float* a, bf* o, long n){
-    long i=blockIdx.x*(long)blockDim.x+threadIdx.x; if(i<n) o[i]=Bf(a[i]);
-}
-
 // ── Host helpers mirroring transformers vision_utils (pixel order + side inputs).
 
 // Build the spatial-merge reorder permutation `perm[k]` = source patch index for

@@ -15,9 +15,30 @@
 // `csm_backbone_parity`) run against reference dumps. Collapsing identical
 // bodies does not, which is why this can land and that cannot.
 //
-// Names whose bodies DIFFER between towers stay where they are: `k_add`,
-// `k_addpos`, `k_attn`, `k_f32_to_bf16`, `k_gelu`, `k_layernorm`, `k_rope`.
-// Each needs reading before anyone claims two of them are the same op.
+// Reading the seven that looked different settled each one:
+//
+//   k_add          SAME. Three copies whose only difference was parameter
+//                  NAMES (a/b vs h/x) and a line break. Here now.
+//   k_f32_to_bf16  SAME. Not two definitions at all -- qwen3_vl forward-
+//                  declares it and defines it later in the same file, and the
+//                  fingerprint had swallowed the next kernel. Here now.
+//   k_layernorm    SAME ALGORITHM, wider contract. qwen3_vl's takes gamma/beta
+//                  as optional (`g ? F(g[d]) : 1.f`) where mimi's dereferences
+//                  them; mimi always passes non-null, so the general one is
+//                  bit-identical for both. The general one is here.
+//   k_gelu         DIFFERENT FUNCTION. mimi computes the exact erf form
+//                  (`transformers` ACT2FN["gelu"]); qwen3_vl the tanh
+//                  approximation. Merging them would have been a silent
+//                  numerics change. Both stay put, and a shared `mlp::gelu`
+//                  will have to offer both.
+//   k_addpos       DIFFERENT OP. gemma4 indexes a 2-D grid position table
+//                  twice per token; qwen3_vl adds a precomputed vector.
+//   k_rope         DIFFERENT OP. csm is 1-D with YaRN scaling, gemma4 is
+//                  2-D axial. See .wiki/kernel-refactor.md §2.2.
+//   k_attn         SAME SHAPE, different axes -- one takes a q-offset into a
+//                  KV cache, the other a sliding window. One parameterised
+//                  kernel could cover both, which makes it a numerics change
+//                  and so a job for the parity harnesses.
 
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -45,6 +66,26 @@ __global__ void k_rms(const bf* x,const bf* w,bf* o,int R,int D,float eps){
     if(threadIdx.x==0){float t=0;int nw=(blockDim.x+31)/32;for(int i=0;i<nw;i++)t+=warp[i];ss=rsqrtf(t/D+eps);}__syncthreads();
     float inv=ss;for(int d=threadIdx.x;d<D;d+=blockDim.x)orow[d]=Bf(F(xr[d])*inv*(w?F(w[d]):1.f));
 }
+
+__global__ void k_add(bf* a,const bf* b,long n){
+    long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<n)a[i]=Bf(F(a[i])+F(b[i]));}
+
+__global__ void k_f32_to_bf16(const float* a, bf* o, long n){
+    long i=blockIdx.x*(long)blockDim.x+threadIdx.x; if(i<n) o[i]=Bf(a[i]);
+}
+
+__global__ void k_layernorm(const bf* x,const bf* g,const bf* bta,bf* o,int R,int D,float eps){
+    int r=blockIdx.x;if(r>=R)return;const bf* xr=x+(long)r*D;bf* orow=o+(long)r*D;
+    float sum=0;for(int d=threadIdx.x;d<D;d+=blockDim.x)sum+=F(xr[d]);
+    for(int s=warpSize/2;s>0;s>>=1)sum+=__shfl_down_sync(0xffffffff,sum,s);
+    __shared__ float warp[32],smean,svar;if((threadIdx.x&31)==0)warp[threadIdx.x>>5]=sum;__syncthreads();
+    if(threadIdx.x==0){float t=0;int nw=(blockDim.x+31)/32;for(int i=0;i<nw;i++)t+=warp[i];smean=t/D;}__syncthreads();
+    float mean=smean,v=0;for(int d=threadIdx.x;d<D;d+=blockDim.x){float dx=F(xr[d])-mean;v+=dx*dx;}
+    for(int s=warpSize/2;s>0;s>>=1)v+=__shfl_down_sync(0xffffffff,v,s);
+    if((threadIdx.x&31)==0)warp[threadIdx.x>>5]=v;__syncthreads();
+    if(threadIdx.x==0){float t=0;int nw=(blockDim.x+31)/32;for(int i=0;i<nw;i++)t+=warp[i];svar=rsqrtf(t/D+eps);}__syncthreads();
+    float inv=svar;for(int d=threadIdx.x;d<D;d+=blockDim.x){
+        float nrm=(F(xr[d])-mean)*inv;orow[d]=Bf(nrm*(g?F(g[d]):1.f)+(bta?F(bta[d]):0.f));}}
 
 }  // namespace
 }  // namespace pie_cuda_driver::model

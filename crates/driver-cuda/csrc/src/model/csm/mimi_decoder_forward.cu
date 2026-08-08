@@ -79,8 +79,6 @@ __global__ void k_gelu(const bf* x,bf* o,long n){
     float v=F(x[i]);
     // exact (erf) GELU — transformers ACT2FN["gelu"] is the erf form.
     o[i]=Bf(0.5f*v*(1.f+erff(v*0.70710678118f)));}
-__global__ void k_add(bf* a,const bf* b,long n){
-    long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<n)a[i]=Bf(F(a[i])+F(b[i]));}
 __global__ void k_bf16_to_f32(const bf* a,float* o,long n){
     long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<n)o[i]=F(a[i]);}
 // out[c,t] += scale[c] * x[c,t]  (per-CHANNEL layer scale on a [C, T] tensor)
@@ -97,18 +95,6 @@ __global__ void k_layerscale_add_rd(bf* res,const bf* x,const bf* scale,int R,in
 // Standard matmul y[n,o] = sum_k x[n,k]*W[o,k]   (W is [O, K], row-major).
 // LayerNorm over the feature axis (with weight + bias), on a [R, D] row-major
 // tensor (one feature vector per row). transformers nn.LayerNorm.
-__global__ void k_layernorm(const bf* x,const bf* w,const bf* b,bf* o,int R,int D,float eps){
-    int r=blockIdx.x;if(r>=R)return;const bf* xr=x+(long)r*D;bf* orow=o+(long)r*D;
-    float m=0;for(int d=threadIdx.x;d<D;d+=blockDim.x)m+=F(xr[d]);
-    for(int s=warpSize/2;s>0;s>>=1)m+=__shfl_down_sync(0xffffffff,m,s);
-    __shared__ float wm[32],wv[32],mean,inv;if((threadIdx.x&31)==0)wm[threadIdx.x>>5]=m;__syncthreads();
-    if(threadIdx.x==0){float t=0;int nw=(blockDim.x+31)/32;for(int i=0;i<nw;i++)t+=wm[i];mean=t/D;}__syncthreads();
-    float v=0;for(int d=threadIdx.x;d<D;d+=blockDim.x){float dd=F(xr[d])-mean;v+=dd*dd;}
-    for(int s=warpSize/2;s>0;s>>=1)v+=__shfl_down_sync(0xffffffff,v,s);
-    if((threadIdx.x&31)==0)wv[threadIdx.x>>5]=v;__syncthreads();
-    if(threadIdx.x==0){float t=0;int nw=(blockDim.x+31)/32;for(int i=0;i<nw;i++)t+=wv[i];inv=rsqrtf(t/D+eps);}__syncthreads();
-    for(int d=threadIdx.x;d<D;d+=blockDim.x)orow[d]=Bf((F(xr[d])-mean)*inv*F(w[d])+F(b[d]));}
-
 // ── RVQ dequantize ───────────────────────────────────────────────────────────
 // For one RVQ GROUP: sum the per-codebook embedding rows (codebook_dim=256)
 // over its codebooks, into a [codebook_dim, T] residual (channels-first to feed

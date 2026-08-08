@@ -79,7 +79,6 @@ __global__ void k_matmul_bias(const bf* x,const bf* W,const bf* b,bf* y,int N,in
 __global__ void k_silu(const bf* x,bf* o,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t){float v=F(x[i]);o[i]=Bf(v/(1.f+__expf(-v)));}}
 // out = a + scale*b   (residual add with macaron weight).
 __global__ void k_axpy(bf* a,const bf* b,float scale,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t)a[i]=Bf(F(a[i])+scale*F(b[i]));}
-__global__ void k_add(bf* a,const bf* b,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t)a[i]=Bf(F(a[i])+F(b[i]));}
 // GLU over last dim: o[n,d] = x[n,d] * sigmoid(x[n, d+D]) for d in [0,D).
 __global__ void k_glu(const bf* x,bf* o,int N,int D){
     int n=blockIdx.y*blockDim.y+threadIdx.y,d=blockIdx.x*blockDim.x+threadIdx.x;if(n>=N||d>=D)return;
