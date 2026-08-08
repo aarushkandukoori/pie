@@ -12,11 +12,11 @@
 //! or `inferlet::host::forward` — there is no module-level `dead_code` allow.
 //! The two exceptions carry their own annotated `allow` at the field.
 
-use pie_grammar::brle::RunMask;
-use pie_ir::container::{PortSource, TraceContainer};
-use pie_ir::op::Op;
-use pie_ir::registry::Port;
-use pie_ir::types::DType;
+use grammar::brle::RunMask;
+use tensor_ir::container::{PortSource, TraceContainer};
+use tensor_ir::op::Op;
+use tensor_ir::registry::Port;
+use tensor_ir::types::DType;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DecodeEnvelope {
@@ -176,8 +176,8 @@ pub fn classify_decode_envelope_why(
         || token_dims[0] == 0
         || !matches!(
             token.dtype,
-            pie_ir::container::ChanDType::Concrete(DType::I32)
-                | pie_ir::container::ChanDType::Concrete(DType::U32)
+            tensor_ir::container::ChanDType::Concrete(DType::I32)
+                | tensor_ir::container::ChanDType::Concrete(DType::U32)
         )
     {
         return Err("decode envelope tokens must be a non-empty i32/u32 vector".to_string());
@@ -203,7 +203,7 @@ pub fn classify_decode_envelope_why(
             if declaration.shape.dims() != [token_count + 1]
                 || !matches!(
                     declaration.dtype,
-                    pie_ir::container::ChanDType::Concrete(DType::U32)
+                    tensor_ir::container::ChanDType::Concrete(DType::U32)
                 )
             {
                 return Err(format!(
@@ -228,7 +228,7 @@ pub fn classify_decode_envelope_why(
     if kv_len.shape.dims() != [lane_count]
         || !matches!(
             kv_len.dtype,
-            pie_ir::container::ChanDType::Concrete(DType::U32)
+            tensor_ir::container::ChanDType::Concrete(DType::U32)
         )
     {
         return Err(format!(
@@ -251,7 +251,7 @@ pub fn classify_decode_envelope_why(
                 if declaration.shape.dims() != [lane_count + 1]
                     || !matches!(
                         declaration.dtype,
-                        pie_ir::container::ChanDType::Concrete(DType::U32)
+                        tensor_ir::container::ChanDType::Concrete(DType::U32)
                     )
                 {
                     return Err("device EmbedIndptr must be a [lanes+1] u32 vector".to_string());
@@ -274,7 +274,7 @@ pub fn classify_decode_envelope_why(
                 if declaration.shape.dims().len() != 1
                     || !matches!(
                         declaration.dtype,
-                        pie_ir::container::ChanDType::Concrete(DType::U32)
+                        tensor_ir::container::ChanDType::Concrete(DType::U32)
                     )
                 {
                     return Err("device Readout must be a u32 vector".to_string());
@@ -292,7 +292,7 @@ pub fn classify_decode_envelope_why(
                 if declaration.shape.dims() != [token_count]
                     || !matches!(
                         declaration.dtype,
-                        pie_ir::container::ChanDType::Concrete(DType::U32)
+                        tensor_ir::container::ChanDType::Concrete(DType::U32)
                     )
                 {
                     return Err(format!(
@@ -314,7 +314,7 @@ pub fn classify_decode_envelope_why(
                 if !valid_shape
                     || !matches!(
                         declaration.dtype,
-                        pie_ir::container::ChanDType::Concrete(DType::U32)
+                        tensor_ir::container::ChanDType::Concrete(DType::U32)
                     )
                 {
                     return Err(
@@ -330,7 +330,7 @@ pub fn classify_decode_envelope_why(
                 if declaration.shape.dims() != [lane_count + 1]
                     || !matches!(
                         declaration.dtype,
-                        pie_ir::container::ChanDType::Concrete(DType::U32)
+                        tensor_ir::container::ChanDType::Concrete(DType::U32)
                     )
                 {
                     return Err("device PageIndptr must be a [lanes+1] u32 vector".to_string());
@@ -344,7 +344,7 @@ pub fn classify_decode_envelope_why(
                 if declaration.shape.dims() != [token_count]
                     || !matches!(
                         declaration.dtype,
-                        pie_ir::container::ChanDType::Concrete(DType::U32)
+                        tensor_ir::container::ChanDType::Concrete(DType::U32)
                     )
                 {
                     return Err("device WSlot/WOff must be a [tokens] u32 vector".to_string());
@@ -369,7 +369,7 @@ pub fn classify_decode_envelope_why(
                     .ok_or_else(|| "decode envelope mask channel is out of range".to_string())?;
                 if !matches!(
                     declaration.dtype,
-                    pie_ir::container::ChanDType::Concrete(DType::Bool)
+                    tensor_ir::container::ChanDType::Concrete(DType::Bool)
                 ) {
                     return Err("device attention mask must be a bool channel".to_string());
                 }
@@ -406,9 +406,9 @@ pub fn classify_decode_envelope_why(
 /// class demands of a driver.
 pub fn envelope_required_ports(envelope: &DecodeEnvelope) -> u32 {
     let mut required =
-        pie_driver_abi::PIE_DEVICE_PORT_EMBED_TOKENS | pie_driver_abi::PIE_DEVICE_PORT_KV_LEN;
+        driver_abi::PIE_DEVICE_PORT_EMBED_TOKENS | driver_abi::PIE_DEVICE_PORT_KV_LEN;
     if envelope.device_positions {
-        required |= pie_driver_abi::PIE_DEVICE_PORT_POSITIONS;
+        required |= driver_abi::PIE_DEVICE_PORT_POSITIONS;
     }
     // No `PIE_DEVICE_PORT_ATTN_MASK` clause: the classifier declines a
     // channel-bound mask outright, so no envelope reaches here carrying one.
@@ -605,7 +605,7 @@ pub(crate) fn lower_attn_mask_evaluated(
 
 /// Evaluate and lower the mask against this fire's host-shadow value oracle.
 pub(crate) fn evaluate_attn_mask(
-    bound: &pie_ir::validate::BoundTrace,
+    bound: &tensor_ir::validate::BoundTrace,
     known: &mut dyn FnMut(u32) -> Option<tensor_compiler::eval::interp::Value>,
     qo_indptr: &[u32],
 ) -> Result<FireAttnMask, String> {
@@ -677,7 +677,7 @@ fn port_dims(container: &TraceContainer, port: Port) -> Option<Vec<u32>> {
 /// the wire CSR by each lane's live page count from `PageIndptr`, mirroring
 /// the driver's descriptor resolution; rank-1 pages pass through flat.
 pub fn map_geometry_evaluated(
-    bound: &pie_ir::validate::BoundTrace,
+    bound: &tensor_ir::validate::BoundTrace,
     known: &mut dyn FnMut(u32) -> Option<tensor_compiler::eval::interp::Value>,
     page_size: u32,
 ) -> Result<
@@ -1008,12 +1008,12 @@ fn as_u32(port: Port, bytes: &[u8]) -> Result<Vec<u32>, GeometryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_ir::container::{
+    use tensor_ir::container::{
         ChanDType, ChannelDecl, HostRole, PortBinding, PortSource, StageProgram, TraceContainer,
     };
-    use pie_ir::op::Op;
-    use pie_ir::registry::Stage;
-    use pie_ir::types::{DType, Shape};
+    use tensor_ir::op::Op;
+    use tensor_ir::registry::Stage;
+    use tensor_ir::types::{DType, Shape};
 
     fn u32_bytes(v: &[u32]) -> Vec<u8> {
         v.iter().flat_map(|w| w.to_le_bytes()).collect()

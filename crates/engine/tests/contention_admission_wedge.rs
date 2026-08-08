@@ -18,8 +18,8 @@ use common::{
     mock_device::{DelayedBehavior, EchoBehavior},
 };
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process;
+use engine::inferlet::program::ProgramName;
 
 #[test]
 fn fleet_larger_than_the_admission_cap_does_not_wedge() {
@@ -45,7 +45,7 @@ fn fleet_larger_than_the_admission_cap_does_not_wedge() {
     // (they own their FCFS seq) but page-less and unable to run.
     config.max_concurrent_processes = Some(2);
     runtime.block_on(async {
-        pie_engine::bootstrap::bootstrap(config).await.unwrap();
+        engine::bootstrap::bootstrap(config).await.unwrap();
         inferlets::add_and_install("generate").await;
     });
 
@@ -73,7 +73,7 @@ fn fleet_larger_than_the_admission_cap_does_not_wedge() {
             let received = match tokio::time::timeout(Duration::from_secs(30), receiver).await {
                 Ok(received) => received,
                 Err(_) => {
-                    let diagnostics = pie_engine::planner::planner().unwrap().diagnostics();
+                    let diagnostics = engine::planner::planner().unwrap().diagnostics();
                     panic!(
                         "admission-capped fleet must not wedge: lane {lane} timed out; \
                          diagnostics: {diagnostics:#?}"
@@ -89,7 +89,7 @@ fn fleet_larger_than_the_admission_cap_does_not_wedge() {
         results.iter().any(Result::is_ok),
         "the fleet makes progress: {results:?}"
     );
-    let diagnostics = pie_engine::planner::planner()
+    let diagnostics = engine::planner::planner()
         .expect("residency planner")
         .diagnostics();
     assert!(

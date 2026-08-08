@@ -10,8 +10,8 @@ use futures::future::join_all;
 mod common;
 use common::{MockEnv, create_mock_env, inferlets, mock_device::EchoBehavior};
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::{self, ProgramName};
+use engine::inferlet::process;
+use engine::inferlet::program::{self, ProgramName};
 use tokio::sync::oneshot;
 
 /// Shared state: MockEnv + tokio runtime (must outlive the process).
@@ -32,7 +32,7 @@ fn state() -> &'static TestState {
         let env = create_mock_env("test-model", 1, 16, Arc::new(EchoBehavior(42)));
         let config = env.config();
         rt.block_on(async {
-            pie_engine::bootstrap::bootstrap(config).await.unwrap();
+            engine::bootstrap::bootstrap(config).await.unwrap();
         });
         TestState { env, rt }
     })

@@ -40,7 +40,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use pie_client::client::Client;
+use client::client::Client;
 
 /// Concurrent grammar-late inferlets, each on its own session (R=1 each). Verifies
 /// the masking mechanism under concurrency (distinct Late buffers, no device-arena

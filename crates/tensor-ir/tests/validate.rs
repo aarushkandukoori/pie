@@ -2,7 +2,7 @@
 //!
 //! An integration test on purpose: everything here goes in through the one
 //! public entry point and reads the [`BoundTrace`] that comes out, which is
-//! exactly what `pie-plan` does. Nothing in this file can reach a pass
+//! exactly what `tensor-compiler` does. Nothing in this file can reach a pass
 //! directly, so a refactor that reshuffles the passes cannot quietly break
 //! the contract without a test noticing.
 //!
@@ -10,13 +10,13 @@
 //! `src/validate.rs`, because it is asserting an internal property: that a
 //! pass which normally runs second still answers correctly when run first.
 
-use pie_ir::container::{
+use tensor_ir::container::{
     ChanDType, ChannelDecl, HostRole, PortBinding, PortSource, StageProgram, TraceContainer,
 };
-use pie_ir::op::{IntrinsicId, Op};
-use pie_ir::registry::{ModelProfile, Phase, Port, SinkScope, Stage};
-use pie_ir::types::{DType, Literal, Shape};
-use pie_ir::validate::{ChannelClass, Direction, ValidateError, bind};
+use tensor_ir::op::{IntrinsicId, Op};
+use tensor_ir::registry::{ModelProfile, Phase, Port, SinkScope, Stage};
+use tensor_ir::types::{DType, Literal, Shape};
+use tensor_ir::validate::{ChannelClass, Direction, ValidateError, bind};
 
 fn chan(shape: Shape, dtype: DType, host_role: HostRole, seeded: bool) -> ChannelDecl {
     ChannelDecl {
@@ -66,9 +66,9 @@ fn section3() -> TraceContainer {
         Op::ChanTake(4), // 2 r = rng.take()
         Op::ChanTake(2), // 3 m = mask.take()
     ];
-    let g = pie_ir::expand::gumbel(&mut ops, 2, Shape::vector(vocab)); // 4
-    let masked = pie_ir::expand::mask_apply(&mut ops, 1, 3); // 5,6
-    let sum = pie_ir::expand::next_id(&ops);
+    let g = tensor_ir::expand::gumbel(&mut ops, 2, Shape::vector(vocab)); // 4
+    let masked = tensor_ir::expand::mask_apply(&mut ops, 1, 3); // 5,6
+    let sum = tensor_ir::expand::next_id(&ops);
     ops.push(Op::Add(masked, g)); // sum
     ops.push(Op::ReduceArgmax(sum)); // t = sum+1
     let t = sum + 1;
@@ -208,7 +208,7 @@ fn spsc_second_producer_rejected() {
     let mut c = section3();
     // Host writes `mask` (chan 2); a stage put to it is a bind error.
     c.stages[0].ops.push(Op::Const(Literal::Bool(true)));
-    let id = pie_ir::expand::next_id(&c.stages[0].ops) - 1;
+    let id = tensor_ir::expand::next_id(&c.stages[0].ops) - 1;
     c.stages[0].ops.push(Op::Broadcast {
         value: id,
         shape: Shape::vector(32),
@@ -237,7 +237,7 @@ fn spsc_second_consumer_rejected() {
 #[test]
 fn sink_precedence_t11() {
     let mut profile = ModelProfile::dummy();
-    profile.kernels.push(pie_ir::registry::KernelInfo {
+    profile.kernels.push(tensor_ir::registry::KernelInfo {
         name: "lora".to_string(),
         sink_scope: Some(SinkScope::PassWide),
         replayable: true,
@@ -276,7 +276,7 @@ fn sink_precedence_t11() {
                 Op::ChanRead(0),
                 Op::PivotThreshold {
                     input: 0,
-                    predicate: pie_ir::types::Predicate::ProbGe(1),
+                    predicate: tensor_ir::types::Predicate::ProbGe(1),
                 },
                 Op::SinkCall {
                     name: 0,
@@ -294,7 +294,7 @@ fn sink_precedence_t11() {
             Op::Const(Literal::F32(0.5)), // 1
             Op::PivotThreshold {
                 input: 0,
-                predicate: pie_ir::types::Predicate::ProbGe(1),
+                predicate: tensor_ir::types::Predicate::ProbGe(1),
             }, // 2
             Op::SinkCall {
                 name: 0,
@@ -378,7 +378,7 @@ fn lora_honour_gate_and_placement() {
 #[test]
 fn t10_non_replayable_kernel_rejected() {
     let mut profile = ModelProfile::dummy();
-    profile.kernels.push(pie_ir::registry::KernelInfo {
+    profile.kernels.push(tensor_ir::registry::KernelInfo {
         name: "gpu_load".to_string(),
         sink_scope: None,
         replayable: false,

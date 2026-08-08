@@ -24,9 +24,9 @@
 
 use std::time::Instant;
 
-use pie_forward::family::{gemma4_cuda, gpt_oss_cuda, llama_like_cuda, qwen3_5_hybrid_cuda};
-use pie_forward::lower::{lower, Fire, Row};
-use pie_forward::{
+use model_compiler::family::{gemma4_cuda, gpt_oss_cuda, llama_like_cuda, qwen3_5_hybrid_cuda};
+use model_compiler::lower::{lower, Fire, Row};
+use model_compiler::{
     FireClass, Gemma4CudaFacts, Gemma4Facts, GptOssCudaFacts, GptOssFacts, LlamaLikeCudaFacts,
     LlamaLikeFacts, Qwen35CudaFacts, Qwen35HybridFacts,
 };
@@ -42,7 +42,7 @@ fn rows(n: usize) -> Vec<Row> {
 
 /// Median of `reps` timed calls, in microseconds. Median rather than mean
 /// because one preempted call should not set the number.
-fn median_us(plan: &pie_forward::ForwardPlan, rows: &[Row], reps: usize) -> f64 {
+fn median_us(plan: &model_compiler::ForwardPlan, rows: &[Row], reps: usize) -> f64 {
     // Warm the allocator and any lazily built tables first; the first call
     // is not the one being asked about.
     for _ in 0..8 {
@@ -66,7 +66,7 @@ fn median_us(plan: &pie_forward::ForwardPlan, rows: &[Row], reps: usize) -> f64 
 #[ignore = "a measurement, not an assertion"]
 fn what_lowering_costs_per_fire() {
     const REPS: usize = 200;
-    let cases: Vec<(&str, pie_forward::ForwardPlan)> = vec![
+    let cases: Vec<(&str, model_compiler::ForwardPlan)> = vec![
         (
             "llama_like qwen3-0.6B decode",
             llama_like_cuda(

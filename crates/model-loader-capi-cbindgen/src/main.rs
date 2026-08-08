@@ -1,7 +1,7 @@
-//! pie-loader-cbindgen — decoupled generator for the committed C header.
+//! model-loader-capi-cbindgen — decoupled generator for the committed C header.
 //!
-//! Emits `loader/capi/include/pie_loader.h` from the `#[repr(C)]` surface in
-//! `pie-loader-capi`. The build graph consumes the committed header; developers
+//! Emits `crates/model-loader-capi/include/pie_loader.h` from the `#[repr(C)]` surface in
+//! `model-loader-capi`. The build graph consumes the committed header; developers
 //! and CI run this tool to refresh it.
 //!
 //! The header is the *only* definition of the loader's C vocabulary. It replaces
@@ -14,7 +14,8 @@ use std::path::PathBuf;
 
 fn main() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let capi_crate = manifest.join("..");
+    // A satellite is a SIBLING of its parent, not a subdirectory of it.
+    let capi_crate = manifest.join("../model-loader-capi");
     let config_path = manifest.join("cbindgen.toml");
     let out = capi_crate.join("include").join("pie_loader.h");
 
@@ -25,7 +26,7 @@ fn main() {
         .with_crate(&capi_crate)
         .with_config(config)
         .generate()
-        .expect("generate pie_loader.h from pie-loader-capi")
+        .expect("generate pie_loader.h from model-loader-capi")
         .write_to_file(&out);
 
     eprintln!("wrote {}", out.display());

@@ -4,7 +4,7 @@
 //! step; the driver executes the steps as one closed system with a single
 //! completion.
 
-use pie_driver_abi::PieTerminalCell;
+use driver_abi::PieTerminalCell;
 
 use super::command::LaunchPlan;
 

@@ -3,7 +3,7 @@
 //!
 //! This is the Stage 5 "sites come from the traced form" step the
 //! [`SITE_EXPERT_WEIGHTS`](super::SITE_EXPERT_WEIGHTS) doc promised:
-//! [`derive_sites`] walks a `pie_forward::ForwardPlan` and emits the sites
+//! [`derive_sites`] walks a `model_compiler::ForwardPlan` and emits the sites
 //! the model's own structure declares — divergence that holds for every
 //! member of every fire against this model, as opposed to the per-fire
 //! attachment divergence [`plan_fire`](super::plan_fire) derives from
@@ -56,7 +56,7 @@
 //! *admission*: the rs-buffer's capacity/aliasing hazard forces such fires
 //! solo today (the scheduler's hand-maintained `touches_rs_buffer()`,
 //! whose traced-form statement is `plan.ops.iter().any(|op|
-//! op.kind.state_ref() ..)` — see `pie_forward::trace::OpKind::state_ref`).
+//! op.kind.state_ref() ..)` — see `model_compiler::trace::OpKind::state_ref`).
 //! That is a scheduling constraint, a fact for the admission rule
 //! (`LaunchGrouping::accepts`), not a `Site` with a lowering; deriving it
 //! from the plan belongs to the increment that wires plans to the
@@ -66,7 +66,7 @@
 //!
 //! The engine does NOT trace. It could seemingly do so at boot —
 //! `bootstrap` holds the `ModelConfig` (an `arch_name`, driver configs)
-//! and `pie-forward` is a direct rlib dep, so calling the family entry fn
+//! and `model-compiler` is a direct rlib dep, so calling the family entry fn
 //! is one line — but facts construction is where it breaks: the family fns
 //! take facts the runtime does not have. `LlamaLikeFacts::fused_qkv`,
 //! `Qwen35GdnFacts::fused_in_proj` etc. are BINDING facts — truths about
@@ -87,7 +87,7 @@
 //! the C++ mirror of [`derive_sites`] (`context.cpp`'s
 //! `derive_expert_site_summary`; this module's tests pin the derivation)
 //! and emits a `model_site_summary` capability row
-//! (`pie_driver_abi::ModelSiteSummary` — empty when `PIE_DECLARED_FORWARD`
+//! (`driver_abi::ModelSiteSummary` — empty when `PIE_DECLARED_FORWARD`
 //! is off, the validation refused, or the plan is dense). The summary rides
 //! `DriverCapabilities` → worker `translate` → `bootstrap::DriverConfig` →
 //! `DriverSpec`, where the driver's scheduler picks it up at spawn, maps it
@@ -98,7 +98,7 @@
 //! this increment — nothing consumes a fire plan's site vec downstream yet
 //! (same as v0), so a populated summary changes no submission bytes.
 
-use pie_forward::{Dim, ForwardPlan, OpKind};
+use model_compiler::{Dim, ForwardPlan, OpKind};
 
 use super::{Site, expert_weights_site};
 
@@ -110,7 +110,7 @@ use super::{Site, expert_weights_site};
 /// The summary states ONLY what [`derive_sites`] emits from a traced form
 /// today — distinct `(experts, top_k)` parameterizations — so this map is
 /// total; a summary entry the vocabulary cannot express does not exist.
-pub(crate) fn summary_sites(summary: &pie_driver_abi::ModelSiteSummary) -> Vec<Site> {
+pub(crate) fn summary_sites(summary: &driver_abi::ModelSiteSummary) -> Vec<Site> {
     summary
         .expert_sites
         .iter()
@@ -181,10 +181,10 @@ pub(crate) fn derive_sites(plan: &ForwardPlan) -> Vec<Site> {
 mod tests {
     use super::super::{DivClass, Granularity, Lowering, SITE_EXPERT_WEIGHTS};
     use super::*;
-    use pie_forward::facts::{
+    use model_compiler::facts::{
         LlamaLikeFacts, Qwen35HybridFacts, Qwen35MlpKind, Qwen35MoeMlpFacts,
     };
-    use pie_forward::{StateStore, family};
+    use model_compiler::{StateStore, family};
 
     /// The qwen3_5_moe MLP fragment (256 experts, top-8): the walk finds
     /// the selector-carrying matmuls, resolves k off the TopK op and the
@@ -245,15 +245,15 @@ mod tests {
     /// empty to empty (absent summary = today's behavior).
     #[test]
     fn summary_sites_maps_the_reported_entries() {
-        assert!(summary_sites(&pie_driver_abi::ModelSiteSummary::default()).is_empty());
+        assert!(summary_sites(&driver_abi::ModelSiteSummary::default()).is_empty());
 
-        let summary = pie_driver_abi::ModelSiteSummary {
+        let summary = driver_abi::ModelSiteSummary {
             expert_sites: vec![
-                pie_driver_abi::ExpertSiteSummary {
+                driver_abi::ExpertSiteSummary {
                     experts: 256,
                     top_k: 8,
                 },
-                pie_driver_abi::ExpertSiteSummary {
+                driver_abi::ExpertSiteSummary {
                     experts: 64,
                     top_k: 4,
                 },
@@ -279,8 +279,8 @@ mod tests {
     fn summary_of_a_moe_trace_round_trips_through_the_vocabulary() {
         let plan = family::qwen3_5_moe_mlp_block(&Qwen35MoeMlpFacts::qwen3_5_35b_a3b());
         let derived = derive_sites(&plan);
-        let summary = pie_driver_abi::ModelSiteSummary {
-            expert_sites: vec![pie_driver_abi::ExpertSiteSummary {
+        let summary = driver_abi::ModelSiteSummary {
+            expert_sites: vec![driver_abi::ExpertSiteSummary {
                 experts: 256,
                 top_k: 8,
             }],

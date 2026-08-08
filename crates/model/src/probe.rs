@@ -8,7 +8,7 @@
 //! may re-encode) live in [`builder`](crate::builder), beside the
 //! lowering that reads them.
 
-use pie_loader::types::Encoding;
+use model_loader::types::Encoding;
 
 /// The axis tensor parallelism splits a tensor on, read off its name.
 ///

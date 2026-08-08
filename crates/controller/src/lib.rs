@@ -1,4 +1,4 @@
-//! `pie-controller` — Pie's cluster **control plane**.
+//! `controller` — Pie's cluster **control plane**.
 //!
 //! A registry of workers + gateways behind a **single-writer actor**. Workers
 //! long-poll their `Neighbors` (who to coordinate with); gateways long-poll the
@@ -47,8 +47,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use pie_controller_rpc::{Ack, GatewayInfo, Neighbors, RoutingTable, WorkerInfo, WorkerStatus};
-use pie_ids::{GatewayId, NodeId, WorkerId};
+use controller_api::{Ack, GatewayInfo, Neighbors, RoutingTable, WorkerInfo, WorkerStatus};
+use ids::{GatewayId, NodeId, WorkerId};
 
 use actor::{Actor, ActorConfig, Command};
 use topology::{Topology, empty_routing, project};
@@ -170,7 +170,7 @@ pub struct ControllerHandle {
 
 /// Back-compat alias for [`ControllerHandle`]. The in-proc composition root
 /// (`bin/pie`'s `EmbeddedControl`) and the single-node worker path refer to the
-/// controller's handle as `pie_controller::Handle`.
+/// controller's handle as `controller::Handle`.
 pub type Handle = ControllerHandle;
 
 impl ControllerHandle {

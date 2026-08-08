@@ -2,7 +2,7 @@
 //!
 //! Re-implemented here (rather than depending on the bin-layer process
 //! skeleton) so the role library stays a pure leaf: nothing under `bin/` may be
-//! a dependency of a role lib. Mirrors `startup::paths` — empty `$PIE_HOME` is
+//! a dependency of a role lib. Mirrors `bootstrap::paths` — empty `$PIE_HOME` is
 //! ignored so both layers resolve identically.
 
 use std::path::PathBuf;

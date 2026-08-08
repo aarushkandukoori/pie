@@ -139,7 +139,7 @@ impl Dump {
                 "source: bytes={} prefix={prefix} tail_bytes={} fnv1a64=0x{:016x}",
                 source.len(),
                 tail.len(),
-                pie_ir::fnv1a64(tail.as_bytes())
+                tensor_ir::fnv1a64(tail.as_bytes())
             );
         }
         self.end();
@@ -171,7 +171,7 @@ fn runtime_matches_oracle() {
     dump.field("bytes", &runtime.len().to_string());
     dump.field(
         "fnv1a64",
-        &format!("0x{:016x}", pie_ir::fnv1a64(runtime.as_bytes())),
+        &format!("0x{:016x}", tensor_ir::fnv1a64(runtime.as_bytes())),
     );
     dump.end();
     compare(&dump);
@@ -486,8 +486,8 @@ fn stage_identity_is_pinned() {
 #[test]
 fn emit_driver_test_kernel_fixtures() {
     use tensor_compiler::codegen::program::{Backend, emit_program};
-    use pie_ir::container::decode as decode_container;
-    use pie_ir::validate::bind;
+    use tensor_ir::container::decode as decode_container;
+    use tensor_ir::validate::bind;
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let traces = manifest.join("tests/driver-corpus");
@@ -546,10 +546,10 @@ fn emit_driver_test_kernel_fixtures() {
         // longer decodes PTIR, so the one thing it *does* accept has to be
         // handed to them as a fixture. Written as a relocatable image of the
         // very same `#[repr(C)]` records the engine ships (see
-        // `pie_driver_abi::image`), not as a second wire format.
+        // `driver_abi::image`), not as a second wire format.
         std::fs::write(
             out_dir.join(format!("{name}.launch")),
-            pie_driver_abi::image::encode(&tensor_compiler::codegen::launch::build(&bound, &stages)),
+            driver_abi::image::encode(&tensor_compiler::codegen::launch::build(&bound, &stages)),
         )
         .unwrap();
 

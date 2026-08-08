@@ -1,14 +1,14 @@
 //! `Tensor` — an SSA value — plus the free-function op surface. Ops emit the
-//! IR's canonical [`ptir::op::Op`](pie_ir::op::Op); composed ops (`gumbel`,
+//! IR's canonical [`ptir::op::Op`](tensor_ir::op::Op); composed ops (`gumbel`,
 //! `mask_apply`, `softmax`, …) inline the IR's [`expand`]
 //! expansions so a backend that fuses the core fuses these for free.
 
 use alloc::vec::Vec;
 
-use pie_ir::container::const_elem_size;
-use pie_ir::expand;
-use pie_ir::op::{IntrinsicId, Op};
-use pie_ir::types::{DType, Literal, Predicate, RngKind, Shape, ValueId, ValueType};
+use tensor_ir::container::const_elem_size;
+use tensor_ir::expand;
+use tensor_ir::op::{IntrinsicId, Op};
+use tensor_ir::types::{DType, Literal, Predicate, RngKind, Shape, ValueId, ValueType};
 
 use crate::context::{self, emit};
 use crate::error::Span;
@@ -496,7 +496,7 @@ impl<const N: usize> IntoShape for [u32; N] {
                 alloc::format!(
                     "shape {self:?} is not expressible: rank must be at most {} and no dimension \
                      may be zero",
-                    pie_ir::types::MAX_RANK
+                    tensor_ir::types::MAX_RANK
                 ),
                 Shape::SCALAR,
             ),
@@ -870,7 +870,7 @@ pub fn gather(src: impl AsTensor, idx: impl AsTensor) -> Tensor {
                 "gather of {:?} by {:?} has result shape {dims:?}, whose rank exceeds {}",
                 tys.shape,
                 tyi.shape,
-                pie_ir::types::MAX_RANK
+                tensor_ir::types::MAX_RANK
             ),
             ValueType::new(tyi.shape, tys.dtype),
         );
@@ -962,12 +962,12 @@ pub fn cumprod(x: impl AsTensor) -> Tensor {
     emit_unary(&x, Op::CumProd, |t| t)
 }
 
-// -- normalize (pie_ir::expand sequences, type-tracked) --
+// -- normalize (tensor_ir::expand sequences, type-tracked) --
 
-/// Records [`pie_ir::expand`] steps into the trace, attaching the result type
+/// Records [`tensor_ir::expand`] steps into the trace, attaching the result type
 /// each step lands in.
 ///
-/// The op order lives in `pie_ir::expand`; this only knows how to name the
+/// The op order lives in `tensor_ir::expand`; this only knows how to name the
 /// three shapes an expansion step can have. Adding a step there needs no edit
 /// here, which is the point — the two are deliberately separate so a new
 /// expansion step is a single-crate change that cannot be half-done.
@@ -1000,7 +1000,7 @@ impl expand::Sink for Traced {
     }
 }
 
-/// Runs one `pie_ir::expand` sequence over `x` and returns its typed result.
+/// Runs one `tensor_ir::expand` sequence over `x` and returns its typed result.
 fn expanded(x: impl AsTensor, seq: impl FnOnce(&mut Traced, ValueId, Shape) -> ValueId) -> Tensor {
     let (xid, ty) = x.to_arg().materialize();
     let row = ValueType::new(ty.shape, DType::F32);
@@ -1149,7 +1149,7 @@ fn append_mask_axis(shape: Shape, len: u32) -> Shape {
             alloc::format!(
                 "a structured mask over {shape:?} with length {len} has shape {dims:?}, whose \
                  rank exceeds {}",
-                pie_ir::types::MAX_RANK
+                tensor_ir::types::MAX_RANK
             ),
             shape,
         ),
@@ -1384,7 +1384,7 @@ pub fn scalar_gather(src: impl AsTensor, index: impl AsTensor) -> Tensor {
                      exceeds {}",
                     src_type.shape,
                     index_type.shape,
-                    pie_ir::types::MAX_RANK
+                    tensor_ir::types::MAX_RANK
                 ),
                 ValueType::new(index_type.shape, src_type.dtype),
             );

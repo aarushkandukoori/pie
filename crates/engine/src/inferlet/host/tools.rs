@@ -6,8 +6,8 @@
 use crate::inferlet::ProcessCtx;
 use crate::inferlet::host::pie;
 use anyhow::Result;
-use pie_grammar::matcher::GrammarMatcher;
-use pie_model::instruct::{ToolDecoder, ToolEvent};
+use grammar::matcher::GrammarMatcher;
+use ::model::instruct::{ToolDecoder, ToolEvent};
 use wasmtime::component::Resource;
 use wasmtime_wasi::WasiView;
 

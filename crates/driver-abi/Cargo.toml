@@ -1,5 +1,5 @@
 [package]
-name = "pie-driver-abi"
+name = "driver-abi"
 version = "0.1.0"
 edition = "2024"
 authors = ["In Gim <in.gim@yale.edu>"]
@@ -7,13 +7,13 @@ description = "Canonical runtime↔driver ABI vocabulary for pie: direct local F
 license = "Apache-2.0"
 repository = "https://github.com/pie-project/pie"
 
-# `links = "pie_driver_abi"` lets downstream crates (e.g. `pie-worker`'s
+# `links = "pie_driver_abi"` lets downstream crates (e.g. `worker`'s
 # build.rs) discover the generated C header directory via the
 # `DEP_PIE_DRIVER_ABI_INCLUDE` env var (build script ↔ build script handoff).
 links = "pie_driver_abi"
 
 [lib]
-name = "pie_driver_abi"
+name = "driver_abi"
 crate-type = ["rlib"]
 path = "src/lib.rs"
 

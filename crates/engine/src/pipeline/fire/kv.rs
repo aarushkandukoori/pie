@@ -598,9 +598,9 @@ pub fn finalize(store: &mut KvStore, txn: KvTxn, success: bool) -> Result<(), St
 /// agree with the same contiguous append. A channel-fed `EmbedIndptr`
 /// (dynamic lane structure) still rejects; const CSRs are value-checked at
 /// fire time.
-pub fn canonical_kv_shape(container: &pie_ir::container::TraceContainer) -> bool {
-    use pie_ir::container::PortSource;
-    use pie_ir::registry::{Port, Stage};
+pub fn canonical_kv_shape(container: &tensor_ir::container::TraceContainer) -> bool {
+    use tensor_ir::container::PortSource;
+    use tensor_ir::registry::{Port, Stage};
 
     if !container.externs.is_empty() {
         return false;
@@ -779,9 +779,9 @@ mod tests {
         [7u8; 32]
     }
 
-    use pie_ir::container::{ChanDType, ChannelDecl, HostRole, PortBinding, StageProgram};
-    use pie_ir::registry::{Port, Stage};
-    use pie_ir::types::{DType, Shape};
+    use tensor_ir::container::{ChanDType, ChannelDecl, HostRole, PortBinding, StageProgram};
+    use tensor_ir::registry::{Port, Stage};
+    use tensor_ir::types::{DType, Shape};
 
     fn ch(shape: Shape, dtype: DType, role: HostRole) -> ChannelDecl {
         ChannelDecl {
@@ -797,8 +797,8 @@ mod tests {
     /// explicit append geometry every SDK-lowered pass carries (RV-14) +
     /// epilogue. Channels: 0 tok (device-loop), 1 klen, 2 pages,
     /// 3 page-indptr, 4 w_slot, 5 w_off.
-    fn plain_decode_container() -> pie_ir::container::TraceContainer {
-        pie_ir::container::TraceContainer {
+    fn plain_decode_container() -> tensor_ir::container::TraceContainer {
+        tensor_ir::container::TraceContainer {
             names: vec![],
             channels: vec![
                 ch(Shape::vector(1), DType::I32, HostRole::None),
@@ -811,27 +811,27 @@ mod tests {
             ports: vec![
                 PortBinding {
                     port: Port::EmbedTokens,
-                    source: pie_ir::container::PortSource::Channel(0),
+                    source: tensor_ir::container::PortSource::Channel(0),
                 },
                 PortBinding {
                     port: Port::KvLen,
-                    source: pie_ir::container::PortSource::Channel(1),
+                    source: tensor_ir::container::PortSource::Channel(1),
                 },
                 PortBinding {
                     port: Port::Pages,
-                    source: pie_ir::container::PortSource::Channel(2),
+                    source: tensor_ir::container::PortSource::Channel(2),
                 },
                 PortBinding {
                     port: Port::PageIndptr,
-                    source: pie_ir::container::PortSource::Channel(3),
+                    source: tensor_ir::container::PortSource::Channel(3),
                 },
                 PortBinding {
                     port: Port::WSlot,
-                    source: pie_ir::container::PortSource::Channel(4),
+                    source: tensor_ir::container::PortSource::Channel(4),
                 },
                 PortBinding {
                     port: Port::WOff,
-                    source: pie_ir::container::PortSource::Channel(5),
+                    source: tensor_ir::container::PortSource::Channel(5),
                 },
             ],
             stages: vec![StageProgram {
@@ -865,7 +865,7 @@ mod tests {
         let mut c = plain_decode_container();
         c.ports.push(PortBinding {
             port: Port::AttnMask,
-            source: pie_ir::container::PortSource::Channel(0),
+            source: tensor_ir::container::PortSource::Channel(0),
         });
         assert!(!canonical_kv_shape(&c));
 
@@ -885,7 +885,7 @@ mod tests {
         // Device geometry is inferlet-managed layout (WSlot/WOff write
         // descriptors + a [B,P] Pages channel — see
         // `pipeline::fire::lease::detect_device_geometry`).
-        let devgeo = pie_ir::container::TraceContainer {
+        let devgeo = tensor_ir::container::TraceContainer {
             names: vec![],
             channels: vec![
                 ch(Shape::matrix(2, 3), DType::U32, HostRole::None), // pages
@@ -895,15 +895,15 @@ mod tests {
             ports: vec![
                 PortBinding {
                     port: Port::Pages,
-                    source: pie_ir::container::PortSource::Channel(0),
+                    source: tensor_ir::container::PortSource::Channel(0),
                 },
                 PortBinding {
                     port: Port::WSlot,
-                    source: pie_ir::container::PortSource::Channel(1),
+                    source: tensor_ir::container::PortSource::Channel(1),
                 },
                 PortBinding {
                     port: Port::WOff,
-                    source: pie_ir::container::PortSource::Channel(2),
+                    source: tensor_ir::container::PortSource::Channel(2),
                 },
             ],
             stages: vec![StageProgram {
@@ -921,7 +921,7 @@ mod tests {
         let mut c = plain_decode_container();
         c.ports.push(PortBinding {
             port: Port::EmbedIndptr,
-            source: pie_ir::container::PortSource::Const {
+            source: tensor_ir::container::PortSource::Const {
                 dtype: DType::U32,
                 shape: Shape::vector(2),
                 data: [0u32.to_le_bytes(), 4u32.to_le_bytes()].concat(),
@@ -933,7 +933,7 @@ mod tests {
         let mut c = plain_decode_container();
         c.ports.push(PortBinding {
             port: Port::EmbedIndptr,
-            source: pie_ir::container::PortSource::Channel(1),
+            source: tensor_ir::container::PortSource::Channel(1),
         });
         assert!(!canonical_kv_shape(&c));
     }

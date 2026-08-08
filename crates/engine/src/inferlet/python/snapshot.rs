@@ -9,7 +9,7 @@
 //! *snapshot* of the Wasm linear memory and mutable globals immediately after
 //! initialization, then baking those values directly into the component binary.
 //! Subsequent instantiations start from the post-init state with no interpreter
-//! startup overhead.
+//! bootstrap overhead.
 //!
 //! # Snapshot Pipeline
 //!
@@ -33,7 +33,7 @@
 //!   2. Instantiate + call prepare-snapshot
 //!      Compile and instantiate the instrumented component with a full
 //!      linker (including shared modules). Calling `prepare-snapshot`
-//!      runs the real initialization (CPython startup, user code, etc.).
+//!      runs the real initialization (CPython bootstrap, user code, etc.).
 //!          │
 //!          ▼
 //!   3. Read back snapshot data

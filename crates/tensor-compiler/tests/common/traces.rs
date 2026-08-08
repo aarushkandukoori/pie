@@ -4,13 +4,13 @@
 #![allow(dead_code)]
 
 use tensor_compiler::eval::interp::Value;
-use pie_ir::container::{
+use tensor_ir::container::{
     ChanDType, ChannelDecl, HostRole, PortBinding, PortSource, StageProgram, TraceContainer,
 };
-use pie_ir::expand;
-use pie_ir::op::{IntrinsicId, Op};
-use pie_ir::registry::{ModelProfile, Port, Stage};
-use pie_ir::types::{DType, Literal, Shape};
+use tensor_ir::expand;
+use tensor_ir::op::{IntrinsicId, Op};
+use tensor_ir::registry::{ModelProfile, Port, Stage};
+use tensor_ir::types::{DType, Literal, Shape};
 
 /// Tiny SSA builder: push an op, get its first result id.
 pub struct B {

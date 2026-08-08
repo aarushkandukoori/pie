@@ -22,7 +22,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use pie_client::client::Client;
+use client::client::Client;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "1a run-ahead carryover verify: needs the 4090 + cuda + qwen-3-0.6b + delta's carrier"]

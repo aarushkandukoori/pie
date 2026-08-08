@@ -11,10 +11,10 @@
 //! projections a published checkpoint left in BF16 — a load-time encode into
 //! the affine layout the matvecs read.
 
-use pie_loader::checkpoint::RawTensor;
-use pie_loader::contract::{Expr, TensorType};
-use pie_loader::error::Error;
-use pie_loader::types::{Axis, DType, Encoding, QuantScheme, QuantSpec};
+use model_loader::checkpoint::RawTensor;
+use model_loader::contract::{Expr, TensorType};
+use model_loader::error::Error;
+use model_loader::types::{Axis, DType, Encoding, QuantScheme, QuantSpec};
 
 use super::builder::{Builder, is_raw};
 use super::policy::RuntimeQuant;

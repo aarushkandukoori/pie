@@ -1,11 +1,11 @@
 //! Deterministic backend projections of the canonical PTIR RNG contract.
 //!
-//! Both projections are printed from [`pie_ir::rng::RNG_FORMULA`], so the device
-//! implementations cannot drift from the host one in [`pie_ir::rng`].
+//! Both projections are printed from [`tensor_ir::rng::RNG_FORMULA`], so the device
+//! implementations cannot drift from the host one in [`tensor_ir::rng`].
 
 use core::fmt::Write;
 
-use pie_ir::rng::RNG_FORMULA;
+use tensor_ir::rng::RNG_FORMULA;
 
 /// `UNIFORM_MAX` as a decimal literal for the generated backends. The nearest
 /// `f32` to this text is exactly `UNIFORM_MAX`, so host and device agree bit

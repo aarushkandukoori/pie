@@ -41,7 +41,7 @@ pub(crate) fn page_size() -> u32 {
 /// Standalone unit goldens may install a complete profile, but production
 /// author code has no model-configuration surface.
 #[cfg(test)]
-pub fn with_test_profile<R>(profile: &pie_ir::registry::ModelProfile, f: impl FnOnce() -> R) -> R {
+pub fn with_test_profile<R>(profile: &tensor_ir::registry::ModelProfile, f: impl FnOnce() -> R) -> R {
     with_constants(profile.vocab, profile.page_size, f)
 }
 
@@ -51,11 +51,11 @@ mod tests {
 
     #[test]
     fn standalone_profile_hook_is_scoped() {
-        let profile = pie_ir::registry::ModelProfile {
+        let profile = tensor_ir::registry::ModelProfile {
             vocab: 77,
             page_size: 32,
             num_layers: 99,
-            ..pie_ir::registry::ModelProfile::dummy()
+            ..tensor_ir::registry::ModelProfile::dummy()
         };
         with_test_profile(&profile, || {
             assert_eq!(vocab(), 77);

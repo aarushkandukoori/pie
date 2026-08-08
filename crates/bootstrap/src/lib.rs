@@ -1,9 +1,9 @@
-//! `pie-env` — the shared process skeleton for the pie bins, imported as
-//! `startup`, plus the `pie-env` command that reports what that skeleton would
+//! `bootstrap` — the shared process skeleton for the pie bins, imported as
+//! `bootstrap`, plus the `pie-env` command that reports what that skeleton would
 //! resolve.
 //!
 //! Every bin (`bin/{worker,gateway,controller,pie}`) is a thin shell that
-//! composes `startup` with one or more role libraries. `startup` owns the
+//! composes `bootstrap` with one or more role libraries. `bootstrap` owns the
 //! cross-cutting, domain-agnostic concerns so each role lib stays a pure library:
 //!
 //! - the shared CLI flags as [`GlobalArgs`] (a `clap::Args` the bin flattens into
@@ -17,8 +17,8 @@
 //! - lifecycle — signal/panic handling, the boot banner, and the unified
 //!   wait-for-signal-then-drain loop ([`Ctx::run_until_signal`]).
 //!
-//! Dependency rule (Seam 2): `startup` depends on **no role library**, and no
-//! role library depends on `startup`. It is **runtime-agnostic** — the *bin*
+//! Dependency rule (Seam 2): `bootstrap` depends on **no role library**, and no
+//! role library depends on `bootstrap`. It is **runtime-agnostic** — the *bin*
 //! owns the tokio runtime (`#[tokio::main]`); the skeleton only `spawn`s onto the
 //! ambient one and its async surface is `.await`ed by the bin. The shutdown seam
 //! is a future, not a trait (ruling R1), so role `Handle`s never depend on
@@ -33,7 +33,7 @@
 //! #[command(version)]
 //! struct Cli {
 //!     #[command(flatten)]
-//!     global: startup::GlobalArgs,
+//!     global: bootstrap::GlobalArgs,
 //!     // role-specific flags, read directly off `cli` (typed):
 //!     #[arg(long)]
 //!     listen: Option<String>,
@@ -42,8 +42,8 @@
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<std::process::ExitCode> {
 //!     let cli = Cli::parse();
-//!     let ctx = startup::init(
-//!         startup::BootSpec::controller()
+//!     let ctx = bootstrap::init(
+//!         bootstrap::BootSpec::controller()
 //!             .version(env!("CARGO_PKG_VERSION")),
 //!         cli.global,
 //!     )?;
@@ -58,10 +58,10 @@
 //! own `clap::Parser`. The `?`→`ExitCode` plumbing is just
 //! `-> anyhow::Result<ExitCode>` (both `Termination`), so no wrapper is needed.
 //!
-//! ## The `pie-env` binary
+//! ## The `bootstrap` binary
 //!
 //! Everything above happens *inside* a daemon that is about to start listening.
-//! `pie-env` runs the same resolution ([`report::resolve`]) and prints it
+//! `bootstrap` runs the same resolution ([`report::resolve`]) and prints it
 //! instead — which config file a given role will actually read, where each value
 //! came from (flag / env / default), and whether the boot preconditions hold. It
 //! shares the resolution code with [`init`], so it cannot disagree with the
@@ -184,7 +184,7 @@ impl BootSpec {
     /// Every role name a spec exists for, in report order.
     pub const ROLES: [&'static str; 4] = ["worker", "gateway", "controller", "pie"];
 
-    /// The spec for a role name from [`BootSpec::ROLES`]. Lets `pie-env` (and
+    /// The spec for a role name from [`BootSpec::ROLES`]. Lets `bootstrap` (and
     /// anything else driven by a `--role` string) reach the exact same
     /// per-role defaults the daemons compile in, instead of restating them.
     pub fn for_role(role: &str) -> Option<Self> {
@@ -252,7 +252,7 @@ pub fn init_cli(global: &GlobalArgs) -> Result<()> {
 /// a bin's `#[tokio::main]` body, passing the bin's flattened [`GlobalArgs`].
 ///
 /// Must run inside a tokio runtime (it `spawn`s the `/metrics` task). Returns an
-/// error only for genuine startup failures (bad config path, unparsable /
+/// error only for genuine bootstrap failures (bad config path, unparsable /
 /// unbindable `--metrics-addr`).
 pub fn init(spec: BootSpec, global: GlobalArgs) -> Result<Ctx> {
     // Same observability setup as the CLI flavor (single-sourced, can't drift).

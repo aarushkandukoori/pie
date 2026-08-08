@@ -145,11 +145,11 @@ fn nothing_below_the_reader_opens_a_file() {
 /// asserts the property directly, with a path that provably does not exist.
 #[test]
 fn a_plan_compiles_from_a_value_with_no_checkpoint_anywhere() {
-    use pie_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
-    use pie_loader::contract::{Expr, ModelContract, TensorContract};
-    use pie_loader::plan::StorageTarget;
-    use pie_loader::plan::compile as compile_load_plan;
-    use pie_loader::types::{CheckpointFormat, DType, Encoding, FileId, TensorId};
+    use model_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
+    use model_loader::contract::{Expr, ModelContract, TensorContract};
+    use model_loader::plan::StorageTarget;
+    use model_loader::plan::compile as compile_load_plan;
+    use model_loader::types::{CheckpointFormat, DType, Encoding, FileId, TensorId};
 
     let nowhere = "/nonexistent/there-is-no-checkpoint-here/model.safetensors";
     assert!(

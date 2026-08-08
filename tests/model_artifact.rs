@@ -14,8 +14,8 @@
 
 use std::path::Path;
 
-use pie_loader::checkpoint::zt::{parse_checkpoint, verify_checkpoint};
-use pie_loader::types::{DType, Encoding};
+use model_loader::checkpoint::zt::{parse_checkpoint, verify_checkpoint};
+use model_loader::types::{DType, Encoding};
 
 /// A dense llama-shaped snapshot: `config.json` plus one real safetensors
 /// file of zeroed `dtype` weights.
@@ -113,7 +113,7 @@ fn build_materializes_the_serve_contract() {
     let store = tempfile::tempdir().expect("store");
     let artifact = store.path().join("optimized.zt");
 
-    pie_bin::ops::model::build::run(pie_bin::ops::model::build::BuildArgs {
+    pie::ops::model::build::run(pie::ops::model::build::BuildArgs {
         source: staging.path().to_string_lossy().into_owned(),
         quant: None,
         fp8_native: false,
@@ -158,7 +158,7 @@ fn import_streams_a_fully_decoded_model_through_the_spool() {
     let store = tempfile::tempdir().expect("store");
     let artifact = store.path().join("converted.zt");
 
-    pie_bin::ops::model::import::run(pie_bin::ops::model::import::ImportArgs {
+    pie::ops::model::import::run(pie::ops::model::import::ImportArgs {
         source: staging.path().to_string_lossy().into_owned(),
         out: Some(artifact.clone()),
         dry_run: false,

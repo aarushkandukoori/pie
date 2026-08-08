@@ -1,8 +1,8 @@
 //! Shared real-hardware (`cuda_native`) test harness.
 //!
-//! Boots the worker's prod embedded path in-proc — `pie_worker::run` in
+//! Boots the worker's prod embedded path in-proc — `worker::run` in
 //! SingleNode mode loads the model onto the GPU via the embedded cuda driver and
-//! co-resides `pie_engine::bootstrap::bootstrap` — then drives inferlets through the
+//! co-resides `::engine::bootstrap::bootstrap` — then drives inferlets through the
 //! same in-proc `program::add` → `process::spawn` flow the mock canary uses,
 //! bypassing the gateway/client edge (no msgpack/JSON codec, no identity header,
 //! no `pie-server-py`).
@@ -23,8 +23,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-use pie_engine::inferlet::program::{Manifest, ProgramName};
-use pie_worker::WorkerHandle;
+use ::engine::inferlet::program::{Manifest, ProgramName};
+use worker::WorkerHandle;
 
 /// Default local HF snapshot (Qwen3-0.6B dense) on the reference box. Override
 /// with `PIE_CUDA_TEST_SNAPSHOT=/path/to/snapshot` for another model/host.
@@ -113,8 +113,8 @@ pub fn cuda_toml() -> String {
 /// `shutdown()`s it.
 pub async fn boot_cuda_model(snapshot_path: &str) -> WorkerHandle {
     let cfg =
-        pie_worker::Config::parse(&cuda_toml_for(snapshot_path)).expect("parse cuda worker config");
-    pie_worker::run(cfg)
+        worker::Config::parse(&cuda_toml_for(snapshot_path)).expect("parse cuda worker config");
+    worker::run(cfg)
         .await
         .expect("boot embedded cuda engine")
 }
@@ -160,10 +160,10 @@ pub fn load_curated_inferlet(name: &str) -> (Vec<u8>, Manifest, ProgramName) {
 /// spawns (one install per process; spawn many).
 pub async fn install_inferlet(name: &str) -> ProgramName {
     let (wasm, manifest, program_name) = load_curated_inferlet(name);
-    pie_engine::inferlet::program::add(wasm, manifest, true)
+    ::engine::inferlet::program::add(wasm, manifest, true)
         .await
         .expect("add program");
-    pie_engine::inferlet::program::install(&program_name)
+    ::engine::inferlet::program::install(&program_name)
         .await
         .expect("install program");
     program_name
@@ -185,7 +185,7 @@ pub async fn spawn_text(
 /// its result.
 pub async fn spawn_input(program: &ProgramName, input_json: &str) -> Result<String, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
-    pie_engine::inferlet::process::spawn(
+    ::engine::inferlet::process::spawn(
         "cuda-test".into(),
         program.clone(),
         input_json.to_string(),

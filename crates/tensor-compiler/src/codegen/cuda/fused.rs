@@ -24,7 +24,7 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Write as _;
-use pie_ir::op::{IntrinsicId, intrinsic_tags, tags};
+use tensor_ir::op::{IntrinsicId, intrinsic_tags, tags};
 
 use crate::plan::{
     CompiledStage, Dimension, LANE_TABLE_ABI_VERSION, LibraryOp, NodeIndex, Region, RegionKind,
@@ -684,12 +684,12 @@ mod tests {
     #[test]
     fn parallel_elementwise_matches_the_cuda_runtime() {
         let handled = tags_compared_in(function_body(PROLOGUE, "ptir_parallel_elementwise"));
-        let claimed: BTreeSet<u8> = pie_ir::op::OP_TABLE
+        let claimed: BTreeSet<u8> = tensor_ir::op::OP_TABLE
             .iter()
             .map(|spec| spec.tag)
             .filter(|tag| parallel_elementwise(*tag))
             .collect();
-        let name = |tag: &u8| pie_ir::op::spec(*tag).map_or("?", |spec| spec.name);
+        let name = |tag: &u8| tensor_ir::op::spec(*tag).map_or("?", |spec| spec.name);
         let unhandled: Vec<&str> = claimed.difference(&handled).map(name).collect();
         let unclaimed: Vec<&str> = handled.difference(&claimed).map(name).collect();
         assert!(

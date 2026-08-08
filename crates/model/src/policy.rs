@@ -12,7 +12,7 @@
 //! table on either side.
 //!
 //! Deliberately absent: the tensor-parallel partition and the device's
-//! capabilities. Those live in the [`StorageTarget`](pie_loader::plan::StorageTarget)
+//! capabilities. Those live in the [`StorageTarget`](model_loader::plan::StorageTarget)
 //! an author receives beside this policy — the same value `compile` reads —
 //! so the contract and the plan cannot be told two different worlds.
 

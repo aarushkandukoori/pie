@@ -8,9 +8,9 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use pie_ir::op::{IntrinsicId, Op};
-use pie_ir::rng;
-use pie_ir::types::{DType, Literal, Predicate, RngKind, Shape, ValueId, ValueType};
+use tensor_ir::op::{IntrinsicId, Op};
+use tensor_ir::rng;
+use tensor_ir::types::{DType, Literal, Predicate, RngKind, Shape, ValueId, ValueType};
 
 use super::numeric::*;
 use super::{ChanEffect, Evaled, PassInputs, StepError, Value, value_matches};

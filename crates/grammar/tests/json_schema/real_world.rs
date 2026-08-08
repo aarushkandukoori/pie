@@ -7,9 +7,9 @@ use crate::common::{
     ebnf_accepts as is_grammar_accept_string, grammar_accepts as is_grammar_accept_string_g,
     matcher_from_ebnf as make_matcher, schema_accepts,
 };
-use pie_grammar::bitmask;
-use pie_grammar::grammar::Grammar;
-use pie_grammar::json_schema::{JsonSchemaOptions, json_schema_to_grammar};
+use ::grammar::bitmask;
+use ::grammar::grammar::Grammar;
+use ::grammar::json_schema::{JsonSchemaOptions, json_schema_to_grammar};
 
 const JSON_GRAMMAR: &str = r#"
 root ::= value

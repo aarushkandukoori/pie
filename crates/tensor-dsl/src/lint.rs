@@ -1,6 +1,6 @@
 //! SDK span lints: SPSC double-endpoint, readiness-direction
 //! conflict, and sink stage-precedence — caught during assembly with source
-//! spans. The IR's [`bind`](pie_ir::validate::bind) is the
+//! spans. The IR's [`bind`](tensor_ir::validate::bind) is the
 //! authoritative SPSC gate (host-role vs pass; the descriptor + all stages are
 //! one pass endpoint, so a channel touched by both the descriptor and a stage is
 //! legal). These run first for friendly, span-rich author errors and mirror
@@ -8,7 +8,7 @@
 
 use alloc::vec::Vec;
 
-use pie_ir::registry::{SinkScope, Stage};
+use tensor_ir::registry::{SinkScope, Stage};
 
 use crate::context::{ChannelRef, SinkCall};
 use crate::error::{Endpoint, Span, TraceError};

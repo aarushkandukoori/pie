@@ -11,7 +11,7 @@
 //! Written out by hand, each of those is a separate opportunity to add a
 //! variant and update two of the three. That is not hypothetical: `Stage::ALL`
 //! sat six lines from a `for stage in [Stage::Prologue, ..]` in
-//! `pie-dsl`'s builder that re-listed the same four stages, so a fifth stage
+//! `tensor-dsl`'s builder that re-listed the same four stages, so a fifth stage
 //! would have compiled, built a container, and simply never been traced.
 //!
 //! `declare_tagged_enum!` takes the list once and derives all three, the same

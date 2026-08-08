@@ -28,8 +28,8 @@ use std::time::Duration;
 mod common;
 use common::{MockEnv, create_mock_env, inferlets, mock_device::EchoBehavior};
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process;
+use engine::inferlet::program::ProgramName;
 
 /// The pinned deployment constant under test.
 const FRAME_SIZE: usize = 3;
@@ -65,9 +65,9 @@ fn state() -> &'static TestState {
             .with_frame_size(FRAME_SIZE as u32);
         let config = env.config();
         rt.block_on(async {
-            pie_engine::bootstrap::bootstrap(config).await.unwrap();
+            engine::bootstrap::bootstrap(config).await.unwrap();
             assert_eq!(
-                pie_engine::scheduler::configured_frame_size(),
+                engine::scheduler::configured_frame_size(),
                 FRAME_SIZE,
                 "this binary must run at the pinned frame size"
             );
@@ -121,7 +121,7 @@ fn generated_count(output: &str) -> usize {
 #[test]
 fn mock_model_reports_recurrent_state() {
     let _ = state();
-    let caps = pie_engine::model::model().rs_caps();
+    let caps = engine::model::model().rs_caps();
     assert!(
         caps.state_size > 0,
         "the mock must report a recurrent state for this suite to mean anything"

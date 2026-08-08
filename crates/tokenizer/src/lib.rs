@@ -142,7 +142,7 @@ impl Pipeline {
 ///
 /// ```no_run
 /// use std::path::Path;
-/// use pie_tokenizer::Tokenizer;
+/// use tokenizer::Tokenizer;
 ///
 /// let tokenizer = Tokenizer::from_file(Path::new("tokenizer.json")).unwrap();
 /// let ids = tokenizer.encode("Hello, world!");

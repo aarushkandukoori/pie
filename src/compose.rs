@@ -6,25 +6,25 @@
 //! process: the controller actor is embedded and a single cloneable `Handle`
 //! drives BOTH control planes through [`EmbeddedControl`] (no control sockets).
 //! The gateway binds an ephemeral loopback worker-facing port; the embedded
-//! worker dials INTO it via [`pie_worker::run_with`], exactly as a remote worker
+//! worker dials INTO it via [`worker::run_with`], exactly as a remote worker
 //! would. The gateway's client edge is then served on `listen_addr`.
 
 use std::net::{Ipv4Addr, SocketAddr};
 
 use anyhow::{Context, Result};
-use pie_controller_rpc::{Ack, GatewayInfo, Neighbors, RoutingTable, WorkerInfo, WorkerStatus};
-use pie_ids::{GatewayId, NodeId, WorkerId};
-use pie_worker::ControlLink;
+use controller_api::{Ack, GatewayInfo, Neighbors, RoutingTable, WorkerInfo, WorkerStatus};
+use ids::{GatewayId, NodeId, WorkerId};
+use worker::ControlLink;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 /// In-proc adapter over the embedded controller `Handle`, implementing BOTH the
-/// worker [`ControlLink`] and the gateway [`pie_gateway::GatewayControl`] seams
+/// worker [`ControlLink`] and the gateway [`gateway::GatewayControl`] seams
 /// against the same actor. Registration is infallible (no transport) and the
 /// watches forward the controller's own receivers, so the co-resident roles
 /// observe topology/routing updates with zero network hops.
 #[derive(Clone)]
-struct EmbeddedControl(pie_controller::Handle);
+struct EmbeddedControl(controller::Handle);
 
 impl ControlLink for EmbeddedControl {
     async fn register_worker(&self, info: WorkerInfo) -> Result<WorkerId> {
@@ -45,7 +45,7 @@ impl ControlLink for EmbeddedControl {
     }
 }
 
-impl pie_gateway::GatewayControl for EmbeddedControl {
+impl gateway::GatewayControl for EmbeddedControl {
     async fn register_gateway(&self, info: GatewayInfo) -> Result<GatewayId> {
         Ok(self.0.register_gateway(info).await)
     }
@@ -69,8 +69,8 @@ pub struct StandaloneHandle {
     pub worker_addr: SocketAddr,
     /// Keeps the embedded controller actor alive; dropping the last `Handle`
     /// closes its command channel and the actor task winds down.
-    _controller: pie_controller::Handle,
-    worker: pie_worker::WorkerHandle,
+    _controller: controller::Handle,
+    worker: worker::WorkerHandle,
     gateway: JoinHandle<()>,
 }
 
@@ -88,12 +88,12 @@ impl StandaloneHandle {
 /// Boot the embedded controller + gateway + worker over loopback from the
 /// pre-derived typed Configs (delta's `derive_standalone`) and return a handle.
 pub async fn run_standalone(
-    controller: pie_controller::Config,
-    mut gateway: pie_gateway::Config,
-    worker: pie_worker::Config,
+    controller: controller::Config,
+    mut gateway: gateway::Config,
+    worker: worker::Config,
 ) -> Result<StandaloneHandle> {
     // Embed the controller actor; one cloneable Handle drives both planes.
-    let handle = pie_controller::embed(controller);
+    let handle = controller::embed(controller);
     let control = EmbeddedControl(handle.clone());
 
     // The in-proc gateway binds its worker-facing socket on an ephemeral
@@ -118,7 +118,7 @@ pub async fn run_standalone(
         .parse()
         .with_context(|| format!("[server] host {:?} is not an IP address", worker.server.host))?;
     gateway.listen = SocketAddr::new(host, worker.server.port);
-    let gw = pie_gateway::bind(gateway, control.clone())
+    let gw = gateway::bind(gateway, control.clone())
         .await
         .context("bind in-proc gateway")?;
     let listen_addr = gw.listen_addr;
@@ -126,7 +126,7 @@ pub async fn run_standalone(
 
     // Boot the embedded worker against the injected control link, dialing INTO
     // the in-proc gateway (M3 inversion — the same path a remote worker takes).
-    let worker = pie_worker::run_with(
+    let worker = worker::run_with(
         worker,
         control,
         vec![format!("tcp://{worker_addr}")],

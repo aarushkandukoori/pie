@@ -1,9 +1,9 @@
 //! `dtype::{f32, i32, u32, bool}` — the semantic scalar types.
 //!
-//! Re-exports the canonical [`pie_ir::DType`]; the lowercase module
+//! Re-exports the canonical [`tensor_ir::DType`]; the lowercase module
 //! consts let authors write `Channel::new([1], dtype::i32)` verbatim.
 
-pub use pie_ir::DType;
+pub use tensor_ir::DType;
 
 /// The 32-bit IEEE-754 floating-point scalar type ([`DType::F32`]).
 #[allow(non_upper_case_globals)]

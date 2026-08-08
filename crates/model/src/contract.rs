@@ -20,10 +20,10 @@
 //! the caller's, which is what lets the same row serve a driver boot, an
 //! offline `pie model build`, and a test that authors against a fixture.
 
-use pie_loader::checkpoint::CheckpointMetadata;
-use pie_loader::contract::ModelContract;
-use pie_loader::error::Error;
-use pie_loader::plan::StorageTarget;
+use model_loader::checkpoint::CheckpointMetadata;
+use model_loader::contract::ModelContract;
+use model_loader::error::Error;
+use model_loader::plan::StorageTarget;
 
 use crate::builder::Builder;
 use crate::facts::ModelFacts;

@@ -17,10 +17,10 @@
 //!   `..._down_proj.weight` spelling misses `.down_proj.weight` by one
 //!   character. State it rather than inherit it.
 
-use pie_loader::checkpoint::RawTensor;
-use pie_loader::contract::{Expr, TensorType};
-use pie_loader::error::Error;
-use pie_loader::types::{DType, Encoding, TensorId};
+use model_loader::checkpoint::RawTensor;
+use model_loader::contract::{Expr, TensorType};
+use model_loader::error::Error;
+use model_loader::types::{DType, Encoding, TensorId};
 
 use crate::builder::{Builder, is_raw, mxfp4_encoding};
 use crate::probe::hf_shard_axis;

@@ -6,16 +6,16 @@
 //! `pie:inferlet` forward interface, selected by `model::pass_kind()`. It
 //! wraps the WIT resources (`channel`, `forward-pass`, `kv-working-set`,
 //! `pipeline`) and
-//! drives the neutral [`Builder`](pie_dsl::Builder) from the `pie-dsl`
+//! drives the neutral [`Builder`](tensor_dsl::Builder) from the `tensor-dsl`
 //! crate: the author writes stage closures + port bindings, the bridge lowers
 //! them to the canonical PTIR container, orders the WIT channel handles by the
 //! builder↔bridge contract
-//! ([`Traced::channel_order`](pie_dsl::Traced::channel_order)), and calls
+//! ([`Traced::channel_order`](tensor_dsl::Traced::channel_order)), and calls
 //! the empty `forward-pass` builder and attaches the traced program (which
 //! binds against the model — the guest does not bind, D6). Program identity,
 //! dedup, and validation happen host-side at program attachment.
 //!
-//! A [`Channel`] owns BOTH sides: the `pie-dsl` trace declaration (its `take`/
+//! A [`Channel`] owns BOTH sides: the `tensor-dsl` trace declaration (its `take`/
 //! `put`/`read` record ops inside a stage closure, and host `put`s record the
 //! host-role endpoint) and the WIT `channel` resource (the host transport). The
 //! two are constructed from the same `(shape, dtype, capacity)` so the decl
@@ -26,10 +26,10 @@ use std::collections::HashMap;
 use std::ops::{Bound, RangeBounds};
 use std::rc::Rc;
 
-use pie_dsl::builder::Builder;
-use pie_dsl::channel::PutValue;
-use pie_dsl::value::ConstData;
-use pie_dsl::{
+use tensor_dsl::builder::Builder;
+use tensor_dsl::channel::PutValue;
+use tensor_dsl::value::ConstData;
+use tensor_dsl::{
     Channel as DslChannel, DType, IntoConst, IntoPut, IntoShape, Port, Shape, Stage, Tensor,
 };
 
@@ -41,12 +41,12 @@ use crate::pie::inferlet::pipeline as wit_pipeline;
 use crate::pie::inferlet::types::Dtype as WitDtype;
 use crate::working_set::{KvWorkingSet, PageRange, PageSpan};
 
-pub use pie_dsl::intrinsics;
+pub use tensor_dsl::intrinsics;
 
 // Re-export the eDSL vocabulary so an author writes stage closures with a
 // single `use inferlet::ptir::<kind>::prelude::*;`.
-pub use pie_dsl::DType as Dtype;
-pub use pie_dsl::{
+pub use tensor_dsl::DType as Dtype;
+pub use tensor_dsl::{
     abs, add, and, broadcast, cast, causal_mask, cummass_le, cumprod, cumsum, div, dtype, entropy,
     entropy_from_logprobs, eq, exp, gather, gather_row, ge, gt, gumbel, gumbel_max, indptr, iota,
     l2norm, le, log, log_softmax, lt, mask_apply, masked_argmax, matmul, max_elem, min_elem, mul,
@@ -152,7 +152,7 @@ fn claim_port(port: Port, ch: &Channel) -> DslChannel {
     dsl
 }
 
-/// A GPU-resident bounded queue (overview §1). Owns the `pie-dsl` trace
+/// A GPU-resident bounded queue (overview §1). Owns the `tensor-dsl` trace
 /// declaration and the WIT `channel` resource. In a stage closure `take`/`read`/
 /// `put` record IR ops; on the host `put` stages a value (seed / host-writer
 /// cell) and `take_host`/`read_host` await a committed value.
@@ -1893,12 +1893,12 @@ pub mod shared_prelude {
     pub use crate::{Context, Result, model};
     /// Only `Stage`: dtypes are spelled `dtype::f32` and friends, one
     /// lowercase spelling for the one thing they name.
-    pub use pie_dsl::Stage;
-    pub use pie_dsl::dtype;
-    pub use pie_dsl::intrinsics;
+    pub use tensor_dsl::Stage;
+    pub use tensor_dsl::dtype;
+    pub use tensor_dsl::intrinsics;
     /// The arithmetic intrinsics are deliberately absent: `+ - * / %` and
     /// unary `-` are their spelling, and one spelling is the point.
-    pub use pie_dsl::value::{
+    pub use tensor_dsl::value::{
         Tensor, abs, and, broadcast, cast, causal_mask, cummass_le, cumprod, cumsum, entropy,
         entropy_from_logprobs, eq, exp, gather, gather_row, ge, gt, gumbel, gumbel_max, indptr,
         iota, l2norm, le, log, log_softmax, lt, mask_apply, masked_argmax, matmul, max_elem,

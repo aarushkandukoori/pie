@@ -7,8 +7,8 @@ use std::time::Duration;
 mod common;
 use common::{create_mock_env, inferlets, mock_device::EchoBehavior};
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process;
+use engine::inferlet::program::ProgramName;
 
 #[test]
 fn active_preemption_swaps_and_restores_an_over_capacity_fleet() {
@@ -16,7 +16,7 @@ fn active_preemption_swaps_and_restores_an_over_capacity_fleet() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let env = create_mock_env("contention-model", 1, 4, Arc::new(EchoBehavior(42)));
     runtime.block_on(async {
-        pie_engine::bootstrap::bootstrap(env.config())
+        engine::bootstrap::bootstrap(env.config())
             .await
             .unwrap();
         inferlets::add_and_install("generate").await;
@@ -55,8 +55,8 @@ fn active_preemption_swaps_and_restores_an_over_capacity_fleet() {
                     // Dump the planner AND scheduler state with the
                     // failure: which lane wedged, what it waits on, where the
                     // pool stands, and what the wave barrier holds.
-                    let diagnostics = pie_engine::planner::planner().unwrap().diagnostics();
-                    let scheduler = pie_engine::scheduler::debug_dump(0)
+                    let diagnostics = engine::planner::planner().unwrap().diagnostics();
+                    let scheduler = engine::scheduler::debug_dump(0)
                         .await
                         .unwrap_or_else(|error| format!("<unavailable: {error}>"));
                     let processes = process::list();
@@ -86,7 +86,7 @@ fn active_preemption_swaps_and_restores_an_over_capacity_fleet() {
     runtime.block_on(async {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                let diagnostics = pie_engine::planner::planner().unwrap().diagnostics();
+                let diagnostics = engine::planner::planner().unwrap().diagnostics();
                 if process::list().is_empty()
                     && diagnostics.host_slots_free == diagnostics.host_slots_total
                     && diagnostics.device_pages_free == diagnostics.device_pages_total
@@ -101,7 +101,7 @@ fn active_preemption_swaps_and_restores_an_over_capacity_fleet() {
         .await
         .expect("contention processes must reach teardown");
     });
-    let planner = pie_engine::planner::planner().unwrap();
+    let planner = engine::planner::planner().unwrap();
     let diagnostics = planner.diagnostics();
     assert!(
         diagnostics.evictions_total > 0,

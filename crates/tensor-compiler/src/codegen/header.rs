@@ -8,11 +8,11 @@ use alloc::format;
 use alloc::string::String;
 
 use crate::codegen::layout;
-use pie_ir::PTIR_VERSION;
-use pie_ir::container::DT_ACT;
-use pie_ir::op::{IntrinsicId, OP_TABLE, VARIADIC};
-use pie_ir::registry::{KNOWN_SINKS, PHASE_DESCRIPTOR_TAG, Port, Stage};
-use pie_ir::types::DType;
+use tensor_ir::PTIR_VERSION;
+use tensor_ir::container::DT_ACT;
+use tensor_ir::op::{IntrinsicId, OP_TABLE, VARIADIC};
+use tensor_ir::registry::{KNOWN_SINKS, PHASE_DESCRIPTOR_TAG, Port, Stage};
+use tensor_ir::types::DType;
 use crate::plan::{LibraryOp, ScheduleTemplate, SymbolicExtent};
 
 /// Render `include/ptir_abi.h`. Pure function of the tables — byte-stable.
@@ -29,7 +29,7 @@ pub fn generate_c_header() -> String {
     ));
     s.push_str(&format!(
         "// v1.1 extern channels: wire-version 2 iff the container declares externs\n#define PTIR_VERSION_EXTERN {}\nenum PtirExternDir : uint8_t {{ PTIR_EXTERN_IMPORT = 0, PTIR_EXTERN_EXPORT = 1 }};\n\n",
-        pie_ir::PTIR_VERSION_EXTERN
+        tensor_ir::PTIR_VERSION_EXTERN
     ));
     s.push_str(&format!(
         "// Cache-identity tokens, not wire versions: fold them into a compiled-module\n// cache key so a change in host planning invalidates what a device already built.\n#define PTIR_COMPILER_VERSION {}\n#define PTIR_REGION_PLAN_VERSION {}\n#define PTIR_LANE_TABLE_ABI_VERSION {}\n\n",
@@ -66,7 +66,7 @@ pub fn generate_c_header() -> String {
     s.push_str("};\n\n");
 
     // The lane table is the host/kernel ABI; its field list lives in
-    // `crate::codegen::layout` so this header, the MSL preambles and the `pie-plan`
+    // `crate::codegen::layout` so this header, the MSL preambles and the `tensor-compiler`
     // structs cannot drift apart.
     for shared in layout::HOST_SHARED {
         s.push_str(&shared.emit_c());

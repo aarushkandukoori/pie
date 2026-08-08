@@ -7,9 +7,9 @@
 //! and the one that ships FP8 experts a runtime FP4 request is allowed to
 //! consume.
 
-use pie_loader::contract::{Expr, TensorType};
-use pie_loader::error::Error;
-use pie_loader::types::{DType, Encoding, QuantScheme, QuantSpec};
+use model_loader::contract::{Expr, TensorType};
+use model_loader::error::Error;
+use model_loader::types::{DType, Encoding, QuantScheme, QuantSpec};
 
 use crate::builder::{Builder, is_raw};
 use crate::moe::hf_moe_expert_stacks;

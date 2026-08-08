@@ -16,8 +16,8 @@ mod common;
 use common::mock_device::{DelayedBehavior, EchoBehavior};
 use common::{MockEnv, create_mock_env, inferlets};
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process;
+use engine::inferlet::program::ProgramName;
 
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(20);
 /// Per-fire simulated device latency — long enough that the whole fleet is in
@@ -46,7 +46,7 @@ fn state() -> &'static TestState {
         let env = create_mock_env("test-model", 1, 16, Arc::new(behavior));
         let config = env.config();
         rt.block_on(async {
-            pie_engine::bootstrap::bootstrap(config).await.unwrap();
+            engine::bootstrap::bootstrap(config).await.unwrap();
         });
         TestState { env, rt }
     })

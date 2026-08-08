@@ -6,15 +6,15 @@
 //! ([`SymbolicExtent`](crate::plan::SymbolicExtent) is a closed enum of exactly
 //! the legal roles), the dtype half of `"invalid normalized value type"`
 //! ([`DType`] likewise), and `"unsupported singleton op <name>"`
-//! ([`Op`](pie_ir::op::Op) only names known tags).
+//! ([`Op`](tensor_ir::op::Op) only names known tags).
 
 use crate::codegen::error::{EmitError, RegionForm, ValueLayoutSite};
 use crate::codegen::wellformed::{op_valid, region_ranges_valid, value_types_valid};
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use pie_ir::op::{intrinsic_tags, tags};
-use pie_ir::types::DType;
+use tensor_ir::op::{intrinsic_tags, tags};
+use tensor_ir::types::DType;
 use crate::plan::{
     CompiledStage, Dimension, LibraryOp, PartitionKind, Region, RegionKind, RegionPartition,
     ScheduleTemplate,
@@ -212,7 +212,7 @@ fn validate_into(stage: &CompiledStage, operations: &mut Vec<M1OpMeta>) -> Resul
     let names = &normalized.names;
 
     if stage.signature.hash == 0
-        || pie_ir::fnv1a64(&stage.signature.canonical_bytes) != stage.signature.hash
+        || tensor_ir::fnv1a64(&stage.signature.canonical_bytes) != stage.signature.hash
         || stage.singleton.kind != PartitionKind::Singleton
     {
         return Err(EmitError::SingletonPlanIdentityInvalid);

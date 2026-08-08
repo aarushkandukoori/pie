@@ -300,7 +300,7 @@ pub async fn sweep_all(
 
     for pass in 0..repeats {
         for (index, knobs) in candidates.iter().enumerate() {
-            pie_engine::scheduler::reconfigure(
+            engine::scheduler::reconfigure(
                 knobs.frame_size,
                 knobs.submit_depth,
                 knobs.dispatch_depth,

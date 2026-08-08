@@ -99,7 +99,7 @@ enum class PieLoaderEncodingKind : uint32_t {
   Quant = 1,
 };
 
-/// Discriminants follow `pie_loader::types::QuantScheme` declaration order, which is
+/// Discriminants follow `model_loader::types::QuantScheme` declaration order, which is
 /// *not* the order of the hand-written C++ enum this replaces (`MlxAffineU4` is
 /// eighth here and last there). The mismatch was invisible while the boundary
 /// was JSON, because the C++ parser mapped by name. Now that the two sides share
@@ -123,7 +123,7 @@ enum class PieLoaderQuantScheme : uint32_t {
   Int4B8 = 14,
 };
 
-/// Whether a declared tensor is bound by the driver. Mirrors [`Visibility`](pie_loader::types::Visibility).
+/// Whether a declared tensor is bound by the driver. Mirrors [`Visibility`](model_loader::types::Visibility).
 enum class PieLoaderVisibility : uint32_t {
   /// A runtime weight, bound by name.
   Public = 0,
@@ -231,7 +231,7 @@ using PieLoaderCheckpointFileSlice = PieLoaderSlice<PieLoaderCheckpointFileView>
 
 using PieLoaderI64Slice = PieLoaderSlice<int64_t>;
 
-/// [`pie_loader::types::QuantSpec`], flattened.
+/// [`model_loader::types::QuantSpec`], flattened.
 struct PieLoaderQuantSpecView {
   /// A `PieLoaderQuantScheme` value, as `uint32_t`.
   uint32_t scheme;
@@ -244,7 +244,7 @@ struct PieLoaderQuantSpecView {
   int32_t channel_axis;
 };
 
-/// [`pie_loader::types::Encoding`], flattened. `kind` selects which half is read.
+/// [`model_loader::types::Encoding`], flattened. `kind` selects which half is read.
 struct PieLoaderEncodingSpec {
   /// A `PieLoaderEncodingKind` value, as `uint32_t`.
   uint32_t kind;
@@ -394,7 +394,7 @@ using PieLoaderU32Slice = PieLoaderSlice<uint32_t>;
 /// What an instruction does, as a tagged union carrying only that operation's
 /// operands.
 ///
-/// This mirrors `pie_loader::plan::StorageInstr` variant for variant. It was a flat
+/// This mirrors `model_loader::plan::StorageInstr` variant for variant. It was a flat
 /// struct of 32 members with a `kind` tag until every reader had grown a
 /// defence against the members that tag left meaningless: `if (!instr.has_source
 /// || !instr.has_dest)` in three executors, `inputs.size() != 1` around a
@@ -734,7 +734,7 @@ struct PieLoaderModelRequest {
   /// This used to be ten scalars in a `PieLoaderModelFactsView` — the
   /// caller parsed `config.json`, picked out what it thought the loader
   /// needed, and sent that. The document is the request now: the facts are
-  /// projected from it by `pie_model::ModelFacts::from_descriptor`, so
+  /// projected from it by `::model::ModelFacts::from_descriptor`, so
   /// which fields matter is a question answered where the authors live
   /// rather than in each driver, and a new fact needs no ABI change.
   ///

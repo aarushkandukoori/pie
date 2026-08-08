@@ -2,7 +2,7 @@
 //!
 //! This is the Cargo↔native *link bridge* for the Metal shell: it invokes the
 //! CMake build under `csrc/`, forwards the include handoffs cargo publishes
-//! (`pie-driver-abi`, `pie-loader-capi`, `pie-forward`, and this workspace's
+//! (`driver-abi`, `model-loader-capi`, `model-compiler`, and this workspace's
 //! `driver` substrate), and emits the `cargo:rustc-link-*` directives for the
 //! final binary — which rustc, not CMake, links.
 //!
@@ -10,7 +10,7 @@
 //! cache — stays in `csrc/CMakeLists.txt`, the native build system's proper
 //! home for it.
 //!
-//! This used to live in `pie-worker`'s build.rs, which meant the worker knew
+//! This used to live in `worker`'s build.rs, which meant the worker knew
 //! where the C++ trees were and how to build them. It does not need to: it
 //! needs a driver, and a driver is now a crate that builds itself. Selection
 //! is still by feature, but the feature turns on a DEPENDENCY rather than a
@@ -22,7 +22,7 @@ fn main() {
     let target_os = target_os();
     if target_os != "macos" {
         panic!(
-            "pie-driver-metal is macOS-only (got target_os={target_os:?}). \
+            "driver-metal is macOS-only (got target_os={target_os:?}). \
              On Linux, use `--features driver-cuda`; the metal flavor targets \
              Apple Silicon via native Metal shaders (MLX is an opt-in legacy path)."
         );
@@ -38,9 +38,9 @@ fn main() {
     cfg.build_target("pie_driver_metal_lib")
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
-        .define("PIE_DRIVER_ABI_INCLUDE_DIR", dep_include("PIE_DRIVER_ABI", "pie-driver-abi"))
-        .define("PIE_LOADER_INCLUDE_DIR", dep_include("PIE_LOADER", "pie-loader-capi"))
-        .define("PIE_FORWARD_INCLUDE_DIR", dep_include("PIE_FORWARD", "pie-forward"))
+        .define("PIE_DRIVER_ABI_INCLUDE_DIR", dep_include("PIE_DRIVER_ABI", "driver-abi"))
+        .define("PIE_LOADER_INCLUDE_DIR", dep_include("PIE_LOADER", "model-loader-capi"))
+        .define("PIE_FORWARD_INCLUDE_DIR", dep_include("PIE_FORWARD", "model-compiler"))
         .define("PIE_DRIVER_INCLUDE_DIR", dep_include("PIE_DRIVER", "driver"))
         .define("PIE_PTIR_INCLUDE_DIR", sibling("tensor-compiler").join("include"))
         .define("PIE_PTIR_RUNTIME_DIR", sibling("tensor-compiler").join("runtime"))

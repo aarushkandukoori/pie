@@ -5,7 +5,7 @@
 use crate::common::{
     grammar_accepts as is_grammar_accept_string_g, no_whitespace_options as default_opts,
 };
-use pie_grammar::json_schema::{JsonSchemaOptions, builtin_json_grammar, json_schema_to_grammar};
+use ::grammar::json_schema::{JsonSchemaOptions, builtin_json_grammar, json_schema_to_grammar};
 
 // ---------------------------------------------------------------------------
 // Builtin JSON grammar

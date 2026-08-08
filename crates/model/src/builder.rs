@@ -21,13 +21,13 @@
 
 use std::collections::{HashMap, HashSet};
 
-use pie_loader::checkpoint::{CheckpointMetadata, RawTensor};
-use pie_loader::contract::{
+use model_loader::checkpoint::{CheckpointMetadata, RawTensor};
+use model_loader::contract::{
     Expr, GroupContract, ModelContract, Scales, TensorContract, TensorType,
 };
-use pie_loader::error::Error;
-use pie_loader::plan::StorageTarget;
-use pie_loader::types::{
+use model_loader::error::Error;
+use model_loader::plan::StorageTarget;
+use model_loader::types::{
     Axis, DType, Encoding, QuantGranularity, QuantScheme, QuantSpec, RepackLayout, ScaleForm,
     TensorId, Visibility,
 };

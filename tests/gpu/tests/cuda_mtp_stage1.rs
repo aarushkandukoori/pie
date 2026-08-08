@@ -56,7 +56,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use pie_client::client::Client;
+use client::client::Client;
 
 /// Decode length for the de-risk (enough varied text to give the drafter real
 /// t+2 opportunities without a long GPU run).

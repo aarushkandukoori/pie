@@ -1,4 +1,4 @@
-//! `pie-gateway` — Pie's client-facing **edge plane** (disaggregated serving).
+//! `gateway` — Pie's client-facing **edge plane** (disaggregated serving).
 //!
 //! The gateway terminates user protocols (REST/SSE, WebSocket), gates admission
 //! on cluster *resources*, routes each turn to a worker, and pipes the resulting
@@ -10,10 +10,10 @@
 //! - **user → gateway** (server): the `ingress` adapters terminate REST/SSE +
 //!   WebSocket and converge onto charlie's one [`session::Sessions`].
 //! - **gateway ↔ worker** (server; workers dial IN, 1:N fan-in — the M3
-//!   inversion): [`worker`] serves [`GatewayInbound`](pie_worker_rpc::GatewayInbound)
-//!   and holds a [`WorkerControl`](pie_worker_rpc::WorkerControl) client per worker.
+//!   inversion): [`worker`] serves [`GatewayInbound`](worker_api::GatewayInbound)
+//!   and holds a [`WorkerControl`](worker_api::WorkerControl) client per worker.
 //! - **gateway → controller** (client): [`controller`] registers, heartbeats, and
-//!   long-polls `watch_gateway` for the [`RoutingTable`](pie_controller_rpc::RoutingTable).
+//!   long-polls `watch_gateway` for the [`RoutingTable`](controller_api::RoutingTable).
 //!
 //! # Assembly
 //!
@@ -38,9 +38,9 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::Router;
-use pie_controller_rpc::GatewayInfo;
-use pie_ids::{ReqId, WorkerId};
-use pie_worker_rpc::Request;
+use controller_api::GatewayInfo;
+use ids::{ReqId, WorkerId};
+use worker_api::Request;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, watch};
@@ -274,9 +274,9 @@ impl GatewayHandle {
 /// [`Gateway`] handle (with the resolved bound addrs) ready to [`serve`].
 ///
 /// Generic over the [`GatewayControl`] backend so the launcher injects either the
-/// dialed [`ControlClient`](pie_controller_rpc::ControlClient) (distributed) or the
+/// dialed [`ControlClient`](controller_api::ControlClient) (distributed) or the
 /// in-proc embedded adapter (single-node); juliet injects a stub yielding a
-/// seeded [`RoutingTable`](pie_controller_rpc::RoutingTable) for the smoke.
+/// seeded [`RoutingTable`](controller_api::RoutingTable) for the smoke.
 pub async fn bind<C: GatewayControl>(config: Config, control: C) -> Result<Gateway> {
     // Subscribe to the routing table first — independent of our own
     // registration, and needed to assemble the state below.
@@ -350,7 +350,7 @@ pub async fn bind<C: GatewayControl>(config: Config, control: C) -> Result<Gatew
 
 /// Dial the controller and run the gateway as a daemon, returning a
 /// [`GatewayHandle`] (the role-library `run(Config) -> Handle` boundary). A thin
-/// wrapper that constructs a tarpc [`ControlClient`](pie_controller_rpc::ControlClient);
+/// wrapper that constructs a tarpc [`ControlClient`](controller_api::ControlClient);
 /// the in-proc launcher (`bin/pie`) embeds via [`bind`] / [`run_with`] with the
 /// embedded adapter instead.
 pub async fn run(config: Config) -> Result<GatewayHandle> {

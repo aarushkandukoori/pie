@@ -15,18 +15,18 @@
 //!
 //! These are plain serde: the control plane is cross-node and low-rate.
 //! Cluster-unique id atoms
-//! ([`WorkerId`]/[`GatewayId`]/[`NodeId`]) come from the leaf `pie-ids` crate and
+//! ([`WorkerId`]/[`GatewayId`]/[`NodeId`]) come from the leaf `ids` crate and
 //! are re-exported here for ergonomics.
 
 use serde::{Deserialize, Serialize};
 
-// Cross-node id atoms live in the leaf `pie-ids` crate; re-export them so
-// consumers can still reach them as `pie_controller_rpc::{WorkerId, …}`.
-pub use pie_ids::{GatewayId, NodeId, WorkerId};
+// Cross-node id atoms live in the leaf `ids` crate; re-export them so
+// consumers can still reach them as `controller_api::{WorkerId, …}`.
+pub use ids::{GatewayId, NodeId, WorkerId};
 
-// `DriverCapabilities` is owned by `pie-driver-abi` (`capabilities.rs`);
+// `DriverCapabilities` is owned by `driver-abi` (`capabilities.rs`);
 // `WorkerInfo.capability` carries it.
-use pie_driver_abi::capabilities::DriverCapabilities;
+use driver_abi::capabilities::DriverCapabilities;
 
 // ──────────────────────────── role / health ───────────────────────────
 

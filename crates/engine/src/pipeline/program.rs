@@ -1,7 +1,7 @@
 //! Program registry (thrust-3 P2.2/P2.3) — the host-side "register a traced
 //! pass once, cache by identity" counterpart to the inferlet program cache.
 //!
-//! The wire artifact is the **canonical container bytes** (the `pie_ir`
+//! The wire artifact is the **canonical container bytes** (the `tensor_ir`
 //! IR's `container`); the guest cannot bind (bind needs the backend
 //! [`ModelProfile`]). Registration:
 //!
@@ -33,12 +33,12 @@ use std::sync::{Arc, Mutex};
 
 use lru::LruCache;
 use tensor_compiler::codegen::program::{Backend, EmittedKernel, emit_program};
-use pie_driver_abi::plan::{DirectArgmax, RegionAnalysis};
-use pie_ir::container::{self, ContainerDecodeError, PortSource, TraceContainer};
-use pie_ir::container_hash;
-use pie_ir::op::Op;
-use pie_ir::registry::{ModelProfile, Port};
-use pie_ir::validate::{BoundTrace, ValidateError, bind};
+use driver_abi::plan::{DirectArgmax, RegionAnalysis};
+use tensor_ir::container::{self, ContainerDecodeError, PortSource, TraceContainer};
+use tensor_ir::container_hash;
+use tensor_ir::op::Op;
+use tensor_ir::registry::{ModelProfile, Port};
+use tensor_ir::validate::{BoundTrace, ValidateError, bind};
 use tensor_compiler::plan::CompiledStage;
 
 /// Registration-time pricing (thrust-3 P2.3): per-instance costs computed once
@@ -78,7 +78,7 @@ pub struct RegisteredProgram {
     pub channel_accesses: Vec<(bool, bool)>,
     /// This program in the shape a driver executes it, built on first use.
     /// See [`Self::launch`].
-    launch: std::sync::OnceLock<pie_driver_abi::plan::LaunchPackage>,
+    launch: std::sync::OnceLock<driver_abi::plan::LaunchPackage>,
     /// Static geometry-derivability taint, and the per-pass shadow fold
     /// schedule derived from it. Both are functions of `bound` alone, and a
     /// program is registered once but instantiated many times — at a cohort
@@ -108,7 +108,7 @@ impl RegisteredProgram {
     /// This is what replaced the container bytes and the PTIB sidecar. A driver
     /// receives typed records instead of PTIR, so it has no wire format to parse and no
     /// plan to re-derive (`ptir-refactor.md` §2.3).
-    pub fn launch(&self) -> &pie_driver_abi::plan::LaunchPackage {
+    pub fn launch(&self) -> &driver_abi::plan::LaunchPackage {
         self.launch
             .get_or_init(|| tensor_compiler::codegen::launch::build(&self.bound, &self.compiled_stages))
     }
@@ -306,7 +306,7 @@ fn price(c: &TraceContainer) -> Pricing {
     let rows = c
         .ports
         .iter()
-        .find(|p| p.port == pie_ir::registry::Port::EmbedIndptr)
+        .find(|p| p.port == tensor_ir::registry::Port::EmbedIndptr)
         .and_then(|p| match &p.source {
             container::PortSource::Const { shape, .. } => {
                 Some((shape.numel() as u32).saturating_sub(1).max(1))
@@ -380,7 +380,7 @@ fn profile_from(
         vocab,
         page_size,
         num_layers,
-        activation: pie_ir::types::DType::F32,
+        activation: tensor_ir::types::DType::F32,
         has_lora: ptir.has_lora,
         has_mtp_logits: ptir.has_mtp_logits,
         has_mtp_drafts: ptir.has_mtp_drafts,
@@ -391,7 +391,7 @@ fn profile_from(
         // replayable (a pure function of the query and the page envelopes) and
         // has no sink scope: it produces a value, it does not consume one.
         kernels: if ptir.has_kv_envelopes {
-            vec![pie_ir::registry::KernelInfo {
+            vec![tensor_ir::registry::KernelInfo {
                 name: "envelope_dot".into(),
                 sink_scope: None,
                 replayable: true,
@@ -405,12 +405,12 @@ fn profile_from(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_ir::container::{
+    use tensor_ir::container::{
         ChanDType, ChannelDecl, HostRole, PortBinding, PortSource, StageProgram,
     };
-    use pie_ir::op::{IntrinsicId, Op};
-    use pie_ir::registry::{Port, Stage};
-    use pie_ir::types::{DType, Shape};
+    use tensor_ir::op::{IntrinsicId, Op};
+    use tensor_ir::registry::{Port, Stage};
+    use tensor_ir::types::{DType, Shape};
 
     const VOCAB: u32 = 32;
 

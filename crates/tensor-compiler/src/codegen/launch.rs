@@ -20,7 +20,7 @@
 //! The op projection is [`crate::codegen::op_view::OpView`], the same one the emitters
 //! read, so the kernel and the description of the kernel cannot drift.
 
-use pie_driver_abi::local::{
+use driver_abi::local::{
     PIE_CHANNEL_HOST_READER, PIE_CHANNEL_HOST_VISIBLE, PIE_CHANNEL_SEEDED, PIE_EXTENT_STATIC,
     PIE_NO_CHANNEL, PIE_READINESS_NEEDS_EMPTY, PIE_READINESS_NEEDS_FULL, PIE_READINESS_UNTOUCHED,
     PIE_REGION_GENERATED, PIE_REGION_LIBRARY, PIE_STAGE_GROUPED_VALID,
@@ -29,15 +29,15 @@ use pie_driver_abi::local::{
     PIE_STAGE_REQUIRES_QUERY, PIE_VALUE_CHANNEL_READ, PIE_VALUE_CHANNEL_TAKE, PIE_VALUE_CONST,
     PIE_VALUE_INTRINSIC, PIE_VALUE_OP_RESULT,
 };
-use pie_driver_abi::plan::{
+use driver_abi::plan::{
     LaunchChannel, LaunchChannelRule, LaunchOp, LaunchPackage, LaunchPlanValue, LaunchPort,
     LaunchPut, LaunchRegion, LaunchStage, LaunchStagePlan, LaunchValue,
 };
-use pie_ir::DType;
-use pie_ir::container::{ExternDir, HostRole, PortSource};
-use pie_ir::op::{intrinsic_tags, tags};
-use pie_ir::types::ValueType;
-use pie_ir::validate::{BoundTrace, Direction};
+use tensor_ir::DType;
+use tensor_ir::container::{ExternDir, HostRole, PortSource};
+use tensor_ir::op::{intrinsic_tags, tags};
+use tensor_ir::types::ValueType;
+use tensor_ir::validate::{BoundTrace, Direction};
 use crate::plan::{
     CompiledStage, Dimension, LibraryOp, NodeIndex, Region, RegionKind, RegionPartition,
     SymbolicExtent, SymbolicType, stage_identity,
@@ -558,7 +558,7 @@ impl GroupedPlan {
 /// So the authority is the runtime source itself:
 /// `grouped_support_is_what_the_runtime_can_execute` holds this function to it.
 fn grouped_supported_tag(tag: u8) -> bool {
-    pie_ir::op::spec(tag).is_some()
+    tensor_ir::op::spec(tag).is_some()
 }
 
 #[cfg(test)]
@@ -582,7 +582,7 @@ mod grouped_coverage {
             handled.len()
         );
         let mut checked = 0usize;
-        for spec in pie_ir::op::OP_TABLE {
+        for spec in tensor_ir::op::OP_TABLE {
             assert_eq!(
                 grouped_supported_tag(spec.tag),
                 handled.contains(&spec.tag),
@@ -592,7 +592,7 @@ mod grouped_coverage {
             );
             checked += 1;
         }
-        assert_eq!(checked, pie_ir::op::OP_TABLE.len());
+        assert_eq!(checked, tensor_ir::op::OP_TABLE.len());
         assert!(
             !grouped_supported_tag(0xFF),
             "a non-op tag is not supported"

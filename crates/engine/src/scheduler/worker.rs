@@ -349,8 +349,8 @@ impl PendingRequest {
                     .get(row + 1)
                     .zip(indptr.get(row))
                     .is_some_and(|(end, begin)| end > begin);
-                span && flags & pie_driver_abi::RS_FLAG_FOLD != 0
-                    && flags & pie_driver_abi::RS_FLAG_BUFFER_WRITE == 0
+                span && flags & driver_abi::RS_FLAG_FOLD != 0
+                    && flags & driver_abi::RS_FLAG_BUFFER_WRITE == 0
             });
         if replays {
             RsBatchKind::Solo
@@ -872,7 +872,7 @@ fn arm_completion_nudge(completion: &SubmissionCompletion, waker: &std::task::Wa
     if completion.is_settled() {
         return false;
     }
-    let table = pie_waker::WakerTable::global();
+    let table = waker::WakerTable::global();
     let slot = completion.wait_id();
     let observed = table.published(slot).unwrap_or_default();
     if !table.register(slot, waker, observed) {
@@ -1747,7 +1747,7 @@ impl DriverLane {
 
     fn release_wait_slots(wait_ids: impl IntoIterator<Item = u64>) {
         let wait_ids: Vec<u64> = wait_ids.into_iter().collect();
-        let table = pie_waker::WakerTable::global();
+        let table = waker::WakerTable::global();
         table.sweep(&wait_ids);
         for wait_id in wait_ids {
             table.deregister(wait_id);
@@ -2185,7 +2185,7 @@ struct SchedulerControl {
     active_senders: AtomicUsize,
     shutdown_wait: Condvar,
     shutdown_gate: Mutex<()>,
-    program_ids: Mutex<HashMap<u64, (u64, pie_driver_abi::plan::LaunchPackage)>>,
+    program_ids: Mutex<HashMap<u64, (u64, driver_abi::plan::LaunchPackage)>>,
     accepting: AtomicBool,
     stats: Arc<SchedulerStats>,
 }
@@ -4658,7 +4658,7 @@ impl TrackedInstance {
             pacing_wait_id: bound.pacing_wait_id,
             wait_slots: bound.wait_slots(),
             in_flight: 0,
-            next_target_epoch: pie_waker::FIRST_COMPLETION_EPOCH,
+            next_target_epoch: waker::FIRST_COMPLETION_EPOCH,
         }
     }
 
@@ -4673,12 +4673,12 @@ mod tests {
     use crate::driver::{
         self, ChannelValue, DriverSpec, LaunchPlan, ProgramRegistration, SchedulerLimits,
     };
-    use pie_driver_abi::{PieInstanceBinding, PieKvMoveCell, PiePoolRange};
-    use pie_driver_dummy_lib::DummyDriverOptions;
-    use pie_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
-    use pie_ir::op::Op;
-    use pie_ir::registry::Stage;
-    use pie_ir::types::{DType, Literal, Shape};
+    use driver_abi::{PieInstanceBinding, PieKvMoveCell, PiePoolRange};
+    use driver_dummy::DummyDriverOptions;
+    use tensor_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
+    use tensor_ir::op::Op;
+    use tensor_ir::registry::Stage;
+    use tensor_ir::types::{DType, Literal, Shape};
     use tokio::time::{Duration, timeout};
 
     async fn setup_scheduler(
@@ -4792,7 +4792,7 @@ mod tests {
         }
         .encode();
         ProgramRegistration {
-            program_hash: pie_ir::container_hash(&bytes),
+            program_hash: tensor_ir::container_hash(&bytes),
             reference_ptir: bytes,
             ..Default::default()
         }
@@ -4814,10 +4814,10 @@ mod tests {
                         driver_id,
                         channel_id,
                         shape: vec![1],
-                        dtype: pie_driver_abi::PIE_CHANNEL_DTYPE_U32,
+                        dtype: driver_abi::PIE_CHANNEL_DTYPE_U32,
                         host_role: host_role as u8,
                         seeded,
-                        extern_dir: pie_driver_abi::PIE_CHANNEL_EXTERN_NONE,
+                        extern_dir: driver_abi::PIE_CHANNEL_EXTERN_NONE,
                         capacity: 2,
                         reader_wait_id: 0,
                         writer_wait_id: 0,
@@ -4983,7 +4983,7 @@ mod tests {
         crate::scheduler::close_instance(&bound)?;
 
         timeout(Duration::from_secs(5), async {
-            while pie_waker::WakerTable::global()
+            while waker::WakerTable::global()
                 .published(pacing_wait_id)
                 .is_some()
             {
@@ -4996,7 +4996,7 @@ mod tests {
 
     #[test]
     fn cancelled_register_channel_releases_wait_slots_before_creation() {
-        let table = pie_waker::WakerTable::global();
+        let table = waker::WakerTable::global();
         let reader_wait_id = table.alloc();
         let writer_wait_id = table.alloc();
         let (response, receiver) = tokio::sync::oneshot::channel();
@@ -5012,10 +5012,10 @@ mod tests {
                     driver_id: 0,
                     channel_id: 91,
                     shape: vec![1],
-                    dtype: pie_driver_abi::PIE_CHANNEL_DTYPE_U32,
+                    dtype: driver_abi::PIE_CHANNEL_DTYPE_U32,
                     host_role: HostRole::None as u8,
                     seeded: false,
-                    extern_dir: pie_driver_abi::PIE_CHANNEL_EXTERN_NONE,
+                    extern_dir: driver_abi::PIE_CHANNEL_EXTERN_NONE,
                     capacity: 1,
                     reader_wait_id,
                     writer_wait_id,
@@ -5033,13 +5033,13 @@ mod tests {
 
     #[test]
     fn cancelled_bind_response_enqueues_instance_rollback() {
-        let pacing_wait_id = pie_waker::WakerTable::global().alloc();
+        let pacing_wait_id = waker::WakerTable::global().alloc();
         let bound = BoundInstance::new(
             7,
             11,
             PieInstanceBinding {
                 instance_id: 41,
-                geometry_class: pie_driver_abi::GeometryClass::Host as u32,
+                geometry_class: driver_abi::GeometryClass::Host as u32,
                 reserved0: 0,
             },
             pacing_wait_id,
@@ -5082,7 +5082,7 @@ mod tests {
             .expect("cancelled bind remains tracked until ordered rollback")
             .close_wait_slots();
         assert!(
-            pie_waker::WakerTable::global()
+            waker::WakerTable::global()
                 .published(pacing_wait_id)
                 .is_none()
         );
@@ -5152,16 +5152,16 @@ mod tests {
         close_bound.join().unwrap()?;
         assert!(
             !matches!(
-                pie_waker::WakerTable::global().publish(pacing_wait_id, 1),
-                pie_waker::WakeOutcome::Stale
+                waker::WakerTable::global().publish(pacing_wait_id, 1),
+                waker::WakeOutcome::Stale
             ),
             "bound wait slots remain leased until the completion drops"
         );
         drop(outstanding);
 
         assert!(matches!(
-            pie_waker::WakerTable::global().publish(pacing_wait_id, 2),
-            pie_waker::WakeOutcome::Stale
+            waker::WakerTable::global().publish(pacing_wait_id, 2),
+            waker::WakeOutcome::Stale
         ));
         Ok(())
     }
@@ -5182,7 +5182,7 @@ mod tests {
 
         timeout(Duration::from_secs(5), async {
             loop {
-                if pie_waker::WakerTable::global()
+                if waker::WakerTable::global()
                     .published(completion.wait_id())
                     .is_some_and(|epoch| epoch >= completion.target_epoch())
                 {
@@ -5296,7 +5296,7 @@ mod tests {
         timeout(Duration::from_secs(5), accepted.clone()).await??;
         assert_eq!(
             accepted.target_epoch(),
-            pie_waker::FIRST_COMPLETION_EPOCH,
+            waker::FIRST_COMPLETION_EPOCH,
             "the first accepted launch must still claim the first completion epoch"
         );
 
@@ -5467,14 +5467,14 @@ mod tests {
         let completion = WorkItemCompletion::deferred_with_guard(None);
         let state_copy = StateCopyPlan {
             slot_ranges: vec![
-                pie_driver_abi::PieStateCopyRange {
+                driver_abi::PieStateCopyRange {
                     src_slot_id: 3,
                     dst_slot_id: 5,
                     src_token_offset: 0,
                     dst_token_offset: 0,
                     token_count: 0,
                 },
-                pie_driver_abi::PieStateCopyRange {
+                driver_abi::PieStateCopyRange {
                     src_slot_id: 3,
                     dst_slot_id: 6,
                     src_token_offset: 0,
@@ -6192,7 +6192,7 @@ mod tests {
         // Plan §14 gate 3: instance A's fire fills a shared extern channel;
         // instance B's fire consumes it and publishes to its host reader —
         // cross-instance dataflow over one global channel registration.
-        use pie_ir::container::{ExternDecl, ExternDir};
+        use tensor_ir::container::{ExternDecl, ExternDir};
         let driver_id = driver::register_driver_backend(
             DriverSpec {
                 num_kv_pages: 16,
@@ -6262,7 +6262,7 @@ mod tests {
         let exporter_program = crate::scheduler::register_program(
             driver_id,
             ProgramRegistration {
-                program_hash: pie_ir::container_hash(&exporter_bytes),
+                program_hash: tensor_ir::container_hash(&exporter_bytes),
                 reference_ptir: exporter_bytes,
                 ..Default::default()
             },
@@ -6271,7 +6271,7 @@ mod tests {
         let importer_program = crate::scheduler::register_program(
             driver_id,
             ProgramRegistration {
-                program_hash: pie_ir::container_hash(&importer_bytes),
+                program_hash: tensor_ir::container_hash(&importer_bytes),
                 reference_ptir: importer_bytes,
                 ..Default::default()
             },
@@ -6283,10 +6283,10 @@ mod tests {
                 driver_id,
                 channel_id: 91,
                 shape: vec![1],
-                dtype: pie_driver_abi::PIE_CHANNEL_DTYPE_U32,
+                dtype: driver_abi::PIE_CHANNEL_DTYPE_U32,
                 host_role: HostRole::None as u8,
                 seeded: false,
-                extern_dir: pie_driver_abi::PIE_CHANNEL_EXTERN_EXPORT,
+                extern_dir: driver_abi::PIE_CHANNEL_EXTERN_EXPORT,
                 capacity: 2,
                 reader_wait_id: 0,
                 writer_wait_id: 0,
@@ -6300,10 +6300,10 @@ mod tests {
                 driver_id,
                 channel_id: 92,
                 shape: vec![1],
-                dtype: pie_driver_abi::PIE_CHANNEL_DTYPE_U32,
+                dtype: driver_abi::PIE_CHANNEL_DTYPE_U32,
                 host_role: HostRole::Reader as u8,
                 seeded: false,
-                extern_dir: pie_driver_abi::PIE_CHANNEL_EXTERN_NONE,
+                extern_dir: driver_abi::PIE_CHANNEL_EXTERN_NONE,
                 capacity: 2,
                 reader_wait_id: 0,
                 writer_wait_id: 0,
@@ -7374,7 +7374,7 @@ mod tests {
                 pacing_wait_id: 0,
                 channel_ids: Vec::new(),
                 seed_values: Vec::new(),
-                geometry_class: pie_driver_abi::GeometryClass::Host,
+                geometry_class: driver_abi::GeometryClass::Host,
             },
             response: tokio::sync::oneshot::channel().0,
         }])

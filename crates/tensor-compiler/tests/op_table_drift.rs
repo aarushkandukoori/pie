@@ -24,7 +24,7 @@
 
 use std::path::PathBuf;
 
-use pie_ir::op::{OP_TABLE, VARIADIC, tags};
+use tensor_ir::op::{OP_TABLE, VARIADIC, tags};
 
 /// The driver's marker for "variadic operand count".
 ///
@@ -256,7 +256,7 @@ fn generated_tags_are_real_ops() {
     // from `declare_ops!` but left in the list keeps the count looking right.
     for tag in GENERATED_TAGS {
         assert!(
-            pie_ir::op::spec(*tag).is_some(),
+            tensor_ir::op::spec(*tag).is_some(),
             "GENERATED_TAGS lists {tag:#04x}, which is not an OP_TABLE row"
         );
     }

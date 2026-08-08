@@ -7,10 +7,10 @@
 //! needs V. The MoE hybrid adds the shared-expert join and the per-expert
 //! stacks.
 
-use pie_loader::checkpoint::RawTensor;
-use pie_loader::contract::Expr;
-use pie_loader::error::Error;
-use pie_loader::types::{DType, Encoding, QuantScheme};
+use model_loader::checkpoint::RawTensor;
+use model_loader::contract::Expr;
+use model_loader::error::Error;
+use model_loader::types::{DType, Encoding, QuantScheme};
 
 use crate::builder::{Builder, is_raw};
 use crate::mlx;

@@ -3,11 +3,11 @@
 use std::borrow::Borrow;
 use std::sync::Arc;
 
-use pie_grammar::grammar::Grammar;
-use pie_grammar::json_schema::{JsonSchemaOptions, json_schema_to_grammar};
-use pie_grammar::matcher::GrammarMatcher;
-use pie_grammar::regex::regex_to_grammar;
-use pie_tokenizer::Tokenizer;
+use ::grammar::grammar::Grammar;
+use ::grammar::json_schema::{JsonSchemaOptions, json_schema_to_grammar};
+use ::grammar::matcher::GrammarMatcher;
+use ::grammar::regex::regex_to_grammar;
+use tokenizer::Tokenizer;
 
 pub fn grammar_accepts(grammar: impl Borrow<Grammar>, input: &str) -> bool {
     let tokenizer = Arc::new(Tokenizer::from_vocab(&["dummy".to_string()]));

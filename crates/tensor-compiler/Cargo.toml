@@ -22,12 +22,12 @@ path = "src/lib.rs"
 # two the wasm build actually reaches. `plan`'s `std` feature is dropped with
 # it; `tensor-ir` is taken with defaults here for the same reason.
 [dependencies]
-pie-ir = { path = "../tensor-ir" }
+tensor-ir = { path = "../tensor-ir" }
 # The shared host<->driver contract: the launch package is built out of the
 # same declarations the drivers read it with, rather than a second copy.
-pie-driver-abi = { path = "../driver-abi" }
+driver-abi = { path = "../driver-abi" }
 
-# Shared ratchet from the root manifest. These crates are gated with
-# `-D warnings` in CI; see `[workspace.lints]` in the workspace `Cargo.toml`.
+# Shared ratchet from the root manifest. The toolchain's three crates are gated
+# with `-D warnings` in CI; see `[workspace.lints]` in the workspace `Cargo.toml`.
 [lints]
 workspace = true

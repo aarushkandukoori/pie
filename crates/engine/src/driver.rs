@@ -19,7 +19,7 @@ pub mod instance;
 pub mod launch_abi;
 pub mod submission;
 
-pub use pie_waker as waker;
+pub use waker as waker;
 
 pub use backend::{
     DriverBackend, DriverSpec, DummyDriver, FrameLaunchOutcome, RemoteDisconnectHandle,

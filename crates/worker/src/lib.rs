@@ -1,4 +1,4 @@
-//! `pie-worker` library — engine boot path + supporting modules.
+//! `worker` library — engine boot path + supporting modules.
 //!
 //! The `pie` CLI binary (`src/main.rs`) is one consumer; the upcoming
 //! `pie-server` pyo3 wheel under `sdk/python-server/` is another.
@@ -12,7 +12,7 @@
 /// The process-wide allocator for every engine entry point.
 ///
 /// Declared here rather than in each binary because `#[global_allocator]` is
-/// resolved at link time across the whole graph, and `pie-worker` is the one
+/// resolved at link time across the whole graph, and `worker` is the one
 /// crate the CLI, the standalone worker and the pyo3 wheel all link.
 ///
 /// This is a measured change, not a preference. The scheduler loop is a
@@ -46,7 +46,7 @@ mod preflight;
 // underneath without reworking them.
 pub use config::Config;
 pub use engine::{WorkerHandle, run, run_with};
-pub use pie_controller_rpc::Role;
+pub use controller_api::Role;
 // The control-plane seam `run_with` is generic over — re-exported so the
 // composition root (`bin/pie`) can impl it for its `EmbeddedControl` adapter.
 pub use link::control::ControlLink;

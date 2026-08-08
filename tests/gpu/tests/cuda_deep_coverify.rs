@@ -43,7 +43,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use pie_client::client::Client;
+use client::client::Client;
 
 /// Fleet width — the 8-pipeline homogeneous decode fleet.
 const FLEET: usize = 8;
@@ -194,7 +194,7 @@ async fn deep_presubmit_coverify_on_real_driver() -> Result<()> {
     eprintln!("[deep-coverify] fleet done: {n_match}/{FLEET} pipelines DEEP-k byte-identical");
 
     // Read the wait-for-all wave gauges in-process (the engine ran here).
-    let stats = pie_engine::scheduler::get_stats().await;
+    let stats = engine::scheduler::get_stats().await;
     pie.shutdown().await;
 
     let total_batches = stats.total_batches;

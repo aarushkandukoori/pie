@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use tempfile::TempDir;
 
-use pie_engine::bootstrap::{
+use engine::bootstrap::{
     Config, DriverConfig, ModelConfig, RuntimeConfig, SchedulerConfig, TelemetryConfig,
 };
-use pie_engine::driver::{DriverBackend, SchedulerLimits};
+use engine::driver::{DriverBackend, SchedulerLimits};
 
 use super::mock_device::{Behavior, MockBackend, launch_observer};
 
@@ -32,7 +32,7 @@ fn fixture_vocab_size() -> u32 {
         Some(v) => v as u32,
         None => {
             let tokenizer =
-                pie_tokenizer::Tokenizer::from_file(&fixtures.join("test_tokenizer.json"))
+                tokenizer::Tokenizer::from_file(&fixtures.join("test_tokenizer.json"))
                     .expect("load fixture tokenizer");
             tokenizer.vocab_size() as u32
         }
@@ -45,7 +45,7 @@ fn dummy_driver_backend(
     operation_log: Arc<std::sync::Mutex<Vec<String>>>,
     callback_delay_ms: u64,
 ) -> DriverBackend {
-    let (backend, _) = DriverBackend::dummy(pie_driver_dummy_lib::DummyDriverOptions {
+    let (backend, _) = DriverBackend::dummy(driver_dummy::DummyDriverOptions {
         total_pages: num_pages as u32,
         kv_page_size: 16,
         swap_pool_size: (num_pages * 4) as u32,
@@ -160,10 +160,10 @@ impl MockEnv {
             .map(|_| DriverConfig {
                 total_pages: self.num_pages,
                 cpu_pages: self.num_pages * 4,
-                kv_copy_domain_mask: pie_driver_abi::KV_COPY_DEVICE_TO_DEVICE
-                    | pie_driver_abi::KV_COPY_DEVICE_TO_HOST
-                    | pie_driver_abi::KV_COPY_HOST_TO_DEVICE
-                    | pie_driver_abi::KV_COPY_HOST_TO_HOST,
+                kv_copy_domain_mask: driver_abi::KV_COPY_DEVICE_TO_DEVICE
+                    | driver_abi::KV_COPY_DEVICE_TO_HOST
+                    | driver_abi::KV_COPY_HOST_TO_DEVICE
+                    | driver_abi::KV_COPY_HOST_TO_HOST,
                 backend_kind: "dummy".to_string(),
                 rs_cache_required: false,
                 rs_cache_slots: self.rs_slots,
@@ -177,7 +177,7 @@ impl MockEnv {
                 has_attn_page_mask: false,
                 has_attn_score: false,
                 has_lora: false,
-                device_geometry_port_mask: pie_driver_abi::PIE_DEVICE_GEOMETRY_PORTS,
+                device_geometry_port_mask: driver_abi::PIE_DEVICE_GEOMETRY_PORTS,
                 limits: SchedulerLimits {
                     max_forward_requests: 32,
                     max_forward_tokens: 4096,
@@ -214,7 +214,7 @@ impl MockEnv {
                 // fixture's `config.json`. Only the two fields `register`
                 // reads are stated -- the rest of the schema is the
                 // normalizer's business, and this harness never runs it.
-                metadata: pie_model::ModelMetadata {
+                metadata: ::model::ModelMetadata {
                     tokenizer: None,
                     descriptor: format!(
                         r#"{{"version":"pie.model/1","vocab_size":{},"num_hidden_layers":2}}"#,

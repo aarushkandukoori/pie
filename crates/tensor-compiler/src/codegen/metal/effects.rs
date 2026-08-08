@@ -16,8 +16,8 @@ use crate::codegen::fault::{
     M1_RING_CORRUPT, M3_NOT_READY, M3_RING_CORRUPT,
 };
 use crate::codegen::layout;
-use pie_ir::op::ChannelUse;
-use pie_ir::validate::{BoundTrace, Direction};
+use tensor_ir::op::ChannelUse;
+use tensor_ir::validate::{BoundTrace, Direction};
 
 use super::preamble::{common_effect_preamble, emit_word_arguments, grouped_preamble};
 use super::{M1ChannelEffect, METAL_M1_MAX_CHANNELS};

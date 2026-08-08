@@ -2,7 +2,7 @@
 //!
 //! Every backend has to reproduce PTIR's noise bit for bit, so each of them
 //! needs the same magic numbers. These tests check that the numbers reach the
-//! generated sources by projection from `pie_ir::rng::RNG_FORMULA` rather than
+//! generated sources by projection from `tensor_ir::rng::RNG_FORMULA` rather than
 //! by transcription: a transcribed constant keeps compiling after the formula
 //! moves, and the divergence only shows up as a replay that no longer matches
 //! its original.
@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use tensor_compiler::codegen::rng::{generate_cuda_header, generate_msl_preamble};
-use pie_ir::rng::{RNG_FORMULA, UNIFORM_MAX, hash_uniform, keyed_seed};
+use tensor_ir::rng::{RNG_FORMULA, UNIFORM_MAX, hash_uniform, keyed_seed};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

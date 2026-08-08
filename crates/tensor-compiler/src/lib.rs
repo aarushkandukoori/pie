@@ -4,12 +4,12 @@
 //! and hands it over. This crate is everything the host then does with it:
 //! decide **how** it executes ([`plan`]), say what it **means**
 //! ([`eval`]), and write the backend source that runs it ([`codegen`]).
-//! `pie-ir` stays outside — it is the dependency floor both the guest and the
+//! `tensor-ir` stays outside — it is the dependency floor both the guest and the
 //! host sit on, and the only part of the toolchain a wasm build reaches.
 //!
 //! ## Why one crate, and what the module boundaries still owe
 //!
-//! These were three crates (`pie-plan`, `pie-eval`, `pie-codegen`) plus a
+//! These were three crates (`tensor-compiler`, `tensor-compiler`, `tensor-compiler`) plus a
 //! test-only fourth. The split bought nothing a module cannot: the three ship
 //! together, version together, and are consumed together by the engine. What
 //! it cost was the conformance battery — the goldens, the malformed-wire

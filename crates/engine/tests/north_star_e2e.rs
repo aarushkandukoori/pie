@@ -42,8 +42,8 @@ use std::time::Duration;
 mod common;
 use common::{MockEnv, create_mock_env, inferlets, mock_device::EchoBehavior};
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process;
+use engine::inferlet::program::ProgramName;
 
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -74,7 +74,7 @@ fn state() -> &'static TestState {
         let env = create_mock_env("test-model", 1, 16, Arc::new(EchoBehavior(0)));
         let config = env.config();
         rt.block_on(async {
-            pie_engine::bootstrap::bootstrap(config).await.unwrap();
+            engine::bootstrap::bootstrap(config).await.unwrap();
         });
         TestState { env, rt }
     })
@@ -293,11 +293,11 @@ fn north_star_mtp_grammar_composition() {
 /// is exactly what this harness is for.
 #[test]
 fn north_star_quest_attention_sink() {
-    use pie_ir::container::{StageProgram, TraceContainer};
-    use pie_ir::op::{IntrinsicId, Op};
-    use pie_ir::registry::{KernelInfo, ModelProfile, Stage};
-    use pie_ir::types::{DType, Literal, Predicate, Shape};
-    use pie_ir::validate::{ValidateError, bind};
+    use tensor_ir::container::{StageProgram, TraceContainer};
+    use tensor_ir::op::{IntrinsicId, Op};
+    use tensor_ir::registry::{KernelInfo, ModelProfile, Stage};
+    use tensor_ir::types::{DType, Literal, Predicate, Shape};
+    use tensor_ir::validate::{ValidateError, bind};
 
     const PAGES: u32 = 8;
     const BUDGET: u32 = 3;

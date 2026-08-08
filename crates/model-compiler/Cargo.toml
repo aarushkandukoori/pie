@@ -1,5 +1,5 @@
 [package]
-name = "pie-forward"
+name = "model-compiler"
 version = "0.1.0"
 edition = "2024"
 authors = ["In Gim <in.gim@icloud.com>"]
@@ -14,7 +14,7 @@ links = "pie_forward"
 build = "build.rs"
 
 [lib]
-name = "pie_forward"
+name = "model_compiler"
 path = "src/lib.rs"
 
 [dependencies]

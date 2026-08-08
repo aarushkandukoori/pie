@@ -21,7 +21,7 @@ fn sync_status(status: i32, op: &str) -> Result<()> {
         Err(anyhow!("{op} failed with status {status}"))
     }
 }
-use pie_driver_abi::{
+use driver_abi::{
     PieBytes, PieChannelEndpointBinding, PieDriver, PieDriverCaps, PieDriverCreateDesc,
     PieModelLoadDesc, pie_metal_bind_instance, pie_metal_close_channel, pie_metal_close_instance,
     pie_metal_copy_kv, pie_metal_copy_state, pie_metal_create, pie_metal_destroy, pie_metal_launch,
@@ -32,14 +32,14 @@ use pie_driver_abi::{
 pub struct MetalDriver {
     driver: *mut PieDriver,
     broker: CompletionBroker,
-    device_facts: pie_driver_abi::DeviceFacts,
+    device_facts: driver_abi::DeviceFacts,
 }
 
 impl MetalDriver {
-    pub fn create(config_bytes: &[u8]) -> Result<(Self, pie_driver_abi::DeviceFacts)> {
+    pub fn create(config_bytes: &[u8]) -> Result<(Self, driver_abi::DeviceFacts)> {
         let broker = CompletionBroker::new();
         let desc = PieDriverCreateDesc {
-            abi_version: pie_driver_abi::PIE_DRIVER_ABI_VERSION,
+            abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
             reserved0: 0,
             config_bytes: PieBytes {
                 ptr: config_bytes.as_ptr(),
@@ -52,7 +52,7 @@ impl MetalDriver {
         if driver.is_null() {
             return Err(anyhow!("pie_metal_create returned null"));
         }
-        let device_facts: pie_driver_abi::DeviceFacts = match parse_json(caps, "device facts") {
+        let device_facts: driver_abi::DeviceFacts = match parse_json(caps, "device facts") {
             Ok(device_facts) => device_facts,
             Err(error) => {
                 unsafe { pie_metal_destroy(driver) };
@@ -72,14 +72,14 @@ impl MetalDriver {
     pub fn unsupported() -> Result<Self> {
         Err(anyhow!("Metal local driver is not available in this build"))
     }
-    pub fn device_facts(&self) -> &pie_driver_abi::DeviceFacts {
+    pub fn device_facts(&self) -> &driver_abi::DeviceFacts {
         &self.device_facts
     }
     pub fn load_model(
         &mut self,
-        desc: &pie_driver_abi::ModelLoadDesc,
-    ) -> Result<pie_driver_abi::DriverCapabilities> {
-        if desc.component != pie_driver_abi::ModelComponent::Full {
+        desc: &driver_abi::ModelLoadDesc,
+    ) -> Result<driver_abi::DriverCapabilities> {
+        if desc.component != driver_abi::ModelComponent::Full {
             return Err(anyhow!(
                 "metal component-scoped model loading is unsupported"
             ));
@@ -89,7 +89,7 @@ impl MetalDriver {
             .to_str()
             .ok_or_else(|| anyhow!("model snapshot path must be UTF-8"))?;
         let raw = PieModelLoadDesc {
-            abi_version: pie_driver_abi::PIE_DRIVER_ABI_VERSION,
+            abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
             component: desc.component as u32,
             mxfp4_moe: desc.mxfp4_moe as u32,
             runtime_quant: PieBytes {
@@ -106,7 +106,7 @@ impl MetalDriver {
             unsafe { pie_metal_load_model(self.driver, &raw, &mut caps) },
             "pie_metal_load_model",
         )?;
-        let capabilities: pie_driver_abi::DriverCapabilities =
+        let capabilities: driver_abi::DriverCapabilities =
             parse_json(caps, "model capabilities")?;
         Ok(capabilities)
     }
@@ -129,7 +129,7 @@ impl MetalDriver {
             unsafe { pie_metal_register_channel(self.driver, borrowed.as_raw(), &mut binding) },
             "pie_metal_register_channel",
         )?;
-        pie_driver_abi::validate_channel_endpoint_binding(&binding, borrowed.as_raw())
+        driver_abi::validate_channel_endpoint_binding(&binding, borrowed.as_raw())
             .map_err(|error| anyhow!(error))?;
         Ok(RegisteredChannel {
             driver_id: plan.driver_id,
@@ -140,7 +140,7 @@ impl MetalDriver {
     }
     pub fn bind_instance(&mut self, plan: &InstanceBindingPlan) -> Result<BoundInstance> {
         let borrowed = InstanceDescBorrow::new(plan);
-        let mut binding = pie_driver_abi::PieInstanceBinding::default();
+        let mut binding = driver_abi::PieInstanceBinding::default();
         sync_status(
             unsafe { pie_metal_bind_instance(self.driver, borrowed.as_raw(), &mut binding) },
             "pie_metal_bind_instance",
@@ -162,8 +162,8 @@ impl MetalDriver {
         let borrowed = FrameDescBorrow::from_submission(frame);
         let status = unsafe { pie_metal_launch(self.driver, borrowed.as_raw(), raw) };
         match status {
-            pie_driver_abi::PIE_STATUS_EXHAUSTED => Ok(FrameLaunchOutcome::Exhausted),
-            pie_driver_abi::PIE_STATUS_IMPOSSIBLE => Ok(FrameLaunchOutcome::Impossible),
+            driver_abi::PIE_STATUS_EXHAUSTED => Ok(FrameLaunchOutcome::Exhausted),
+            driver_abi::PIE_STATUS_IMPOSSIBLE => Ok(FrameLaunchOutcome::Impossible),
             status => {
                 sync_status(status, "pie_metal_launch")?;
                 Ok(FrameLaunchOutcome::Launched(completion))

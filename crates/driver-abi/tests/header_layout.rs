@@ -22,7 +22,7 @@ use std::mem::{align_of, offset_of, size_of};
 use std::path::PathBuf;
 use std::process::Command;
 
-use pie_driver_abi::local::*;
+use driver_abi::local::*;
 
 /// Emits one type's `PIE_LAYOUT` / `PIE_FIELD` lines from Rust's own layout.
 macro_rules! contract {

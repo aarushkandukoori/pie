@@ -1,5 +1,5 @@
 [package]
-name = "pie-waker"
+name = "waker"
 version = "0.1.0"
 edition = "2024"
 authors = ["In Gim <in.gim@yale.edu>"]
@@ -7,7 +7,7 @@ description = "X0 tensor-waker substrate (Runtime–Driver Boundary B9–B12): t
 license = "Apache-2.0"
 
 [lib]
-name = "pie_waker"
+name = "waker"
 path = "src/lib.rs"
 
 # `--cfg loom` is set via RUSTFLAGS by the loom model-check run; declare it so

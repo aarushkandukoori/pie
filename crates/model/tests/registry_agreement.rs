@@ -3,7 +3,7 @@
 //! "Which `model_type` does pie support?" is asked in three places, on two
 //! sides of the C ABI:
 //!
-//! * [`pie_model::contract::HF_ROWS`] / [`MLX_ROWS`] — which author writes the
+//! * [`model::contract::HF_ROWS`] / [`MLX_ROWS`] — which author writes the
 //!   storage contract (Rust, this crate);
 //! * `crates/driver-cuda/csrc/src/model/registry.cpp` — which decode DAG binds and runs
 //!   (C++, the CUDA driver's arch table);
@@ -28,7 +28,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use pie_model::contract::{Author, HF_ROWS, MLX_ROWS};
+use model::contract::{Author, HF_ROWS, MLX_ROWS};
 
 /// The repository root, from this crate's manifest.
 fn repo_root() -> PathBuf {
@@ -150,7 +150,7 @@ fn assert_same(what: &str, rust: &BTreeSet<String>, native: &BTreeSet<String>, n
     assert!(
         missing_author.is_empty() && missing_arch.is_empty(),
         "{what}: the two tables disagree.\n  \
-         in {native_where} but with no author in pie_model::contract: {missing_author:?}\n    \
+         in {native_where} but with no author in model::contract: {missing_author:?}\n    \
          → a boot of one of these reaches pie_loader_compile_model and gets \
          \"no author for model_type\"\n  \
          has an author but is absent from {native_where}: {missing_arch:?}\n    \

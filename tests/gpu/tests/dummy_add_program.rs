@@ -15,7 +15,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use pie_client::client::Client;
+use client::client::Client;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "diagnostic: needs the local qwen3 snapshot (tokenizer) + a built generate.wasm"]

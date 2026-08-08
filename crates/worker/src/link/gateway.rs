@@ -4,9 +4,9 @@
 //! session stream (`WorkerSessionApi::recv` long-poll). Post-inversion the
 //! topology flips: the **gateway is the listening server** (1:N fan-in) and the
 //! worker **dials in**. One worker-initiated connection carries both data-plane
-//! services, split with [`pie_worker_rpc::connect_gateway_link`]:
+//! services, split with [`worker_api::connect_gateway_link`]:
 //!
-//! - the worker **serves** [`pie_worker_rpc::WorkerControl`] (the gateway calls
+//! - the worker **serves** [`worker_api::WorkerControl`] (the gateway calls
 //!   `dispatch`/`cancel`/`set_priority`/`drain`), and
 //! - the worker **holds** a [`GatewayInboundClient`] to push the token stream
 //!   back (`push_tokens`), announce itself (`register`), and bounce turns
@@ -19,9 +19,9 @@
 //!
 //! ## Runtime bridge
 //! Each gateway logical [`SessionId`] maps to one runtime session
-//! ([`pie_engine::server::open_session`]) — warm KV across a multi-turn session. A
+//! ([`::engine::server::open_session`]) — warm KV across a multi-turn session. A
 //! per-session driver task feeds each turn's [`Request::message`] into the
-//! runtime ([`pie_engine::server::send_client_message`]) and pumps the resulting
+//! runtime ([`::engine::server::send_client_message`]) and pumps the resulting
 //! `ServerMessage`s back out as [`Tokens::Chunk`], terminated by one
 //! [`Tokens::Eos`] when the turn completes. Backpressure is inherent: the
 //! runtime outbox is bounded, so a slow `push_tokens` (slow gateway/user) stalls
@@ -33,11 +33,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use futures::StreamExt;
-use pie_client_api::{ClientMessage, ServerMessage};
-use pie_controller_rpc::GatewayEndpoint;
-use pie_engine::server::ClientId;
-use pie_ids::{ReqId, SessionId, WorkerId};
-use pie_worker_rpc::{
+use client_api::{ClientMessage, ServerMessage};
+use controller_api::GatewayEndpoint;
+use ::engine::server::ClientId;
+use ids::{ReqId, SessionId, WorkerId};
+use worker_api::{
     Accepted, Control, GatewayInboundClient, Priority, Request, Tokens, WorkerControl,
     connect_gateway_link, dispatch_codec,
 };
@@ -352,7 +352,7 @@ impl WorkerControlServer {
             return Ok(handle.turns.clone());
         }
         let client_id =
-            pie_engine::server::open_session().map_err(|e| anyhow!("open session: {e}"))?;
+            ::engine::server::open_session().map_err(|e| anyhow!("open session: {e}"))?;
         let (turns_tx, turns_rx) = mpsc::channel::<Request>(TURN_QUEUE_DEPTH);
         let cancels: Arc<Mutex<HashMap<ReqId, Arc<Notify>>>> = Arc::default();
         tokio::spawn(session_driver(
@@ -580,7 +580,7 @@ async fn session_driver(
 
     router.abort();
     running.shutdown().await;
-    pie_engine::server::close_session(client_id);
+    ::engine::server::close_session(client_id);
     // Best-effort removal; if the registry is already gone (the connection's
     // server dropped) the stale entry died with it.
     if let Some(reg) = registry.upgrade() {
@@ -593,7 +593,7 @@ async fn session_driver(
 /// turn that owns it. Runs until aborted by `session_driver`.
 async fn message_router(client_id: ClientId, routes: Arc<Mutex<TurnRoutes>>) {
     loop {
-        let msgs = match pie_engine::server::recv_messages(client_id, 200, 64).await {
+        let msgs = match ::engine::server::recv_messages(client_id, 200, 64).await {
             Ok(msgs) => msgs,
             Err(e) => {
                 tracing::warn!(error = %e, "runtime recv failed; router stopping");
@@ -646,7 +646,7 @@ enum Fed {
 fn feed_turn(client_id: ClientId, req_id: ReqId, message: ClientMessage) -> Fed {
     let non_final_chunk = matches!(upload_chunk_info(&message), Some((idx, total)) if idx + 1 < total);
     let expects_reply = corr_id_of(&message).is_some();
-    if let Err(e) = pie_engine::server::send_client_message(client_id, message) {
+    if let Err(e) = ::engine::server::send_client_message(client_id, message) {
         tracing::warn!(%req_id, error = %e, "feeding turn into runtime failed");
         return Fed::Silent;
     }
@@ -686,7 +686,7 @@ async fn run_turn(
             _ = cancel.notified() => {
                 tracing::debug!(%req_id, "turn cancelled");
                 if let Some(pid) = &process_id {
-                    let _ = pie_engine::server::send_client_message(client_id, terminate(pid));
+                    let _ = ::engine::server::send_client_message(client_id, terminate(pid));
                 }
                 // Abort = bare channel-close on the gateway side (no Eos), per
                 // the Tokens contract; the gateway's TokenRx observes the close.
@@ -704,7 +704,7 @@ async fn run_turn(
                     Ok(Control::Abort) => {
                         tracing::debug!(%req_id, "gateway piggybacked abort");
                         if let Some(pid) = &process_id {
-                            let _ = pie_engine::server::send_client_message(client_id, terminate(pid));
+                            let _ = ::engine::server::send_client_message(client_id, terminate(pid));
                         }
                         return TurnEnd::Aborted;
                     }

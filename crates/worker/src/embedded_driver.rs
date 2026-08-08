@@ -5,7 +5,7 @@
 //!   * [`write_cuda_startup_toml`] / [`write_metal_startup_toml`] — emit the
 //!     per-launch TOML each native driver reads at creation.
 //!   * [`create_driver_backend`] — build a runtime-owned [`DriverBackend`]
-//!     plus its caps before `pie_engine::bootstrap`.
+//!     plus its caps before `::engine::bootstrap`.
 
 #[cfg(feature = "driver-cuda")]
 use std::ffi::CStr;
@@ -22,13 +22,13 @@ use crate::driver_ffi::Flavor;
 
 /// Anchors the loader ABI's C entry points into the final binary.
 ///
-/// `pie-loader-capi` is an rlib and the only callers of
+/// `model-loader-capi` is an rlib and the only callers of
 /// `pie_loader_compile_model` and friends are the C++ drivers, which link
 /// *after* Rust. A linker never pulls an rlib member in on behalf of a C++
 /// reference, so without a reference from reachable Rust the entry points are
 /// simply absent and the failure surfaces as an undefined symbol at final
 /// link (`loader/architecture.md` §3.4). The `#[used]` table inside
-/// `pie_loader_capi::entry` keeps all six alive once the object is pulled in;
+/// `model_loader_capi::entry` keeps all six alive once the object is pulled in;
 /// this static is what pulls it in.
 ///
 /// **This is load-bearing.** No Rust in this process calls the loader any more —
@@ -37,11 +37,11 @@ use crate::driver_ffi::Flavor;
 /// reference is the only thing keeping the object file in the link.
 #[used]
 static PIE_LOADER_ENTRY_ANCHOR: unsafe extern "C" fn(
-    *const pie_loader_capi::model::PieLoaderModelRequest,
-    *mut *mut pie_loader_capi::PieLoaderPlan,
+    *const model_loader_capi::model::PieLoaderModelRequest,
+    *mut *mut model_loader_capi::PieLoaderPlan,
     *mut u32,
-    *mut *mut pie_loader_capi::PieLoaderDiagnostics,
-) -> pie_loader_capi::PieLoaderStatus = pie_loader_capi::model::pie_loader_compile_model;
+    *mut *mut model_loader_capi::PieLoaderDiagnostics,
+) -> model_loader_capi::PieLoaderStatus = model_loader_capi::model::pie_loader_compile_model;
 
 /// Same story for the forward toolchain (tart): the drivers trace a
 /// family's declaration over `pie_forward.h`, no Rust in this process
@@ -50,10 +50,10 @@ static PIE_LOADER_ENTRY_ANCHOR: unsafe extern "C" fn(
 /// puts it there.
 #[used]
 static PIE_FORWARD_ENTRY_ANCHOR: unsafe extern "C" fn(
-    *const pie_forward::ffi::entry::PieForwardLlamaLikeFacts,
-    *mut pie_forward::ffi::PieForwardPlan,
-) -> pie_forward::ffi::entry::PieForwardStatus =
-    pie_forward::ffi::entry::pie_forward_trace_llama_like;
+    *const model_compiler::ffi::entry::PieForwardLlamaLikeFacts,
+    *mut model_compiler::ffi::PieForwardPlan,
+) -> model_compiler::ffi::entry::PieForwardStatus =
+    model_compiler::ffi::entry::pie_forward_trace_llama_like;
 
 #[cfg(feature = "driver-cuda")]
 #[repr(C)]
@@ -146,7 +146,7 @@ fn insert_int(table: &mut toml::Table, key: &str, value: impl Into<i64>) {
 }
 
 /// This model's materialized-weight artifact directory, installed once before
-/// any driver is created and written into every startup TOML from there.
+/// any driver is created and written into every bootstrap TOML from there.
 ///
 /// Install-at-bootstrap rather than a parameter because the TOML writers sit
 /// five call layers below the only place holding a parsed `Config`. First
@@ -185,7 +185,7 @@ fn cache_dir() -> String {
     CACHE_DIR.get().cloned().unwrap_or_default()
 }
 
-/// Emit `[cache] dir` into a driver's startup TOML.
+/// Emit `[cache] dir` into a driver's bootstrap TOML.
 ///
 /// Omitted when unset so a driver launched with a hand-written TOML (its own
 /// `dev.toml`, say) keeps the XDG derivation rather than losing its cache to
@@ -216,7 +216,7 @@ fn path_string(path: &Path) -> String {
     path.display().to_string()
 }
 
-/// Writes the compiled model config beside the startup TOML and names it in
+/// Writes the compiled model config beside the bootstrap TOML and names it in
 /// `[model]`.
 ///
 /// Beside rather than inlined: the driver already takes a path, and opening a
@@ -240,13 +240,13 @@ fn write_descriptor_beside(
 }
 
 fn write_toml_table(out_path: &Path, doc: toml::Table) -> Result<()> {
-    let serialized = toml::to_string(&doc).map_err(|e| anyhow!("serialize startup TOML: {e}"))?;
+    let serialized = toml::to_string(&doc).map_err(|e| anyhow!("serialize bootstrap TOML: {e}"))?;
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| anyhow!("create startup toml dir {parent:?}: {e}"))?;
+            .map_err(|e| anyhow!("create bootstrap toml dir {parent:?}: {e}"))?;
     }
     std::fs::write(out_path, serialized)
-        .map_err(|e| anyhow!("write startup toml {out_path:?}: {e}"))?;
+        .map_err(|e| anyhow!("write bootstrap toml {out_path:?}: {e}"))?;
     Ok(())
 }
 
@@ -271,7 +271,7 @@ pub fn launch_state_root() -> PathBuf {
 /// alive, `EPERM` means alive but not ours, `ESRCH` means gone. Anything other
 /// than a definite `ESRCH` is treated as alive, because the cost of the two
 /// mistakes is not symmetric — a stale directory is a few bytes, deleting a
-/// live launch's startup TOML is a driver that cannot boot.
+/// live launch's bootstrap TOML is a driver that cannot boot.
 #[cfg(unix)]
 fn pid_is_alive(pid: u32) -> bool {
     let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
@@ -288,7 +288,7 @@ fn pid_is_alive(_pid: u32) -> bool {
 
 /// Remove `$PIE_HOME/standalone/<pid>` directories whose process is gone.
 ///
-/// Each launch writes a driver startup TOML under its own pid and nothing ever
+/// Each launch writes a driver bootstrap TOML under its own pid and nothing ever
 /// removed it, so every `pie serve` left a directory behind for the life of
 /// the machine. Sweeping at boot rather than only at shutdown is what makes it
 /// bounded: the leak's whole population is launches that did NOT exit cleanly.
@@ -329,11 +329,11 @@ pub fn remove_launch_state() {
     }
 }
 
-// `DriverCapabilities` is owned by `pie-driver-abi` (single source of truth
+// `DriverCapabilities` is owned by `driver-abi` (single source of truth
 // for the driver ↔ runtime interface). Re-exported here so existing call
 // sites in pie-worker keep working through the
 // `embedded_driver::DriverCapabilities` path.
-pub use pie_driver_abi::DriverCapabilities;
+pub use driver_abi::DriverCapabilities;
 
 /// Parse a capability JSON blob into the typed driver-capability struct.
 /// Lives in pie-worker (not bridge) so bridge can stay free of a
@@ -392,7 +392,7 @@ fn read_hf_config_defaults(snapshot_dir: &Path) -> Result<(u32, String, u32)> {
     Ok((vocab_size, arch_name, max_model_len))
 }
 
-/// Emit the metal driver's startup TOML — same `[model]` + `[batching]` +
+/// Emit the metal driver's bootstrap TOML — same `[model]` + `[batching]` +
 /// `[runtime]` layout consumed by `crates/driver-metal/csrc/src/config.hpp`. The metal
 /// launch state is identical apart from the `metal:N` backend selector.
 ///
@@ -474,11 +474,11 @@ fn model_load_desc(
     snapshot_dir: &Path,
     runtime_quant: &str,
     mxfp4_moe: &str,
-    component: pie_driver_abi::ModelComponent,
-) -> Result<pie_driver_abi::ModelLoadDesc> {
-    let mxfp4_moe = pie_driver_abi::Mxfp4MoeRequest::parse(mxfp4_moe)
+    component: driver_abi::ModelComponent,
+) -> Result<driver_abi::ModelLoadDesc> {
+    let mxfp4_moe = driver_abi::Mxfp4MoeRequest::parse(mxfp4_moe)
         .ok_or_else(|| anyhow!("unknown mxfp4_moe policy '{mxfp4_moe}'"))?;
-    Ok(pie_driver_abi::ModelLoadDesc {
+    Ok(driver_abi::ModelLoadDesc {
         snapshot_dir: snapshot_dir.to_path_buf(),
         runtime_quant: runtime_quant.to_string(),
         mxfp4_moe,
@@ -486,7 +486,7 @@ fn model_load_desc(
     })
 }
 
-/// Write the cuda driver's startup TOML. Schema mirrors
+/// Write the cuda driver's bootstrap TOML. Schema mirrors
 /// `crates/driver-cuda/csrc/src/config.hpp`: `[model]` with
 /// `snapshot_dir`/`device`/`dtype` plus model-execution knobs,
 /// `[batching]` with KV-page geometry plus `swap_pool_size`, and `[runtime]`
@@ -570,7 +570,7 @@ pub(crate) fn write_cuda_startup_toml(
     insert_str(&mut batching, "kv_cache_dtype", opts.kv_cache_dtype.clone());
     // Written only when asked for, like the derived keys above: the driver
     // defaults it to false too, so emitting `false` would be a second spelling
-    // of an absent key. It also keeps the startup TOML saying nothing about
+    // of an absent key. It also keeps the bootstrap TOML saying nothing about
     // calibration on every ordinary boot.
     if opts.calibrate_planner {
         insert_bool(&mut batching, "calibrate_planner", true);
@@ -617,7 +617,7 @@ fn dummy_native_options(
     snapshot_dir: &Path,
     _random_seed: u64,
     activation_dtype: &str,
-) -> Result<pie_driver_dummy_lib::DummyDriverOptions> {
+) -> Result<driver_dummy::DummyDriverOptions> {
     let (vocab_size, arch_name, max_model_len) = match (opts.vocab_size, opts.arch_name.as_deref())
     {
         (Some(v), Some(a)) => {
@@ -643,7 +643,7 @@ fn dummy_native_options(
         .max(max_model_len.div_ceil(16))
         .max(max_forward_requests.saturating_mul(2));
 
-    Ok(pie_driver_dummy_lib::DummyDriverOptions {
+    Ok(driver_dummy::DummyDriverOptions {
         total_pages,
         // tart: no declared plan on the dummy — empty site summary.
         model_site_summary: Default::default(),
@@ -701,7 +701,7 @@ pub(crate) fn create_driver_backend_group(
     descriptor: &[u8],
     group_id: usize,
     tp_launches: &[TpLaunch],
-    component: pie_driver_abi::ModelComponent,
+    component: driver_abi::ModelComponent,
 ) -> Result<crate::translate::GroupDriver> {
     validate_snapshot_dir(snapshot_dir)?;
     if rank_options.is_empty() {
@@ -741,7 +741,7 @@ pub(crate) fn create_driver_backend_group(
         config_blobs.push(toml_path.to_string_lossy().into_owned().into_bytes());
     }
 
-    let (mut backend, facts) = pie_engine::driver::DriverBackend::cuda_group_create(config_blobs)?;
+    let (mut backend, facts) = ::engine::driver::DriverBackend::cuda_group_create(config_blobs)?;
     if facts.len() != rank_options.len() {
         return Err(anyhow!(
             "cuda group returned {} device-facts payloads for {} ranks",
@@ -751,7 +751,7 @@ pub(crate) fn create_driver_backend_group(
     }
     // Each rank's descriptor is identical: the per-rank facts (rank index, TP
     // width, device capability) reach the loader through the driver's own
-    // startup TOML, not through the request.
+    // bootstrap TOML, not through the request.
     let descs = rank_options
         .iter()
         .map(|options| {
@@ -776,7 +776,7 @@ pub(crate) fn create_driver_backend(
     descriptor: &[u8],
     group_id: usize,
     tp: Option<&TpLaunch>,
-    component: pie_driver_abi::ModelComponent,
+    component: driver_abi::ModelComponent,
 ) -> Result<crate::translate::GroupDriver> {
     // Each is used only inside a `#[cfg(feature = "driver-…")]` arm below.
     let _ = (group_id, tp, descriptor);
@@ -796,7 +796,7 @@ pub(crate) fn create_driver_backend(
             write_cuda_startup_toml(&toml_path, opts, snapshot_dir, group_id, tp, descriptor)?;
             let config_path = toml_path.to_string_lossy();
             let (backend, _facts) =
-                pie_engine::driver::DriverBackend::cuda_create(config_path.as_bytes())?;
+                ::engine::driver::DriverBackend::cuda_create(config_path.as_bytes())?;
             (
                 backend,
                 opts.runtime_quant.as_str(),
@@ -810,7 +810,7 @@ pub(crate) fn create_driver_backend(
             write_metal_startup_toml(&toml_path, opts, snapshot_dir, group_id, descriptor)?;
             let config_path = toml_path.to_string_lossy();
             let (backend, _facts) =
-                pie_engine::driver::DriverBackend::metal_create(config_path.as_bytes())?;
+                ::engine::driver::DriverBackend::metal_create(config_path.as_bytes())?;
             (backend, "", "auto")
         }
         DriverOptions::Dummy {
@@ -819,7 +819,7 @@ pub(crate) fn create_driver_backend(
             activation_dtype,
         } => {
             let options = dummy_native_options(opts, snapshot_dir, *random_seed, activation_dtype)?;
-            let (backend, _facts) = pie_engine::driver::DriverBackend::dummy(options)?;
+            let (backend, _facts) = ::engine::driver::DriverBackend::dummy(options)?;
             (backend, "", "auto")
         }
     };
@@ -861,10 +861,10 @@ mod tests {
             "activation_dtype": "bfloat16",
             "snapshot_dir": "/tmp/snap"
         }}"#,
-            pie_driver_abi::PIE_DRIVER_ABI_VERSION
+            driver_abi::PIE_DRIVER_ABI_VERSION
         );
         let caps = parse_caps_json(&json).unwrap();
-        assert_eq!(caps.abi_version, pie_driver_abi::PIE_DRIVER_ABI_VERSION);
+        assert_eq!(caps.abi_version, driver_abi::PIE_DRIVER_ABI_VERSION);
         assert_eq!(caps.total_pages, 1024);
         assert_eq!(caps.arch_name, "qwen3");
         assert_eq!(caps.snapshot_dir, "/tmp/snap");
@@ -909,7 +909,7 @@ mod tests {
             DESCRIPTOR,
             0,
             None,
-            pie_driver_abi::ModelComponent::Full,
+            driver_abi::ModelComponent::Full,
         )
         .unwrap();
         assert_eq!(group.caps.arch_name, "qwen3");
@@ -937,7 +937,7 @@ mod tests {
             &[],
             0,
             None,
-            pie_driver_abi::ModelComponent::Encode,
+            driver_abi::ModelComponent::Encode,
         )
         .unwrap();
         assert!(group.caps.supports_media_encode);
@@ -954,7 +954,7 @@ mod tests {
                     patch_positions.extend([x, y]);
                 }
             }
-            pie_driver_abi::MediaEncodePlan {
+            driver_abi::MediaEncodePlan {
                 image_grids: vec![1, 3, 3],
                 image_pixels: vec![0; pixel_bytes],
                 image_pixel_indptr: vec![0, pixel_bytes as u32],
@@ -969,7 +969,7 @@ mod tests {
         };
         let audio_frames = 16usize;
         let audio_rows = 4usize;
-        let make_audio = || pie_driver_abi::MediaEncodePlan {
+        let make_audio = || driver_abi::MediaEncodePlan {
             image_grids: Vec::new(),
             image_pixels: Vec::new(),
             image_pixel_indptr: Vec::new(),
@@ -1000,17 +1000,17 @@ mod tests {
         assert!(audio.output_rows.iter().any(|byte| *byte != 0));
         let tower_audio_rows = audio.output_rows;
 
-        let model = pie_driver_abi::ModelIdentity {
+        let model = driver_abi::ModelIdentity {
             hash: [9; 32],
-            component: pie_driver_abi::ModelComponent::Encode,
+            component: driver_abi::ModelComponent::Encode,
         };
-        let layout = pie_driver_abi::KvLayout {
+        let layout = driver_abi::KvLayout {
             num_layers: 0,
             num_kv_heads: 0,
             head_dim: 0,
             page_size: 0,
-            dtype: pie_driver_abi::KvDtype::Bf16,
-            kind: pie_driver_abi::KvLayoutKind::KvSeparate,
+            dtype: driver_abi::KvDtype::Bf16,
+            kind: driver_abi::KvLayoutKind::KvSeparate,
             storage_format: String::new(),
             region_page_bytes: Vec::new(),
         };
@@ -1028,8 +1028,8 @@ mod tests {
         let hello = client
             .execute(
                 tarpc::context::current(),
-                pie_driver_abi::ExecutorRequest::Hello(pie_driver_abi::HelloRequest {
-                    wire_version: pie_driver_abi::REMOTE_WIRE_VERSION,
+                driver_abi::ExecutorRequest::Hello(driver_abi::HelloRequest {
+                    wire_version: driver_abi::REMOTE_WIRE_VERSION,
                     client_nonce: 1,
                     model,
                     kv_layout: layout,
@@ -1039,7 +1039,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let pie_driver_abi::ExecutorResponse::Hello(hello) = hello else {
+        let driver_abi::ExecutorResponse::Hello(hello) = hello else {
             panic!("executor Hello response");
         };
         assert_eq!(hello.grant.num_pages, 0);
@@ -1048,8 +1048,8 @@ mod tests {
         let response = client
             .execute(
                 tarpc::context::current(),
-                pie_driver_abi::ExecutorRequest::Encode(pie_driver_abi::RemoteEncode {
-                    plan: pie_driver_abi::LaunchPlan {
+                driver_abi::ExecutorRequest::Encode(driver_abi::RemoteEncode {
+                    plan: driver_abi::LaunchPlan {
                         token_ids: vec![0],
                         qo_indptr: vec![0, 1],
                         image_grids: image.image_grids,
@@ -1065,7 +1065,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let pie_driver_abi::ExecutorResponse::Embeddings(image) = response else {
+        let driver_abi::ExecutorResponse::Embeddings(image) = response else {
             panic!("executor image response");
         };
         assert_eq!(image.rows, tower_rows);
@@ -1074,8 +1074,8 @@ mod tests {
         let response = client
             .execute(
                 tarpc::context::current(),
-                pie_driver_abi::ExecutorRequest::Encode(pie_driver_abi::RemoteEncode {
-                    plan: pie_driver_abi::LaunchPlan {
+                driver_abi::ExecutorRequest::Encode(driver_abi::RemoteEncode {
+                    plan: driver_abi::LaunchPlan {
                         token_ids: vec![0; audio_rows],
                         qo_indptr: vec![0, audio_rows as u32],
                         audio_features: audio.audio_features,
@@ -1089,7 +1089,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let pie_driver_abi::ExecutorResponse::Embeddings(audio) = response else {
+        let driver_abi::ExecutorResponse::Embeddings(audio) = response else {
             panic!("executor audio response");
         };
         assert_eq!(audio.rows, tower_audio_rows);
@@ -1108,7 +1108,7 @@ mod tests {
             &[],
             1,
             None,
-            pie_driver_abi::ModelComponent::Full,
+            driver_abi::ModelComponent::Full,
         )
         .unwrap();
         assert!(full.caps.supports_media_encode);
@@ -1236,7 +1236,7 @@ mod tests {
     /// `pie config tune` sets `server.calibrate_planner` on a config it
     /// derived, `engine::apply_embedded_calibration` puts it on the driver
     /// options, and this is where it becomes something the C++ side reads. The
-    /// per-launch startup TOML is the only file it ever appears in, and that
+    /// per-launch bootstrap TOML is the only file it ever appears in, and that
     /// file is regenerated every boot -- so the request cannot outlive the boot
     /// that made it.
     #[test]
@@ -1311,7 +1311,7 @@ calibrate_planner = true
         assert_eq!(val["batching"]["memory_profile"].as_str().unwrap(), "auto");
         assert!(val["batching"].get("total_pages").is_none());
         // An ordinary boot says nothing about calibration: it is one run of a
-        // measurement, not a setting every startup file restates. The only
+        // measurement, not a setting every bootstrap file restates. The only
         // thing that ever turns it on is `pie config tune`, on a config it
         // derived in memory -- see `CudaNativeDriverOptions::calibrate_planner`
         // for why it cannot come from a file.
@@ -1501,7 +1501,7 @@ calibrate_planner = true
         );
     }
 
-    /// The compiled model config travels beside the startup TOML — always.
+    /// The compiled model config travels beside the bootstrap TOML — always.
     ///
     /// This used to assert the other half too: that the key is *absent* for a
     /// snapshot, which is what let each driver keep a `config.json` parser for

@@ -2,11 +2,11 @@
 
 use super::numeric::*;
 use super::*;
-use pie_ir::container::{ChanDType, ChannelDecl, StageProgram, TraceContainer};
-use pie_ir::op::Op;
-use pie_ir::registry::ModelProfile;
-use pie_ir::types::{Literal, Predicate, RngKind};
-use pie_ir::validate::bind;
+use tensor_ir::container::{ChanDType, ChannelDecl, StageProgram, TraceContainer};
+use tensor_ir::op::Op;
+use tensor_ir::registry::ModelProfile;
+use tensor_ir::types::{Literal, Predicate, RngKind};
+use tensor_ir::validate::bind;
 
 fn chan(shape: Shape, dtype: DType, host_role: HostRole, seeded: bool) -> ChannelDecl {
     ChannelDecl {
@@ -388,7 +388,7 @@ fn kernel_fault_poisons() {
         externs: alloc::vec::Vec::new(),
     };
     let mut profile = ModelProfile::dummy();
-    profile.kernels.push(pie_ir::registry::KernelInfo {
+    profile.kernels.push(tensor_ir::registry::KernelInfo {
         name: "boom".into(),
         sink_scope: None,
         replayable: true,

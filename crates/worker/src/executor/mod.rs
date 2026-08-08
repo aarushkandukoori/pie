@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use anyhow::{Context, Result};
 use futures::StreamExt;
-use pie_driver_abi::{
+use driver_abi::{
     ExecutorRequest, ExecutorResponse, ExecutorRpc, ExecutorRpcRequest, ExecutorRpcResponse,
     HelloRequest, HelloResponse, InlineKvPayload, MemoryDomain, ModelIdentity,
     PIE_TERMINAL_OUTCOME_FAILED, PIE_TERMINAL_OUTCOME_PENDING, PIE_TERMINAL_OUTCOME_SUCCESS,
@@ -16,7 +16,7 @@ use pie_driver_abi::{
     RemoteMediaBlob, RemoteMediaKind, RemotePeerConn, RemoteRegisterChannel, RemoteTerminal,
     RemoteTransferKind, ScratchGrant, TerminalCellState,
 };
-use pie_engine::driver::{
+use ::engine::driver::{
     BoundInstance, ChannelValue, DriverBackend, FrameLaunchOutcome, FrameSubmission,
     InstanceBindingPlan, StepSubmission,
 };
@@ -124,7 +124,7 @@ fn append_region_bytes(
     }
 }
 
-fn zero_grant(handle: &pie_driver_abi::KvHandle, grant: ScratchGrant) -> Result<()> {
+fn zero_grant(handle: &driver_abi::KvHandle, grant: ScratchGrant) -> Result<()> {
     for region in &handle.regions {
         let offset = (grant.base_page as u64)
             .checked_mul(region.page_stride)
@@ -167,13 +167,13 @@ fn zero_grant(handle: &pie_driver_abi::KvHandle, grant: ScratchGrant) -> Result<
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) async fn connect(addr: &str) -> Result<pie_driver_abi::ExecutorRpcClient> {
+pub(crate) async fn connect(addr: &str) -> Result<driver_abi::ExecutorRpcClient> {
     Ok(connect_with_local_ip(addr).await?.0)
 }
 
 pub(crate) async fn connect_with_local_ip(
     addr: &str,
-) -> Result<(pie_driver_abi::ExecutorRpcClient, IpAddr)> {
+) -> Result<(driver_abi::ExecutorRpcClient, IpAddr)> {
     let tcp_addr = addr.strip_prefix("tcp://").unwrap_or(addr);
     let mut connection = tcp::connect(tcp_addr, Bincode::default);
     connection
@@ -189,7 +189,7 @@ pub(crate) async fn connect_with_local_ip(
             .ip(),
     );
     Ok((
-        pie_driver_abi::ExecutorRpcClient::new(tarpc::client::Config::default(), transport).spawn(),
+        driver_abi::ExecutorRpcClient::new(tarpc::client::Config::default(), transport).spawn(),
         local_ip,
     ))
 }
@@ -241,7 +241,7 @@ fn remote_encode_admission_bytes(request: &RemoteEncode) -> std::result::Result<
     })
 }
 
-fn remote_embeddings_bytes(embeddings: &pie_driver_abi::RemoteEmbeddings) -> Option<usize> {
+fn remote_embeddings_bytes(embeddings: &driver_abi::RemoteEmbeddings) -> Option<usize> {
     embedding_payload_bytes(
         embeddings.rows.len(),
         embeddings.indptr.len(),
@@ -420,8 +420,8 @@ pub(crate) struct ExecutorStats {
 #[cfg(feature = "nixl")]
 #[derive(Clone)]
 struct ExecutorNixl {
-    engine: Arc<pie_transport::NixlEngine>,
-    local: pie_transport::RegisteredHandle,
+    engine: Arc<transport::NixlEngine>,
+    local: transport::RegisteredHandle,
     metadata: Vec<u8>,
 }
 
@@ -480,7 +480,7 @@ impl ExecutorServer {
         );
         let group = drivers.groups.pop().expect("one executor driver group");
         let kv_handle = group.backend.export_kv_handle();
-        if model.component == pie_driver_abi::ModelComponent::Encode {
+        if model.component == driver_abi::ModelComponent::Encode {
             anyhow::ensure!(
                 group.caps.supports_media_encode,
                 "encode executor backend does not advertise media encoding"
@@ -506,7 +506,7 @@ impl ExecutorServer {
         #[cfg(not(feature = "nixl"))]
         let nixl = {
             anyhow::ensure!(
-                model.component == pie_driver_abi::ModelComponent::Encode
+                model.component == driver_abi::ModelComponent::Encode
                     || transfer != crate::config::OffloadTransfer::Nixl,
                 "offload.transfer=nixl requires feature \"nixl\""
             );
@@ -625,9 +625,9 @@ impl ExecutorServer {
 fn build_executor_nixl(
     transfer: crate::config::OffloadTransfer,
     model: &ModelIdentity,
-    kv_handle: &pie_driver_abi::KvHandle,
+    kv_handle: &driver_abi::KvHandle,
 ) -> Result<Option<ExecutorNixl>> {
-    use pie_transport::Engine;
+    use transport::Engine;
 
     if transfer == crate::config::OffloadTransfer::Inline {
         return Ok(None);
@@ -637,13 +637,13 @@ fn build_executor_nixl(
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     let result = (|| {
-        let engine = Arc::new(pie_transport::NixlEngine::new(&format!(
+        let engine = Arc::new(transport::NixlEngine::new(&format!(
             "pie-executor-{}-{suffix}",
             std::process::id()
         ))?);
-        let local = engine.register(pie_transport::WorkerId(0), kv_handle.clone())?;
+        let local = engine.register(transport::WorkerId(0), kv_handle.clone())?;
         let metadata = engine.local_metadata()?;
-        Ok::<_, pie_transport::TransportError>(ExecutorNixl {
+        Ok::<_, transport::TransportError>(ExecutorNixl {
             engine,
             local,
             metadata,
@@ -913,7 +913,7 @@ struct QueuedLaunch {
 
 struct QueuedEncode {
     client_id: ClientId,
-    request: pie_driver_abi::RemoteEncode,
+    request: driver_abi::RemoteEncode,
     reservation_id: u64,
     reply: oneshot::Sender<std::result::Result<ExecutorResponse, RemoteError>>,
 }
@@ -936,7 +936,7 @@ struct LeasedInstance {
 
 struct LeasedChannel {
     local_id: u64,
-    registered: pie_engine::driver::RegisteredChannel,
+    registered: ::engine::driver::RegisteredChannel,
 }
 
 #[derive(Default)]
@@ -958,15 +958,15 @@ struct ClientState {
 }
 
 struct ProgramRecord {
-    registration: pie_driver_abi::ProgramRegistration,
+    registration: driver_abi::ProgramRegistration,
     program_id: u64,
 }
 
 struct ExecutorActor {
     backend: DriverBackend,
-    capabilities: pie_driver_abi::DriverCapabilities,
+    capabilities: driver_abi::DriverCapabilities,
     model: ModelIdentity,
-    kv_handle: Option<pie_driver_abi::KvHandle>,
+    kv_handle: Option<driver_abi::KvHandle>,
     max_clients: usize,
     lease_slots: Vec<bool>,
     clients: HashMap<ClientId, ClientState>,
@@ -982,9 +982,9 @@ struct ExecutorActor {
 impl ExecutorActor {
     fn new(
         backend: DriverBackend,
-        capabilities: pie_driver_abi::DriverCapabilities,
+        capabilities: driver_abi::DriverCapabilities,
         model: ModelIdentity,
-        kv_handle: Option<pie_driver_abi::KvHandle>,
+        kv_handle: Option<driver_abi::KvHandle>,
         max_clients: usize,
         stats: Arc<ExecutorStats>,
         #[cfg(feature = "nixl")] nixl: Option<ExecutorNixl>,
@@ -1337,7 +1337,7 @@ impl ExecutorActor {
         if request.model != self.model {
             return Err(incompatible("model identity mismatch"));
         }
-        if self.model.component == pie_driver_abi::ModelComponent::Encode {
+        if self.model.component == driver_abi::ModelComponent::Encode {
             if !self.capabilities.supports_media_encode {
                 return Err(unsupported(
                     "encode executor backend does not support media encoding",
@@ -1386,15 +1386,15 @@ impl ExecutorActor {
         if let (Some(nixl), Some(peer)) = (self.nixl.as_ref(), request.peer_conn.as_ref())
             && peer.kind == RemoteTransferKind::Nixl
         {
-            use pie_transport::Engine;
+            use transport::Engine;
 
             let handle = peer
                 .handle
                 .clone()
                 .ok_or_else(|| invalid("NIXL peer connection is missing its KV handle"))?;
             nixl.engine
-                .connect(&pie_transport::PeerConn {
-                    worker: pie_transport::WorkerId(request.client_nonce),
+                .connect(&transport::PeerConn {
+                    worker: transport::WorkerId(request.client_nonce),
                     handle,
                     metadata: peer.metadata.clone(),
                 })
@@ -1462,7 +1462,7 @@ impl ExecutorActor {
     fn register_program(
         &mut self,
         client_id: ClientId,
-        registration: pie_driver_abi::ProgramRegistration,
+        registration: driver_abi::ProgramRegistration,
     ) -> std::result::Result<ExecutorResponse, RemoteError> {
         let program_id = if let Some(existing) = self.programs.get(&registration.program_hash) {
             if existing.registration != registration {
@@ -1527,7 +1527,7 @@ impl ExecutorActor {
                 "instance binding references a channel outside its client lease",
             ));
         }
-        let pacing_wait_id = pie_engine::driver::waker::WakerTable::global().alloc();
+        let pacing_wait_id = ::engine::driver::waker::WakerTable::global().alloc();
         let plan = InstanceBindingPlan {
             driver_id: 0,
             program_id: request.program_id,
@@ -1547,7 +1547,7 @@ impl ExecutorActor {
         let bound = match self.backend.bind_instance(&plan) {
             Ok(bound) => bound,
             Err(error) => {
-                pie_engine::driver::waker::WakerTable::global().free(pacing_wait_id);
+                ::engine::driver::waker::WakerTable::global().free(pacing_wait_id);
                 return Err(driver_error(error));
             }
         };
@@ -1602,10 +1602,10 @@ impl ExecutorActor {
                 "channel id space exhausted",
             )
         })?;
-        let table = pie_engine::driver::waker::WakerTable::global();
+        let table = ::engine::driver::waker::WakerTable::global();
         let reader_wait_id = table.alloc();
         let writer_wait_id = table.alloc();
-        let plan = pie_driver_abi::ChannelRegistrationPlan {
+        let plan = driver_abi::ChannelRegistrationPlan {
             driver_id: 0,
             channel_id: executor_channel_id,
             shape: request.shape,
@@ -1701,7 +1701,7 @@ impl ExecutorActor {
     fn can_coalesce_encode(
         &self,
         current: &[QueuedEncode],
-        candidate: &pie_driver_abi::RemoteEncode,
+        candidate: &driver_abi::RemoteEncode,
     ) -> bool {
         let candidate_modality = encode_modality(&candidate.plan);
         if !candidate.blobs.is_empty()
@@ -2107,7 +2107,7 @@ impl ExecutorActor {
     fn copy_kv(
         &mut self,
         client_id: ClientId,
-        plan: pie_driver_abi::KvCopyPlan,
+        plan: driver_abi::KvCopyPlan,
         reply: oneshot::Sender<std::result::Result<ExecutorResponse, RemoteError>>,
         handle: ExecutorCoreHandle,
     ) {
@@ -2284,7 +2284,7 @@ impl ExecutorActor {
             return;
         }
 
-        let mut encode = pie_driver_abi::MediaEncodePlan::default();
+        let mut encode = driver_abi::MediaEncodePlan::default();
         match modality {
             Some(EncodeModality::Image) => encode.image_pixel_indptr.push(0),
             Some(EncodeModality::Audio) => encode.audio_feature_indptr.push(0),
@@ -2402,7 +2402,7 @@ impl ExecutorActor {
                     } else {
                         let byte_start = row_start * hidden * 2;
                         let byte_end = row_end * hidden * 2;
-                        let embeddings = pie_driver_abi::RemoteEmbeddings {
+                        let embeddings = driver_abi::RemoteEmbeddings {
                             rows: encode.output_rows[byte_start..byte_end].to_vec(),
                             indptr: encode.output_row_indptr[first..=last]
                                 .iter()
@@ -2447,7 +2447,7 @@ impl ExecutorActor {
     fn encode_one(
         &mut self,
         client_id: ClientId,
-        request: pie_driver_abi::RemoteEncode,
+        request: driver_abi::RemoteEncode,
         reservation_id: u64,
         reply: oneshot::Sender<std::result::Result<ExecutorResponse, RemoteError>>,
         handle: ExecutorCoreHandle,
@@ -2470,7 +2470,7 @@ impl ExecutorActor {
                 return;
             }
             let response = validate_embeddings(&plan).map(|()| {
-                ExecutorResponse::Embeddings(pie_driver_abi::RemoteEmbeddings {
+                ExecutorResponse::Embeddings(driver_abi::RemoteEmbeddings {
                     rows: plan.embed_rows,
                     indptr: plan.embed_indptr,
                     shapes: plan.embed_shapes,
@@ -2510,7 +2510,7 @@ impl ExecutorActor {
                     return;
                 }
             };
-        let mut encode = pie_driver_abi::MediaEncodePlan {
+        let mut encode = driver_abi::MediaEncodePlan {
             image_grids: plan.image_grids,
             image_pixels: plan.image_pixels,
             image_pixel_indptr: plan.image_pixel_indptr,
@@ -2553,7 +2553,7 @@ impl ExecutorActor {
                     } else {
                         let rows = *encode.output_row_indptr.last().unwrap() as usize;
                         encode.output_rows.truncate(rows * hidden * 2);
-                        let embeddings = pie_driver_abi::RemoteEmbeddings {
+                        let embeddings = driver_abi::RemoteEmbeddings {
                             rows: encode.output_rows,
                             indptr: encode
                                 .output_row_indptr
@@ -2631,7 +2631,7 @@ impl ExecutorActor {
         }
         #[cfg(feature = "nixl")]
         if client.transfer == Some(RemoteTransferKind::Nixl) {
-            use pie_transport::Engine;
+            use transport::Engine;
 
             let Some(nixl) = self.nixl.as_ref() else {
                 let _ = reply.send(Err(unsupported("NIXL transfer was not initialized")));
@@ -2639,9 +2639,9 @@ impl ExecutorActor {
             };
             let transfer = match nixl.engine.send_mapped(
                 &nixl.local,
-                &pie_transport::PageSet::new(request.src_page_ids),
-                &pie_transport::PageSet::new(request.dst_page_ids),
-                pie_transport::WorkerId(request.dst_worker),
+                &transport::PageSet::new(request.src_page_ids),
+                &transport::PageSet::new(request.dst_page_ids),
+                transport::WorkerId(request.dst_worker),
             ) {
                 Ok(transfer) => transfer,
                 Err(error) => {
@@ -2654,13 +2654,13 @@ impl ExecutorActor {
             tokio::spawn(async move {
                 let result = loop {
                     match engine.poll(transfer) {
-                        Ok(pie_transport::Completion::Done) => {
+                        Ok(transport::Completion::Done) => {
                             break Ok(ExecutorResponse::KvPushed);
                         }
-                        Ok(pie_transport::Completion::Failed(message)) => {
+                        Ok(transport::Completion::Failed(message)) => {
                             break Err(driver_error(message));
                         }
-                        Ok(pie_transport::Completion::Pending) => {
+                        Ok(transport::Completion::Pending) => {
                             tokio::time::sleep(std::time::Duration::from_micros(50)).await;
                         }
                         Err(error) => break Err(driver_error(error)),
@@ -2773,7 +2773,7 @@ impl ExecutorActor {
             .channels
             .remove(&channel_id)
             .expect("channel ownership checked");
-        let table = pie_engine::driver::waker::WakerTable::global();
+        let table = ::engine::driver::waker::WakerTable::global();
         for wait_id in [
             channel.registered.reader_wait_id,
             channel.registered.writer_wait_id,
@@ -2831,7 +2831,7 @@ impl ExecutorActor {
             if let Err(error) = self.backend.close_channel(channel_id) {
                 tracing::warn!(client_id, channel_id, %error, "closing leased executor channel");
             }
-            let table = pie_engine::driver::waker::WakerTable::global();
+            let table = ::engine::driver::waker::WakerTable::global();
             for wait_id in [
                 channel.registered.reader_wait_id,
                 channel.registered.writer_wait_id,
@@ -2884,8 +2884,8 @@ fn valid_optional_csr(indptr: &[u32], rows: usize, values: usize) -> bool {
 }
 
 fn append_plan(
-    destination: &mut pie_driver_abi::LaunchPlan,
-    source: pie_driver_abi::LaunchPlan,
+    destination: &mut driver_abi::LaunchPlan,
+    source: driver_abi::LaunchPlan,
 ) -> Result<()> {
     anyhow::ensure!(
         source.kv_len_device.is_empty(),
@@ -3069,7 +3069,7 @@ fn append_plan(
 /// one sub-batch spanning the batch.
 #[allow(clippy::too_many_arguments)]
 fn single_step_frame(
-    plan: pie_engine::driver::LaunchPlan,
+    plan: ::engine::driver::LaunchPlan,
     instance_ids: Vec<u64>,
     terminal_cells: Vec<*mut PieTerminalCell>,
     kv_translation: Vec<u32>,
@@ -3099,9 +3099,9 @@ fn single_step_frame(
             roster_rows: (0..members).collect(),
             sub_batch_indptr: vec![0, members],
             sub_batch_class: vec![if device_resolved {
-                pie_driver_abi::PIE_GEOMETRY_CLASS_DECODE_ENVELOPE
+                driver_abi::PIE_GEOMETRY_CLASS_DECODE_ENVELOPE
             } else {
-                pie_driver_abi::PIE_GEOMETRY_CLASS_HOST
+                driver_abi::PIE_GEOMETRY_CLASS_HOST
             }],
             terminal_cells,
             program_row_indptr,
@@ -3121,7 +3121,7 @@ fn single_step_frame(
 fn merge_remote_launches(launches: Vec<RemoteLaunch>) -> Result<RemoteLaunch> {
     anyhow::ensure!(!launches.is_empty(), "cannot merge an empty launch set");
     let mut merged = RemoteLaunch {
-        plan: pie_driver_abi::LaunchPlan {
+        plan: driver_abi::LaunchPlan {
             single_token_mode: true,
             ..Default::default()
         },
@@ -3198,7 +3198,7 @@ fn merge_remote_launches(launches: Vec<RemoteLaunch>) -> Result<RemoteLaunch> {
     Ok(merged)
 }
 
-fn validate_embeddings(plan: &pie_driver_abi::LaunchPlan) -> std::result::Result<(), RemoteError> {
+fn validate_embeddings(plan: &driver_abi::LaunchPlan) -> std::result::Result<(), RemoteError> {
     let blocks = plan.embed_dtypes.len();
     if plan.embed_indptr.len() != blocks + 1
         || plan.embed_shapes.len() != blocks * 2
@@ -3240,7 +3240,7 @@ enum EncodeModality {
     Mixed,
 }
 
-fn encode_modality(plan: &pie_driver_abi::LaunchPlan) -> Option<EncodeModality> {
+fn encode_modality(plan: &driver_abi::LaunchPlan) -> Option<EncodeModality> {
     match (
         !plan.image_anchor_rows.is_empty(),
         !plan.audio_anchor_rows.is_empty(),
@@ -3252,12 +3252,12 @@ fn encode_modality(plan: &pie_driver_abi::LaunchPlan) -> Option<EncodeModality> 
     }
 }
 
-fn encode_media_count(plan: &pie_driver_abi::LaunchPlan) -> usize {
+fn encode_media_count(plan: &driver_abi::LaunchPlan) -> usize {
     plan.image_anchor_rows.len() + plan.audio_anchor_rows.len()
 }
 
 fn validate_raw_encode_plan(
-    plan: &pie_driver_abi::LaunchPlan,
+    plan: &driver_abi::LaunchPlan,
     hidden_size: u32,
 ) -> std::result::Result<(), RemoteError> {
     let images = plan.image_anchor_rows.len();
@@ -3356,18 +3356,18 @@ fn _assert_tarpc_types(_: ExecutorRpcRequest, _: ExecutorRpcResponse) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_driver_abi::{
+    use driver_abi::{
         EncodedMask, ExecutorRpcClient, LaunchPlan, ModelComponent, ProgramRegistration,
     };
-    use pie_driver_dummy_lib::DummyDriverOptions;
-    use pie_engine::driver::{DriverBackend, DummyDriver};
-    use pie_ir::container::{StageProgram, TraceContainer};
-    use pie_ir::registry::Stage;
+    use driver_dummy::DummyDriverOptions;
+    use ::engine::driver::{DriverBackend, DummyDriver};
+    use tensor_ir::container::{StageProgram, TraceContainer};
+    use tensor_ir::registry::Stage;
 
     fn fixture(
         max_clients: usize,
         callback_delay_ms: u64,
-    ) -> (ModelDrivers, ModelIdentity, pie_driver_abi::KvLayout) {
+    ) -> (ModelDrivers, ModelIdentity, driver_abi::KvLayout) {
         fixture_with_log(max_clients, callback_delay_ms, None)
     }
 
@@ -3375,7 +3375,7 @@ mod tests {
         max_clients: usize,
         callback_delay_ms: u64,
         operation_log: Option<Arc<std::sync::Mutex<Vec<String>>>>,
-    ) -> (ModelDrivers, ModelIdentity, pie_driver_abi::KvLayout) {
+    ) -> (ModelDrivers, ModelIdentity, driver_abi::KvLayout) {
         let options = DummyDriverOptions {
             total_pages: 32,
             kv_page_size: 16,
@@ -3416,7 +3416,7 @@ mod tests {
     async fn hello(
         client: &ExecutorRpcClient,
         model: &ModelIdentity,
-        layout: &pie_driver_abi::KvLayout,
+        layout: &driver_abi::KvLayout,
         nonce: u64,
     ) -> HelloResponse {
         let response = rpc(
@@ -3471,7 +3471,7 @@ mod tests {
         }
         .encode();
         ProgramRegistration {
-            program_hash: pie_ir::container_hash(&bytes),
+            program_hash: tensor_ir::container_hash(&bytes),
             reference_ptir: bytes,
             ..Default::default()
         }
@@ -3618,8 +3618,8 @@ mod tests {
         assert_eq!(payload.bytes.len() as u64, layout.page_bytes());
         let ExecutorResponse::Embeddings(embeddings) = rpc(
             &a,
-            ExecutorRequest::Encode(pie_driver_abi::RemoteEncode {
-                plan: pie_driver_abi::LaunchPlan {
+            ExecutorRequest::Encode(driver_abi::RemoteEncode {
+                plan: driver_abi::LaunchPlan {
                     token_ids: vec![4, 5],
                     image_pixels: vec![1, 2, 3, 4],
                     image_grids: vec![1, 1, 1],
@@ -3654,7 +3654,7 @@ mod tests {
                 program_id: program_a,
                 channel_ids: Vec::new(),
                 seed_values: Vec::new(),
-                geometry_class: pie_driver_abi::GeometryClass::Host,
+                geometry_class: driver_abi::GeometryClass::Host,
             }),
         )
         .await
@@ -3673,10 +3673,10 @@ mod tests {
             ExecutorRequest::RegisterChannel(RemoteRegisterChannel {
                 local_channel_id: 77,
                 shape: vec![1],
-                dtype: pie_driver_abi::PIE_CHANNEL_DTYPE_U32,
-                host_role: pie_driver_abi::PIE_CHANNEL_HOST_ROLE_NONE,
+                dtype: driver_abi::PIE_CHANNEL_DTYPE_U32,
+                host_role: driver_abi::PIE_CHANNEL_HOST_ROLE_NONE,
                 seeded: false,
-                extern_dir: pie_driver_abi::PIE_CHANNEL_EXTERN_NONE,
+                extern_dir: driver_abi::PIE_CHANNEL_EXTERN_NONE,
                 capacity: 1,
                 extern_name: Vec::new(),
             }),
@@ -3692,7 +3692,7 @@ mod tests {
                 program_id: program_b,
                 channel_ids: vec![channel.executor_channel_id],
                 seed_values: Vec::new(),
-                geometry_class: pie_driver_abi::GeometryClass::Host,
+                geometry_class: driver_abi::GeometryClass::Host,
             }),
         )
         .await
@@ -3705,7 +3705,7 @@ mod tests {
                 program_id,
                 channel_ids: Vec::new(),
                 seed_values: Vec::new(),
-                geometry_class: pie_driver_abi::GeometryClass::Host,
+                geometry_class: driver_abi::GeometryClass::Host,
             })
         };
         let ExecutorResponse::InstanceBound(bound_a) = rpc(&a, bind(1, program_a)).await.unwrap()
@@ -3858,14 +3858,14 @@ mod tests {
         let (done_tx, done_rx) = oneshot::channel();
 
         std::thread::spawn(move || {
-            let mut remote = pie_engine::driver::RemoteDriver::new(
+            let mut remote = ::engine::driver::RemoteDriver::new(
                 client,
                 runtime.clone(),
                 hello.capabilities,
                 hello.grant,
             );
             let program_id = remote.register_program(&program).unwrap();
-            let pacing_wait_id = pie_engine::driver::waker::WakerTable::global().alloc();
+            let pacing_wait_id = ::engine::driver::waker::WakerTable::global().alloc();
             let bound = remote
                 .bind_instance(&InstanceBindingPlan {
                     driver_id: 7,
@@ -3874,7 +3874,7 @@ mod tests {
                     pacing_wait_id,
                     channel_ids: Vec::new(),
                     seed_values: Vec::new(),
-                    geometry_class: pie_driver_abi::GeometryClass::Host,
+                    geometry_class: driver_abi::GeometryClass::Host,
                 })
                 .unwrap();
             let mut terminal = Box::new(PieTerminalCell {
@@ -3932,7 +3932,7 @@ mod tests {
                     tokio::spawn(request);
                 }),
         );
-        let new_client = pie_driver_abi::ExecutorRpcClient::new(
+        let new_client = driver_abi::ExecutorRpcClient::new(
             tarpc::client::Config::default(),
             client_transport,
         );
@@ -3940,7 +3940,7 @@ mod tests {
         tokio::spawn(new_client.dispatch);
         let (mut drivers, _, _) = fixture(1, 0);
         let caps = drivers.groups.remove(0).caps;
-        let mut remote = pie_engine::driver::RemoteDriver::new(
+        let mut remote = ::engine::driver::RemoteDriver::new(
             client,
             tokio::runtime::Handle::current(),
             caps,
@@ -3983,14 +3983,14 @@ mod tests {
         let (done_tx, done_rx) = oneshot::channel();
 
         std::thread::spawn(move || {
-            let mut remote = pie_engine::driver::RemoteDriver::new(
+            let mut remote = ::engine::driver::RemoteDriver::new(
                 client,
                 runtime.clone(),
                 hello.capabilities,
                 hello.grant,
             );
             let program_id = remote.register_program(&program).unwrap();
-            let pacing_wait_id = pie_engine::driver::waker::WakerTable::global().alloc();
+            let pacing_wait_id = ::engine::driver::waker::WakerTable::global().alloc();
             let bound = remote
                 .bind_instance(&InstanceBindingPlan {
                     driver_id: 9,
@@ -3999,7 +3999,7 @@ mod tests {
                     pacing_wait_id,
                     channel_ids: Vec::new(),
                     seed_values: Vec::new(),
-                    geometry_class: pie_driver_abi::GeometryClass::Host,
+                    geometry_class: driver_abi::GeometryClass::Host,
                 })
                 .unwrap();
             let mut terminal = Box::new(PieTerminalCell {
@@ -4086,20 +4086,20 @@ mod tests {
     #[test]
     fn grant_zeroing_clears_only_the_leased_range() {
         let mut bytes = vec![0xAAu8; 24];
-        let handle = pie_driver_abi::KvHandle {
-            regions: vec![pie_driver_abi::KvRegion {
+        let handle = driver_abi::KvHandle {
+            regions: vec![driver_abi::KvRegion {
                 base: bytes.as_mut_ptr() as u64,
                 len: bytes.len() as u64,
                 page_stride: 8,
                 domain: MemoryDomain::HostPinned,
             }],
-            layout: pie_driver_abi::KvLayout {
+            layout: driver_abi::KvLayout {
                 num_layers: 1,
                 num_kv_heads: 1,
                 head_dim: 1,
                 page_size: 1,
-                dtype: pie_driver_abi::KvDtype::I8,
-                kind: pie_driver_abi::KvLayoutKind::FusedLatent,
+                dtype: driver_abi::KvDtype::I8,
+                kind: driver_abi::KvLayoutKind::FusedLatent,
                 storage_format: "test".to_string(),
                 region_page_bytes: vec![8],
             },
@@ -4159,7 +4159,7 @@ mod tests {
                     program_id,
                     channel_ids: Vec::new(),
                     seed_values: Vec::new(),
-                    geometry_class: pie_driver_abi::GeometryClass::Host,
+                    geometry_class: driver_abi::GeometryClass::Host,
                 }),
             )
             .await
@@ -4231,7 +4231,7 @@ mod tests {
                     barrier.wait().await;
                     rpc(
                         &client,
-                        ExecutorRequest::Encode(pie_driver_abi::RemoteEncode {
+                        ExecutorRequest::Encode(driver_abi::RemoteEncode {
                             plan: LaunchPlan {
                                 token_ids: vec![index as u32],
                                 image_grids: vec![1, 1, 1],
@@ -4303,7 +4303,7 @@ mod tests {
         drop(overflow);
         let error = rpc(
             &client,
-            ExecutorRequest::CopyKv(pie_driver_abi::KvCopyPlan::default()),
+            ExecutorRequest::CopyKv(driver_abi::KvCopyPlan::default()),
         )
         .await
         .unwrap_err();
@@ -4331,11 +4331,11 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.kind, RemoteErrorKind::ResourceExhausted);
 
-        let partner = pie_engine::offload::register_partner(
+        let partner = ::engine::offload::register_partner(
             991,
             91,
             None::<usize>,
-            pie_engine::offload::PartnerRole::Encode,
+            ::engine::offload::PartnerRole::Encode,
             1,
             RemoteTransferKind::Inline,
             Some(client),
@@ -4371,7 +4371,7 @@ mod tests {
             .unwrap();
         assert_eq!(restarted.rows, embeddings.rows);
 
-        pie_engine::offload::remove_partner(991, pie_engine::offload::PartnerRole::Encode);
+        ::engine::offload::remove_partner(991, ::engine::offload::PartnerRole::Encode);
         server.shutdown().await;
     }
 

@@ -15,7 +15,7 @@
 //! `CONTRACT` is a JSON [`ModelContract`] — what the tool holds instead of a
 //! model's name, because the compiler proper does not have families. In
 //! production the contract is authored from a model request on the Rust side
-//! (`pie_model::contract`, `plan/model-in-rust.md` §2) and never serialized;
+//! (`::model::contract`, `plan/model-in-rust.md` §2) and never serialized;
 //! this JSON form exists for exactly this tool and the golden tests, and
 //! `loader/tests/golden/contracts/` holds the ones the tests use.
 //!
@@ -51,20 +51,20 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use pie_loader::checkpoint::CheckpointMetadata;
-use pie_loader::checkpoint::read::parse_checkpoint_metadata;
-use pie_loader::checkpoint::write::{WriteTensor, write_zt};
-use pie_loader::contract::ModelContract;
-use pie_loader::dump::dump_load_plan_json;
-use pie_loader::error::Error;
-use pie_loader::plan::compile as compile_load_plan;
-use pie_loader::plan::{
+use model_loader::checkpoint::CheckpointMetadata;
+use model_loader::checkpoint::read::parse_checkpoint_metadata;
+use model_loader::checkpoint::write::{WriteTensor, write_zt};
+use model_loader::contract::ModelContract;
+use model_loader::dump::dump_load_plan_json;
+use model_loader::error::Error;
+use model_loader::plan::compile as compile_load_plan;
+use model_loader::plan::{
     CONVERT_TILE_MAP_MASK, CUDA_TILE_MAP_MASK, FUSION_FP8_TO_MXFP4, HOST_TILE_MAP_MASK, LoadPlan,
     METAL_TILE_MAP_MASK, StorageTarget,
 };
-use pie_loader::types::{BackendKind, DType};
-use pie_loader::verify::ContractView;
-use pie_loader_capi::view::verify_marshalled;
+use model_loader::types::{BackendKind, DType};
+use model_loader::verify::ContractView;
+use model_loader_capi::view::verify_marshalled;
 
 const USAGE: &str = "\
 usage: pie-loader <command> SNAPSHOT CONTRACT [BACKEND] [FUSION] [TP] [TARGET]
@@ -390,7 +390,7 @@ fn diff(
 fn replay(snapshot: &Path, contract: &ModelContract, options: &Options) -> Result<(), Fail> {
     let plan = compile(snapshot, contract, options)?;
     let started = Instant::now();
-    let storage = pie_loader::executor::host::execute_plan(&plan, snapshot)?;
+    let storage = model_loader::executor::host::execute_plan(&plan, snapshot)?;
     let bytes: usize = storage.tensors.values().map(Vec::len).sum();
     eprintln!(
         "replayed {} tensors ({bytes} bytes materialized, {} arena bytes) in {:?}",
@@ -406,7 +406,7 @@ fn replay(snapshot: &Path, contract: &ModelContract, options: &Options) -> Resul
         println!(
             "{name}\t{}\t{:016x}",
             tensor.len(),
-            pie_loader::cache_key::fnv1a(tensor)
+            model_loader::cache_key::fnv1a(tensor)
         );
     }
     Ok(())
@@ -451,7 +451,7 @@ fn convert(
     let metadata = parse_checkpoint_metadata(snapshot)?;
     let plan = compile_load_plan(&metadata, contract, options.convert_target())?;
     let started = Instant::now();
-    let storage = pie_loader::executor::host::execute_plan(&plan, snapshot)?;
+    let storage = model_loader::executor::host::execute_plan(&plan, snapshot)?;
     eprintln!(
         "executed {} instructions ({} arena bytes) in {:?}",
         plan.instrs.len(),
@@ -484,13 +484,13 @@ fn convert(
     let mut provenance = std::collections::BTreeMap::new();
     provenance.insert(
         "pie_convert_compiler".to_string(),
-        pie_loader::plan::compiler_version().to_string(),
+        model_loader::plan::compiler_version().to_string(),
     );
     let contract_json = serde_json::to_vec(contract)
         .map_err(|err| Fail::Failed(format!("cannot serialize the contract: {err}")))?;
     provenance.insert(
         "pie_convert_contract".to_string(),
-        format!("{:016x}", pie_loader::cache_key::fnv1a(&contract_json)),
+        format!("{:016x}", model_loader::cache_key::fnv1a(&contract_json)),
     );
     let source = plan
         .files
@@ -506,7 +506,7 @@ fn convert(
         .join(",");
     provenance.insert(
         "pie_convert_source".to_string(),
-        format!("{:016x}", pie_loader::cache_key::fnv1a(source.as_bytes())),
+        format!("{:016x}", model_loader::cache_key::fnv1a(source.as_bytes())),
     );
 
     // `.zt` is the only output: it can name every scheme the plan language

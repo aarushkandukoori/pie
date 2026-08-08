@@ -13,7 +13,7 @@
 //! record of the violation rather than a defence against it.
 //!
 //! So this test comes with the thing that makes the rule keepable:
-//! [`families`](pie_model::families), a legitimate home for what more than one
+//! [`families`](model::families), a legitimate home for what more than one
 //! generation binds. ChatML lives there now. The rule and the escape hatch
 //! arrive together on purpose — a rule with nowhere to put the exception is a
 //! rule that gets an exception written into it.

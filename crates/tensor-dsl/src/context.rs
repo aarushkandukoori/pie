@@ -1,7 +1,7 @@
 //! The trace-recording context: a thread-local **session** holding the stage
 //! currently being traced plus the channel registry. Channel/Tensor methods
 //! consult it — inside a traced stage closure they record the IR's canonical
-//! [`ptir::op::Op`](pie_ir::op::Op); on the host they take the
+//! [`ptir::op::Op`](tensor_ir::op::Op); on the host they take the
 //! async path.
 //!
 //! Single-threaded by construction (wasm inferlets; host tests run each trace on
@@ -12,14 +12,14 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use pie_ir::op::{ChannelIndex, Op};
-use pie_ir::types::{DType, Shape, ValueType};
+use tensor_ir::op::{ChannelIndex, Op};
+use tensor_ir::types::{DType, Shape, ValueType};
 
 use crate::error::{Span, TraceError};
 use crate::value::ConstData;
 
-/// Attachment stage — re-export of the IR's canonical [`Stage`](pie_ir::registry::Stage).
-pub use pie_ir::registry::Stage;
+/// Attachment stage — re-export of the IR's canonical [`Stage`](tensor_ir::registry::Stage).
+pub use tensor_ir::registry::Stage;
 
 /// A channel's mutable shared state (behind `Rc<RefCell<..>>`; a `Channel` is a
 /// handle to it). Carries the trace decl, the per-instance seed flag, and the
@@ -64,7 +64,7 @@ pub type ChannelRef = Rc<RefCell<ChannelState>>;
 pub(crate) struct SinkCall {
     pub name: String,
     pub span: Span,
-    pub scope: pie_ir::registry::SinkScope,
+    pub scope: tensor_ir::registry::SinkScope,
 }
 
 /// The stage currently being traced.
@@ -353,7 +353,7 @@ pub(crate) fn record_channel_read(ch: &ChannelRef, consume: bool, span: Span) ->
 /// role is a definite deadlock, surfaced by the fire's retry classifier.
 ///
 /// The one exception is a channel bound to a **peeked** descriptor port
-/// ([`pie_ir::registry::Port::consumes`] false — geometry and masks). The
+/// ([`tensor_ir::registry::Port::consumes`] false — geometry and masks). The
 /// descriptor phase reads its front without draining, so a bare re-put would
 /// grow the ring by one every fire until the port is reading a stale head
 /// behind a wall of queued updates. Such a put therefore drains first, and the
@@ -400,7 +400,7 @@ pub(crate) fn intern_name(name: &str) -> u16 {
     })
 }
 
-pub(crate) fn record_sink(name: String, span: Span, scope: pie_ir::registry::SinkScope) {
+pub(crate) fn record_sink(name: String, span: Span, scope: tensor_ir::registry::SinkScope) {
     SESSION.with_borrow_mut(|s| {
         s.as_mut()
             .and_then(|s| s.current.as_mut())

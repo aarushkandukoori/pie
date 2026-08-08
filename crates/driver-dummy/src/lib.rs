@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
 use anyhow::{Result, anyhow, bail, ensure};
-use pie_driver_abi::{
+use driver_abi::{
     DeviceFacts, DriverCapabilities, ModelLoadDesc, PIE_CHANNEL_DTYPE_ACT, PIE_CHANNEL_DTYPE_BOOL,
     PIE_CHANNEL_DTYPE_F32, PIE_CHANNEL_DTYPE_I32, PIE_CHANNEL_DTYPE_U32, PIE_CHANNEL_EXTERN_NONE,
     PIE_GEOMETRY_CLASS_DECODE_ENVELOPE, PIE_GEOMETRY_CLASS_DEVICE_GEOMETRY,
@@ -20,15 +20,15 @@ use pie_driver_abi::{
     validate_instance_desc, validate_kv_copy_desc, validate_pool_resize_desc,
     validate_state_copy_desc,
 };
-use pie_driver_abi::plan::ProgramRegistration;
+use driver_abi::plan::ProgramRegistration;
 use tensor_compiler::eval::interp::{
     ExternChannel, HostError, Instance as InterpInstance, NoKernels, PassInputs, Value,
 };
-use pie_ir::container::{self, ExternDir, HostRole};
-use pie_ir::op::{IntrinsicId, Op};
-use pie_ir::registry::{KernelInfo, ModelProfile};
-use pie_ir::types::{DType, ValueType};
-use pie_ir::validate::BoundTrace;
+use tensor_ir::container::{self, ExternDir, HostRole};
+use tensor_ir::op::{IntrinsicId, Op};
+use tensor_ir::registry::{KernelInfo, ModelProfile};
+use tensor_ir::types::{DType, ValueType};
+use tensor_ir::validate::BoundTrace;
 
 pub mod kv_export;
 
@@ -80,7 +80,7 @@ pub struct DummyDriverOptions {
     /// from its traced + validated forward plan (the CUDA driver's
     /// `model_site_summary` capability row). The dummy has no plan to trace,
     /// so the summary is whatever the fixture states — empty by default.
-    pub model_site_summary: pie_driver_abi::ModelSiteSummary,
+    pub model_site_summary: driver_abi::ModelSiteSummary,
     pub callback_delay_ms: u64,
     pub reject_launches: bool,
     pub reject_launches_remaining: u32,
@@ -113,7 +113,7 @@ impl Default for DummyDriverOptions {
             has_mtp_drafts: true,
             has_value_head: true,
             has_attn_score: true,
-            model_site_summary: pie_driver_abi::ModelSiteSummary::default(),
+            model_site_summary: driver_abi::ModelSiteSummary::default(),
             callback_delay_ms: 0,
             reject_launches: false,
             reject_launches_remaining: 0,
@@ -230,7 +230,7 @@ struct LaunchInstanceResult {
 #[derive(Clone)]
 struct SendableRuntimeCallbacks {
     ctx: usize,
-    notify: pie_driver_abi::PieRuntimeNotifyFn,
+    notify: driver_abi::PieRuntimeNotifyFn,
     operation_log: Option<Arc<Mutex<Vec<String>>>>,
 }
 
@@ -305,7 +305,7 @@ impl DummyDriver {
         };
         Self {
             device_facts: DeviceFacts {
-                abi_version: pie_driver_abi::PIE_DRIVER_ABI_VERSION,
+                abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
                 backend: "dummy".to_string(),
                 unified_memory: true,
                 fp8_native: false,
@@ -319,17 +319,17 @@ impl DummyDriver {
                 // The dummy driver interprets PTIR directly; it has no kernels
                 // to compile, so it asks for no generated source.
                 codegen_backend: String::new(),
-                abi_version: pie_driver_abi::PIE_DRIVER_ABI_VERSION,
+                abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
                 total_pages: options.total_pages,
                 kv_page_size: options.kv_page_size,
                 swap_pool_size: options.swap_pool_size,
                 kv_copy_domain_mask: if options.swap_pool_size > 0 {
-                    pie_driver_abi::KV_COPY_DEVICE_TO_DEVICE
-                        | pie_driver_abi::KV_COPY_DEVICE_TO_HOST
-                        | pie_driver_abi::KV_COPY_HOST_TO_DEVICE
-                        | pie_driver_abi::KV_COPY_HOST_TO_HOST
+                    driver_abi::KV_COPY_DEVICE_TO_DEVICE
+                        | driver_abi::KV_COPY_DEVICE_TO_HOST
+                        | driver_abi::KV_COPY_HOST_TO_DEVICE
+                        | driver_abi::KV_COPY_HOST_TO_HOST
                 } else {
-                    pie_driver_abi::KV_COPY_DEVICE_TO_DEVICE
+                    driver_abi::KV_COPY_DEVICE_TO_DEVICE
                 },
                 rs_cache_required: false,
                 rs_cache_slots: 0,
@@ -349,8 +349,8 @@ impl DummyDriver {
                 // No real projection GEMMs either, so no low-rank delta to
                 // apply: the `lora` sink is not honoured.
                 has_lora: false,
-                device_geometry_port_mask: pie_driver_abi::PIE_DEVICE_GEOMETRY_PORTS
-                    | pie_driver_abi::PIE_DEVICE_PORT_ATTN_MASK,
+                device_geometry_port_mask: driver_abi::PIE_DEVICE_GEOMETRY_PORTS
+                    | driver_abi::PIE_DEVICE_PORT_ATTN_MASK,
                 max_forward_tokens: options.max_forward_tokens,
                 max_forward_requests: options.max_forward_requests,
                 max_page_refs: options.max_page_refs,
@@ -382,8 +382,8 @@ impl DummyDriver {
         }
     }
 
-    pub fn export_kv_handle(&self) -> Option<pie_driver_abi::KvHandle> {
-        pie_driver_abi::KvExport::export_kv_handle(&self.kv_export)
+    pub fn export_kv_handle(&self) -> Option<driver_abi::KvHandle> {
+        driver_abi::KvExport::export_kv_handle(&self.kv_export)
     }
 
     fn record_op(&self, name: &str) {
@@ -462,7 +462,7 @@ impl DummyDriver {
         self.record_op("load_model");
         self.capabilities.snapshot_dir = desc.snapshot_dir.display().to_string();
         self.capabilities.supports_media_encode =
-            desc.component != pie_driver_abi::ModelComponent::Text;
+            desc.component != driver_abi::ModelComponent::Text;
         self.model_loaded = true;
         Ok(self.capabilities.clone())
     }
@@ -479,7 +479,7 @@ impl DummyDriver {
             !desc.reference_ptir.is_empty(),
             "the reference driver requires ProgramRegistration::reference_ptir"
         );
-        let hash = pie_ir::container_hash(&desc.reference_ptir);
+        let hash = tensor_ir::container_hash(&desc.reference_ptir);
         if desc.program_hash != 0 {
             ensure!(
                 desc.program_hash == hash,
@@ -489,7 +489,7 @@ impl DummyDriver {
         }
         let container = container::decode(&desc.reference_ptir)
             .map_err(|err| anyhow!("program decode failed: {err}"))?;
-        let bound = pie_ir::validate::bind(container, self.model_profile()).map_err(|err| {
+        let bound = tensor_ir::validate::bind(container, self.model_profile()).map_err(|err| {
             anyhow!(
                 "program bind failed: {err} (profile: vocab={}, page_size={})",
                 self.model_profile().vocab,
@@ -543,7 +543,7 @@ impl DummyDriver {
                 .into_boxed_slice(),
             pulled: 0,
             seed_credit: desc.seeded != 0
-                && desc.host_role == pie_driver_abi::PIE_CHANNEL_HOST_ROLE_WRITER,
+                && desc.host_role == driver_abi::PIE_CHANNEL_HOST_ROLE_WRITER,
             attachments: HashMap::new(),
             // A ring exists for every channel that can legally be shared
             // across instances: extern-declared channels AND chainable
@@ -551,11 +551,11 @@ impl DummyDriver {
             // host role, unseeded). Single-attachment channels keep their
             // instance-local interpreter ring.
             shared: if desc.extern_dir != PIE_CHANNEL_EXTERN_NONE
-                || (desc.host_role == pie_driver_abi::PIE_CHANNEL_HOST_ROLE_NONE
+                || (desc.host_role == driver_abi::PIE_CHANNEL_HOST_ROLE_NONE
                     && desc.seeded == 0)
             {
                 let dtype = channel_program_dtype(desc.dtype)?;
-                let shape = pie_ir::types::Shape::new(&shape)
+                let shape = tensor_ir::types::Shape::new(&shape)
                     .ok_or_else(|| anyhow!("channel shape rank is unsupported"))?;
                 Some(ExternChannel::new(
                     ValueType::new(shape, dtype),
@@ -1616,7 +1616,7 @@ fn ensure_endpoint_matches_program(
     endpoint: &DummyEndpoint,
     program: &DummyProgram,
     dense: usize,
-    decl: &pie_ir::container::ChannelDecl,
+    decl: &tensor_ir::container::ChannelDecl,
     instance_id: u64,
 ) -> Result<()> {
     ensure!(
@@ -1642,7 +1642,7 @@ fn ensure_endpoint_matches_program(
             // (prefill→decode `tok_in` handoff). Host-visible or seeded
             // channels keep the one-attachment rule.
             let device_only =
-                endpoint.host_role == pie_ir::container::HostRole::None as u8 && !endpoint.seeded;
+                endpoint.host_role == tensor_ir::container::HostRole::None as u8 && !endpoint.seeded;
             ensure!(
                 endpoint.extern_name.is_none() && (endpoint.attachments.is_empty() || device_only),
                 "private channel {} is already attached",
@@ -1821,7 +1821,7 @@ fn deterministic_drafts(ty: ValueType, base: u64, vocab: u32) -> Value {
 
 fn ensure_abi(abi_version: u32) -> Result<()> {
     ensure!(
-        abi_version == pie_driver_abi::PIE_DRIVER_ABI_VERSION,
+        abi_version == driver_abi::PIE_DRIVER_ABI_VERSION,
         "unexpected ABI version {abi_version}"
     );
     Ok(())
@@ -1874,7 +1874,7 @@ fn ensure_unique_launch_members(
 fn ensure_terminal_cell_pending(cell: *mut PieTerminalCell) -> Result<()> {
     let outcome = unsafe { AtomicU32::from_ptr(cell.cast::<u32>()).load(Ordering::Acquire) };
     ensure!(
-        outcome == pie_driver_abi::PIE_TERMINAL_OUTCOME_PENDING,
+        outcome == driver_abi::PIE_TERMINAL_OUTCOME_PENDING,
         "terminal cell must be Pending before acceptance"
     );
     ensure!(
@@ -2057,7 +2057,7 @@ fn copy_bytes(bytes: PieBytes, name: &str) -> Result<Vec<u8>> {
     Ok(unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len) }.to_vec())
 }
 
-fn copy_u8_slice(slice: pie_driver_abi::PieU8Slice, name: &str) -> Result<Vec<u8>> {
+fn copy_u8_slice(slice: driver_abi::PieU8Slice, name: &str) -> Result<Vec<u8>> {
     if slice.len == 0 {
         return Ok(Vec::new());
     }
@@ -2109,7 +2109,7 @@ fn copy_value_descs(slice: PieChannelValueDescSlice, name: &str) -> Result<Vec<O
         .collect()
 }
 
-fn copy_kv_cells(desc: &PieKvCopyDesc) -> Result<Vec<pie_driver_abi::PieKvMoveCell>> {
+fn copy_kv_cells(desc: &PieKvCopyDesc) -> Result<Vec<driver_abi::PieKvMoveCell>> {
     if desc.cells.len == 0 {
         return Ok(Vec::new());
     }
@@ -2120,7 +2120,7 @@ fn copy_kv_cells(desc: &PieKvCopyDesc) -> Result<Vec<pie_driver_abi::PieKvMoveCe
     Ok(unsafe { std::slice::from_raw_parts(desc.cells.ptr, desc.cells.len) }.to_vec())
 }
 
-fn copy_state_ranges(desc: &PieStateCopyDesc) -> Result<Vec<pie_driver_abi::PieStateCopyRange>> {
+fn copy_state_ranges(desc: &PieStateCopyDesc) -> Result<Vec<driver_abi::PieStateCopyRange>> {
     if desc.slot_ranges.len == 0 {
         return Ok(Vec::new());
     }
@@ -2132,9 +2132,9 @@ fn copy_state_ranges(desc: &PieStateCopyDesc) -> Result<Vec<pie_driver_abi::PieS
 }
 
 fn copy_pool_ranges(
-    slice: pie_driver_abi::PiePoolRangeSlice,
+    slice: driver_abi::PiePoolRangeSlice,
     name: &str,
-) -> Result<Vec<pie_driver_abi::PiePoolRange>> {
+) -> Result<Vec<driver_abi::PiePoolRange>> {
     if slice.len == 0 {
         return Ok(Vec::new());
     }
@@ -2282,22 +2282,22 @@ mod tests {
                 ptr: instance_ids.as_ptr(),
                 len: instance_ids.len(),
             },
-            steps: pie_driver_abi::PieStepDescSlice { ptr: &step, len: 1 },
+            steps: driver_abi::PieStepDescSlice { ptr: &step, len: 1 },
             ..PieFrameDesc::default()
         };
         driver.launch(&frame, completion)
     }
 
-    use pie_driver_abi::{
+    use driver_abi::{
         PIE_CHANNEL_EXTERN_EXPORT, PIE_CHANNEL_HOST_ROLE_NONE, PIE_TERMINAL_OUTCOME_PENDING,
         PieChannelValueDesc,
     };
-    use pie_ir::container::{
+    use tensor_ir::container::{
         ChanDType, ChannelDecl, ExternDecl, PortBinding, PortSource, StageProgram, TraceContainer,
     };
-    use pie_ir::expand;
-    use pie_ir::registry::{Port, Stage};
-    use pie_ir::types::{Literal, Shape};
+    use tensor_ir::expand;
+    use tensor_ir::registry::{Port, Stage};
+    use tensor_ir::types::{Literal, Shape};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
 
@@ -2310,8 +2310,8 @@ mod tests {
         let default_driver = DummyDriver::new();
         assert!(default_driver.capabilities().model_site_summary.is_empty());
 
-        let summary = pie_driver_abi::ModelSiteSummary {
-            expert_sites: vec![pie_driver_abi::ExpertSiteSummary {
+        let summary = driver_abi::ModelSiteSummary {
+            expert_sites: vec![driver_abi::ExpertSiteSummary {
                 experts: 256,
                 top_k: 8,
             }],
@@ -2411,7 +2411,7 @@ mod tests {
                     ..DummyDriverOptions::default()
                 },
                 PieRuntimeCallbacks {
-                    abi_version: pie_driver_abi::PIE_DRIVER_ABI_VERSION,
+                    abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
                     reserved0: 0,
                     ctx: Arc::as_ptr(&state) as *mut c_void,
                     notify: Some(notify),
@@ -2455,8 +2455,8 @@ mod tests {
                 None => (PIE_CHANNEL_EXTERN_NONE, &[][..]),
                 Some(binding) => (
                     match binding.dir {
-                        ExternDir::Import => pie_driver_abi::PIE_CHANNEL_EXTERN_IMPORT,
-                        ExternDir::Export => pie_driver_abi::PIE_CHANNEL_EXTERN_EXPORT,
+                        ExternDir::Import => driver_abi::PIE_CHANNEL_EXTERN_IMPORT,
+                        ExternDir::Export => driver_abi::PIE_CHANNEL_EXTERN_EXPORT,
                     },
                     container.names[binding.name as usize].as_bytes(),
                 ),
@@ -2487,7 +2487,7 @@ mod tests {
         }
         let program_id = driver
             .register_program(&ProgramRegistration {
-                program_hash: pie_ir::container_hash(&bytes),
+                program_hash: tensor_ir::container_hash(&bytes),
                 reference_ptir: bytes.clone(),
                 ..ProgramRegistration::default()
             })
@@ -2574,7 +2574,7 @@ mod tests {
         let bytes = container.encode();
         driver
             .register_program(&ProgramRegistration {
-                program_hash: pie_ir::container_hash(&bytes),
+                program_hash: tensor_ir::container_hash(&bytes),
                 reference_ptir: bytes.clone(),
                 ..ProgramRegistration::default()
             })
@@ -3121,7 +3121,7 @@ mod tests {
 
         let logits = match deterministic_logits(
             ValueType::new(Shape::matrix(1, vocab), DType::F32),
-            1 ^ binding.instance_id ^ pie_ir::container_hash(&suite_container(vocab)),
+            1 ^ binding.instance_id ^ tensor_ir::container_hash(&suite_container(vocab)),
             vocab,
         ) {
             Value::F32(values) => values,
@@ -3628,7 +3628,7 @@ mod tests {
                         ptr: instance_ids.as_ptr(),
                         len: instance_ids.len(),
                     },
-                    steps: pie_driver_abi::PieStepDescSlice { ptr: &step, len: 1 },
+                    steps: driver_abi::PieStepDescSlice { ptr: &step, len: 1 },
                     ..PieFrameDesc::default()
                 },
                 PieCompletion {
@@ -3650,7 +3650,7 @@ mod tests {
         let tokens = [10u32, 11];
         let qo_indptr = [0u32, 1, 2];
         let rs_slot_ids = [7u32, 9];
-        let rs_slot_flags = [pie_driver_abi::PIE_RS_FLAG_RESET, 0];
+        let rs_slot_flags = [driver_abi::PIE_RS_FLAG_RESET, 0];
         let desc = PieStepDesc {
             token_ids: PieU32Slice {
                 ptr: tokens.as_ptr(),
@@ -3664,7 +3664,7 @@ mod tests {
                 ptr: rs_slot_ids.as_ptr(),
                 len: rs_slot_ids.len(),
             },
-            rs_slot_flags: pie_driver_abi::PieU8Slice {
+            rs_slot_flags: driver_abi::PieU8Slice {
                 ptr: rs_slot_flags.as_ptr(),
                 len: rs_slot_flags.len(),
             },
@@ -3679,7 +3679,7 @@ mod tests {
                 ptr: one_slot.as_ptr(),
                 len: one_slot.len(),
             },
-            rs_slot_flags: pie_driver_abi::PieU8Slice {
+            rs_slot_flags: driver_abi::PieU8Slice {
                 ptr: one_flag.as_ptr(),
                 len: one_flag.len(),
             },

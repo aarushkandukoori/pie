@@ -34,7 +34,7 @@ pub struct Field {
     /// doc-comment test has been circumvented.
     pub doc: String,
     /// What the field is worth when the file does not say. `None` means the
-    /// absence is the setting -- pie derives the value at startup and there is
+    /// absence is the setting -- pie derives the value at bootstrap and there is
     /// no constant to print.
     ///
     /// Always `None` when `required`, which is the other reason a key can have

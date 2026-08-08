@@ -184,11 +184,11 @@ impl DevGeo {
 ///
 /// Returns the lane count (`EmbedTokens` extent).
 pub fn detect_pooled_device_geometry(
-    container: &pie_ir::container::TraceContainer,
+    container: &tensor_ir::container::TraceContainer,
 ) -> Option<usize> {
-    use pie_ir::container::{ChanDType, PortSource};
-    use pie_ir::registry::Port;
-    use pie_ir::types::DType;
+    use tensor_ir::container::{ChanDType, PortSource};
+    use tensor_ir::registry::Port;
+    use tensor_ir::types::DType;
 
     let channel_of = |port: Port| {
         container
@@ -202,7 +202,7 @@ pub fn detect_pooled_device_geometry(
     let republished = |channel: usize| {
         container.stages.iter().any(|stage| {
             stage.ops.iter().any(|op| {
-                matches!(op, pie_ir::op::Op::ChanPut { chan, .. } if *chan as usize == channel)
+                matches!(op, tensor_ir::op::Op::ChanPut { chan, .. } if *chan as usize == channel)
             })
         })
     };
@@ -255,12 +255,12 @@ pub fn detect_pooled_device_geometry(
 /// host-writer channel is `fresh`; the host-reader `[B]` bool channel is
 /// `w_cont` (the reclaim signal). `None` for an ordinary decode.
 pub fn detect_device_geometry(
-    container: &pie_ir::container::TraceContainer,
+    container: &tensor_ir::container::TraceContainer,
 ) -> Option<(usize, usize, usize)> {
-    use pie_ir::container::HostRole;
-    use pie_ir::container::{ChanDType, PortSource};
-    use pie_ir::registry::Port;
-    use pie_ir::types::DType;
+    use tensor_ir::container::HostRole;
+    use tensor_ir::container::{ChanDType, PortSource};
+    use tensor_ir::registry::Port;
+    use tensor_ir::types::DType;
 
     let has_write_desc = container
         .ports
@@ -368,10 +368,10 @@ mod tests {
         assert_eq!(lease.in_flight(), 0);
     }
 
-    use pie_ir::container::{ChanDType, ChannelDecl, HostRole, PortBinding, PortSource};
-    use pie_ir::container::{StageProgram, TraceContainer};
-    use pie_ir::registry::{Port, Stage};
-    use pie_ir::types::{DType, Shape};
+    use tensor_ir::container::{ChanDType, ChannelDecl, HostRole, PortBinding, PortSource};
+    use tensor_ir::container::{StageProgram, TraceContainer};
+    use tensor_ir::registry::{Port, Stage};
+    use tensor_ir::types::{DType, Shape};
 
     fn ch(shape: Shape, dtype: DType, role: HostRole) -> ChannelDecl {
         ChannelDecl {
@@ -466,12 +466,12 @@ mod tests {
 #[cfg(test)]
 mod pooled_tests {
     use super::detect_pooled_device_geometry;
-    use pie_ir::container::{
+    use tensor_ir::container::{
         ChanDType, ChannelDecl, HostRole, PortBinding, PortSource, StageProgram, TraceContainer,
     };
-    use pie_ir::op::Op;
-    use pie_ir::registry::{Port, Stage};
-    use pie_ir::types::{DType, Shape};
+    use tensor_ir::op::Op;
+    use tensor_ir::registry::{Port, Stage};
+    use tensor_ir::types::{DType, Shape};
 
     fn chan(shape: Shape, dtype: DType) -> ChannelDecl {
         ChannelDecl {

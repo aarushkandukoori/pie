@@ -18,15 +18,15 @@ pub fn read_config_file(path: &std::path::Path) -> Result<String> {
 /// Load just the `[worker]` role Config from the combined standalone file — for
 /// ops that need worker-domain settings (registry, drivers) without booting the
 /// cluster. Replaces the old worker-only `Config::from_toml_file`.
-pub fn load_worker_config(path: &std::path::Path) -> Result<pie_worker::Config> {
-    pie_worker::Config::parse(&read_config_file(path)?).context("parsing config")
+pub fn load_worker_config(path: &std::path::Path) -> Result<worker::Config> {
+    worker::Config::parse(&read_config_file(path)?).context("parsing config")
 }
 
 /// Extract one top-level `[section]` from the combined standalone config as a
 /// standalone TOML string (its contents promoted to top level, e.g.
 /// `[worker.driver]` → `[driver]`). A **missing** section yields an empty string
 /// — the role lib then applies its own defaults (matching
-/// `startup::config::source`'s empty-on-missing contract). A present section
+/// `bootstrap::config::source`'s empty-on-missing contract). A present section
 /// that isn't a table is a config error.
 pub fn extract_section(combined: &str, section: &str) -> Result<String> {
     let root: toml::Table = combined.parse().context("parsing standalone config TOML")?;
@@ -47,9 +47,9 @@ pub fn extract_section(combined: &str, section: &str) -> Result<String> {
 pub fn derive_standalone(
     combined: &str,
 ) -> Result<(
-    pie_controller::Config,
-    pie_gateway::Config,
-    pie_worker::Config,
+    controller::Config,
+    gateway::Config,
+    worker::Config,
 )> {
     // The file IS the worker config now. `[controller]` and `[gateway]` are
     // gone from it -- they were empty in every single-node config and existed
@@ -57,9 +57,9 @@ pub fn derive_standalone(
     // Seam 4 showing through the user interface. Both roles take their own
     // defaults here; `compose` then wires the addresses, and `[server]
     // host:port` is what the client edge binds.
-    let worker = pie_worker::Config::parse(combined).context("parsing config")?;
-    let controller = pie_controller::Config::parse("").context("controller defaults")?;
-    let gateway = pie_gateway::Config::parse("").context("gateway defaults")?;
+    let worker = worker::Config::parse(combined).context("parsing config")?;
+    let controller = controller::Config::parse("").context("controller defaults")?;
+    let gateway = gateway::Config::parse("").context("gateway defaults")?;
     Ok((controller, gateway, worker))
 }
 

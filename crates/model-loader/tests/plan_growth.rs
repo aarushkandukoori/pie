@@ -15,13 +15,13 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use pie_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
-use pie_loader::contract::ModelContract;
-use pie_loader::plan::compile as compile_load_plan;
-use pie_loader::plan::{
+use model_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
+use model_loader::contract::ModelContract;
+use model_loader::plan::compile as compile_load_plan;
+use model_loader::plan::{
     CUDA_TILE_MAP_MASK, FUSION_FP8_TO_MXFP4, LoadPlan, StorageInstr, StorageTarget,
 };
-use pie_loader::types::{BackendKind, CheckpointFormat, DType, Encoding, FileId, TensorId};
+use model_loader::types::{BackendKind, CheckpointFormat, DType, Encoding, FileId, TensorId};
 
 /// A stored Llama contract, with its two layers replayed up to `layers`.
 ///
@@ -175,7 +175,7 @@ fn target(tp_rank: u32, tp_size: u32) -> StorageTarget {
 /// what an operator dump would show rather than a second table of names.
 fn histogram(plan: &LoadPlan) -> BTreeMap<String, u64> {
     let stats: serde_json::Value =
-        serde_json::from_str(&pie_loader::dump::plan_stats_json(plan)).expect("stats are JSON");
+        serde_json::from_str(&model_loader::dump::plan_stats_json(plan)).expect("stats are JSON");
     stats["instruction_kinds"]
         .as_object()
         .expect("histogram")

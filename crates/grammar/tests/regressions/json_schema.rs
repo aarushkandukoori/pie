@@ -1,6 +1,6 @@
 use crate::common::grammar_accepts;
-use pie_grammar::grammar::Grammar;
-use pie_grammar::json_schema::{JsonSchemaOptions, json_schema_to_ebnf, json_schema_to_grammar};
+use ::grammar::grammar::Grammar;
+use ::grammar::json_schema::{JsonSchemaOptions, json_schema_to_ebnf, json_schema_to_grammar};
 
 #[test]
 fn typed_ebnf_rendering_roundtrips() {

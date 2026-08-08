@@ -32,7 +32,7 @@ static SERVICE: LazyLock<Service<Message>> = LazyLock::new(Service::new);
 pub fn spawn(wasm_engine: &WasmEngine, registry_url: String, programs_dir: PathBuf) {
     let mut repository = Repository::new(registry_url, programs_dir);
 
-    // Scan disk on startup: load existing programs into index
+    // Scan disk on bootstrap: load existing programs into index
     repository.load_program_cache();
 
     SERVICE

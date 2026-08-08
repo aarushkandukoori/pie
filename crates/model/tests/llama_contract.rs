@@ -8,7 +8,7 @@
 //!    intended change with `UPDATE_GOLDEN=1 cargo test -p pie-model
 //!    --features contract`.
 //! 2. **The contract compiles and verifies.** The authored contract goes
-//!    through `pie_loader::plan::compile` and the marshalled-view verifier —
+//!    through `model_loader::plan::compile` and the marshalled-view verifier —
 //!    the same pipeline a driver boot runs — so the pin is of something the
 //!    loader accepts, not just of plausible JSON.
 //!
@@ -28,15 +28,15 @@
 
 use std::path::PathBuf;
 
-use pie_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
-use pie_loader::plan::StorageTarget;
-use pie_loader::plan::compile as compile_load_plan;
-use pie_loader::types::{BackendKind, CheckpointFormat, DType, Encoding, FileId, TensorId};
-use pie_loader::verify::ContractView;
+use model_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
+use model_loader::plan::StorageTarget;
+use model_loader::plan::compile as compile_load_plan;
+use model_loader::types::{BackendKind, CheckpointFormat, DType, Encoding, FileId, TensorId};
+use model_loader::verify::ContractView;
 
-use pie_model::facts::ModelFacts;
-use pie_model::policy::Policy;
-use pie_model::contract::author;
+use model::facts::ModelFacts;
+use model::policy::Policy;
+use model::contract::author;
 
 // ── the fixture checkpoint ──────────────────────────────────────────
 
@@ -222,7 +222,7 @@ fn check(name: &str, target: &StorageTarget) {
     let plan = compile_load_plan(&metadata, &contract, target.clone())
         .unwrap_or_else(|err| panic!("{name}: compiling failed: {err}"));
     if let Err(violations) =
-        pie_loader_capi::view::verify_marshalled(&plan, Some(&ContractView::of(&contract)))
+        model_loader_capi::view::verify_marshalled(&plan, Some(&ContractView::of(&contract)))
     {
         let listed: Vec<String> = violations.iter().map(ToString::to_string).collect();
         panic!(

@@ -15,9 +15,9 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use pie_loader::checkpoint::read::parse_checkpoint_metadata;
-use pie_loader::checkpoint::zt::parse_checkpoint;
-use pie_loader::checkpoint::zt::parse_checkpoint_files;
+use model_loader::checkpoint::read::parse_checkpoint_metadata;
+use model_loader::checkpoint::zt::parse_checkpoint;
+use model_loader::checkpoint::zt::parse_checkpoint_files;
 
 fn tmpdir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("zt_perf_{tag}_{}", std::process::id()));

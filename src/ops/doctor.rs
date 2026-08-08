@@ -116,7 +116,7 @@ impl crate::ui::Report for DoctorReport {
 }
 
 /// `pie doctor` entry point. Exits non-zero when pie cannot boot here.
-pub fn run(global: &startup::GlobalArgs) -> Result<crate::ui::Answer> {
+pub fn run(global: &bootstrap::GlobalArgs) -> Result<crate::ui::Answer> {
     let mut warnings = 0usize;
     let mut passes = 0usize;
     let mut failures = 0usize;
@@ -127,7 +127,7 @@ pub fn run(global: &startup::GlobalArgs) -> Result<crate::ui::Answer> {
     sections.push(("gpus", check_gpus()));
     sections.push((
         "drivers",
-        pie_worker::driver_ffi::compiled_embedded()
+        worker::driver_ffi::compiled_embedded()
             .iter()
             .map(|(name, on)| {
                 if *on {
@@ -157,7 +157,7 @@ pub fn run(global: &startup::GlobalArgs) -> Result<crate::ui::Answer> {
     // Last, because its verdict depends on everything above: whether a config
     // is servable is a question about this binary and this machine, not about
     // the file alone.
-    let (path, origin) = startup::cli_config_path(global);
+    let (path, origin) = bootstrap::cli_config_path(global);
     sections.push(("config", check_config(&path, origin)));
     sections.push(("tuning", check_tuning(&path)));
 
@@ -209,9 +209,9 @@ pub fn run(global: &startup::GlobalArgs) -> Result<crate::ui::Answer> {
 /// and the engine falls back to its own defaults. Named explicitly and absent
 /// IS a failure, because the engine treats that as fatal -- the same split
 /// `pie config show` makes.
-fn check_config(path: &Path, origin: startup::Origin) -> Vec<(String, String, Status)> {
+fn check_config(path: &Path, origin: bootstrap::Origin) -> Vec<(String, String, Status)> {
     if !path.exists() {
-        return if origin == startup::Origin::Default {
+        return if origin == bootstrap::Origin::Default {
             vec![(
                 "config".into(),
                 format!("none at {} — running on defaults", crate::ui::short_path(path)),
@@ -249,14 +249,14 @@ fn check_config(path: &Path, origin: startup::Origin) -> Vec<(String, String, St
     // artifact store is on this disk, not in the file. `weights::resolve` is
     // the same call the worker makes, so a pass here means the worker's will
     // pass too.
-    match pie_worker::weights::resolve(&worker.model.model) {
+    match worker::weights::resolve(&worker.model.model) {
         Ok(resolved) => out.push((
             "weights".into(),
             match resolved {
-                pie_worker::weights::Model::Artifact(path) => {
+                worker::weights::Model::Artifact(path) => {
                     format!("artifact {}", crate::ui::short_path(&path))
                 }
-                pie_worker::weights::Model::Snapshot(path) => format!(
+                worker::weights::Model::Snapshot(path) => format!(
                     "raw snapshot {} — `pie model import` makes an artifact",
                     crate::ui::short_path(&path)
                 ),
@@ -269,7 +269,7 @@ fn check_config(path: &Path, origin: startup::Origin) -> Vec<(String, String, St
     // isolation: the config names a driver, and this binary either has it or
     // does not.
     let kind = worker.model.driver.kind.as_str();
-    let compiled = pie_worker::driver_ffi::compiled_embedded()
+    let compiled = worker::driver_ffi::compiled_embedded()
         .iter()
         .find(|(name, _)| *name == kind)
         .map(|(_, on)| *on)
@@ -401,7 +401,7 @@ fn check_tuning(config_path: &std::path::Path) -> Vec<(String, String, Status)> 
         .and_then(|content| toml::from_str(&content).ok())
         .unwrap_or_else(|| toml::Value::Table(Default::default()));
     let set = |key: &str| {
-        pie_worker::config_schema::lookup(&file, key).map(|v| v.to_string())
+        worker::config_schema::lookup(&file, key).map(|v| v.to_string())
     };
 
     let mut checks = Vec::new();
@@ -451,7 +451,7 @@ fn check_tuning(config_path: &std::path::Path) -> Vec<(String, String, Status)> 
     // The driver's own measurement, keyed by (device, model, tp, kv format) --
     // so its mere presence is not proof it applies HERE. Saying "measured on
     // some machine" would be worse than saying nothing, hence the wording.
-    let profile_cache = pie_worker::state::planner_profile_path();
+    let profile_cache = worker::state::planner_profile_path();
     checks.push(if profile_cache.is_file() {
         (
             "planner profile".to_string(),

@@ -8,10 +8,10 @@
 
 use std::path::{Path, PathBuf};
 
-use pie_loader::checkpoint::CheckpointMetadata;
-use pie_loader::checkpoint::read::parse_checkpoint_metadata;
-use pie_loader::checkpoint::zt::parse_checkpoint;
-use pie_loader::types::{DType, Encoding};
+use model_loader::checkpoint::CheckpointMetadata;
+use model_loader::checkpoint::read::parse_checkpoint_metadata;
+use model_loader::checkpoint::zt::parse_checkpoint;
+use model_loader::types::{DType, Encoding};
 
 fn tmpdir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("zt_roundtrip_{tag}_{}", std::process::id()));
@@ -256,7 +256,7 @@ fn a_sharded_root_addresses_bytes_in_its_shards() {
 /// which is a `.zt` reached a different way.
 #[test]
 fn a_zt_checkpoint_says_it_is_zt() {
-    use pie_loader::types::CheckpointFormat;
+    use model_loader::types::CheckpointFormat;
 
     let dir = tmpdir("format");
     let path = dir.join("model.zt");

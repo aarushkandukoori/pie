@@ -315,7 +315,7 @@
 #define PIE_REGION_GENERATED_VALID (1 << 1)
 
 /**
- * Where a value comes from. Mirrors `pie_ir` value sources.
+ * Where a value comes from. Mirrors `tensor_ir` value sources.
  */
 #define PIE_VALUE_CONST 0
 
@@ -448,11 +448,10 @@
 #define PIE_REGION_SIG_LORA (1 << 4)
 
 /**
- * `region_sig[r]` bit: the region's hook programs write the
- * `attn_page_mask` sink (Track B page substitution). Such a hook needs
+ * [`PieStepDesc::region_sig`] bit: the region's hook programs write the
+ * `attn_page_mask` sink (Track B page substitution) — such a hook needs
  * the full-R paged decode path, so the banded-depth derivation excludes
- * it (observation-only hooks band; Track-B hooks keep the pre-band
- * servers).
+ * it.
  */
 #define PIE_REGION_SIG_HOOK_PAGE_MASK (1 << 5)
 
@@ -594,7 +593,7 @@ typedef struct PieModelLoadDesc {
  * One host-emitted kernel: the backend source, its entry point, and where it
  * belongs in the program.
  *
- * The host runs the code generator (`compiler/codegen`) and ships the result;
+ * The host runs the code generator (`tensor-compiler`'s `codegen`) and ships the result;
  * the driver compiles and launches it. `source.len == 0` means the host could
  * not emit this kernel, and `error` says why — that is not fatal by itself,
  * because a driver may have a slower path for the same region (a fused region

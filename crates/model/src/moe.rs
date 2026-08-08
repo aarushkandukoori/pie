@@ -6,9 +6,9 @@
 //! generation's own crate. Ported from the tail of the CUDA driver's
 //! `model/contract.hpp`.
 
-use pie_loader::contract::{Expr, GroupContract, TensorContract};
-use pie_loader::error::Error;
-use pie_loader::types::{DType, Encoding, TensorId};
+use model_loader::contract::{Expr, GroupContract, TensorContract};
+use model_loader::error::Error;
+use model_loader::types::{DType, Encoding, TensorId};
 
 use super::builder::{Builder, logical_dtype};
 use super::probe;
@@ -135,13 +135,13 @@ pub fn hf_moe_expert_stacks(
                 vec![gate_src, up_src]
             };
             gate_up_parts.push(Expr::concat(0, halves).transmute(
-                pie_loader::contract::TensorType::new(
+                model_loader::contract::TensorType::new(
                     vec![1, 2 * inter, hidden],
                     Encoding::Raw(dtype),
                 ),
             ));
             down_parts.push(
-                Expr::src(&d.name).transmute(pie_loader::contract::TensorType::new(
+                Expr::src(&d.name).transmute(model_loader::contract::TensorType::new(
                     vec![1, hidden, inter],
                     Encoding::Raw(dtype),
                 )),

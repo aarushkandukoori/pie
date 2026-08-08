@@ -23,26 +23,26 @@
 //!
 //! The wire data types (`Request`/`Accepted`/`Tokens`/`BlobRef`/`Priority`/
 //! `Control`) live in [`data`] and are flat-re-exported at the crate root, so a
-//! consumer reaches them as `pie_worker_rpc::Request`. The id atoms come from
-//! [`pie_ids`]; the embedded turn payload (`ClientMessage`/`ServerMessage`) and
+//! consumer reaches them as `worker_api::Request`. The id atoms come from
+//! [`ids`]; the embedded turn payload (`ClientMessage`/`ServerMessage`) and
 //! the reused `WorkerStatus` come from the sibling interface crates per the
 //! restructure DAG: `pie-worker-rpc → { pie-ids, pie-client-api,
 //! pie-controller-rpc }`.
 //!
 //! NOTE — this `WorkerControl` is the gateway↔worker DATA plane (dispatch a
 //! turn). It is unrelated to the worker's CONTROL-plane embed seam, which is
-//! named `ControlLink` (`pie-worker`, register/heartbeat/report/watch against
+//! named `ControlLink` (`worker`, register/heartbeat/report/watch against
 //! the controller). Two different surfaces, two different names (manager M2).
 
-use pie_ids::{ReqId, WorkerId};
-// Wave-A BRIDGE → pie_controller_rpc::WorkerStatus at Wave B.
-use pie_controller_rpc::WorkerStatus;
+use ids::{ReqId, WorkerId};
+// Wave-A BRIDGE → controller_api::WorkerStatus at Wave B.
+use controller_api::WorkerStatus;
 
 mod data;
 mod link;
 
 // Flat-re-exported at the crate root: consumers reach the turn vocabulary as
-// `pie_worker_rpc::Request` (…), and these names are in scope for the service
+// `worker_api::Request` (…), and these names are in scope for the service
 // traits below.
 pub use data::{Accepted, BlobRef, Control, Priority, Request, Tokens};
 pub use link::{

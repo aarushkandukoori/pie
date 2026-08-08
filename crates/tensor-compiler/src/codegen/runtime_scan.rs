@@ -8,7 +8,7 @@
 //! an arm faults at the first fire on a real device rather than at build time.
 //!
 //! So the runtime sources are parsed here and compared against
-//! [`pie_ir::op::OP_TABLE`]. This is the same shape as
+//! [`tensor_ir::op::OP_TABLE`]. This is the same shape as
 //! `metal::preamble::file_matches_emitted_text`: one authority, and a replica
 //! that is read back and checked rather than trusted.
 
@@ -105,7 +105,7 @@ pub fn tags_compared_in(body: &str) -> BTreeSet<u8> {
 /// Names, for a failure message.
 pub fn names(tags: impl IntoIterator<Item = u8>) -> Vec<&'static str> {
     tags.into_iter()
-        .map(|tag| pie_ir::op::spec(tag).map_or("?", |spec| spec.name))
+        .map(|tag| tensor_ir::op::spec(tag).map_or("?", |spec| spec.name))
         .collect()
 }
 
@@ -118,7 +118,7 @@ pub fn names(tags: impl IntoIterator<Item = u8>) -> Vec<&'static str> {
 /// at build time.
 pub fn assert_execute_covers_the_table(source: &str, what: &str) {
     let handled = tags_compared_in(function_body(source, "void ptir_m1_execute"));
-    let declared: BTreeSet<u8> = pie_ir::op::OP_TABLE.iter().map(|spec| spec.tag).collect();
+    let declared: BTreeSet<u8> = tensor_ir::op::OP_TABLE.iter().map(|spec| spec.tag).collect();
     let missing = names(declared.difference(&handled).copied());
     let extra: Vec<u8> = handled.difference(&declared).copied().collect();
     assert!(

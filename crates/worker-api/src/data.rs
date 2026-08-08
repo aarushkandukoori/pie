@@ -7,11 +7,11 @@
 //! token stream back. Post-inversion (Pie 0.5.0) the worker dials INTO the
 //! gateway: the gateway is the listening server for the data plane, the worker
 //! the client. These are the shared data types the two services carry; they are
-//! flat-re-exported at the crate root (`pie_worker_rpc::Request`, …).
+//! flat-re-exported at the crate root (`worker_api::Request`, …).
 //!
 //! The id atoms (`ReqId`/`SessionId`/`TenantId`/`WorkerId`) come from
-//! [`pie_ids`]. The turn payload vocabulary (`ClientMessage`/`ServerMessage`)
-//! lives in `pie-client-api`.
+//! [`ids`]. The turn payload vocabulary (`ClientMessage`/`ServerMessage`)
+//! lives in `client-api`.
 //!
 //! CODEC CONSTRAINT: the gateway↔worker data plane MUST use a *self-describing*
 //! codec (MessagePack via [`dispatch_codec`](crate::dispatch_codec), NOT
@@ -25,9 +25,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use pie_ids::{ReqId, SessionId, TenantId, WorkerId};
-// Wave-A BRIDGE → pie_client_api::{ClientMessage, ServerMessage} at Wave B.
-use pie_client_api::{ClientMessage, ServerMessage};
+use ids::{ReqId, SessionId, TenantId, WorkerId};
+// Wave-A BRIDGE → client_api::{ClientMessage, ServerMessage} at Wave B.
+use client_api::{ClientMessage, ServerMessage};
 
 // ──────────────────────────────── blob ────────────────────────────────
 

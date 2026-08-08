@@ -141,7 +141,7 @@ fn the_metal_driver_boot_has_no_config_json_parser() {
 
 /// The **runtime** does not read `config.json` either.
 ///
-/// `pie-model`'s model service used to, when it was handed no artifact: two
+/// `model`'s model service used to, when it was handed no artifact: two
 /// probes reading `vocab_size` and `num_hidden_layers` straight off the file,
 /// each walking `text_config` and key alternatives in its own order. They were
 /// the last two of the four normalizations, and the least visible — a

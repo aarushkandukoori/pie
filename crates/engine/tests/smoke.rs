@@ -22,7 +22,7 @@ fn state() -> &'static TestState {
         let env = create_mock_env("test-model", 4, 64, Arc::new(EchoBehavior(42)));
         let config = env.config();
         rt.block_on(async {
-            pie_engine::bootstrap::bootstrap(config).await.unwrap();
+            engine::bootstrap::bootstrap(config).await.unwrap();
         });
         TestState { env, rt }
     })
@@ -36,14 +36,14 @@ fn bootstrap_succeeds() {
 #[test]
 fn model_registered() {
     let _ = state();
-    assert_eq!(pie_engine::model::model().name(), "test-model");
+    assert_eq!(engine::model::model().name(), "test-model");
 }
 
 #[test]
 fn all_devices_reachable() {
     let _ = state();
     for i in 0..4 {
-        let spec = pie_engine::driver::get_spec(i).unwrap();
+        let spec = engine::driver::get_spec(i).unwrap();
         assert_eq!(spec.num_kv_pages, 64);
         assert_eq!(spec.limits.max_forward_requests, 32);
     }
@@ -52,7 +52,7 @@ fn all_devices_reachable() {
 #[test]
 fn tokenizer_round_trip() {
     let _ = state();
-    let model = pie_engine::model::model();
+    let model = engine::model::model();
     assert_eq!(model.name(), "test-model");
 
     let tokens = model.tokenize("hello");

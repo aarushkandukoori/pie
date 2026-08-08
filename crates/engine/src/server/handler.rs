@@ -4,7 +4,7 @@
 //! that process client requests like program upload, instance launch, etc.
 
 use bytes::Bytes;
-use pie_client::message::ServerMessage;
+use client::message::ServerMessage;
 
 use crate::inferlet::process;
 use crate::inferlet::program;
@@ -35,7 +35,7 @@ impl Session {
 
     pub(super) async fn handle_query(&mut self, corr_id: u32, subject: String, _record: String) {
         match subject.as_str() {
-            pie_client::message::QUERY_MODEL_STATUS => {
+            client::message::QUERY_MODEL_STATUS => {
                 let mut stats = serde_json::Map::new();
 
                 {
@@ -632,13 +632,13 @@ impl Session {
     /// Send file chunks from server to client (inferlet → client download).
     pub(super) async fn send_file_download(&mut self, process_id: ProcessId, data: Bytes) {
         let file_hash = blake3::hash(&data).to_hex().to_string();
-        let total_chunks = (data.len() + pie_client::message::CHUNK_SIZE_BYTES - 1)
-            / pie_client::message::CHUNK_SIZE_BYTES;
+        let total_chunks = (data.len() + client::message::CHUNK_SIZE_BYTES - 1)
+            / client::message::CHUNK_SIZE_BYTES;
 
         let uuid_str = process_id.to_string();
 
         for (i, chunk) in data
-            .chunks(pie_client::message::CHUNK_SIZE_BYTES)
+            .chunks(client::message::CHUNK_SIZE_BYTES)
             .enumerate()
         {
             self.send(ServerMessage::File {

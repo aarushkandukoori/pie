@@ -32,10 +32,10 @@ driver-dummy = ["pie/driver-dummy"]
 pie = { path = "../.." }
 # The client edge. Load goes over the websocket a deployment is reached by,
 # because an in-process shortcut would prove something nobody runs.
-pie-client = { path = "../../crates/client" }
+client = { path = "../../crates/client" }
 # The runtime lib — read `inference::get_stats()` in-process to observe the
 # scheduler's fire probes (the thrust-2 bubble/quorum gate) after a decode.
-pie-engine = { path = "../../crates/engine" }
+engine = { path = "../../crates/engine" }
 
 anyhow = "1.0"
 tokio = { version = "1.53", features = ["full"] }

@@ -1,4 +1,4 @@
-//! # `pie-ir` — PTIR, the Pie Tensor IR
+//! # `tensor-ir` — PTIR, the Pie Tensor IR
 //!
 //! The representation layer of Pie's programmable dataflow: **stage-tagged
 //! programs** over a closed first-party op set, **channels** (the only stateful

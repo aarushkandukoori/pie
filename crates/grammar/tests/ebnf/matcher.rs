@@ -5,7 +5,7 @@
 use crate::common::{
     ebnf_accepts as is_grammar_accept_string, grammar_accepts as is_grammar_accept_string_g,
 };
-use pie_grammar::grammar::Grammar;
+use ::grammar::grammar::Grammar;
 
 // ---------------------------------------------------------------------------
 // JSON acceptance (from test_json_pressure / test_json_grammar)

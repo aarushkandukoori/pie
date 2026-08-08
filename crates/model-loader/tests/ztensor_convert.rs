@@ -10,10 +10,10 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use pie_loader::checkpoint::write::WriteTensor;
-use pie_loader::checkpoint::write::write_zt;
-use pie_loader::checkpoint::zt::parse_checkpoint;
-use pie_loader::types::{
+use model_loader::checkpoint::write::WriteTensor;
+use model_loader::checkpoint::write::write_zt;
+use model_loader::checkpoint::zt::parse_checkpoint;
+use model_loader::types::{
     DType, Encoding, QuantScheme, QuantSpec, TensorDecl, TensorId, Visibility,
 };
 
@@ -36,7 +36,7 @@ fn decl(name: &str, shape: Vec<i64>, encoding: Encoding) -> TensorDecl {
 }
 
 /// Reads back the bytes a tensor's plan coordinates point at.
-fn bytes_at(metadata: &pie_loader::checkpoint::CheckpointMetadata, name: &str) -> Vec<u8> {
+fn bytes_at(metadata: &model_loader::checkpoint::CheckpointMetadata, name: &str) -> Vec<u8> {
     use std::io::{Read, Seek, SeekFrom};
     let tensor = metadata.tensor_by_name(name).expect("tensor present");
     let file = metadata

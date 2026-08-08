@@ -24,7 +24,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context as _, Result};
-use pie_client::client::Client;
+use client::client::Client;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

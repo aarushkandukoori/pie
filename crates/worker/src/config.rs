@@ -6,13 +6,13 @@
 //! [`crate::serve::topology::resolve_flavor`].
 //!
 //! The Rust [`Config`] type below is the user-facing TOML schema; the
-//! conversion to `pie_engine::bootstrap::Config` (the runtime's own config)
+//! conversion to `::engine::bootstrap::Config` (the runtime's own config)
 //! happens in [`crate::translate`].
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, ensure};
-use pie_controller_rpc::Role;
+use controller_api::Role;
 use serde::{Deserialize, Serialize};
 
 // -----------------------------------------------------------------------------
@@ -429,7 +429,7 @@ pub struct ServerConfig {
     pub max_concurrent_processes: Option<usize>,
     /// Apply the host-side snapshot optimization to Python components.
     ///
-    /// On by default. It only affects startup cost, so turning it off is a
+    /// On by default. It only affects bootstrap cost, so turning it off is a
     /// debugging step -- it changes which wasmtime linker variant is built.
     #[serde(default = "default_true")]
     pub python_snapshot: bool,
@@ -660,7 +660,7 @@ pub struct ModelConfig {
     /// Named `hf_repo` until the store existed, and still accepted under that
     /// name — the struct is `deny_unknown_fields`, so a bare rename would greet
     /// an existing config with *unknown field `hf_repo`* and *missing field
-    /// `model`* at startup rather than with a working boot.
+    /// `model`* at bootstrap rather than with a working boot.
     #[serde(alias = "hf_repo")]
     pub model: String,
     /// Which backend runs the model, on what devices.
@@ -1036,14 +1036,14 @@ fn validate_kv_cache_dtype(value: &str) -> Result<()> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DriverKind {
-    /// Native CUDA driver — embedded as a static lib in `pie-worker`
+    /// Native CUDA driver — embedded as a static lib in `worker`
     /// (requires `--features driver-cuda`).
     CudaNative,
     /// Rust dummy driver — random tokens, no model load. Always
-    /// embedded in `pie-worker`.
+    /// embedded in `worker`.
     Dummy,
     /// Native MLX + Metal driver for Apple Silicon — embedded as a static
-    /// lib in `pie-worker` (requires `--features driver-metal`, macOS only).
+    /// lib in `worker` (requires `--features driver-metal`, macOS only).
     Metal,
 }
 
@@ -1367,7 +1367,7 @@ pub struct CudaNativeDriverOptions {
     /// hold it. Off by default: for a model that fits, this is strictly
     /// slower, and it disables CUDA graph capture besides.
     pub stream_routed_experts: bool,
-    /// The expert slab, in GiB. **Omit to derive one** at startup from what
+    /// The expert slab, in GiB. **Omit to derive one** at bootstrap from what
     /// is left after the resident weights and the KV pool. Ignored unless
     /// `stream_routed_experts` is set.
     pub expert_cache: Option<ByteSize>,
@@ -1484,7 +1484,7 @@ impl CudaNativeDriverOptions {
             ensure!(
                 size.as_bytes() > 0,
                 "driver.expert_cache must be > 0; \
-                 omit it to derive one at startup"
+                 omit it to derive one at bootstrap"
             );
         }
         if let Some(size) = self.expert_host_cache {
@@ -1622,7 +1622,7 @@ device = ["cpu"]
     ///
     /// Not politeness: the struct is `deny_unknown_fields` and the field is
     /// required, so without the alias every config `pie config init` ever wrote
-    /// would fail at startup with two errors at once — *unknown field
+    /// would fail at bootstrap with two errors at once — *unknown field
     /// `hf_repo`* and *missing field `model`* — instead of booting.
     #[test]
     fn the_old_spelling_of_the_model_key_still_parses() {

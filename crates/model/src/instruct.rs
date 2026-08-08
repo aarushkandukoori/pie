@@ -99,7 +99,7 @@ pub trait Instruct: Send + Sync {
 
 // ── The registry ─────────────────────────────────────────────────────
 
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 use std::sync::Arc;
 
 /// Create the appropriate instruct implementation for the given architecture.

@@ -21,7 +21,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use pie_driver_abi::{
+use driver_abi::{
     PIE_MEMORY_DOMAIN_CUDA_DEVICE, PIE_MEMORY_DOMAIN_HOST_PINNED, PieKvMoveCell, PiePoolRange,
     PieStateCopyRange,
 };
@@ -45,7 +45,7 @@ pub(crate) async fn register_channel(
     driver_idx: DriverId,
     mut plan: ChannelRegistrationPlan,
 ) -> Result<Arc<ChannelEndpoint>> {
-    let table = pie_waker::WakerTable::global();
+    let table = waker::WakerTable::global();
     plan.driver_id = driver_idx;
     plan.reader_wait_id = table.alloc();
     plan.writer_wait_id = table.alloc();
@@ -79,7 +79,7 @@ pub(crate) async fn register_channels(
         return Ok(Vec::new());
     }
     let handle = scheduler_handle(driver_idx)?;
-    let table = pie_waker::WakerTable::global();
+    let table = waker::WakerTable::global();
     for plan in &mut plans {
         plan.driver_id = driver_idx;
         plan.reader_wait_id = table.alloc();
@@ -119,14 +119,14 @@ pub(crate) async fn register_channels_bind_classified(
     requested_instance_id: InstanceId,
     channel_ids: Vec<u64>,
     seed_values: Vec<ChannelValue>,
-    geometry_class: pie_driver_abi::GeometryClass,
+    geometry_class: driver_abi::GeometryClass,
 ) -> Result<(
     Vec<Arc<ChannelEndpoint>>,
     BoundInstance,
     super::worker::SchedulerHandle,
 )> {
     let handle = scheduler_handle(driver_idx)?;
-    let table = pie_waker::WakerTable::global();
+    let table = waker::WakerTable::global();
     for plan in &mut plans {
         plan.driver_id = driver_idx;
         plan.reader_wait_id = table.alloc();
@@ -187,7 +187,7 @@ pub(crate) async fn bind_instance(
         requested_instance_id,
         channel_ids,
         seed_values,
-        pie_driver_abi::GeometryClass::Host,
+        driver_abi::GeometryClass::Host,
     )
     .await
 }
@@ -199,9 +199,9 @@ pub(crate) async fn bind_instance_classified(
     requested_instance_id: InstanceId,
     channel_ids: Vec<u64>,
     seed_values: Vec<ChannelValue>,
-    geometry_class: pie_driver_abi::GeometryClass,
+    geometry_class: driver_abi::GeometryClass,
 ) -> Result<BoundInstance> {
-    let table = pie_waker::WakerTable::global();
+    let table = waker::WakerTable::global();
     let pacing_wait_id = table.alloc();
     let bind = scheduler_handle(driver_idx)?
         .bind_instance(

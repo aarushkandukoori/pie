@@ -7,10 +7,10 @@
 use crate::inferlet::ProcessCtx;
 use crate::inferlet::host::pie;
 use anyhow::Result;
-use pie_grammar::compiled_grammar::CompiledGrammar;
-use pie_grammar::compiler::GrammarCompiler;
-use pie_grammar::json_schema::JsonSchemaOptions;
-use pie_grammar::matcher::GrammarMatcher;
+use grammar::compiled_grammar::CompiledGrammar;
+use grammar::compiler::GrammarCompiler;
+use grammar::json_schema::JsonSchemaOptions;
+use grammar::matcher::GrammarMatcher;
 use std::sync::{Arc, OnceLock};
 use wasmtime::component::Resource;
 use wasmtime_wasi::WasiView;

@@ -1,5 +1,5 @@
 [package]
-name = "pie-engine"
+name = "engine"
 version = "0.4.0"
 edition = "2024"
 authors = ["In Gim <in.gim@yale.edu>"]
@@ -8,23 +8,23 @@ license = "Apache-2.0"
 repository = "https://github.com/pie-project/pie"
 
 [lib]
-name = "pie_engine"
+name = "engine"
 crate-type = ["rlib"]
 path = "src/lib.rs"
 
 [dependencies]
 # tart: the declared-forward toolchain — the fire planner's site table
 # maps driver-reported model sites onto its vocabulary.
-pie-forward = { path = "../model-compiler" }
-pie-driver-abi = { path = "../driver-abi" }
-pie-driver-dummy = { path = "../driver-dummy" }
-pie-ir = { path = "../tensor-ir" }
+model-compiler = { path = "../model-compiler" }
+driver-abi = { path = "../driver-abi" }
+driver-dummy = { path = "../driver-dummy" }
+tensor-ir = { path = "../tensor-ir" }
 tensor-compiler = { path = "../tensor-compiler" }
 # The native execution shells, for their archives alone -- see the feature
 # comments above and the `extern crate ... as _` in lib.rs.
 driver-cuda = { path = "../driver-cuda", optional = true }
 driver-metal = { path = "../driver-metal", optional = true }
-pie-client = { path = "../client" }
+client = { path = "../client" }
 tokio = { version = "1.53", features = ["full"] }
 tokio-util = "0.7"
 parking_lot = "0.12"
@@ -55,10 +55,10 @@ boxcar = "0.2.14"
 crossbeam-queue = "0.3"
 thiserror = "2.0.19"
 futures = "0.3.33"
-pie-waker = { path = "../waker" }
-pie-tokenizer = { path = "../tokenizer" }
-pie-grammar = { path = "../grammar" }
-pie-model = { path = "../model" }
+waker = { path = "../waker" }
+tokenizer = { path = "../tokenizer" }
+grammar = { path = "../grammar" }
+model = { path = "../model" }
 rmp-serde = "1.3.1"
 blake3 = "1.8.5"
 num-traits = "0.2.19"
@@ -104,9 +104,9 @@ default = []
 # undefined-symbol link error), leaving the legacy host output path.
 #
 # ON ⇒ the fast-path is active, and this crate must be the one that supplies
-# the archive. It used to say "propagated from `pie-worker`'s `driver-cuda`,
+# the archive. It used to say "propagated from `worker`'s `driver-cuda`,
 # which links `pie_driver_cuda_lib`", and that held for the final binary and
-# ONLY for it: `pie-worker` depends on this crate, not the other way round, so
+# ONLY for it: `worker` depends on this crate, not the other way round, so
 # THIS crate's own test binaries had the externs and no archive. Any build that
 # turned the feature on workspace-wide -- and `sdk/python-server` turns it on
 # unconditionally -- could not link `cargo test -p pie-engine`.
@@ -128,10 +128,10 @@ profile-all = ["profile-fire"]       # everything
 
 [dev-dependencies]
 tempfile = "3"
-pie-ir = { path = "../tensor-ir" }
+tensor-ir = { path = "../tensor-ir" }
 criterion = { version = "0.8", features = ["html_reports"] }
 # Benchmarks must allocate the way production does. Every engine entry point
-# links `pie-worker`, which sets mimalloc as the global allocator; a bench that
+# links `worker`, which sets mimalloc as the global allocator; a bench that
 # omitted it would measure glibc malloc and report a machine nobody runs.
 mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
 

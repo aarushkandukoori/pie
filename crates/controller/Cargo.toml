@@ -1,5 +1,5 @@
 [package]
-name = "pie-controller"
+name = "controller"
 version = "0.1.0"
 edition = "2024"
 authors = ["In Gim <in.gim@icloud.com>"]
@@ -8,7 +8,7 @@ license = "Apache-2.0"
 repository = "https://github.com/pie-project/pie"
 
 [lib]
-name = "pie_controller"
+name = "controller"
 path = "src/lib.rs"
 crate-type = ["rlib"]
 
@@ -18,9 +18,9 @@ crate-type = ["rlib"]
 
 [dependencies]
 # Control-plane data types + the `Control` tarpc service (unified).
-pie-controller-rpc = { path = "../controller-api" }
+controller-api = { path = "../controller-api" }
 # Cross-node id atoms (`WorkerId`/`GatewayId`/`NodeId`).
-pie-ids = { path = "../ids" }
+ids = { path = "../ids" }
 # tarpc serves the `Control` RPC: Bincode over tarpc-native TCP or Unix sockets.
 tarpc = { version = "0.37", features = [
     "serde-transport",

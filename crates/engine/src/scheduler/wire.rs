@@ -7,8 +7,8 @@
 
 use smallvec::{SmallVec, smallvec};
 
-use pie_driver_abi::EncodedMask;
-use pie_grammar::brle::RunMask;
+use driver_abi::EncodedMask;
+use grammar::brle::RunMask;
 
 /// Inline storage for the page-trim bitmap. Sized to cover up to 1024 pages
 /// (16 u64 words = 128 bytes, fits in one cache line per word) without ever
@@ -86,7 +86,7 @@ impl TrimPlan {
         // writeable-window mask. SmallVec keeps both bitmaps inline on the
         // stack for typical `num_pages <= TRIM_INLINE_WORDS * 64` (1024).
         let mut eligible: TrimBits = smallvec![0u64; num_words];
-        pie_grammar::brle::set_bits(&mut eligible, 0, first_writeable_page);
+        grammar::brle::set_bits(&mut eligible, 0, first_writeable_page);
 
         let mut row_bits: TrimBits = smallvec![0u64; num_words];
         for mask in masks {

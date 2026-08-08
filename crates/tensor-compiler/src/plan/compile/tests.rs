@@ -17,14 +17,14 @@
 use super::*;
 use crate::plan::lane_table::{LaneChannelSlot, LaneRecord, LaneTableHeader};
 use alloc::vec;
-use pie_ir::container::{
+use tensor_ir::container::{
     ChanDType, ChannelDecl, HostRole, PortBinding, PortSource, StageProgram, TraceContainer,
 };
-use pie_ir::expand;
-use pie_ir::op::{IntrinsicId, Op};
-use pie_ir::registry::{KernelInfo, ModelProfile, Port};
-use pie_ir::types::{DType, Literal, Predicate, RngKind, Shape, ValueId, ValueType};
-use pie_ir::validate::bind;
+use tensor_ir::expand;
+use tensor_ir::op::{IntrinsicId, Op};
+use tensor_ir::registry::{KernelInfo, ModelProfile, Port};
+use tensor_ir::types::{DType, Literal, Predicate, RngKind, Shape, ValueId, ValueType};
+use tensor_ir::validate::bind;
 
 fn channel(shape: Shape, dtype: DType, role: HostRole, seeded: bool) -> ChannelDecl {
     ChannelDecl {
@@ -459,7 +459,7 @@ fn epilogue(channels: Vec<ChannelDecl>, ops: Vec<Op>) -> BoundTrace {
 /// A nucleus sampler, then one thing wrong with it.
 ///
 /// The chain itself comes from [`expand::nucleus_sample`] — the same sequence
-/// `pie-dsl` traces — so it cannot drift away from what the matcher will meet
+/// `tensor-dsl` traces — so it cannot drift away from what the matcher will meet
 /// in the field. Each mutation names the step it breaks rather than an SSA
 /// number, which is also what the mutation *means*; the hand-numbered copy
 /// this replaced had to be renumbered by eye whenever the chain moved.
@@ -816,8 +816,8 @@ fn byte_identical_nucleus_dags_share_signature_and_library_plan() {
     let first = nucleus_program(NucleusMutation::Exact);
     let second = bind(first.container.clone(), first.profile.clone()).unwrap();
     assert_eq!(
-        pie_ir::container::encode(&first.container),
-        pie_ir::container::encode(&second.container)
+        tensor_ir::container::encode(&first.container),
+        tensor_ir::container::encode(&second.container)
     );
     let first = compile_stage(&first, Stage::Epilogue).unwrap();
     let second = compile_stage(&second, Stage::Epilogue).unwrap();
@@ -1031,7 +1031,7 @@ fn explicit_candidate_batch_does_not_inherit_sampled_rows() {
                 Op::RngKeyed {
                     state: 1,
                     shape: Shape::matrix(4, vocab),
-                    kind: pie_ir::RngKind::Gumbel,
+                    kind: tensor_ir::RngKind::Gumbel,
                 },
                 Op::ChanPut { chan: 1, value: 2 },
                 Op::ChanPut { chan: 2, value: 0 },

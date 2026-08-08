@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use pie_client::client::Client;
+use client::client::Client;
 
 const MAX_TOKENS: usize = 32;
 
@@ -93,8 +93,8 @@ async fn gdn_site_summary_parity() -> Result<()> {
 
     let snapshot = resolve_qwen35_base_snapshot()?;
     let (controller, gateway, worker) =
-        pie_bin::derive::derive_standalone(&common::cuda_standalone_toml(&snapshot))?;
-    let pie = pie_bin::run_standalone(controller, gateway, worker).await?;
+        pie::derive::derive_standalone(&common::cuda_standalone_toml(&snapshot))?;
+    let pie = pie::run_standalone(controller, gateway, worker).await?;
     eprintln!(
         "[gdn-site-summary] booted listen={} declared={declared}",
         pie.listen_addr

@@ -4,7 +4,7 @@
 //! `Binding::MtpDrafts` intrinsic plus a driver-side `carrier::next_inputs_drafts`
 //! retain/inject command, so the `[k]` drafts never touched the host. Both the
 //! author-facing eDSL wrapper and the retain/inject WIT command were REMOVED in
-//! the ptir refactor (there is no `intrinsics::mtp_drafts()` in `pie-dsl`, and no
+//! the ptir refactor (there is no `intrinsics::mtp_drafts()` in `tensor-dsl`, and no
 //! `pipeline_source_kind`/retain surface in the current `forward*`/`pipeline` WIT
 //! interfaces). That is a genuine capability gap, not a stale rename.
 //!

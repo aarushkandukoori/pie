@@ -18,7 +18,7 @@ use crate::compiler::GrammarLimits;
 use crate::fsm::{Automaton, DfaTable, FsmEdge, StateId, build_rule_fsms};
 use crate::grammar::Grammar;
 use crate::grammar::normalize::normalize_grammar;
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 
 const BITMASK_CACHE_BUDGET_BYTES: usize = 1024 * 1024;
 const BITMASK_CACHE_MAX_ENTRIES: usize = 256;

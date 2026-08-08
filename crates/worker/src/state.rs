@@ -30,7 +30,7 @@ use std::path::PathBuf;
 /// only thing under `cache/` that a boot does **not** re-derive. Every sibling
 /// (compiled PTIR, GEMM autotuning) is rebuilt on the next cold start; this
 /// file is written *only* by a boot that was explicitly asked to calibrate,
-/// which is stage one of `pie config tune` and costs a dedicated startup
+/// which is stage one of `pie config tune` and costs a dedicated bootstrap
 /// that serves nothing. Clearing it with the rest would look like reclaiming a
 /// cache and would actually discard a measurement, so it is its own entry with
 /// its own reclaim policy.
@@ -114,7 +114,7 @@ pub fn entries(hf_cache: Option<PathBuf>) -> Vec<Entry> {
         Entry {
             name: "launch",
             path: crate::embedded_driver::launch_state_root(),
-            what: "Per-launch driver startup TOMLs. Dead as soon as the drivers \
+            what: "Per-launch driver bootstrap TOMLs. Dead as soon as the drivers \
                    they configured are down; swept at boot for pids that are gone.",
             reclaim: Reclaim::Safe,
             keep: &[],

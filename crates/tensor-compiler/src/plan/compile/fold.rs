@@ -27,9 +27,9 @@
 
 use alloc::vec::Vec;
 
-use pie_ir::container::{encode_op, put_u32};
-use pie_ir::op::Op;
-use pie_ir::types::{DType, Literal};
+use tensor_ir::container::{encode_op, put_u32};
+use tensor_ir::op::Op;
+use tensor_ir::types::{DType, Literal};
 
 use super::canonical::canonical_symbolic_type;
 use super::symbolic::{Dimension, SymbolicType};

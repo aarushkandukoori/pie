@@ -25,7 +25,7 @@
 //! is ever resident, and only GGUF checkpoints decode today.
 //!
 //! The family-aware step landed as its own command: `pie model build`
-//! authors the serve contract through `pie_model::contract` — no FFI, no
+//! authors the serve contract through `model::contract` — no FFI, no
 //! driver — and materializes it offline. This command stays the
 //! family-blind half of the pair.
 
@@ -36,22 +36,22 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
 
-use pie_loader::checkpoint::read::parse_checkpoint_metadata;
-use pie_loader::checkpoint::write::CheckpointWriter;
-use pie_loader::checkpoint::{CheckpointMetadata, RawTensor};
-use pie_loader::contract::materialize::materialize_contract;
-use pie_loader::executor::host::Progress;
-use pie_loader::executor::sink::TensorSink;
-use pie_loader::plan::{CONVERT_TILE_MAP_MASK, StorageTarget};
-use pie_loader::types::{CheckpointFormat, TensorDecl, Visibility};
+use model_loader::checkpoint::read::parse_checkpoint_metadata;
+use model_loader::checkpoint::write::CheckpointWriter;
+use model_loader::checkpoint::{CheckpointMetadata, RawTensor};
+use model_loader::contract::materialize::materialize_contract;
+use model_loader::executor::host::Progress;
+use model_loader::executor::sink::TensorSink;
+use model_loader::plan::{CONVERT_TILE_MAP_MASK, StorageTarget};
+use model_loader::types::{CheckpointFormat, TensorDecl, Visibility};
 
 // The artifact's on-disk names come from whoever owns them: the loader owns
 // the metadata namespace and the provenance attributes, `pie.model/1` owns the
 // object its descriptor lives in. A literal here would be a second definition
 // of something a reader elsewhere has to match exactly, and a mismatch does
 // not fail — the read just finds nothing.
-use pie_loader::checkpoint::meta::{SOURCE_KEY, VERSION_KEY, meta_name};
-use pie_model_config::DESCRIPTOR_OBJECT;
+use model_loader::checkpoint::meta::{SOURCE_KEY, VERSION_KEY, meta_name};
+use model_config::DESCRIPTOR_OBJECT;
 
 /// Parses a human-written byte size: `16GiB`, `5GB`, `512MiB`, `1000000`.
 ///
@@ -203,7 +203,7 @@ pub fn run(args: ImportArgs) -> Result<crate::ui::Answer> {
     match &tokenizer {
         Some(canonical) => println!(
             "convert: tokenizer compiled to {} ({} KiB)",
-            pie_tokenizer::canonical::VERSION,
+            tokenizer::canonical::VERSION,
             canonical.byte_size() / 1024
         ),
         None => println!(
@@ -215,7 +215,7 @@ pub fn run(args: ImportArgs) -> Result<crate::ui::Answer> {
     match &descriptor {
         Some(_) => println!(
             "convert: model config normalized to {}",
-            pie_model_config::VERSION
+            model_config::VERSION
         ),
         None => println!("convert: no config.json beside the weights"),
     }
@@ -286,10 +286,10 @@ pub fn run(args: ImportArgs) -> Result<crate::ui::Answer> {
             max_tile_bytes: 64 << 20,
             ..StorageTarget::default()
         };
-        let plan = pie_loader::plan::compile(&metadata, &materialization.contract, target)
+        let plan = model_loader::plan::compile(&metadata, &materialization.contract, target)
             .map_err(|err| anyhow!("cannot compile the decode: {err}"))?;
         let mut spool = Spool::create(&out_file)?;
-        pie_loader::executor::host::execute_plan_into(
+        model_loader::executor::host::execute_plan_into(
             &plan,
             &source.base(),
             &mut spool,
@@ -367,7 +367,7 @@ fn report_would_delete(metadata: &CheckpointMetadata) {
 /// symlink points at, plus the shard index that would otherwise keep naming
 /// files that no longer exist.
 fn delete_source(repo_id: &str, metadata: &CheckpointMetadata, artifact: &Path) -> Result<()> {
-    let verified = pie_loader::checkpoint::zt::verify_checkpoint(artifact).map_err(|err| {
+    let verified = model_loader::checkpoint::zt::verify_checkpoint(artifact).map_err(|err| {
         anyhow!(
             "refusing to delete the source: {} does not verify: {err}",
             artifact.display()
@@ -478,10 +478,10 @@ impl TensorSink for Spool {
         &mut self,
         name: &str,
         bytes: &[u8],
-    ) -> std::result::Result<(), pie_loader::error::Error> {
+    ) -> std::result::Result<(), model_loader::error::Error> {
         use std::io::Write;
         self.file.write_all(bytes).map_err(|err| {
-            pie_loader::error::Error::Checkpoint(format!(
+            model_loader::error::Error::Checkpoint(format!(
                 "cannot spool '{name}' to {}: {err}",
                 self.path.display()
             ))
@@ -502,7 +502,7 @@ impl TensorSink for Spool {
 /// `Progress`.
 ///
 /// The adapter is here rather than in `ui` so the presentation module stays
-/// free of `pie_loader` -- what it needs to draw a bar is two numbers and a
+/// free of `model_loader` -- what it needs to draw a bar is two numbers and a
 /// label, and `Progress` is where those two numbers happen to live today.
 pub(crate) struct ProgressLine {
     bar: crate::ui::Bar,
@@ -640,7 +640,7 @@ fn store_name(repo_id: &str) -> String {
 
 /// `$PIE_HOME/models/<name>.zt` — one model, one file, one flat directory.
 pub(crate) fn store_path(name: &str) -> PathBuf {
-    startup::paths::pie_home()
+    bootstrap::paths::pie_home()
         .join("models")
         .join(format!("{name}.zt"))
 }
@@ -693,7 +693,7 @@ pub(crate) fn compile_descriptor(source: &Source) -> Result<Option<Vec<u8>>> {
         .with_context(|| format!("cannot read {}", path.display()))?;
     let root: serde_json::Value = serde_json::from_str(&raw)
         .map_err(|err| anyhow!("cannot parse {}: {err}", path.display()))?;
-    let descriptor = pie_model_config::descriptor(&root, &path.display().to_string())
+    let descriptor = model_config::descriptor(&root, &path.display().to_string())
         .map_err(|err| anyhow!("cannot normalize {}: {err:#}", path.display()))?;
     Ok(Some(serde_json::to_vec(&descriptor)?))
 }
@@ -715,12 +715,12 @@ pub(crate) fn compile_descriptor(source: &Source) -> Result<Option<Vec<u8>>> {
 /// the reason — and never produces an artifact that cannot serve.
 pub(crate) fn compile_tokenizer(
     source: &Source,
-) -> Result<Option<pie_tokenizer::canonical::CanonicalTokenizer>> {
+) -> Result<Option<tokenizer::canonical::CanonicalTokenizer>> {
     let Some(path) = tokenizer_path(source) else {
         return Ok(None);
     };
 
-    let tokenizer = pie_tokenizer::Tokenizer::from_file(&path).map_err(|err| {
+    let tokenizer = tokenizer::Tokenizer::from_file(&path).map_err(|err| {
         anyhow!(
             "cannot compile {}: {err:#}\n\
              pie compiles every tokenizer into one of a small number of modern \
@@ -746,7 +746,7 @@ pub(crate) fn compile_tokenizer(
 /// It is a release version, not a build identity, so it does *not* move while
 /// the converter is being worked on. `--force` is the tool for that.
 fn staleness(artifact: &Path, version: &str, source: &str) -> Option<String> {
-    let attributes = match pie_loader::checkpoint::zt::read_attributes(artifact) {
+    let attributes = match model_loader::checkpoint::zt::read_attributes(artifact) {
         Ok(attributes) => attributes,
         Err(err) => return Some(format!("cannot read its provenance: {err}")),
     };
@@ -769,8 +769,8 @@ fn staleness(artifact: &Path, version: &str, source: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_loader::checkpoint::write::{WriteTensor, write_zt};
-    use pie_loader::types::{DType, Encoding, TensorId};
+    use model_loader::checkpoint::write::{WriteTensor, write_zt};
+    use model_loader::types::{DType, Encoding, TensorId};
 
     #[test]
     fn a_repo_id_becomes_one_flat_store_name() {
@@ -899,7 +899,7 @@ mod tests {
 /// read, and what this pass is about to copy.
 fn write_artifact(
     writer: &mut CheckpointWriter,
-    decoded: Option<&mut (pie_loader::plan::LoadPlan, Spool)>,
+    decoded: Option<&mut (model_loader::plan::LoadPlan, Spool)>,
     passthrough: &[(&RawTensor, &str)],
     meta: &[(String, Vec<u8>)],
     progress: &mut ProgressLine,
@@ -948,7 +948,7 @@ fn write_artifact(
             }
             From::Meta(bytes) => {
                 let path = name
-                    .strip_prefix(pie_loader::checkpoint::meta::META_PREFIX)
+                    .strip_prefix(model_loader::checkpoint::meta::META_PREFIX)
                     .expect("metadata entries carry the namespace prefix");
                 writer
                     .add_meta(path, bytes)

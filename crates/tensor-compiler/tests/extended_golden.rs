@@ -61,7 +61,7 @@ fn digest(emitted: &Result<String, EmitError>, device: &[String]) -> String {
             format!(
                 "ok bytes={} fnv1a64=0x{:016x}",
                 generated.len(),
-                pie_ir::fnv1a64(generated.as_bytes())
+                tensor_ir::fnv1a64(generated.as_bytes())
             )
         }
         Err(error) => format!("err {error}"),
@@ -168,7 +168,7 @@ fn extended_corpus_plans_are_pinned() {
             body,
             "plan: lines={} fnv1a64=0x{:016x}",
             stage.debug.lines().count(),
-            pie_ir::fnv1a64(stage.debug.as_bytes())
+            tensor_ir::fnv1a64(stage.debug.as_bytes())
         );
         for (index, region) in stage.plan.fused.regions.iter().enumerate() {
             let _ = writeln!(body, "fused#{index}: {}", region_shape(region));

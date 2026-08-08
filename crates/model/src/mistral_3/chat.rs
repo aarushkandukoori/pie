@@ -13,7 +13,7 @@ use crate::decoders::{GenericChatDecoder, NoopReasoningDecoder};
 use crate::instruct::{
     ChatDecoder, Instruct, ReasoningDecoder, ToolDecoder, ToolEvent, ToolGrammar,
 };
-use pie_tokenizer::{Tokenizer, TokenizerDecoder};
+use tokenizer::{Tokenizer, TokenizerDecoder};
 use std::sync::Arc;
 
 // The implementation below mirrors the published Mistral V3 jinja chat
@@ -259,7 +259,7 @@ impl ToolDecoder for MistralToolDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_tokenizer::Tokenizer;
+    use tokenizer::Tokenizer;
     use std::sync::Arc;
 
     fn make_tok(vocab: &[&str]) -> Arc<Tokenizer> {

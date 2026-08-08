@@ -20,8 +20,8 @@
 
 use std::path::PathBuf;
 
-use pie_loader::checkpoint::read::parse_checkpoint_metadata;
-use pie_loader::error::Error;
+use model_loader::checkpoint::read::parse_checkpoint_metadata;
+use model_loader::error::Error;
 
 use super::arena;
 use super::checkpoint::PieLoaderCheckpoint;
@@ -378,7 +378,7 @@ unsafe impl Sync for EntryAddr {}
 
 /// Anchors the entry points against dead-code elimination.
 ///
-/// `pie-loader` is an rlib, and nothing in Rust calls these functions — the
+/// `model-loader` is an rlib, and nothing in Rust calls these functions — the
 /// only caller is the C++ driver, linked afterwards. Without a reference from a
 /// reachable item, `rustc` and the linker are free to drop `#[no_mangle]`
 /// functions from an rlib, and the failure surfaces as an undefined symbol at

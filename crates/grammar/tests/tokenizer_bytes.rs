@@ -3,10 +3,10 @@ mod tokenizer_fixtures;
 
 use std::sync::Arc;
 
-use pie_grammar::bitmask;
-use pie_grammar::grammar::Grammar;
-use pie_grammar::matcher::GrammarMatcher;
-use pie_tokenizer::Tokenizer;
+use ::grammar::bitmask;
+use ::grammar::grammar::Grammar;
+use ::grammar::matcher::GrammarMatcher;
+use tokenizer::Tokenizer;
 use tokenizer_fixtures::{MergeFormat, byte_level_json};
 
 #[test]

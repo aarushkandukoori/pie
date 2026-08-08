@@ -5,7 +5,7 @@
 //! lib-test binary — writing them from a test that shares that process would
 //! make one or the other fail depending on thread order.
 
-use pie_engine::scheduler::{
+use engine::scheduler::{
     ReconfigureRefused, configured_frame_size, configured_submit_depth, reconfigure,
 };
 

@@ -1,5 +1,5 @@
 [package]
-name = "pie-ir"
+name = "tensor-ir"
 version = "0.1.0"
 edition = "2024"
 rust-version.workspace = true
@@ -10,7 +10,7 @@ repository = "https://github.com/pie-project/pie"
 keywords = ["pie", "tensor", "ir", "ptir"]
 
 [lib]
-name = "pie_ir"
+name = "tensor_ir"
 crate-type = ["rlib"]
 path = "src/lib.rs"
 
@@ -23,7 +23,7 @@ std = []
 
 [dependencies]
 
-# Shared ratchet from the root manifest. These six crates are gated with
-# `-D warnings` in CI; see `[workspace.lints]` in the workspace `Cargo.toml`.
+# Shared ratchet from the root manifest. The toolchain's three crates are gated
+# with `-D warnings` in CI; see `[workspace.lints]` in the workspace `Cargo.toml`.
 [lints]
 workspace = true

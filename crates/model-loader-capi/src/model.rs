@@ -3,7 +3,7 @@
 //! [`pie_loader_compile_model`] is the boundary the migration arrived at
 //! (`plan/model-in-rust.md` §6): the caller sends the facts it parsed and
 //! the policy it decided — a handful of scalars — and authoring happens on
-//! this side, in `pie_model::contract`. The contract never crosses the ABI
+//! this side, in `::model::contract`. The contract never crosses the ABI
 //! at all; it is authored, compiled and dropped in one call, and the same
 //! resolved [`StorageTarget`] feeds both the author and the compiler, so the
 //! two cannot be told different worlds.
@@ -17,12 +17,12 @@
 //! `request.hpp` gives: these are *inputs*, and a Rust enum holding a value
 //! outside its variants is undefined behaviour before any check can run.
 
-use pie_loader::cache_key::{ArtifactInputs, artifact_cache_key};
-use pie_loader::plan::compile as compile_load_plan;
+use model_loader::cache_key::{ArtifactInputs, artifact_cache_key};
+use model_loader::plan::compile as compile_load_plan;
 
-use pie_model::facts::ModelFacts;
-use pie_model::policy::Mxfp4MoePolicy;
-use pie_model::policy::{
+use ::model::facts::ModelFacts;
+use ::model::policy::Mxfp4MoePolicy;
+use ::model::policy::{
     Component, FamilyKnobs, Mxfp4MoeRequest, Naming, Policy, Projections, RuntimeQuant,
 };
 
@@ -63,7 +63,7 @@ pub struct PieLoaderModelRequest {
     /// This used to be ten scalars in a `PieLoaderModelFactsView` — the
     /// caller parsed `config.json`, picked out what it thought the loader
     /// needed, and sent that. The document is the request now: the facts are
-    /// projected from it by `pie_model::ModelFacts::from_descriptor`, so
+    /// projected from it by `::model::ModelFacts::from_descriptor`, so
     /// which fields matter is a question answered where the authors live
     /// rather than in each driver, and a new fact needs no ABI change.
     ///
@@ -105,7 +105,7 @@ unsafe fn read_model_request(
     // The facts are read from the descriptor here rather than sent field by
     // field: they are a projection of a document the caller already holds, and
     // a wire struct of ten scalars was ten chances for the two sides to
-    // disagree about what a field means. `pie_model::ModelFacts` owns the
+    // disagree about what a field means. `::model::ModelFacts` owns the
     // mapping now, on this side alone.
     let descriptor = unsafe { as_bytes(&req.descriptor, "descriptor") }.map_err(bad)?;
     let facts = ModelFacts::from_descriptor(descriptor)
@@ -172,8 +172,8 @@ unsafe fn author_from_request(
     req: &PieLoaderModelRequest,
 ) -> Result<
     (
-        pie_loader::contract::ModelContract,
-        pie_loader::plan::StorageTarget,
+        model_loader::contract::ModelContract,
+        model_loader::plan::StorageTarget,
         Mxfp4MoePolicy,
     ),
     (PieLoaderStatus, String),
@@ -201,13 +201,13 @@ unsafe fn author_from_request(
     let source = unsafe { super::checkpoint::arena_of(req.checkpoint) };
 
     let (contract, resolved_moe) =
-        pie_model::contract::author_with_policy(&facts, &source.metadata, &target, &policy)
+        ::model::contract::author_with_policy(&facts, &source.metadata, &target, &policy)
             .map_err(|err| (compile_error_status(&err), err.to_string()))?
             .ok_or_else(|| {
                 bad(format!(
                     "no author for model_type '{}'; every family loads through \
                      this entry now, so an unknown one needs an author in \
-                     pie_model::contract (plan/model-in-rust.md §7)",
+                     ::model::contract (plan/model-in-rust.md §7)",
                     facts.model_type
                 ))
             })?;
@@ -219,7 +219,7 @@ unsafe fn author_from_request(
 /// `req` and everything its pointers reach must be live for the call.
 unsafe fn compile_model_request(
     req: &PieLoaderModelRequest,
-) -> Result<(pie_loader::plan::LoadPlan, String, Mxfp4MoePolicy), (PieLoaderStatus, String)> {
+) -> Result<(model_loader::plan::LoadPlan, String, Mxfp4MoePolicy), (PieLoaderStatus, String)> {
     let (contract, target, resolved_moe) = unsafe { author_from_request(req) }?;
     let source = unsafe { super::checkpoint::arena_of(req.checkpoint) };
 
@@ -328,7 +328,7 @@ pub unsafe extern "C" fn pie_loader_verify_model(
         Ok((contract, _, _)) => {
             verify_plan_contract(
                 plan,
-                &pie_loader::verify::ContractView::of(&contract),
+                &model_loader::verify::ContractView::of(&contract),
                 &mut sink,
             );
         }
@@ -350,7 +350,7 @@ pub unsafe extern "C" fn pie_loader_verify_model(
 /// Two different questions are answered here.
 ///
 /// The first — is this plan *self-consistent and still true of the files it
-/// names*? — is [`pie_loader::verify`]'s, and is asked against a [`PlanView`] built
+/// names*? — is [`model_loader::verify`]'s, and is asked against a [`PlanView`] built
 /// from the marshalled plan the driver is actually holding. Verifying the C
 /// view rather than the Rust one is deliberate: it puts a marshalling bug in
 /// scope, which it would not be if this re-read the plan the driver never sees.
@@ -361,7 +361,7 @@ pub unsafe extern "C" fn pie_loader_verify_model(
 /// consistency detects it.
 fn verify_plan_contract(
     plan: &PieLoaderPlan,
-    contract: &pie_loader::verify::ContractView<'_>,
+    contract: &model_loader::verify::ContractView<'_>,
     sink: &mut DiagnosticSink,
 ) {
     let view = match unsafe { super::view::plan_view(plan) } {
@@ -371,7 +371,7 @@ fn verify_plan_contract(
             return;
         }
     };
-    if let Err(violations) = pie_loader::verify::verify(&view, Some(contract)) {
+    if let Err(violations) = model_loader::verify::verify(&view, Some(contract)) {
         for violation in violations {
             sink.error(violation.to_string());
         }

@@ -2,7 +2,7 @@
 //!
 //! The command `author_abi.cpp` was built to serve, finally landed the way
 //! the migration made possible: no FFI at all. The same family author a
-//! driver boot runs (`pie_model::contract::author`) writes the serve
+//! driver boot runs (`model::contract::author`) writes the serve
 //! contract here, the loader compiles it, the streaming host executor
 //! materializes it, and the result is a `.zt` whose tensors are the *runtime*
 //! tensors — fused QKV banks, stacked experts, requantized weights — under
@@ -42,15 +42,15 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow, bail};
 use clap::Args;
 
-use pie_loader::checkpoint::meta::{SOURCE_KEY, VERSION_KEY, meta_name};
-use pie_loader::checkpoint::read::parse_checkpoint_metadata;
-use pie_loader::checkpoint::write::CheckpointWriter;
-use pie_loader::executor::host::Progress;
-use pie_loader::plan::{CONVERT_TILE_MAP_MASK, StorageTarget};
-use pie_loader::types::Visibility;
-use pie_model::facts::ModelFacts;
-use pie_model::policy::{Mxfp4MoeRequest, Naming, Policy, Projections, RuntimeQuant};
-use pie_model_config::DESCRIPTOR_OBJECT;
+use model_loader::checkpoint::meta::{SOURCE_KEY, VERSION_KEY, meta_name};
+use model_loader::checkpoint::read::parse_checkpoint_metadata;
+use model_loader::checkpoint::write::CheckpointWriter;
+use model_loader::executor::host::Progress;
+use model_loader::plan::{CONVERT_TILE_MAP_MASK, StorageTarget};
+use model_loader::types::Visibility;
+use model::facts::ModelFacts;
+use model::policy::{Mxfp4MoeRequest, Naming, Policy, Projections, RuntimeQuant};
+use model_config::DESCRIPTOR_OBJECT;
 
 use super::import::{
     ProgressLine, Spool, artifact_path, compile_descriptor, compile_tokenizer, pie_version,
@@ -118,7 +118,7 @@ fn read_carried_objects(path: &Path) -> Result<CarriedObjects> {
     let checkpoint = parse_checkpoint_metadata(path)
         .map_err(|err| anyhow!("cannot read {}: {err}", path.display()))?;
     let descriptor_bytes =
-        pie_loader::checkpoint::read::read_meta(&checkpoint, DESCRIPTOR_OBJECT)?.ok_or_else(
+        model_loader::checkpoint::read::read_meta(&checkpoint, DESCRIPTOR_OBJECT)?.ok_or_else(
             || {
                 anyhow!(
                     "{} carries no {DESCRIPTOR_OBJECT}; it is a checkpoint file rather \
@@ -129,9 +129,9 @@ fn read_carried_objects(path: &Path) -> Result<CarriedObjects> {
         )?;
     let descriptor: serde_json::Value = serde_json::from_slice(&descriptor_bytes)
         .map_err(|err| anyhow!("cannot parse {}'s model descriptor: {err}", path.display()))?;
-    let mut tokenizer = Vec::with_capacity(pie_tokenizer::canonical::OBJECTS.len());
-    for name in pie_tokenizer::canonical::OBJECTS {
-        let bytes = pie_loader::checkpoint::read::read_meta(&checkpoint, name)?.ok_or_else(
+    let mut tokenizer = Vec::with_capacity(tokenizer::canonical::OBJECTS.len());
+    for name in tokenizer::canonical::OBJECTS {
+        let bytes = model_loader::checkpoint::read::read_meta(&checkpoint, name)?.ok_or_else(
             || {
                 anyhow!(
                     "{} carries a model descriptor but not {name}; an artifact with half \
@@ -153,7 +153,7 @@ pub fn run(args: BuildArgs) -> Result<crate::ui::Answer> {
     let source = resolve_source(&args.source)?;
     // Two kinds of source, and the difference is only where the descriptor
     // comes from: an artifact carries it compiled, and a snapshot is
-    // normalized into one here by the same `pie-model-config` that wrote the
+    // normalized into one here by the same `model-config` that wrote the
     // artifact's. Both then reach the author through one projection.
     //
     // There were two readers here — one per source — and each defaulted and
@@ -235,7 +235,7 @@ pub fn run(args: BuildArgs) -> Result<crate::ui::Answer> {
 
     let metadata = parse_checkpoint_metadata(&source.path)
         .map_err(|err| anyhow!("cannot read {}: {err}", source.path.display()))?;
-    let contract = pie_model::contract::author(&facts, &metadata, &target, &policy)
+    let contract = model::contract::author(&facts, &metadata, &target, &policy)
         .map_err(|err| anyhow!("cannot author '{}': {err}", facts.model_type))?
         .ok_or_else(|| anyhow!("no contract author for model_type '{}'", facts.model_type))?;
     if !contract.groups.is_empty() {
@@ -278,7 +278,7 @@ pub fn run(args: BuildArgs) -> Result<crate::ui::Answer> {
         )));
     }
 
-    let plan = pie_loader::plan::compile(&metadata, &contract, target)
+    let plan = model_loader::plan::compile(&metadata, &contract, target)
         .map_err(|err| anyhow!("cannot compile: {err}"))?;
 
     // Metadata first, weights streamed after — the same shape convert has.
@@ -289,7 +289,7 @@ pub fn run(args: BuildArgs) -> Result<crate::ui::Answer> {
 
     let mut bar = ProgressLine::new();
     let mut spool = Spool::create(&out_file)?;
-    pie_loader::executor::host::execute_plan_into(
+    model_loader::executor::host::execute_plan_into(
         &plan,
         &source.base(),
         &mut spool,
@@ -317,7 +317,7 @@ pub fn run(args: BuildArgs) -> Result<crate::ui::Answer> {
     // which is what canonical form asks for.
     enum Entry<'a> {
         Meta(&'a [u8]),
-        Tensor(&'a pie_loader::types::TensorDecl),
+        Tensor(&'a model_loader::types::TensorDecl),
     }
     let mut meta: Vec<(String, Vec<u8>)> = Vec::new();
     match &carried {
@@ -361,7 +361,7 @@ pub fn run(args: BuildArgs) -> Result<crate::ui::Answer> {
         match entry {
             Entry::Meta(bytes) => {
                 let path = name
-                    .strip_prefix(pie_loader::checkpoint::meta::META_PREFIX)
+                    .strip_prefix(model_loader::checkpoint::meta::META_PREFIX)
                     .expect("metadata entries carry the namespace prefix");
                 writer
                     .add_meta(path, bytes)

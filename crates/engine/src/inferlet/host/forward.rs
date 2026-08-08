@@ -31,9 +31,9 @@ use crate::pipeline::instance::{
 use crate::store::kv::working_set::KvWorkingSet;
 use crate::store::rs::working_set::RsWorkingSet;
 
-use pie_ir::container::{HostRole, PortSource, TraceContainer};
-use pie_ir::registry::Port;
-use pie_ir::types::DType;
+use tensor_ir::container::{HostRole, PortSource, TraceContainer};
+use tensor_ir::registry::Port;
+use tensor_ir::types::DType;
 
 use super::pie;
 
@@ -308,10 +308,10 @@ impl pie::inferlet::channel::HostChannel for ProcessCtx {
         // errors at forward-pass.new / submit).
         use pie::inferlet::types::Dtype;
         let dtype = match dtype {
-            Dtype::F32 => pie_ir::types::DType::F32,
-            Dtype::I32 => pie_ir::types::DType::I32,
-            Dtype::U32 => pie_ir::types::DType::U32,
-            Dtype::Bool => pie_ir::types::DType::Bool,
+            Dtype::F32 => tensor_ir::types::DType::F32,
+            Dtype::I32 => tensor_ir::types::DType::I32,
+            Dtype::U32 => tensor_ir::types::DType::U32,
+            Dtype::Bool => tensor_ir::types::DType::Bool,
         };
         let cell = Arc::new(Mutex::new(ChannelCell::new(shape, dtype, capacity)));
         Ok(self.ctx().table.push(Channel { cell, fires: None })?)
@@ -734,16 +734,16 @@ impl ProcessCtx {
             // ("descriptor channel not ready"). Such a pass takes the same
             // loud Host fallback as a geometry-incapable driver.
             let needs_mask_port = prog.bound.container.ports.iter().any(|binding| {
-                matches!(binding.port, pie_ir::registry::Port::AttnMask)
+                matches!(binding.port, tensor_ir::registry::Port::AttnMask)
                     && matches!(
                         binding.source,
-                        pie_ir::container::PortSource::Channel(_)
+                        tensor_ir::container::PortSource::Channel(_)
                     )
             });
-            let devgeo_capable = device_port_mask & pie_driver_abi::PIE_DEVICE_GEOMETRY_PORTS
-                == pie_driver_abi::PIE_DEVICE_GEOMETRY_PORTS
+            let devgeo_capable = device_port_mask & driver_abi::PIE_DEVICE_GEOMETRY_PORTS
+                == driver_abi::PIE_DEVICE_GEOMETRY_PORTS
                 && (!needs_mask_port
-                    || device_port_mask & pie_driver_abi::PIE_DEVICE_PORT_ATTN_MASK != 0);
+                    || device_port_mask & driver_abi::PIE_DEVICE_PORT_ATTN_MASK != 0);
             let devgeo = match crate::pipeline::fire::lease::detect_device_geometry(
                 &prog.bound.container,
             ) {
@@ -781,8 +781,8 @@ impl ProcessCtx {
                     let mut lease = crate::pipeline::fire::lease::PageLease::new(b);
                     lease.seed(seed_pages);
                     let has_mask = prog.bound.container.ports.iter().any(|p| {
-                        matches!(p.port, pie_ir::registry::Port::AttnMask)
-                            && matches!(p.source, pie_ir::container::PortSource::Channel(_))
+                        matches!(p.port, tensor_ir::registry::Port::AttnMask)
+                            && matches!(p.source, tensor_ir::container::PortSource::Channel(_))
                     });
                     Some(DevGeo {
                         lease,
@@ -877,11 +877,11 @@ impl ProcessCtx {
                 None => None,
             };
             let geometry_class = if devgeo.is_some() {
-                pie_driver_abi::GeometryClass::DeviceGeometry
+                driver_abi::GeometryClass::DeviceGeometry
             } else if decode_envelope.is_some() {
-                pie_driver_abi::GeometryClass::DecodeEnvelope
+                driver_abi::GeometryClass::DecodeEnvelope
             } else {
-                pie_driver_abi::GeometryClass::Host
+                driver_abi::GeometryClass::Host
             };
             let rs_reps = rs_working_sets.iter().map(Resource::rep).collect();
 
@@ -919,14 +919,14 @@ impl ProcessCtx {
                     seeded: decls[dense].seeded,
                     extern_dir: extern_binding
                         .map(|(_, dir)| match dir {
-                            pie_ir::container::ExternDir::Import => {
-                                pie_driver_abi::PIE_CHANNEL_EXTERN_IMPORT
+                            tensor_ir::container::ExternDir::Import => {
+                                driver_abi::PIE_CHANNEL_EXTERN_IMPORT
                             }
-                            pie_ir::container::ExternDir::Export => {
-                                pie_driver_abi::PIE_CHANNEL_EXTERN_EXPORT
+                            tensor_ir::container::ExternDir::Export => {
+                                driver_abi::PIE_CHANNEL_EXTERN_EXPORT
                             }
                         })
-                        .unwrap_or(pie_driver_abi::PIE_CHANNEL_EXTERN_NONE),
+                        .unwrap_or(driver_abi::PIE_CHANNEL_EXTERN_NONE),
                     capacity: decls[dense].capacity,
                     reader_wait_id: 0,
                     writer_wait_id: 0,
@@ -971,7 +971,7 @@ impl ProcessCtx {
                 // bytes straight to both worked for all of them and only Bool
                 // bounced: the driver read a seed eight times the width it
                 // declared and refused the bind.
-                let wire = if cell.dtype == pie_ir::types::DType::Bool {
+                let wire = if cell.dtype == tensor_ir::types::DType::Bool {
                     let mut packed = vec![0u8; bytes.len().div_ceil(8)];
                     crate::pipeline::channel::pack_bool_into(&bytes, &mut packed);
                     packed
@@ -1051,8 +1051,8 @@ impl ProcessCtx {
                 }
             }
             let dense_mask = instance.program.bound.container.ports.iter().any(|p| {
-                matches!(p.port, pie_ir::registry::Port::AttnMask)
-                    && matches!(p.source, pie_ir::container::PortSource::Channel(_))
+                matches!(p.port, tensor_ir::registry::Port::AttnMask)
+                    && matches!(p.source, tensor_ir::container::PortSource::Channel(_))
             });
             let host_shadow = crate::pipeline::fire::shadow::HostShadow::new(
                 &instance.program.bound,
@@ -1495,8 +1495,8 @@ impl pie::inferlet::forward_hybrid::HostForwardPass for ProcessCtx {
 #[cfg(test)]
 mod descriptor_binding_tests {
     use super::*;
-    use pie_ir::container::PortBinding;
-    use pie_ir::types::{DType, Shape};
+    use tensor_ir::container::PortBinding;
+    use tensor_ir::types::{DType, Shape};
 
     fn container(ports: Vec<PortBinding>) -> TraceContainer {
         TraceContainer {

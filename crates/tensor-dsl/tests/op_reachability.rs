@@ -1,7 +1,7 @@
 //! Every op in the IR's table can be authored from this crate, or says why not.
 //!
 //! `declare_ops!` gives an op a tag, a wire layout and a row in `OP_TABLE`, and
-//! the exhaustive matches in `pie-ir` and `pie-eval` make the compiler demand
+//! the exhaustive matches in `tensor-ir` and `tensor-compiler` make the compiler demand
 //! inference and evaluation for it. Nothing plays that role for the authoring
 //! surface: `value.rs` is hand-written constructors, so an op can be added to
 //! the IR, type-checked, interpreted, and emitted by both backends while
@@ -18,10 +18,10 @@
 
 use std::collections::BTreeSet;
 
-use pie_dsl::builder::Builder;
-use pie_dsl::prelude::*;
-use pie_dsl::ptir::op::{OP_TABLE, Op};
-use pie_dsl::{Channel, Traced};
+use tensor_dsl::builder::Builder;
+use tensor_dsl::prelude::*;
+use tensor_dsl::ptir::op::{OP_TABLE, Op};
+use tensor_dsl::{Channel, Traced};
 
 /// Ops with no authoring surface, and why each one has none.
 ///

@@ -23,6 +23,6 @@ cmake = "0.1"
 # `DEP_<links>_INCLUDE` for DIRECT dependencies, so the edge has to exist.
 [dependencies]
 driver = { path = "../driver" }
-pie-driver-abi = { path = "../driver-abi" }
-pie-loader-capi = { path = "../model-loader-capi", default-features = false }
-pie-forward = { path = "../model-compiler" }
+driver-abi = { path = "../driver-abi" }
+model-loader-capi = { path = "../model-loader-capi", default-features = false }
+model-compiler = { path = "../model-compiler" }

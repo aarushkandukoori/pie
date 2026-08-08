@@ -3,7 +3,7 @@
 //! Tests regex-based grammar acceptance/rejection.
 
 use crate::common::regex_accepts as is_regex_accept_string;
-use pie_grammar::regex::regex_to_grammar;
+use ::grammar::regex::regex_to_grammar;
 
 // ---------------------------------------------------------------------------
 // Basic patterns (from test_basic_regex)

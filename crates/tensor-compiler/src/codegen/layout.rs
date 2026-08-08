@@ -11,7 +11,7 @@
 //!
 //! | copy | how it is tied here |
 //! |---|---|
-//! | `#[repr(C)]` structs in `pie-plan` | `offset_of!` in `static_assertions` |
+//! | `#[repr(C)]` structs in `tensor-compiler` | `offset_of!` in `static_assertions` |
 //! | C text in [`crate::codegen::header`] → `ptir_abi.h` | printed by [`DeviceStruct::emit_c`] |
 //! | MSL `M1*` in `metal::preamble` | printed by [`DeviceStruct::emit_msl`] |
 //! | MSL `M3*` in `metal::preamble` | printed by [`DeviceStruct::emit_msl`] |
@@ -87,7 +87,7 @@ impl FieldType {
 /// width.
 #[derive(Clone, Copy, Debug)]
 pub struct Field {
-    /// The field's name in the generated C header and in `pie-plan`'s
+    /// The field's name in the generated C header and in `tensor-compiler`'s
     /// `#[repr(C)]` struct.
     pub name: &'static str,
     /// The name MSL uses, when it differs. It differs in exactly one place —
@@ -246,7 +246,7 @@ impl DeviceStruct {
 }
 
 /// The status word a lane's commit slot points at. Written by the readiness
-/// and commit kernels, read by the driver. It has no `pie-plan` counterpart —
+/// and commit kernels, read by the driver. It has no `tensor-compiler` counterpart —
 /// the host never builds one, it only hands out the address — so it is pinned
 /// by the goldens alone.
 pub const STATUS: DeviceStruct = DeviceStruct {
@@ -321,7 +321,7 @@ pub const LANE_CHANNEL_SLOT: DeviceStruct = DeviceStruct {
 /// them.
 pub const HOST_SHARED: &[DeviceStruct] = &[LANE_TABLE_HEADER, LANE_RECORD, LANE_CHANNEL_SLOT];
 
-/// Compile-time proof that this table describes the `pie-plan` structs the
+/// Compile-time proof that this table describes the `tensor-compiler` structs the
 /// host actually writes.
 ///
 /// Without these, a field added to `LaneRecord` and not to [`LANE_RECORD`]

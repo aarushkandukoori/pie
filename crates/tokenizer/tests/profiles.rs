@@ -3,7 +3,7 @@ mod common;
 use std::sync::Arc;
 
 use common::{MergeFormat, byte_level_json, gemma_json};
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 use serde_json::json;
 use tokenizers::Tokenizer as HfTokenizer;
 
@@ -19,17 +19,17 @@ fn assert_exact(json: &serde_json::Value, texts: &[&str]) {
 
     assert_eq!(pie.vocab_size(), hf.get_vocab_size(true));
     for &text in texts {
-        let pie_ids = pie.encode(text);
+        let ids = pie.encode(text);
         let hf_ids = hf.encode(text, false).unwrap().get_ids().to_vec();
-        assert_eq!(pie_ids, hf_ids, "encoding {text:?}");
+        assert_eq!(ids, hf_ids, "encoding {text:?}");
         assert_eq!(
             pie.decode(&hf_ids, false),
             hf.decode(&hf_ids, false).unwrap(),
             "HF→Pie decoding {text:?}"
         );
         assert_eq!(
-            pie.decode(&pie_ids, false),
-            hf.decode(&pie_ids, false).unwrap(),
+            pie.decode(&ids, false),
+            hf.decode(&ids, false).unwrap(),
             "Pie→HF decoding {text:?}"
         );
         assert_eq!(

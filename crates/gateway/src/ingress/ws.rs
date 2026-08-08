@@ -31,8 +31,8 @@ use futures::{SinkExt, StreamExt};
 use crate::GatewayState;
 use crate::ingress::identity;
 use crate::session::{Affinity, Identity, TokenRx, TurnInput};
-use pie_client_api::ClientMessage;
-use pie_worker_rpc::{Priority, Tokens};
+use client_api::ClientMessage;
+use worker_api::{Priority, Tokens};
 
 /// `GET /v1/ws` — upgrade to a multi-turn session. Identity is extracted from the
 /// edge headers *before* the upgrade (a bad edge never gets a socket).
@@ -296,7 +296,7 @@ fn into_turn(payload: ClientMessage) -> TurnInput {
 /// `pie-client`'s reader expects (`rmp_serde::decode::from_slice`). `None` on
 /// an encode failure (logged), so the caller drops the frame rather than
 /// sending an undecodable empty binary.
-fn encode(msg: &pie_client_api::ServerMessage) -> Option<Vec<u8>> {
+fn encode(msg: &client_api::ServerMessage) -> Option<Vec<u8>> {
     match rmp_serde::to_vec_named(msg) {
         Ok(bytes) => Some(bytes),
         Err(e) => {

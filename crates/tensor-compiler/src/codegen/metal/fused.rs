@@ -14,7 +14,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Write as _;
-use pie_ir::op::{intrinsic_tags, tags};
+use tensor_ir::op::{intrinsic_tags, tags};
 
 use crate::plan::{CompiledStage, Region};
 

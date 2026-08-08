@@ -9,7 +9,7 @@ repository = "https://github.com/pie-project/pie"
 publish = false
 
 # `links` + the `cargo:include` its build.rs emits are how the two shells find
-# these headers -- the same handoff `pie-driver-abi` and `pie-loader-capi` use.
+# these headers -- the same handoff `driver-abi` and `model-loader-capi` use.
 # A driver crate asks cargo where the substrate is instead of walking out of
 # its own tree to guess.
 links = "pie_driver"

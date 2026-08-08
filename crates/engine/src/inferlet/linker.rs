@@ -157,7 +157,7 @@ impl Linker {
         host::add_to_linker(&mut linker)?;
 
         // `full_modules` and `stripped_modules` are process-global OnceLock
-        // values compiled from the one runtime directory installed at startup.
+        // values compiled from the one runtime directory installed at bootstrap.
         // They do not vary with a manifest's python-runtime version string.
         for (name, module) in variant.shared_modules() {
             linker.root().module(name, module).unwrap_or_else(|error| {

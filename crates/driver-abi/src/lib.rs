@@ -9,7 +9,7 @@
 //! - [`remote`]: versioned worker-to-executor protocol.
 //!
 //! The committed `include/pie_driver_abi.h` header is generated from [`local`]
-//! via `pie-driver-abi-cbindgen`.
+//! via `driver-abi-cbindgen`.
 
 pub mod capabilities;
 pub mod geometry;

@@ -1,5 +1,5 @@
 //! Translate the standalone's user-facing TOML config (`crate::config`)
-//! into the runtime's internal `pie_engine::bootstrap::Config`.
+//! into the runtime's internal `::engine::bootstrap::Config`.
 //!
 //! The runtime's `bootstrap::Config` mirrors what `pie/server.py`
 //! constructs through the pyo3 `pie._runtime.Config` builder. We do
@@ -18,7 +18,7 @@ use crate::embedded_driver::DriverCapabilities;
 /// Per-driver bundle created before bootstrap.
 pub struct GroupDriver {
     pub caps: DriverCapabilities,
-    pub backend: pie_engine::driver::DriverBackend,
+    pub backend: ::engine::driver::DriverBackend,
 }
 
 /// Per-model bundle of concrete driver backends. One model with DP=N produces
@@ -28,14 +28,14 @@ pub struct ModelDrivers {
 }
 
 /// The one place config units become the engine's plain numbers. `Duration`
-/// and `ByteSize` carry their unit through the config layer; `pie_engine`'s
+/// and `ByteSize` carry their unit through the config layer; `engine`'s
 /// bootstrap structs still take `_secs`/`_us`/`_mb` scalars, so the conversion
 /// happens here and only here.
 pub fn build(
     user: &config::Config,
     drivers: ModelDrivers,
-    metadata: pie_model::ModelMetadata,
-) -> Result<pie_engine::bootstrap::Config> {
+    metadata: model::ModelMetadata,
+) -> Result<::engine::bootstrap::Config> {
     if drivers.groups.is_empty() {
         anyhow::bail!(
             "internal: model {:?} has zero native drivers; \
@@ -50,19 +50,19 @@ pub fn build(
 
     let model = build_model(&user.model, drivers, metadata)?;
 
-    Ok(pie_engine::bootstrap::Config {
+    Ok(::engine::bootstrap::Config {
         host: user.server.host.clone(),
         port: user.server.port,
         cache_dir,
         verbose: user.server.verbose,
         log_dir,
         registry_url: user.server.registry.clone(),
-        telemetry: pie_engine::bootstrap::TelemetryConfig {
+        telemetry: ::engine::bootstrap::TelemetryConfig {
             enabled: user.telemetry.enabled,
             endpoint: user.telemetry.endpoint.clone(),
             service_name: user.telemetry.service_name.clone(),
         },
-        runtime: pie_engine::bootstrap::RuntimeConfig {
+        runtime: ::engine::bootstrap::RuntimeConfig {
             worker_threads: user.runtime.worker_threads,
             wasm_max_instances: user.runtime.wasm_max_instances,
             wasm_max_memory_mb: user.runtime.wasm_max_memory.as_mib() as usize,
@@ -76,7 +76,7 @@ pub fn build(
             py_runtime_dir: pie_home.join("py-runtime"),
         },
         model,
-        // The `startup` lib (Seam 2) installs the global tracing subscriber;
+        // The `bootstrap` lib (Seam 2) installs the global tracing subscriber;
         // the runtime must NOT re-init it (double global-init panics on boot).
         skip_tracing: true,
         max_concurrent_processes: user.server.max_concurrent_processes,
@@ -87,8 +87,8 @@ pub fn build(
 fn build_model(
     m: &config::ModelConfig,
     drivers: ModelDrivers,
-    metadata: pie_model::ModelMetadata,
-) -> Result<pie_engine::bootstrap::ModelConfig> {
+    metadata: model::ModelMetadata,
+) -> Result<::engine::bootstrap::ModelConfig> {
     // Arch + kv_page_size + tokenizer come from group 0; all groups
     // serve the same model so they agree. Per-group caps can differ in
     // memory-derived capacities — those flow through the per-driver entries.
@@ -113,7 +113,7 @@ fn build_model(
         .into_iter()
         .map(|g| {
             let backend_kind = g.backend.kind().to_string();
-            pie_engine::bootstrap::DriverConfig {
+            ::engine::bootstrap::DriverConfig {
                 total_pages: g.caps.total_pages as usize,
                 cpu_pages: g.caps.swap_pool_size as usize,
                 kv_copy_domain_mask: g.caps.kv_copy_domain_mask,
@@ -131,7 +131,7 @@ fn build_model(
                 has_attn_score: g.caps.has_attn_score,
                 has_lora: g.caps.has_lora,
                 device_geometry_port_mask: g.caps.device_geometry_port_mask,
-                limits: pie_engine::driver::SchedulerLimits {
+                limits: ::engine::driver::SchedulerLimits {
                     max_forward_requests: g.caps.max_forward_requests as usize,
                     max_forward_tokens: g.caps.max_forward_tokens as usize,
                     max_page_refs: g.caps.max_page_refs as usize,
@@ -141,14 +141,14 @@ fn build_model(
         })
         .collect();
 
-    Ok(pie_engine::bootstrap::ModelConfig {
+    Ok(::engine::bootstrap::ModelConfig {
         name: m.name.clone(),
         arch_name: group0_caps.arch_name,
         kv_page_size: group0_caps.kv_page_size as usize,
         tokenizer_path,
         metadata,
         drivers,
-        scheduler: pie_engine::bootstrap::SchedulerConfig {
+        scheduler: ::engine::bootstrap::SchedulerConfig {
             request_timeout_secs: m.scheduler.request_timeout.as_secs(),
             submit_deadline_us: m.scheduler.submit_deadline.as_micros(),
             silence_timeout_secs: m.scheduler.silence_timeout.as_secs(),
@@ -167,9 +167,9 @@ mod tests {
     ///
     /// `build` only carries the metadata through; the two fields the runtime
     /// reads out of it (`vocab_size`, `num_hidden_layers`) are exercised where
-    /// they are read, in `pie_model::register`.
-    fn fixture_metadata() -> pie_model::ModelMetadata {
-        pie_model::ModelMetadata {
+    /// they are read, in `model::register`.
+    fn fixture_metadata() -> model::ModelMetadata {
+        model::ModelMetadata {
             tokenizer: None,
             descriptor: br#"{"version":"pie.model/1","vocab_size":32,"num_hidden_layers":2}"#
                 .to_vec(),
@@ -178,11 +178,11 @@ mod tests {
 
     fn fixture_caps() -> DriverCapabilities {
         DriverCapabilities {
-            abi_version: pie_driver_abi::PIE_DRIVER_ABI_VERSION,
+            abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
             total_pages: 1024,
             kv_page_size: 32,
             swap_pool_size: 0,
-            kv_copy_domain_mask: pie_driver_abi::KV_COPY_DEVICE_TO_DEVICE,
+            kv_copy_domain_mask: driver_abi::KV_COPY_DEVICE_TO_DEVICE,
             max_forward_tokens: 4096,
             max_forward_requests: 512,
             max_page_refs: 262144,
@@ -204,7 +204,7 @@ mod tests {
             has_kv_envelopes: false,
             has_attn_page_mask: false,
             has_attn_score: false,
-            device_geometry_port_mask: pie_driver_abi::PIE_DEVICE_GEOMETRY_PORTS,
+            device_geometry_port_mask: driver_abi::PIE_DEVICE_GEOMETRY_PORTS,
             has_lora: false,
             model_site_summary: Default::default(),
             codegen_backend: String::new(),
@@ -213,7 +213,7 @@ mod tests {
     }
 
     fn fixture_group(caps: DriverCapabilities) -> GroupDriver {
-        let dummy = pie_driver_dummy_lib::DummyDriverOptions {
+        let dummy = driver_dummy::DummyDriverOptions {
             total_pages: caps.total_pages,
             kv_page_size: caps.kv_page_size,
             swap_pool_size: caps.swap_pool_size,
@@ -241,7 +241,7 @@ mod tests {
             operation_log: None,
             launch_observer: None,
         };
-        let (backend, _) = pie_engine::driver::DriverBackend::dummy(dummy).unwrap();
+        let (backend, _) = ::engine::driver::DriverBackend::dummy(dummy).unwrap();
         GroupDriver { caps, backend }
     }
 
@@ -293,7 +293,7 @@ arch_name = "qwen3"
         assert!(m.drivers[0].has_mtp_logits);
         assert_eq!(
             m.drivers[0].device_geometry_port_mask,
-            pie_driver_abi::PIE_DEVICE_GEOMETRY_PORTS
+            driver_abi::PIE_DEVICE_GEOMETRY_PORTS
         );
     }
 

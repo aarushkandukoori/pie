@@ -1,6 +1,6 @@
 use crate::common::grammar_accepts;
-use pie_grammar::grammar::Grammar;
-use pie_grammar::regex::regex_to_grammar;
+use ::grammar::grammar::Grammar;
+use ::grammar::regex::regex_to_grammar;
 
 #[test]
 fn unicode_literals_quantifiers_and_classes() {

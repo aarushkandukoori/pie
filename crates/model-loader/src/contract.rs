@@ -4,7 +4,7 @@
 //! See `loader/spec.md` for the design rationale. In short: the contract
 //! declares every tensor the driver will bind and where its bytes come from;
 //! the compiler decides how to move them, and no part of it needs to know the
-//! model family. The declarer is `pie_model::contract` — an author turns a
+//! model family. The declarer is `model::contract` — an author turns a
 //! driver's facts-and-policy request into one of these on this side of the
 //! ABI (`plan/model-in-rust.md` §2), so the contract is internal IR now, not
 //! an input a caller hands over.

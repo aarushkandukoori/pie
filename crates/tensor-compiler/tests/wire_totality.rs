@@ -52,7 +52,7 @@ struct Sweep {
 
 const SWEEPS: &[Sweep] = &[Sweep {
     name: "PTIR container",
-    run: |bytes| match pie_ir::container::decode(bytes) {
+    run: |bytes| match tensor_ir::container::decode(bytes) {
         // Re-encode inside the sweep so `encode` is exercised on every
         // accepted mutant too, not only on the corpus.
         Ok(container) => container.encode() == bytes,

@@ -1,9 +1,9 @@
 //! Borrowed ABI marshalling: `*DescBorrow` types that borrow runtime-owned
-//! plans and lay them out as `pie_driver_abi` descriptors for the lifetime of
+//! plans and lay them out as `driver_abi` descriptors for the lifetime of
 //! a backend call. Most fields are pointer/length views; temporary backing
 //! storage is allocated only where the wire layout requires packing.
 
-use pie_driver_abi::{
+use driver_abi::{
     PIE_DRIVER_ABI_VERSION, PieBytes, PieChannelDesc, PieChannelValueDesc,
     PieChannelValueDescSlice, PieDirectArgmax, PieDirectArgmaxSlice, PieEmittedKernel,
     PieEmittedKernelSlice, PieEncodeDesc, PieInstanceDesc, PieKvCopyDesc, PieKvMoveCellSlice,
@@ -79,7 +79,7 @@ impl MaskWordsStorage {
         let mut words = Vec::new();
         word_indptr.push(0);
         for mask in &plan.masks {
-            let word_count = pie_grammar::bitmask::bitmask_size(mask.len());
+            let word_count = grammar::bitmask::bitmask_size(mask.len());
             let start = words.len();
             words.resize(start + word_count, 0);
             let mut run_start = 0usize;
@@ -87,7 +87,7 @@ impl MaskWordsStorage {
                 let run_end = run_start.saturating_add(run_len as usize);
                 if index % 2 == 1 {
                     for bit in run_start..run_end.min(mask.len()) {
-                        pie_grammar::bitmask::set_bit(&mut words[start..], bit);
+                        grammar::bitmask::set_bit(&mut words[start..], bit);
                     }
                 }
                 run_start = run_end;
@@ -284,9 +284,9 @@ impl<'a> InstanceDescBorrow<'a> {
 fn step_desc<'a>(
     step: &'a StepSubmission,
     masks: &'a MaskWordsStorage,
-) -> pie_driver_abi::PieStepDesc {
+) -> driver_abi::PieStepDesc {
     let plan = &step.plan;
-    pie_driver_abi::PieStepDesc {
+    driver_abi::PieStepDesc {
         roster_rows: u32_slice(&step.roster_rows),
         sub_batch_indptr: u32_slice(&step.sub_batch_indptr),
         sub_batch_class: u32_slice(&step.sub_batch_class),
@@ -361,8 +361,8 @@ fn step_desc<'a>(
 /// the lifetime of the backend call.
 pub struct FrameDescBorrow<'a> {
     _masks: Vec<MaskWordsStorage>,
-    _steps: Vec<pie_driver_abi::PieStepDesc>,
-    raw: pie_driver_abi::PieFrameDesc,
+    _steps: Vec<driver_abi::PieStepDesc>,
+    raw: driver_abi::PieFrameDesc,
     _submission: &'a FrameSubmission,
 }
 impl<'a> FrameDescBorrow<'a> {
@@ -372,13 +372,13 @@ impl<'a> FrameDescBorrow<'a> {
             .iter()
             .map(|step| MaskWordsStorage::from_plan(&step.plan))
             .collect();
-        let steps: Vec<pie_driver_abi::PieStepDesc> = submission
+        let steps: Vec<driver_abi::PieStepDesc> = submission
             .steps
             .iter()
             .zip(&masks)
             .map(|(step, masks)| step_desc(step, masks))
             .collect();
-        let raw = pie_driver_abi::PieFrameDesc {
+        let raw = driver_abi::PieFrameDesc {
             abi_version: PIE_DRIVER_ABI_VERSION,
             reserved0: 0,
             instance_ids: u64_slice(&submission.instance_ids),
@@ -386,7 +386,7 @@ impl<'a> FrameDescBorrow<'a> {
             kv_translation_indptr: u32_slice(&submission.kv_translation_indptr),
             required_kv_pages: submission.required_kv_pages,
             reserved1: 0,
-            steps: pie_driver_abi::PieStepDescSlice {
+            steps: driver_abi::PieStepDescSlice {
                 ptr: steps.as_ptr(),
                 len: steps.len(),
             },
@@ -398,18 +398,18 @@ impl<'a> FrameDescBorrow<'a> {
             _submission: submission,
         }
     }
-    pub fn as_raw(&self) -> &pie_driver_abi::PieFrameDesc {
+    pub fn as_raw(&self) -> &driver_abi::PieFrameDesc {
         &self.raw
     }
 }
 
 pub struct EncodeDescBorrow<'a> {
     raw: PieEncodeDesc,
-    _plan: &'a mut pie_driver_abi::MediaEncodePlan,
+    _plan: &'a mut driver_abi::MediaEncodePlan,
 }
 
 impl<'a> EncodeDescBorrow<'a> {
-    pub fn new(plan: &'a mut pie_driver_abi::MediaEncodePlan) -> Self {
+    pub fn new(plan: &'a mut driver_abi::MediaEncodePlan) -> Self {
         let raw = PieEncodeDesc {
             abi_version: PIE_DRIVER_ABI_VERSION,
             reserved0: 0,

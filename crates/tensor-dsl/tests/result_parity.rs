@@ -13,13 +13,13 @@
 
 use tensor_compiler::eval::interp::Value;
 use tensor_compiler::eval::interp::{HostError, Instance, NoKernels, PassInputs};
-use pie_ir::container;
-use pie_ir::registry::ModelProfile;
-use pie_ir::validate::{BoundTrace, bind};
+use tensor_ir::container;
+use tensor_ir::registry::ModelProfile;
+use tensor_ir::validate::{BoundTrace, bind};
 
-use pie_dsl::builder::Builder;
-use pie_dsl::prelude::*;
-use pie_dsl::{Channel, Traced};
+use tensor_dsl::builder::Builder;
+use tensor_dsl::prelude::*;
+use tensor_dsl::{Channel, Traced};
 
 /// Bind a lowered [`Traced`] against the current model profile (native parity
 /// only — host-side this is `forward-pass.program`'s job).

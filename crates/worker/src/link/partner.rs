@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, ensure};
-use pie_controller_rpc::{NeighborPeer, Role};
-use pie_driver_abi::{
+use controller_api::{NeighborPeer, Role};
+use driver_abi::{
     ExecutorRequest, ExecutorResponse, HelloRequest, ModelIdentity, REMOTE_WIRE_VERSION,
 };
-use pie_ids::WorkerId;
+use ids::WorkerId;
 
 use crate::executor;
 
@@ -17,9 +17,9 @@ const PARTNER_RPC_DEADLINE: Duration = Duration::from_secs(10);
 pub(crate) struct PartnerBootstrap {
     pub full_identity: ModelIdentity,
     pub encode_identity: ModelIdentity,
-    pub kv_layout: pie_driver_abi::KvLayout,
+    pub kv_layout: driver_abi::KvLayout,
     #[cfg_attr(not(feature = "nixl"), allow(dead_code))]
-    pub home_kv_handle: pie_driver_abi::KvHandle,
+    pub home_kv_handle: driver_abi::KvHandle,
     pub transfer: crate::config::OffloadTransfer,
     pub model_idx: usize,
     pub page_size: u32,
@@ -29,17 +29,17 @@ pub(crate) struct PartnerBootstrap {
 
 #[cfg(feature = "nixl")]
 struct ClientNixl {
-    _engine: std::sync::Arc<pie_transport::NixlEngine>,
+    _engine: std::sync::Arc<transport::NixlEngine>,
     metadata: Vec<u8>,
 }
 
 struct PartnerLink {
     peer: NeighborPeer,
     driver_id: Option<usize>,
-    client: pie_driver_abi::ExecutorRpcClient,
-    disconnect: Option<pie_engine::driver::RemoteDisconnectHandle>,
-    role: pie_engine::offload::PartnerRole,
-    partner: std::sync::Arc<pie_engine::offload::Partner>,
+    client: driver_abi::ExecutorRpcClient,
+    disconnect: Option<::engine::driver::RemoteDisconnectHandle>,
+    role: ::engine::offload::PartnerRole,
+    partner: std::sync::Arc<::engine::offload::Partner>,
 }
 
 pub(crate) struct PartnerLinkManager {
@@ -154,13 +154,13 @@ impl PartnerLinkManager {
 
     async fn dial(&self, peer: NeighborPeer) -> Result<PartnerLink> {
         let role = match peer.role {
-            Role::Prefill => pie_engine::offload::PartnerRole::Prefill,
-            Role::Encode => pie_engine::offload::PartnerRole::Encode,
+            Role::Prefill => ::engine::offload::PartnerRole::Prefill,
+            Role::Encode => ::engine::offload::PartnerRole::Encode,
             Role::Decode => anyhow::bail!("decode peer is not an executor partner"),
         };
         let identity = match role {
-            pie_engine::offload::PartnerRole::Prefill => self.config.full_identity.clone(),
-            pie_engine::offload::PartnerRole::Encode => self.config.encode_identity.clone(),
+            ::engine::offload::PartnerRole::Prefill => self.config.full_identity.clone(),
+            ::engine::offload::PartnerRole::Encode => self.config.encode_identity.clone(),
         };
         let (client, local_ip) = executor::connect_with_local_ip(&peer.addr).await?;
         let peer_conn = {
@@ -168,8 +168,8 @@ impl PartnerLinkManager {
             {
                 self.nixl
                     .as_ref()
-                    .map(|nixl| pie_driver_abi::RemotePeerConn {
-                        kind: pie_driver_abi::RemoteTransferKind::Nixl,
+                    .map(|nixl| driver_abi::RemotePeerConn {
+                        kind: driver_abi::RemoteTransferKind::Nixl,
                         handle: Some(self.config.home_kv_handle.clone()),
                         metadata: nixl.metadata.clone(),
                     })
@@ -200,7 +200,7 @@ impl PartnerLinkManager {
         };
         ensure!(hello.wire_version == REMOTE_WIRE_VERSION, "wire mismatch");
         ensure!(hello.model == identity, "model identity mismatch");
-        if role == pie_engine::offload::PartnerRole::Encode {
+        if role == ::engine::offload::PartnerRole::Encode {
             ensure!(
                 hello.capabilities.supports_media_encode,
                 "encode partner does not advertise media encoding"
@@ -209,13 +209,13 @@ impl PartnerLinkManager {
                 hello.grant.num_pages == 0 && hello.peer_conn.handle.is_none(),
                 "encode partner unexpectedly exposed a KV grant"
             );
-            let partner = pie_engine::offload::register_partner(
+            let partner = ::engine::offload::register_partner(
                 peer.id.0,
                 self.worker_id.0,
                 None::<usize>,
                 role,
                 self.config.max_outstanding,
-                pie_driver_abi::RemoteTransferKind::Inline,
+                driver_abi::RemoteTransferKind::Inline,
                 Some(client.clone()),
             );
             partner.set_blob_host(local_ip);
@@ -250,32 +250,32 @@ impl PartnerLinkManager {
         );
         if self.config.transfer == crate::config::OffloadTransfer::Nixl {
             ensure!(
-                hello.peer_conn.kind == pie_driver_abi::RemoteTransferKind::Nixl,
+                hello.peer_conn.kind == driver_abi::RemoteTransferKind::Nixl,
                 "executor did not accept required NIXL transfer"
             );
         }
 
-        let remote = pie_engine::driver::RemoteDriver::new(
+        let remote = ::engine::driver::RemoteDriver::new(
             client.clone(),
             tokio::runtime::Handle::current(),
             hello.capabilities.clone(),
             hello.grant,
         );
         let disconnect = remote.disconnect_handle();
-        let driver_id = pie_engine::driver::register_driver_backend(
-            pie_engine::driver::DriverSpec {
+        let driver_id = ::engine::driver::register_driver_backend(
+            ::engine::driver::DriverSpec {
                 num_kv_pages: hello.grant.num_pages as usize,
-                limits: pie_engine::driver::SchedulerLimits {
+                limits: ::engine::driver::SchedulerLimits {
                     max_forward_requests: hello.capabilities.max_forward_requests as usize,
                     max_forward_tokens: hello.capabilities.max_forward_tokens as usize,
                     max_page_refs: hello.capabilities.max_page_refs as usize,
                 },
                 device_geometry_port_mask: hello.capabilities.device_geometry_port_mask,
             },
-            pie_engine::driver::DriverBackend::Remote(remote),
+            ::engine::driver::DriverBackend::Remote(remote),
         );
 
-        if let Err(error) = pie_engine::offload::register_remote_store(
+        if let Err(error) = ::engine::offload::register_remote_store(
             self.config.model_idx,
             driver_id,
             self.config.page_size,
@@ -283,21 +283,21 @@ impl PartnerLinkManager {
             hello.grant.num_pages as usize,
         ) {
             disconnect.disconnect("remote store registration failed");
-            let _ = pie_engine::driver::unregister_driver(driver_id);
+            let _ = ::engine::driver::unregister_driver(driver_id);
             return Err(error).context("registering remote scratch store");
         }
 
-        if let Err(error) = pie_engine::scheduler::spawn_driver(
+        if let Err(error) = ::engine::scheduler::spawn_driver(
             driver_id,
             self.config.page_size,
             self.config.request_timeout_secs,
         ) {
             disconnect.disconnect("remote scheduler registration failed");
-            let _ = pie_engine::offload::unregister_remote_store(self.config.model_idx, driver_id);
-            let _ = pie_engine::driver::unregister_driver(driver_id);
+            let _ = ::engine::offload::unregister_remote_store(self.config.model_idx, driver_id);
+            let _ = ::engine::driver::unregister_driver(driver_id);
             return Err(error).context("spawning remote scheduler");
         }
-        let partner = pie_engine::offload::register_partner(
+        let partner = ::engine::offload::register_partner(
             peer.id.0,
             self.worker_id.0,
             driver_id,
@@ -323,7 +323,7 @@ impl PartnerLinkManager {
         if let Some(disconnect) = &link.disconnect {
             disconnect.disconnect(reason.to_string());
         }
-        pie_engine::offload::remove_partner(worker_id.0, link.role);
+        ::engine::offload::remove_partner(worker_id.0, link.role);
         let model_idx = self.config.model_idx;
         let cleanup = tokio::spawn(async move {
             link.partner.wait_drained().await;
@@ -344,8 +344,8 @@ fn finish_cleanup(worker_id: WorkerId, link: PartnerLink, model_idx: usize) {
     let Some(driver_id) = link.driver_id else {
         return;
     };
-    pie_engine::offload::close_driver_surrogates(driver_id);
-    if let Err(error) = pie_engine::scheduler::stop_driver(driver_id) {
+    ::engine::offload::close_driver_surrogates(driver_id);
+    if let Err(error) = ::engine::scheduler::stop_driver(driver_id) {
         tracing::warn!(
             partner = %worker_id,
             driver_id,
@@ -353,7 +353,7 @@ fn finish_cleanup(worker_id: WorkerId, link: PartnerLink, model_idx: usize) {
             "stopping remote scheduler"
         );
     }
-    if let Err(error) = pie_engine::offload::unregister_remote_store(model_idx, driver_id) {
+    if let Err(error) = ::engine::offload::unregister_remote_store(model_idx, driver_id) {
         tracing::warn!(
             partner = %worker_id,
             driver_id,
@@ -361,7 +361,7 @@ fn finish_cleanup(worker_id: WorkerId, link: PartnerLink, model_idx: usize) {
             "unregistering remote store"
         );
     }
-    if let Err(error) = pie_engine::driver::unregister_driver(driver_id) {
+    if let Err(error) = ::engine::driver::unregister_driver(driver_id) {
         tracing::warn!(
             partner = %worker_id,
             driver_id,
@@ -373,23 +373,23 @@ fn finish_cleanup(worker_id: WorkerId, link: PartnerLink, model_idx: usize) {
 
 #[cfg(feature = "nixl")]
 fn build_client_nixl(worker_id: WorkerId, config: &PartnerBootstrap) -> Result<Option<ClientNixl>> {
-    use pie_transport::Engine;
+    use transport::Engine;
 
     if config.transfer == crate::config::OffloadTransfer::Inline {
         return Ok(None);
     }
     let result = (|| {
-        let engine = std::sync::Arc::new(pie_transport::NixlEngine::new(&format!(
+        let engine = std::sync::Arc::new(transport::NixlEngine::new(&format!(
             "pie-decode-{}-{}",
             worker_id.0,
             std::process::id()
         ))?);
         let _registered = engine.register(
-            pie_transport::WorkerId(worker_id.0),
+            transport::WorkerId(worker_id.0),
             config.home_kv_handle.clone(),
         )?;
         let metadata = engine.local_metadata()?;
-        Ok::<_, pie_transport::TransportError>(ClientNixl {
+        Ok::<_, transport::TransportError>(ClientNixl {
             _engine: engine,
             metadata,
         })
@@ -414,7 +414,7 @@ impl Drop for PartnerLinkManager {
             if let Some(disconnect) = &link.disconnect {
                 disconnect.disconnect("partner manager dropped");
             }
-            pie_engine::offload::remove_partner(worker_id.0, link.role);
+            ::engine::offload::remove_partner(worker_id.0, link.role);
             let _ = std::thread::Builder::new()
                 .name(format!("pie-partner-cleanup-{}", worker_id.0))
                 .spawn(move || {

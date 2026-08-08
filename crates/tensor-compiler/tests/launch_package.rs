@@ -19,17 +19,17 @@
 mod msl_corpus;
 
 use msl_corpus::{GOLDEN_NAMES, golden_container, golden_profile, synthetic_traces};
-use pie_driver_abi::plan::LaunchStagePlan;
-use pie_driver_abi::{
+use driver_abi::plan::LaunchStagePlan;
+use driver_abi::{
     PIE_STAGE_GROUPED_VALID, PIE_STAGE_REQUIRES_ATTN_SCORE, PIE_STAGE_REQUIRES_KERNEL_CALL,
     PIE_STAGE_REQUIRES_LAYER, PIE_STAGE_REQUIRES_LORA, PIE_STAGE_REQUIRES_MTP_ROWS,
     PIE_STAGE_REQUIRES_PAGE_MASK, PIE_STAGE_REQUIRES_QUERY,
 };
-use pie_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
-use pie_ir::op::Op;
-use pie_ir::registry::{ModelProfile, Stage};
-use pie_ir::types::{DType, Shape};
-use pie_ir::validate::bind;
+use tensor_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
+use tensor_ir::op::Op;
+use tensor_ir::registry::{ModelProfile, Stage};
+use tensor_ir::types::{DType, Shape};
+use tensor_ir::validate::bind;
 use tensor_compiler::plan::compile_bound;
 
 /// Every corpus trace's launch package, tagged with the trace it came from.
@@ -98,7 +98,7 @@ fn every_plan_the_driver_receives_is_well_formed() {
             for op in &plan.ops {
                 let tag = u8::try_from(op.code).expect("an op code is a wire tag");
                 assert!(
-                    pie_ir::op::spec(tag).is_some(),
+                    tensor_ir::op::spec(tag).is_some(),
                     "{id}: lowered op code {:#06x} is not in OP_TABLE",
                     op.code
                 );

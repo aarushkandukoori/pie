@@ -59,7 +59,7 @@ impl Flavor {
 fn missing_feature_msg(toml_type: &str, feature: &str) -> String {
     format!(
         "driver type {toml_type:?} is not built into this binary. \
-         Rebuild `pie-worker` with `--features {feature}` (or include \
+         Rebuild `worker` with `--features {feature}` (or include \
          it alongside other `driver-*` features). Compiled flavors: {compiled}.",
         compiled = compiled_summary(),
     )

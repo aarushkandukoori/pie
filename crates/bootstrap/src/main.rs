@@ -1,4 +1,4 @@
-//! `pie-env` — show what a pie daemon would resolve, without starting one.
+//! `bootstrap` — show what a pie daemon would resolve, without starting one.
 //!
 //! Every pie process resolves the same things at boot: `$PIE_HOME`, *which*
 //! config file to read (`--config` → `$PIE_CONFIG` → `$PIE_HOME/<role>.toml`,
@@ -8,7 +8,7 @@
 //! path nobody reads produces a daemon that boots happily on defaults.
 //!
 //! This command answers those questions up front, from the same code the
-//! daemons run ([`startup::report`]), so it cannot report a path they wouldn't
+//! daemons run ([`bootstrap::report`]), so it cannot report a path they wouldn't
 //! read.
 //!
 //! ```text
@@ -21,8 +21,8 @@
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
-use startup::report::Resolved;
-use startup::{BootSpec, GlobalArgs};
+use bootstrap::report::Resolved;
+use bootstrap::{BootSpec, GlobalArgs};
 
 /// A single value to print raw, for shell consumption:
 /// `cfg=$(pie-env --role worker --field config)`.
@@ -81,7 +81,7 @@ fn main() -> ExitCode {
     };
     let resolved: Vec<Resolved> = specs
         .iter()
-        .map(|spec| startup::report::resolve(spec, &cli.global))
+        .map(|spec| bootstrap::report::resolve(spec, &cli.global))
         .collect();
 
     match cli.field {

@@ -17,10 +17,10 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use pie_ir::container::{
+use tensor_ir::container::{
     ChanDType, ChannelDecl, HostRole, PortBinding, PortSource, StageProgram, TraceContainer,
 };
-use pie_ir::registry::{Port, Stage};
+use tensor_ir::registry::{Port, Stage};
 
 use crate::channel::Channel;
 use crate::context::{self, ChannelRef, SinkCall};

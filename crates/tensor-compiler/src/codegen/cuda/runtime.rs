@@ -4,7 +4,7 @@
 //! generated RNG preamble (`PTIR_RNG_CUDA_PREAMBLE`). The two literals are
 //! checked in verbatim under `compiler/codegen/runtime/cuda/`; the RNG half is
 //! still generated, by [`crate::codegen::rng`], so the device RNG cannot drift from
-//! `pie_ir::rng`.
+//! `tensor_ir::rng`.
 
 use alloc::string::String;
 

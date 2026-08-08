@@ -5,7 +5,7 @@
 //! real coherent tokens on the paged-KV / atomic-txn / CoW forward path (real
 //! CoW, real save→/scratch→open replay), via the result-captured canary
 //! harness. (The former CAS-index dedup half of this lane sampled the live CAS
-//! index through `pie_engine::arena`/`working_set::kv_cas`, an introspection
+//! index through `::engine::arena`/`working_set::kv_cas`, an introspection
 //! surface the engine no longer exposes; the prefix-dedup contract is covered
 //! by the engine's prefix-cache e2e and the prefix-heavy benchmark gate.)
 //!

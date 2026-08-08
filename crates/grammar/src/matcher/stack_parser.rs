@@ -1063,7 +1063,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::compiled_grammar::CompiledGrammar;
-    use pie_tokenizer::Tokenizer;
+    use tokenizer::Tokenizer;
 
     #[test]
     #[ignore] // Run with: cargo test diagnostic_per_byte_stats -- --ignored --nocapture

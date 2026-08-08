@@ -65,8 +65,8 @@ use common::{
     mock_device::{DelayedBehavior, EchoBehavior},
 };
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process;
+use engine::inferlet::program::ProgramName;
 
 fn env_usize(key: &str, default: usize) -> usize {
     std::env::var(key)
@@ -124,15 +124,15 @@ async fn install_curated(name: &str) {
             .join(format!("{}.wasm", name.replace('-', "_"))),
     )
     .expect("read curated wasm");
-    let manifest = pie_engine::inferlet::program::Manifest::parse(
+    let manifest = engine::inferlet::program::Manifest::parse(
         &std::fs::read_to_string(workspace.join(name).join("Pie.toml")).unwrap(),
     )
     .unwrap();
     let program_name = ProgramName::parse(&format!("{name}@{}", manifest.package.version)).unwrap();
-    pie_engine::inferlet::program::add(wasm, manifest, true)
+    engine::inferlet::program::add(wasm, manifest, true)
         .await
         .unwrap();
-    pie_engine::inferlet::program::install(&program_name)
+    engine::inferlet::program::install(&program_name)
         .await
         .unwrap();
 }
@@ -172,7 +172,7 @@ fn bench() -> &'static Bench {
         let env = env.with_frame_size(env_usize("PIE_BENCH_FRAME_SIZE", 2) as u32);
         let config = env.config();
         rt.block_on(async {
-            pie_engine::bootstrap::bootstrap(config).await.unwrap();
+            engine::bootstrap::bootstrap(config).await.unwrap();
             for name in PROGRAMS {
                 inferlets::add_and_install(name).await;
             }
@@ -188,7 +188,7 @@ fn bench() -> &'static Bench {
 /// report their token count differently from the small engine fixtures.
 fn spawn_spec(name: &str, tokens: usize) -> (ProgramName, String, String) {
     if CURATED.contains(&name) {
-        let manifest = pie_engine::inferlet::program::Manifest::parse(
+        let manifest = engine::inferlet::program::Manifest::parse(
             &std::fs::read_to_string(curated_dir().join(name).join("Pie.toml")).unwrap(),
         )
         .unwrap();
@@ -281,7 +281,7 @@ fn recurrent_decode_throughput() {
     let lanes = env_usize("PIE_BENCH_LANES", 1);
     let dense = env_usize("PIE_BENCH_DENSE", 0);
     let linear = env_usize("PIE_BENCH_LINEAR", 1);
-    let k = pie_engine::scheduler::configured_frame_size();
+    let k = engine::scheduler::configured_frame_size();
 
     // One untimed warm lane: first submit of a pass traces, hashes and binds
     // its PTIR program, and the wasm module/instance pool is cold.

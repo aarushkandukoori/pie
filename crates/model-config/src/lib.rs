@@ -19,7 +19,7 @@
 //!
 //! It lives under `model/` because that is what it is: model knowledge, not
 //! runtime machinery. It sat under `runtime/` while the runtime was its only
-//! caller; `pie-model` reads the descriptor directly now
+//! caller; `model` reads the descriptor directly now
 //! (`ModelFacts::from_descriptor`).
 
 pub mod json;

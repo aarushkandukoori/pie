@@ -16,11 +16,11 @@
 //! a blanket re-bless turns this net into a transcript of whatever the
 //! emitters happen to do today.
 
-use pie_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
-use pie_ir::op::{IntrinsicId, Op};
-use pie_ir::registry::{KernelInfo, ModelProfile, SinkScope, Stage};
-use pie_ir::types::{DType, RngKind, Shape};
-use pie_ir::validate::bind;
+use tensor_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
+use tensor_ir::op::{IntrinsicId, Op};
+use tensor_ir::registry::{KernelInfo, ModelProfile, SinkScope, Stage};
+use tensor_ir::types::{DType, RngKind, Shape};
+use tensor_ir::validate::bind;
 use tensor_compiler::plan::{CompiledStage, compile_bound, debug_stage_plan};
 
 /// Golden names in the order the corpus enumerates them.
@@ -69,7 +69,7 @@ pub fn golden_container(name: &str) -> TraceContainer {
         .lines()
         .find_map(|line| line.strip_prefix("container: "))
         .unwrap_or_else(|| panic!("{path} has no container line"));
-    pie_ir::container::decode(&unhex(line)).unwrap_or_else(|e| panic!("{name}: {e:?}"))
+    tensor_ir::container::decode(&unhex(line)).unwrap_or_else(|e| panic!("{name}: {e:?}"))
 }
 
 /// The bind-time profile each golden was authored against (mirrors the
@@ -319,7 +319,7 @@ pub fn region_shape(region: &tensor_compiler::plan::Region) -> String {
 /// is no single program the flattened list belongs to. The coverage tests only
 /// care that each kernel *family* is emitted, so any bound trace serves; this
 /// returns the first golden's.
-pub fn corpus_bound() -> pie_ir::validate::BoundTrace {
+pub fn corpus_bound() -> tensor_ir::validate::BoundTrace {
     let name = GOLDEN_NAMES[0];
     bind(golden_container(name), golden_profile(name)).expect("first golden binds")
 }

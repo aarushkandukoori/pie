@@ -11,8 +11,8 @@ use common::{
     mock_device::{DelayedBehavior, EchoBehavior},
 };
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process;
+use engine::inferlet::program::ProgramName;
 
 #[test]
 fn host_swap_exhaustion_kills_a_victim_without_wedging_the_fleet() {
@@ -33,7 +33,7 @@ fn host_swap_exhaustion_kills_a_victim_without_wedging_the_fleet() {
     let mut config = env.config();
     config.model.drivers[0].cpu_pages = 0;
     runtime.block_on(async {
-        pie_engine::bootstrap::bootstrap(config).await.unwrap();
+        engine::bootstrap::bootstrap(config).await.unwrap();
         inferlets::add_and_install("generate").await;
     });
 
@@ -89,7 +89,7 @@ fn host_swap_exhaustion_kills_a_victim_without_wedging_the_fleet() {
         .await
         .expect("host-full fleet must tear down");
     });
-    let diagnostics = pie_engine::planner::planner()
+    let diagnostics = engine::planner::planner()
         .expect("residency planner")
         .diagnostics();
     assert!(diagnostics.starvations_total > 0);

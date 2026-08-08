@@ -2503,7 +2503,7 @@ deletion) closes the ladder.
 ## RUNG ③ SPEC (2026-08-04): the region table
 
 Today's axis ABI is four appended scalars at PieStepDesc's tail
-(pie_driver_abi.h:1445-1468): planned_hook_free_prefix_rows,
+(pie_pie_driver_abi.h:1445-1468): planned_hook_free_prefix_rows,
 planned_unmasked_prefix_rows, planned_max_layers,
 planned_full_depth_rows — one word per axis, the accretion V2 ends.
 

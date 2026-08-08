@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 
 #[test]
 #[ignore = "requires the official Kimi K2 tokenizer snapshot"]

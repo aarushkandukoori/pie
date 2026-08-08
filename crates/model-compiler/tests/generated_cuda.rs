@@ -4,8 +4,8 @@
 //! happen quietly. Regenerate with `cargo run -p pie-forward --bin
 //! emit-cuda` and review the diff; then re-run the three-way parity gate.
 
-use pie_forward::emit_cuda::emit_llama_like_cuda_inc;
-use pie_forward::{LlamaLikeCudaFacts, LlamaLikeFacts};
+use model_compiler::emit_cuda::emit_llama_like_cuda_inc;
+use model_compiler::{LlamaLikeCudaFacts, LlamaLikeFacts};
 
 fn check(name: &str, fresh: &str) {
     let path = format!(
@@ -106,9 +106,9 @@ fn committed_incs_are_regeneration_clean() {
     );
     check_q35(
         "qwen3_5_0_8b",
-        &pie_forward::emit_qwen35::emit_qwen35_cuda_inc(
-            &pie_forward::Qwen35HybridFacts::qwen3_5_0_8b(),
-            &pie_forward::Qwen35CudaFacts {
+        &model_compiler::emit_qwen35::emit_qwen35_cuda_inc(
+            &model_compiler::Qwen35HybridFacts::qwen3_5_0_8b(),
+            &model_compiler::Qwen35CudaFacts {
                 state_bf16: true,
                 warp_tiled: false,
                 warp_tiled_max: 64,

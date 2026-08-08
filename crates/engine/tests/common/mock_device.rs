@@ -7,10 +7,10 @@ use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pie_engine::driver::{
+use engine::driver::{
     DriverBackend, DriverSpec, LaunchPlan, SchedulerLimits, register_driver_backend,
 };
-use pie_engine::scheduler::worker::BatchScheduler;
+use engine::scheduler::worker::BatchScheduler;
 
 /// Launch observer for harness probes, wired onto the dummy driver's launch
 /// path via [`launch_observer`]: it sees every accepted launch's forward
@@ -23,8 +23,8 @@ pub trait Behavior: Send + Sync + 'static {
 /// Adapt a [`Behavior`] to the dummy driver's [`LaunchObserver`]: rebuild the
 /// observed forward geometry as a [`LaunchPlan`] and forward it to
 /// `observe_launch` synchronously on the launch path.
-pub fn launch_observer(behavior: Arc<dyn Behavior>) -> pie_driver_dummy_lib::LaunchObserver {
-    pie_driver_dummy_lib::LaunchObserver(Arc::new(move |obs| {
+pub fn launch_observer(behavior: Arc<dyn Behavior>) -> driver_dummy::LaunchObserver {
+    driver_dummy::LaunchObserver(Arc::new(move |obs| {
         let (kv_page_indices, kv_page_indptr) = if obs.kv_translation.is_empty() {
             (obs.kv_page_indices.clone(), obs.kv_page_indptr.clone())
         } else {
@@ -60,12 +60,12 @@ pub struct EchoBehavior(pub u32);
 impl Behavior for EchoBehavior {}
 
 fn mock_hash_uniform(seed_eff: u64, j: u32) -> f32 {
-    pie_ir::rng::hash_uniform(seed_eff, j)
+    tensor_ir::rng::hash_uniform(seed_eff, j)
 }
 
 /// Deterministic pseudo-random logits row seeded by request id, in ~[-4, 4].
 pub fn synthetic_logits(req_id: u64, vocab: usize) -> Vec<f32> {
-    let seed = req_id ^ pie_ir::rng::seed_eff(0);
+    let seed = req_id ^ tensor_ir::rng::seed_eff(0);
     (0..vocab as u32)
         .map(|j| (mock_hash_uniform(seed, j) * 2.0 - 1.0) * 4.0)
         .collect()
@@ -183,7 +183,7 @@ fn register_dummy_driver(
     vocab_size: u32,
     operation_log: Arc<Mutex<Vec<String>>>,
 ) -> (usize, BatchScheduler) {
-    let (backend, _) = DriverBackend::dummy(pie_driver_dummy_lib::DummyDriverOptions {
+    let (backend, _) = DriverBackend::dummy(driver_dummy::DummyDriverOptions {
         total_pages: num_kv_pages as u32,
         kv_page_size: 16,
         swap_pool_size: 0,
@@ -226,8 +226,8 @@ fn register_dummy_driver(
         DriverSpec {
             num_kv_pages,
             limits,
-            device_geometry_port_mask: pie_driver_abi::PIE_DEVICE_GEOMETRY_PORTS
-                | pie_driver_abi::PIE_DEVICE_PORT_ATTN_MASK,
+            device_geometry_port_mask: driver_abi::PIE_DEVICE_GEOMETRY_PORTS
+                | driver_abi::PIE_DEVICE_PORT_ATTN_MASK,
         },
         backend,
     );

@@ -6,9 +6,9 @@
 //! triplet, and the layout the contract asks for depends on whether this
 //! device has a native MXFP4 GEMM.
 
-use pie_loader::contract::{Expr, GroupContract, Scales, TensorContract};
-use pie_loader::error::Error;
-use pie_loader::types::{DType, Encoding, QuantGranularity, RepackLayout, ScaleForm, TensorId};
+use model_loader::contract::{Expr, GroupContract, Scales, TensorContract};
+use model_loader::error::Error;
+use model_loader::types::{DType, Encoding, QuantGranularity, RepackLayout, ScaleForm, TensorId};
 
 use crate::builder::{Builder, align_up, is_raw, mxfp4_encoding};
 use crate::mlx;
@@ -103,9 +103,9 @@ fn mxfp4_groups(b: &mut Builder<'_>) -> Result<(), Error> {
 
 fn native_gate_up(
     b: &mut Builder<'_>,
-    block: &pie_loader::checkpoint::RawTensor,
-    scale: &pie_loader::checkpoint::RawTensor,
-    bias: &pie_loader::checkpoint::RawTensor,
+    block: &model_loader::checkpoint::RawTensor,
+    scale: &model_loader::checkpoint::RawTensor,
+    bias: &model_loader::checkpoint::RawTensor,
     base: &str,
 ) -> Result<(), Error> {
     if block.shape.len() != 4 || scale.shape.len() != 3 || bias.shape.len() != 2 {
@@ -185,9 +185,9 @@ fn native_gate_up(
 
 fn native_down(
     b: &mut Builder<'_>,
-    block: &pie_loader::checkpoint::RawTensor,
-    scale: &pie_loader::checkpoint::RawTensor,
-    bias: &pie_loader::checkpoint::RawTensor,
+    block: &model_loader::checkpoint::RawTensor,
+    scale: &model_loader::checkpoint::RawTensor,
+    bias: &model_loader::checkpoint::RawTensor,
     base: &str,
 ) -> Result<(), Error> {
     if block.shape.len() != 4 || scale.shape.len() != 3 || bias.shape.len() != 2 {
@@ -283,7 +283,7 @@ fn streamed_expert_groups(b: &mut Builder<'_>) -> Result<(), Error> {
             // slice and a slice keeps its rank — and the bind reads a slot
             // through a view anyway, exactly as it read the bank through
             // one.
-            let band = |raw: &pie_loader::checkpoint::RawTensor| {
+            let band = |raw: &model_loader::checkpoint::RawTensor| {
                 let mut shape = raw.shape.clone();
                 shape[0] = 1;
                 (Expr::src(&raw.name).select(0, 1, 1), shape)

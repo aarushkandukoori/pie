@@ -9,7 +9,7 @@ use crate::decoders::{GenericChatDecoder, NoopReasoningDecoder, ThinkingDecoder}
 use crate::instruct::{
     ChatDecoder, Instruct, ReasoningDecoder, ToolDecoder, ToolEvent, ToolGrammar,
 };
-use pie_tokenizer::{Tokenizer, TokenizerDecoder};
+use tokenizer::{Tokenizer, TokenizerDecoder};
 use std::sync::Arc;
 
 // =============================================================================
@@ -328,7 +328,7 @@ impl ToolDecoder for QwenToolDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_tokenizer::Tokenizer;
+    use tokenizer::Tokenizer;
     use std::sync::Arc;
 
     fn make_tok() -> Arc<Tokenizer> {

@@ -17,15 +17,15 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 
-use pie_loader::checkpoint::read::parse_checkpoint_metadata;
+use model_loader::checkpoint::read::parse_checkpoint_metadata;
 
 // Same names `convert` writes under, taken from the same place rather than
 // mirrored here.
-use pie_loader::checkpoint::meta::{SOURCE_KEY, VERSION_KEY};
+use model_loader::checkpoint::meta::{SOURCE_KEY, VERSION_KEY};
 
 /// `$PIE_HOME/models/`.
 pub fn dir() -> PathBuf {
-    startup::paths::pie_home().join("models")
+    bootstrap::paths::pie_home().join("models")
 }
 
 /// One artifact: its root, the files it is made of, and what it says about
@@ -89,7 +89,7 @@ fn entries_from(candidates: Vec<PathBuf>) -> Vec<Entry> {
         for shard in files.iter().skip(1) {
             claimed.insert(shard.canonicalize().unwrap_or_else(|_| shard.clone()));
         }
-        let attributes = pie_loader::checkpoint::zt::read_attributes(&path).unwrap_or_default();
+        let attributes = model_loader::checkpoint::zt::read_attributes(&path).unwrap_or_default();
         parsed.push(Entry {
             name: path
                 .file_stem()
@@ -166,8 +166,8 @@ pub fn staging_bytes(dir: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_loader::checkpoint::write::CheckpointWriter;
-    use pie_loader::types::{DType, Encoding, TensorDecl, TensorId, Visibility};
+    use model_loader::checkpoint::write::CheckpointWriter;
+    use model_loader::types::{DType, Encoding, TensorDecl, TensorId, Visibility};
 
     fn decl(name: &str) -> TensorDecl {
         TensorDecl {

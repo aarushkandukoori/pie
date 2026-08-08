@@ -6,10 +6,10 @@
 //! layer as one contiguous slab. The contract declares the slab and then
 //! declares each expert as a slice of it, so no byte is copied twice.
 
-use pie_loader::checkpoint::RawTensor;
-use pie_loader::contract::{Expr, TensorType};
-use pie_loader::error::Error;
-use pie_loader::types::{DType, Encoding};
+use model_loader::checkpoint::RawTensor;
+use model_loader::contract::{Expr, TensorType};
+use model_loader::error::Error;
+use model_loader::types::{DType, Encoding};
 
 use crate::builder::{Builder, is_raw};
 

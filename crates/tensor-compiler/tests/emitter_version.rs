@@ -91,7 +91,7 @@ fn fingerprint(backend: Backend) -> u64 {
             bytes.extend_from_slice(text.as_bytes());
         }
     }
-    pie_ir::fnv1a64(&bytes)
+    tensor_ir::fnv1a64(&bytes)
 }
 
 fn backend_of(name: &str) -> Backend {

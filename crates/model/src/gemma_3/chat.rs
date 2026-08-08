@@ -9,7 +9,7 @@
 
 use crate::decoders::{GenericChatDecoder, NoopReasoningDecoder, NoopToolDecoder};
 use crate::instruct::{ChatDecoder, Instruct, ReasoningDecoder, ToolDecoder};
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

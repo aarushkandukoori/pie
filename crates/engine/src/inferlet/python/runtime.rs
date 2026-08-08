@@ -37,7 +37,7 @@ struct State {
 
 static STATE: OnceLock<State> = OnceLock::new();
 
-/// Initializes the shared Python runtime. Must be called once at startup,
+/// Initializes the shared Python runtime. Must be called once at bootstrap,
 /// after the Wasmtime engine is created and before the linker/program services
 /// are spawned. Subsequent calls are no-ops.
 pub fn init(engine: &Engine, py_runtime_dir: &Path, snapshot_enabled: bool) {

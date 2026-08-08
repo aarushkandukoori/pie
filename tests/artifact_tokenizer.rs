@@ -1,7 +1,7 @@
 //! The seam between the two halves of `pie.tokenizer/1`.
 //!
 //! `runtime/tokenizer` proves a tokenizer survives serialization, and
-//! `pie-loader` proves a metadata object survives an artifact. Neither proves
+//! `model-loader` proves a metadata object survives an artifact. Neither proves
 //! the join: that the objects `to_canonical` produces, written under
 //! `__meta__/` and read back out of a `.zt` file by name, rebuild the same
 //! tokenizer. That join is the whole load path a served artifact uses, and it
@@ -10,12 +10,12 @@
 
 use std::collections::HashMap;
 
-use pie_loader::checkpoint::meta;
-use pie_loader::checkpoint::read::parse_checkpoint_metadata;
-use pie_loader::checkpoint::write::CheckpointWriter;
-use pie_loader::types::{DType, Encoding, TensorDecl, TensorId, Visibility};
-use pie_tokenizer::Tokenizer;
-use pie_tokenizer::canonical::CanonicalTokenizer;
+use model_loader::checkpoint::meta;
+use model_loader::checkpoint::read::parse_checkpoint_metadata;
+use model_loader::checkpoint::write::CheckpointWriter;
+use model_loader::types::{DType, Encoding, TensorDecl, TensorId, Visibility};
+use tokenizer::Tokenizer;
+use tokenizer::canonical::CanonicalTokenizer;
 
 /// Pulls every `__meta__/tokenizer/*` object out of an artifact and rebuilds
 /// the tokenizer — the read path a served artifact runs.
@@ -110,7 +110,7 @@ fn an_incomplete_tokenizer_is_refused_by_name() {
 
     let mut writer = CheckpointWriter::create(&artifact, &Default::default()).unwrap();
     for (path, bytes) in canonical.objects() {
-        if path == pie_tokenizer::canonical::MERGE_TABLE {
+        if path == tokenizer::canonical::MERGE_TABLE {
             continue;
         }
         writer.add_meta(path, bytes).unwrap();
@@ -121,7 +121,7 @@ fn an_incomplete_tokenizer_is_refused_by_name() {
         Ok(_) => panic!("an artifact with no merge table produced a tokenizer"),
         Err(err) => assert!(
             err.to_string()
-                .contains(pie_tokenizer::canonical::MERGE_TABLE),
+                .contains(tokenizer::canonical::MERGE_TABLE),
             "unexpected error: {err}"
         ),
     }
@@ -130,7 +130,7 @@ fn an_incomplete_tokenizer_is_refused_by_name() {
 /// The `pie.model/1` descriptor survives the artifact, and says what the C++
 /// normalizer says.
 ///
-/// The differential in `pie-model-config` proves the normalizer agrees with
+/// The differential in `model-config` proves the normalizer agrees with
 /// `config.cpp`; this proves the agreement survives being written into a `.zt`
 /// and read back out — and that `head_dim_kernel`, which is a property of a
 /// driver build rather than of a checkpoint, is *not* along for the ride.

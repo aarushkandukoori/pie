@@ -27,7 +27,7 @@ use crate::types::{
     PieLoaderBytes, PieLoaderCheckpointFileSlice, PieLoaderCheckpointFileView,
     PieLoaderCheckpointFormat, PieLoaderEncodingSpec, PieLoaderI64Slice, write_encoding,
 };
-use pie_loader::checkpoint::CheckpointMetadata;
+use model_loader::checkpoint::CheckpointMetadata;
 
 /// One tensor as it appears in the checkpoint.
 ///

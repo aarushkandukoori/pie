@@ -7,7 +7,7 @@
 
 use crate::decoders::{GenericChatDecoder, NoopReasoningDecoder, NoopToolDecoder};
 use crate::instruct::{ChatDecoder, Instruct, ReasoningDecoder, ToolDecoder};
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 use std::sync::Arc;
 
 pub struct GemmaInstruct {
@@ -111,7 +111,7 @@ impl Instruct for GemmaInstruct {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_tokenizer::Tokenizer;
+    use tokenizer::Tokenizer;
     use std::sync::Arc;
 
     fn make_tok(vocab: &[&str]) -> Arc<Tokenizer> {

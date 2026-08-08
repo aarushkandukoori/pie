@@ -8,9 +8,9 @@ use alloc::collections::BTreeSet;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use pie_ir::Fnv1a;
-use pie_ir::registry::Stage;
-use pie_ir::validate::BoundTrace;
+use tensor_ir::Fnv1a;
+use tensor_ir::registry::Stage;
+use tensor_ir::validate::BoundTrace;
 
 mod canonical;
 mod fold;
@@ -37,7 +37,7 @@ pub const COMPILER_VERSION: u16 = 3;
 /// Bumped when region partitioning changes shape. See [`COMPILER_VERSION`].
 pub const REGION_PLAN_VERSION: u16 = 4;
 
-/// The complete plan for one stage, handed to `pie-codegen` as a value.
+/// The complete plan for one stage, handed to `tensor-compiler` as a value.
 ///
 /// Produced by [`compile_stage_at`]. Both partitions are carried so a backend
 /// can emit the [`fused`](Self::fused) form yet fall back to the
@@ -90,7 +90,7 @@ impl CompiledStage {
                 };
                 elements = elements.saturating_mul(*dimension as u64);
             }
-            elements.saturating_mul(pie_ir::container::const_elem_size(value_type.dtype) as u64)
+            elements.saturating_mul(tensor_ir::container::const_elem_size(value_type.dtype) as u64)
         };
         let direct_values: BTreeSet<u32> = self
             .fused

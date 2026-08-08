@@ -1,6 +1,6 @@
 //! Config sourcing — locate and read the config file into a `String`.
 //!
-//! `startup` deliberately stays format-agnostic: it produces the config
+//! `bootstrap` deliberately stays format-agnostic: it produces the config
 //! *string*; the role lib's `Config::parse(&str)` owns all domain parsing and
 //! validation. Resolution order for the path: `--config` flag → `$PIE_CONFIG`
 //! env → `$PIE_HOME/<default_config_filename>`. A missing default file is not an
@@ -36,7 +36,7 @@ impl Origin {
         matches!(self, Self::Flag | Self::Env)
     }
 
-    /// Human-readable provenance, for `pie-env` and error messages.
+    /// Human-readable provenance, for `bootstrap` and error messages.
     pub fn describe(self) -> &'static str {
         match self {
             Self::Flag => "--config flag",

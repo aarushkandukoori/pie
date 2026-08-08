@@ -1,4 +1,4 @@
-//! # `pie-dsl` — the PTIR embedded DSL (Thrust 3, Rust SDK)
+//! # `tensor-dsl` — the PTIR embedded DSL (Thrust 3, Rust SDK)
 //!
 //! Author *programmable dataflows* as Rust closures that trace **once** into a
 //! canonical PTIR trace container. A program is a closure whose effects are
@@ -9,8 +9,8 @@
 //! eDSL, the trace-recording session, the SDK span lints, and the neutral
 //! [`Builder`] that lowers stage closures + descriptor-port
 //! bindings into the IR's canonical
-//! [`TraceContainer`](pie_ir::container::TraceContainer). Tracing is its
-//! *implementation strategy*, not its identity — hence `pie-dsl`.
+//! [`TraceContainer`](tensor_ir::container::TraceContainer). Tracing is its
+//! *implementation strategy*, not its identity — hence `tensor-dsl`.
 //!
 //! It does **not** bind (the guest does not bind; `forward-pass.program` is the
 //! authoritative gate) and knows nothing of WIT. The author-facing lifetime
@@ -18,9 +18,9 @@
 //! live in `inferlet`, which wraps the WIT resources and drives this builder.
 //!
 //! ```
-//! use pie_dsl::prelude::*;
-//! use pie_dsl::builder::Builder;
-//! use pie_dsl::Port;
+//! use tensor_dsl::prelude::*;
+//! use tensor_dsl::builder::Builder;
+//! use tensor_dsl::Port;
 //!
 //! let tok = Channel::new([1], dtype::i32);
 //! let indptr = Channel::from([0u32, 1]);
@@ -74,9 +74,9 @@ pub use value::*;
 
 /// The canonical PTIR contract (op-table, container, validator, interpreter) —
 /// re-exported for tests and downstream carriers.
-pub use pie_ir as ptir;
-pub use pie_ir::registry::{Port, Stage};
-pub use pie_ir::types::{DType, Shape, ValueType};
+pub use tensor_ir as ptir;
+pub use tensor_ir::registry::{Port, Stage};
+pub use tensor_ir::types::{DType, Shape, ValueType};
 
 /// Glob-import surface for the DSL eDSL op/value names.
 /// The author-facing `ForwardPass`/`Pipeline`/`WorkingSet` surface lives in
@@ -87,5 +87,5 @@ pub mod prelude {
     pub use crate::dtype;
     pub use crate::intrinsics;
     pub use crate::value::*;
-    pub use pie_ir::registry::{Port, Stage};
+    pub use tensor_ir::registry::{Port, Stage};
 }

@@ -6,8 +6,8 @@
 mod common;
 
 use common::{grammar_accepts, regex_accepts};
-use pie_grammar::grammar::Grammar;
-use pie_grammar::json_schema::{JsonSchemaOptions, json_schema_to_grammar};
+use ::grammar::grammar::Grammar;
+use ::grammar::json_schema::{JsonSchemaOptions, json_schema_to_grammar};
 
 #[test]
 #[ignore = "JSON Schema pattern currently uses full-match instead of search semantics"]

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use lru::LruCache;
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 
 use crate::compiled_grammar::CompiledGrammar;
 use crate::grammar::{Expr, Grammar};

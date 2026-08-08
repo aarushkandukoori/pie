@@ -9,10 +9,10 @@
 //! `ForwardPass`/`WorkingSet` surface lives in `inferlet`). Idiom note: values
 //! reused as op operands take `&`; a value used once is moved.
 
-use pie_dsl::builder::Builder;
-use pie_dsl::prelude::*;
-use pie_dsl::ptir::op::Op;
-use pie_dsl::{Channel, TraceError, Traced};
+use tensor_dsl::builder::Builder;
+use tensor_dsl::prelude::*;
+use tensor_dsl::ptir::op::Op;
+use tensor_dsl::{Channel, TraceError, Traced};
 
 const VOCAB: u32 = 32_000;
 const PAGE: u32 = 16;
@@ -83,7 +83,7 @@ fn s3_traces_and_validates() {
     assert_eq!(c.channels.len(), 6, "tok/indptr/out/mask/len/rng");
     assert_eq!(
         c.channels[1].host_role,
-        pie_dsl::ptir::container::HostRole::Writer,
+        tensor_dsl::ptir::container::HostRole::Writer,
         "a seeded descriptor-only channel supports device-visible host set"
     );
     let puts = c.stages[0]
@@ -341,7 +341,7 @@ fn s6_2_beam_epilogue_binds() {
         w_slot.put(&slot);
         w_off.put(&off);
         let tok_u = rem(&i, V);
-        let tok_i = cast(&tok_u, pie_dsl::DType::I32);
+        let tok_i = cast(&tok_u, tensor_dsl::DType::I32);
         toks.put(&tok_i);
         scores.put(&s);
         out.put(&tok_i);
@@ -372,7 +372,7 @@ fn s6_2_beam_epilogue_binds() {
         "pages [B,P] numel in built container"
     );
     let decoded =
-        pie_dsl::ptir::container::decode(&traced.encode()).expect("decode beam container");
+        tensor_dsl::ptir::container::decode(&traced.encode()).expect("decode beam container");
     assert_eq!(
         decoded.channels[0].shape.dims(),
         &[B, P],
@@ -387,7 +387,7 @@ fn s6_2_beam_epilogue_binds() {
     // host_role (fix #3): out/out_par/out_scr are terminal program outputs (prog-put,
     // no program/descriptor consumer) → inferred host Reader so the guest's `take`
     // is accepted; fresh (host-put headroom) is a Writer.
-    use pie_dsl::ptir::container::HostRole;
+    use tensor_dsl::ptir::container::HostRole;
     assert_eq!(
         decoded.channels[13].host_role,
         HostRole::Reader,
@@ -441,7 +441,7 @@ fn s6_1_mtp_grammar_binds() {
         let ones = broadcast(Tensor::constant(1.0f32), [K]);
         let zeros = broadcast(Tensor::constant(0.0f32), [K]);
         let run = cumprod(select(&hit, &ones, &zeros)); // [K]
-        let nacc = cast(reduce_sum(&run), pie_dsl::DType::U32); // accepted-prefix length
+        let nacc = cast(reduce_sum(&run), tensor_dsl::DType::U32); // accepted-prefix length
         let keep = ge(broadcast(&nacc, [kp1]), iota(kp1)); // [K+1]
         let neg1 = broadcast(Tensor::constant(-1i32), [kp1]);
         let commit = select(&keep, &picked, &neg1); // accept-prefix + -1 sentinels

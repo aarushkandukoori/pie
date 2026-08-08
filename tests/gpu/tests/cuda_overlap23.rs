@@ -45,7 +45,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use pie_client::client::Client;
+use client::client::Client;
 
 // ── alpha's seam contract (CONFIRMED on `alpha-23-overlap @ 337e0e0b`) ────────
 // Q1 (link numbering): `next_input_link_counter` is per-instance, init 0,

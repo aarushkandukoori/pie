@@ -7,7 +7,7 @@ use crate::decoders::{GenericChatDecoder, ThinkingDecoder};
 use crate::instruct::{
     ChatDecoder, Instruct, ReasoningDecoder, ToolDecoder, ToolEvent, ToolGrammar,
 };
-use pie_tokenizer::{Tokenizer, TokenizerDecoder};
+use tokenizer::{Tokenizer, TokenizerDecoder};
 use std::sync::Arc;
 
 // The implementation below mirrors the published Llama-3 jinja chat
@@ -224,7 +224,7 @@ impl ToolDecoder for LlamaToolDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_tokenizer::Tokenizer;
+    use tokenizer::Tokenizer;
     use std::sync::Arc;
 
     fn make_tok(vocab: &[&str]) -> Arc<Tokenizer> {

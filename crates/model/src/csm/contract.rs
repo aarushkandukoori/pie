@@ -4,9 +4,9 @@
 //! fact: every kernel in the backbone, the depth decoder and the Mimi codec
 //! reads bf16, and the published checkpoints ship fp32.
 
-use pie_loader::contract::Expr;
-use pie_loader::error::Error;
-use pie_loader::types::{DType, Encoding};
+use model_loader::contract::Expr;
+use model_loader::error::Error;
+use model_loader::types::{DType, Encoding};
 
 use crate::builder::{Builder, is_raw};
 

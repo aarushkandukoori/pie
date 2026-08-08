@@ -5,10 +5,10 @@
 //!   1. Translate user TOML to per-driver options.
 //!   2. For the `[model]`, partition devices into DP groups and create
 //!      native drivers directly, collecting their capabilities.
-//!   3. Translate the resulting native drivers → [`pie_engine::bootstrap::Config`]
-//!      and call [`pie_engine::bootstrap::bootstrap`]. The runtime now owns
+//!   3. Translate the resulting native drivers → [`::engine::bootstrap::Config`]
+//!      and call [`::engine::bootstrap::bootstrap`]. The runtime now owns
 //!      the runtime services + scheduler; the worker dials into the
-//!      gateway and serves `pie_worker_rpc::WorkerControl`.
+//!      gateway and serves `worker_api::WorkerControl`.
 //!   4. Caller decides what to do with the [`EngineHandle`]:
 //!        * `pie serve`: [`EngineHandle::wait_then_shutdown`] blocks
 //!          on SIGINT/SIGTERM/watchdog and tears down.
@@ -16,8 +16,8 @@
 //!          [`EngineHandle::shutdown`] when the user quits.
 
 use anyhow::{Context, Result, anyhow, bail};
-use pie_controller_rpc::{ControlClient, Role, WorkerInfo};
-use pie_ids::WorkerId;
+use controller_api::{ControlClient, Role, WorkerInfo};
+use ids::WorkerId;
 use std::path::Path;
 
 use crate::config;
@@ -83,7 +83,7 @@ impl EdgeServer {
 }
 
 pub struct EngineHandle {
-    runtime: Option<pie_engine::bootstrap::BootstrapHandle>,
+    runtime: Option<::engine::bootstrap::BootstrapHandle>,
     edge_server: EdgeServer,
     /// Controller heartbeat/report/watch tasks. Empty when there is no control
     /// plane (single-node without the `single-node` feature).
@@ -207,7 +207,7 @@ impl WorkerHandle {
             WorkerKind::Decode(engine) => engine.shutdown().await,
             WorkerKind::Executor(executor) => executor.shutdown().await,
         }
-        // The startup TOMLs under `$PIE_HOME/standalone/<pid>` are read once at
+        // The bootstrap TOMLs under `$PIE_HOME/standalone/<pid>` are read once at
         // driver creation and never again, so they are dead the moment the
         // drivers are down. The boot sweep covers the unclean exits.
         crate::embedded_driver::remove_launch_state();
@@ -230,7 +230,7 @@ impl ExecutorHandle {
 /// Daemon entry (`bin/worker`): derive the topology from `cfg.cluster`, boot the
 /// engine, dial the cluster (distributed) or terminate clients directly
 /// (single-node), and return a [`WorkerHandle`]. Async (Model A) — the bin owns
-/// the runtime and drives `shutdown` on signal via the bin layer's `startup` skeleton.
+/// the runtime and drives `shutdown` on signal via the bin layer's `bootstrap` skeleton.
 pub async fn run(cfg: config::Config) -> Result<WorkerHandle> {
     let mode = match (&cfg.cluster.controller, cfg.cluster.role) {
         (Some(controller), Some(role)) => {
@@ -359,20 +359,20 @@ pub fn build_runtime(user_cfg: &config::Config) -> Result<tokio::runtime::Runtim
 struct LoadedModelDrivers {
     model: String,
     caps: DriverCapabilities,
-    full_identity: pie_driver_abi::ModelIdentity,
-    encode_identity: pie_driver_abi::ModelIdentity,
-    kv_handle: Option<pie_driver_abi::KvHandle>,
+    full_identity: driver_abi::ModelIdentity,
+    encode_identity: driver_abi::ModelIdentity,
+    kv_handle: Option<driver_abi::KvHandle>,
     drivers: ModelDrivers,
     /// The model's compiled metadata, read once while resolving it. Present
     /// for either input form: an artifact carries the descriptor, a snapshot's
     /// `config.json` is normalized into one.
-    metadata: pie_model::ModelMetadata,
+    metadata: model::ModelMetadata,
 }
 
 struct LoadedPartnerMetadata {
-    full_identity: pie_driver_abi::ModelIdentity,
-    encode_identity: pie_driver_abi::ModelIdentity,
-    kv_handle: Option<pie_driver_abi::KvHandle>,
+    full_identity: driver_abi::ModelIdentity,
+    encode_identity: driver_abi::ModelIdentity,
+    kv_handle: Option<driver_abi::KvHandle>,
     page_size: u32,
     supports_media_encode: bool,
     hidden_size: u32,
@@ -382,8 +382,8 @@ fn model_identity(
     user_cfg: &config::Config,
     caps: &DriverCapabilities,
     artifact_digest: &[u8; 32],
-    component: pie_driver_abi::ModelComponent,
-) -> Result<pie_driver_abi::ModelIdentity> {
+    component: driver_abi::ModelComponent,
+) -> Result<driver_abi::ModelIdentity> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(user_cfg.model.name.as_bytes());
     hasher.update(artifact_digest);
@@ -409,7 +409,7 @@ fn model_identity(
         }
         config::DriverKind::Metal => {}
     }
-    Ok(pie_driver_abi::ModelIdentity {
+    Ok(driver_abi::ModelIdentity {
         hash: *hasher.finalize().as_bytes(),
         component,
     })
@@ -420,7 +420,7 @@ fn model_identity(
 /// The loader answers what identifies a checkpoint; this only folds its answer
 /// into the 32-byte shape the identity plumbing expects.
 fn manifest_digest(path: &Path) -> Result<Option<[u8; 32]>> {
-    let identity = pie_loader::checkpoint::zt::artifact_identity(path)
+    let identity = model_loader::checkpoint::zt::artifact_identity(path)
         .map_err(|err| anyhow!("reading the identity of {path:?}: {err}"))?;
     Ok(identity.map(|bytes| *blake3::hash(&bytes).as_bytes()))
 }
@@ -500,7 +500,7 @@ fn model_artifact_digest(snapshot_dir: &Path) -> Result<[u8; 32]> {
 
 fn load_model_drivers(
     user_cfg: &config::Config,
-    component: pie_driver_abi::ModelComponent,
+    component: driver_abi::ModelComponent,
 ) -> Result<LoadedModelDrivers> {
     // Process housekeeping, once per boot and before anything writes under
     // `$PIE_HOME/standalone/<pid>`: reclaim the directories left by launches
@@ -516,7 +516,7 @@ fn load_model_drivers(
             .into_owned(),
     );
 
-    // Resolve the weight-artifact directory here, before any driver startup
+    // Resolve the weight-artifact directory here, before any driver bootstrap
     // TOML is written. `$PIE_HOME` is this layer's to know: the driver has
     // never been told it, which is why the old env-var form fell back to XDG.
     let weight_cache_dir = if user_cfg.model.weight_cache_dir.is_empty() {
@@ -532,7 +532,7 @@ fn load_model_drivers(
     };
     crate::embedded_driver::set_weight_cache_dir(weight_cache_dir);
 
-    let mut metadata: Option<pie_model::ModelMetadata> = None;
+    let mut metadata: Option<model::ModelMetadata> = None;
     let (driver_groups, snapshot_dir) = {
         let m = &user_cfg.model;
         let resolved = preflight::resolve_flavor(m.driver.kind, &m.name)?;
@@ -569,7 +569,7 @@ fn load_model_drivers(
         let resolved_model = weights::resolve(&m.model)
             .with_context(|| format!("resolving the model for {:?}", m.name))?;
         // Lifted once, here, in one open. The drivers get the compiled model
-        // config beside their startup TOML; the runtime gets the whole of it.
+        // config beside their bootstrap TOML; the runtime gets the whole of it.
         // Nobody downstream re-opens the artifact or re-decides what it is —
         // and for a snapshot, nobody re-parses `config.json`, which is what
         // this one call replaced on both sides.
@@ -624,13 +624,13 @@ fn load_model_drivers(
             user_cfg,
             &caps,
             &artifact_digest,
-            pie_driver_abi::ModelComponent::Full,
+            driver_abi::ModelComponent::Full,
         )?,
         encode_identity: model_identity(
             user_cfg,
             &caps,
             &artifact_digest,
-            pie_driver_abi::ModelComponent::Encode,
+            driver_abi::ModelComponent::Encode,
         )?,
         caps,
         kv_handle,
@@ -644,7 +644,7 @@ async fn boot_engine(
     String,
     DriverCapabilities,
     LoadedPartnerMetadata,
-    pie_engine::bootstrap::BootstrapHandle,
+    ::engine::bootstrap::BootstrapHandle,
 )> {
     let LoadedModelDrivers {
         model,
@@ -654,14 +654,14 @@ async fn boot_engine(
         kv_handle,
         drivers,
         metadata,
-    } = load_model_drivers(user_cfg, pie_driver_abi::ModelComponent::Full)?;
+    } = load_model_drivers(user_cfg, driver_abi::ModelComponent::Full)?;
 
     let boot_cfg = translate::build(user_cfg, drivers, metadata)
         .context("translating to bootstrap::Config")?;
 
-    let boot = pie_engine::bootstrap::bootstrap(boot_cfg)
+    let boot = ::engine::bootstrap::bootstrap(boot_cfg)
         .await
-        .map_err(|e| anyhow!("pie_engine::bootstrap::bootstrap: {e}"))?;
+        .map_err(|e| anyhow!("::engine::bootstrap::bootstrap: {e}"))?;
     let page_size = caps.kv_page_size;
     let supports_media_encode = caps.supports_media_encode;
     let hidden_size = caps.hidden_size;
@@ -695,9 +695,9 @@ async fn boot_executor(
         .controller_addr()
         .context("executor boot requires a controller")?;
     let component = if role == Role::Encode {
-        pie_driver_abi::ModelComponent::Encode
+        driver_abi::ModelComponent::Encode
     } else {
-        pie_driver_abi::ModelComponent::Full
+        driver_abi::ModelComponent::Full
     };
     let loaded = load_model_drivers(user_cfg, component)?;
     let model_identity = if role == Role::Encode {
@@ -828,11 +828,11 @@ fn build_partner_bootstrap(
     metadata: LoadedPartnerMetadata,
     model_idx: usize,
 ) -> Option<partner::PartnerBootstrap> {
-    pie_engine::offload::configure(
+    ::engine::offload::configure(
         user_cfg.offload.enabled,
         user_cfg.offload.prefill_min_suffix_tokens,
     );
-    pie_engine::offload::configure_encode_injection(
+    ::engine::offload::configure_encode_injection(
         user_cfg.offload.enabled && metadata.supports_media_encode,
         if metadata.supports_media_encode {
             metadata.hidden_size
@@ -849,7 +849,7 @@ fn build_partner_bootstrap(
         );
         return None;
     };
-    pie_engine::offload::set_home_kv_handle(kv_handle.clone());
+    ::engine::offload::set_home_kv_handle(kv_handle.clone());
     Some(partner::PartnerBootstrap {
         full_identity: metadata.full_identity,
         encode_identity: metadata.encode_identity,
@@ -863,7 +863,7 @@ fn build_partner_bootstrap(
     })
 }
 
-/// Print the startup banner when `server.verbose` is set.
+/// Print the bootstrap banner when `server.verbose` is set.
 fn log_serving(cfg: &config::Config, url: &str) {
     if cfg.server.verbose {
         eprintln!("{}", StartupBanner::from_config(cfg).render(url));
@@ -1011,7 +1011,7 @@ fn create_driver_group(
     snapshot_dir: &Path,
     descriptor: &[u8],
     tp_degree: usize,
-    component: pie_driver_abi::ModelComponent,
+    component: driver_abi::ModelComponent,
 ) -> Result<GroupDriver> {
     #[cfg(feature = "driver-cuda")]
     {
@@ -1201,8 +1201,8 @@ mod tests {
 
     #[test]
     fn an_artifacts_identity_is_its_contents_and_survives_a_move() {
-        use pie_loader::checkpoint::write::CheckpointWriter;
-        use pie_loader::types::{DType, Encoding, TensorDecl, TensorId};
+        use model_loader::checkpoint::write::CheckpointWriter;
+        use model_loader::types::{DType, Encoding, TensorDecl, TensorId};
 
         let dir = tempfile::tempdir().unwrap();
         let write = |path: &std::path::Path, bytes: &[u8]| {
@@ -1285,8 +1285,8 @@ mod tests {
             "#,
         )
         .unwrap();
-        let driver = pie_engine::driver::DummyDriver::new(
-            pie_driver_dummy_lib::DummyDriverOptions::default(),
+        let driver = ::engine::driver::DummyDriver::new(
+            driver_dummy::DummyDriverOptions::default(),
         );
         let full_caps = driver.capabilities().clone();
         let mut encode_caps = full_caps.clone();
@@ -1298,14 +1298,14 @@ mod tests {
             &config,
             &full_caps,
             &artifact,
-            pie_driver_abi::ModelComponent::Full,
+            driver_abi::ModelComponent::Full,
         )
         .unwrap();
         let encode = model_identity(
             &config,
             &encode_caps,
             &artifact,
-            pie_driver_abi::ModelComponent::Encode,
+            driver_abi::ModelComponent::Encode,
         )
         .unwrap();
         assert_eq!(full.hash, encode.hash);
@@ -1316,7 +1316,7 @@ mod tests {
             &config,
             &encode_caps,
             &artifact,
-            pie_driver_abi::ModelComponent::Encode,
+            driver_abi::ModelComponent::Encode,
         )
         .unwrap();
         assert_ne!(encode.hash, incompatible.hash);

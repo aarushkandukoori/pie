@@ -17,7 +17,7 @@
 
 use alloc::string::{String, ToString};
 
-use pie_ir::op::tags;
+use tensor_ir::op::tags;
 
 use crate::codegen::op_view::OpView;
 

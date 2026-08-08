@@ -7,9 +7,9 @@
 
 use alloc::vec::Vec;
 
-use pie_ir::container::{PortSource, put_u16, put_u32};
-use pie_ir::registry::Stage;
-use pie_ir::validate::BoundTrace;
+use tensor_ir::container::{PortSource, put_u16, put_u32};
+use tensor_ir::registry::Stage;
+use tensor_ir::validate::BoundTrace;
 
 use super::COMPILER_VERSION;
 use super::canonical::{canonical_op, canonical_static_shape, canonical_symbolic_type};
@@ -32,7 +32,7 @@ pub struct StageSignature {
 pub(crate) fn signature_ports(
     bound: &BoundTrace,
     stage: Stage,
-) -> impl Iterator<Item = &pie_ir::container::PortBinding> {
+) -> impl Iterator<Item = &tensor_ir::container::PortBinding> {
     bound
         .container
         .ports
@@ -116,7 +116,7 @@ pub(crate) fn stage_signature(bound: &BoundTrace, stage: &NormalizedStage) -> St
         bytes.push(*domain as u8);
     }
     StageSignature {
-        hash: pie_ir::fnv1a64(&bytes),
+        hash: tensor_ir::fnv1a64(&bytes),
         canonical_bytes: bytes,
     }
 }

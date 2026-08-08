@@ -18,10 +18,10 @@ use std::sync::Arc;
 
 use tensor_compiler::eval::interp::Value;
 use tensor_compiler::eval::pareval::{EvalBlocker, fold_stage};
-use pie_ir::container::PortSource;
-use pie_ir::op::Op;
-use pie_ir::registry::Stage;
-use pie_ir::validate::BoundTrace;
+use tensor_ir::container::PortSource;
+use tensor_ir::op::Op;
+use tensor_ir::registry::Stage;
+use tensor_ir::validate::BoundTrace;
 
 use crate::pipeline::channel::{BoundCells, staged_put_bytes};
 use crate::pipeline::instance::ChannelSeed;
@@ -155,7 +155,7 @@ impl HostShadow {
                 .get(seed.channel as usize)
                 .map(|decl| decl.dtype)
             {
-                Some(pie_ir::container::ChanDType::Concrete(dtype)) => dtype,
+                Some(tensor_ir::container::ChanDType::Concrete(dtype)) => dtype,
                 _ => continue,
             };
             let value = Value::from_le_bytes(dtype, &seed.data);
@@ -179,7 +179,7 @@ impl HostShadow {
             && let Some(bytes) = staged_put_bytes(cell)
         {
             let dtype = match bound.container.channels.get(chan as usize)?.dtype {
-                pie_ir::container::ChanDType::Concrete(dtype) => dtype,
+                tensor_ir::container::ChanDType::Concrete(dtype) => dtype,
                 _ => return None,
             };
             return Value::from_le_bytes(dtype, &bytes);
@@ -188,7 +188,7 @@ impl HostShadow {
             && let Some(bytes) = cell.lock().unwrap().front_override()
         {
             let dtype = match bound.container.channels.get(chan as usize)?.dtype {
-                pie_ir::container::ChanDType::Concrete(dtype) => dtype,
+                tensor_ir::container::ChanDType::Concrete(dtype) => dtype,
                 _ => return None,
             };
             return Value::from_le_bytes(dtype, &bytes);
@@ -263,12 +263,12 @@ impl HostShadow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_ir::container::{
+    use tensor_ir::container::{
         ChanDType, ChannelDecl, HostRole, PortBinding, PortSource, StageProgram, TraceContainer,
     };
-    use pie_ir::op::{IntrinsicId, Op};
-    use pie_ir::registry::{ModelProfile, Port, Stage};
-    use pie_ir::types::{DType, Shape};
+    use tensor_ir::op::{IntrinsicId, Op};
+    use tensor_ir::registry::{ModelProfile, Port, Stage};
+    use tensor_ir::types::{DType, Shape};
 
     fn channel(shape: Shape, dtype: DType) -> ChannelDecl {
         ChannelDecl {
@@ -280,7 +280,7 @@ mod tests {
         }
     }
 
-    fn trace(epilogue: Vec<Op>) -> pie_ir::validate::BoundTrace {
+    fn trace(epilogue: Vec<Op>) -> tensor_ir::validate::BoundTrace {
         let mut profile = ModelProfile::dummy();
         profile.vocab = 4;
         let container = TraceContainer {
@@ -358,13 +358,13 @@ mod tests {
                 ops: epilogue,
             }],
         };
-        pie_ir::validate::bind(container, profile).unwrap()
+        tensor_ir::validate::bind(container, profile).unwrap()
     }
 
     /// The trace the tests above and below share: an epilogue that takes the
     /// mask channel and puts a value back, so the mask is the only channel
     /// whose per-fire derivability is in question.
-    fn device_put_trace() -> pie_ir::validate::BoundTrace {
+    fn device_put_trace() -> tensor_ir::validate::BoundTrace {
         trace(vec![
             Op::IntrinsicVal {
                 intr: IntrinsicId::Logits,

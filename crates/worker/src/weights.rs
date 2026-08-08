@@ -51,7 +51,7 @@ impl Model {
     ///
     /// The descriptor is always produced: an artifact carries it compiled, and
     /// a snapshot's `config.json` is normalized here by the same
-    /// `pie-model-config` the artifact was written with. That is what lets
+    /// `model-config` the artifact was written with. That is what lets
     /// everything downstream — both drivers and the runtime's model service —
     /// read one document instead of keeping a second path that parses the
     /// files beside a snapshot.
@@ -59,40 +59,40 @@ impl Model {
     /// The tokenizer half stays optional, and all-or-nothing: half the
     /// tokenizer compiled and half probed from files is the skew the artifact
     /// removes, so a partial one is treated as absent and the files win.
-    pub fn metadata(&self) -> Result<pie_model::ModelMetadata> {
+    pub fn metadata(&self) -> Result<model::ModelMetadata> {
         let Model::Artifact(path) = self else {
-            return Ok(pie_model::ModelMetadata {
+            return Ok(model::ModelMetadata {
                 tokenizer: None,
                 descriptor: normalize_snapshot_descriptor(self.path())?,
             });
         };
         // One parse. For a sharded artifact the manifest read opens and
         // validates every shard, so doing it per consumer is not free.
-        let checkpoint = pie_loader::checkpoint::read::parse_checkpoint_metadata(path)
+        let checkpoint = model_loader::checkpoint::read::parse_checkpoint_metadata(path)
             .map_err(|err| anyhow!("cannot read {}: {err}", path.display()))?;
 
-        let descriptor = pie_loader::checkpoint::read::read_meta(
+        let descriptor = model_loader::checkpoint::read::read_meta(
             &checkpoint,
-            pie_model_config::DESCRIPTOR_OBJECT,
+            model_config::DESCRIPTOR_OBJECT,
         )?
         .ok_or_else(|| {
             anyhow!(
                 "artifact {} carries no {} descriptor; re-import it with \
                  `pie model import`",
                 path.display(),
-                pie_model_config::DESCRIPTOR_OBJECT,
+                model_config::DESCRIPTOR_OBJECT,
             )
         })?;
 
-        let mut tokenizer = Vec::with_capacity(pie_tokenizer::canonical::OBJECTS.len());
-        for name in pie_tokenizer::canonical::OBJECTS {
-            let Some(bytes) = pie_loader::checkpoint::read::read_meta(&checkpoint, name)? else {
+        let mut tokenizer = Vec::with_capacity(tokenizer::canonical::OBJECTS.len());
+        for name in tokenizer::canonical::OBJECTS {
+            let Some(bytes) = model_loader::checkpoint::read::read_meta(&checkpoint, name)? else {
                 tokenizer.clear();
                 break;
             };
             tokenizer.push((name.to_string(), bytes));
         }
-        Ok(pie_model::ModelMetadata {
+        Ok(model::ModelMetadata {
             tokenizer: (!tokenizer.is_empty()).then_some(tokenizer),
             descriptor,
         })
@@ -132,7 +132,7 @@ fn normalize_snapshot_descriptor(path: &Path) -> Result<Vec<u8>> {
     })?;
     let root: serde_json::Value = serde_json::from_str(&raw)
         .map_err(|err| anyhow!("cannot parse {}: {err}", config.display()))?;
-    let descriptor = pie_model_config::descriptor(&root, &config.display().to_string())
+    let descriptor = model_config::descriptor(&root, &config.display().to_string())
         .map_err(|err| anyhow!("cannot normalize {}: {err:#}", config.display()))?;
     Ok(serde_json::to_vec(&descriptor)?)
 }
@@ -212,8 +212,8 @@ fn looks_like_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_loader::checkpoint::write::CheckpointWriter;
-    use pie_loader::types::{DType, Encoding, TensorDecl, TensorId};
+    use model_loader::checkpoint::write::CheckpointWriter;
+    use model_loader::types::{DType, Encoding, TensorDecl, TensorId};
 
     #[test]
     fn a_path_is_a_path_and_a_name_is_a_name() {
@@ -273,16 +273,16 @@ mod tests {
     /// compiled tokenizer.
     fn artifact(dir: &Path, descriptor: &[u8], whole_tokenizer: bool) -> Model {
         let path = dir.join("model.zt");
-        let canonical = pie_tokenizer::Tokenizer::from_vocab(&["a".to_string(), "b".to_string()])
+        let canonical = tokenizer::Tokenizer::from_vocab(&["a".to_string(), "b".to_string()])
             .to_canonical()
             .unwrap();
         let mut writer = CheckpointWriter::create(&path, &Default::default()).unwrap();
         // Ascending names: `model/…` sorts before `tokenizer/…`.
         writer
-            .add_meta(pie_model_config::DESCRIPTOR_OBJECT, descriptor)
+            .add_meta(model_config::DESCRIPTOR_OBJECT, descriptor)
             .unwrap();
         for (name, bytes) in canonical.objects() {
-            if !whole_tokenizer && name == pie_tokenizer::canonical::MERGE_TABLE {
+            if !whole_tokenizer && name == tokenizer::canonical::MERGE_TABLE {
                 continue;
             }
             writer.add_meta(name, bytes).unwrap();
@@ -313,19 +313,19 @@ mod tests {
         let lifted = artifact(dir.path(), descriptor, true).metadata().unwrap();
 
         let objects = lifted.tokenizer.as_ref().expect("no compiled tokenizer");
-        assert_eq!(objects.len(), pie_tokenizer::canonical::OBJECTS.len());
+        assert_eq!(objects.len(), tokenizer::canonical::OBJECTS.len());
         assert_eq!(lifted.descriptor, descriptor);
 
         // The runtime's own reconstruction, exercised here so a break shows up
         // as a worker test rather than only at serve time.
-        let rebuilt = pie_tokenizer::canonical::CanonicalTokenizer::from_objects(|name| {
+        let rebuilt = tokenizer::canonical::CanonicalTokenizer::from_objects(|name| {
             objects
                 .iter()
                 .find(|(have, _)| have == name)
                 .map(|(_, bytes)| bytes.clone())
         })
         .unwrap();
-        let rebuilt = pie_tokenizer::Tokenizer::from_canonical(&rebuilt).unwrap();
+        let rebuilt = tokenizer::Tokenizer::from_canonical(&rebuilt).unwrap();
         assert_eq!(rebuilt.vocab_size(), 2);
     }
 
@@ -376,7 +376,7 @@ mod tests {
         let lifted = Model::Snapshot(snap.clone()).metadata().unwrap();
         assert!(lifted.tokenizer.is_none());
         let doc: serde_json::Value = serde_json::from_slice(&lifted.descriptor).unwrap();
-        assert_eq!(doc["version"], pie_model_config::VERSION);
+        assert_eq!(doc["version"], model_config::VERSION);
         assert_eq!(doc["num_hidden_layers"], 2);
         // The two fields the runtime reads out of it, so a schema change that
         // dropped either shows up here rather than at boot.

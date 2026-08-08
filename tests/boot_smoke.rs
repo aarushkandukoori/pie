@@ -1,7 +1,7 @@
 //! Standalone composition-root boot smoke — the Phase-2 regression guard (build/packaging).
 //!
 //! The `bin/pie` analogue of the gateway M3 smoke: boots the **embedded controller + gateway +
-//! worker** in one process over loopback via the composition seam `pie_bin::run_standalone`
+//! worker** in one process over loopback via the composition seam `pie::run_standalone`
 //! (= `controller::embed` → `EmbeddedControl` → `gateway::bind(worker_listen :0)` →
 //! `worker::run_with(.., EmbeddedControl, [gw.worker_addr])` → `gw.serve()`, binding ephemeral),
 //! then proves the planes co-reside + the real client path round-trips a ping, a direct-FFI
@@ -34,9 +34,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use pie_bin::derive::derive_standalone;
-use pie_bin::{run_standalone};
-use pie_client::client::Client;
+use pie::derive::derive_standalone;
+use pie::{run_standalone};
+use client::client::Client;
 
 /// The one standalone TOML (`[controller]`/`[gateway]`/`[worker]` sections); `derive_standalone`
 /// splits + hands each section to its role lib's `Config::parse`. The client edge binds
@@ -95,7 +95,7 @@ fn fixture_snapshot() -> String {
     snapshot.path().to_string_lossy().into_owned()
 }
 
-async fn boot() -> Result<pie_bin::StandaloneHandle> {
+async fn boot() -> Result<pie::StandaloneHandle> {
     let (controller, gateway, worker) = derive_standalone(&standalone_toml(&fixture_snapshot()))?;
     run_standalone(controller, gateway, worker).await
 }

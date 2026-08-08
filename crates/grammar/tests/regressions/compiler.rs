@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pie_grammar::compiler::{GrammarCompiler, GrammarLimits};
-use pie_grammar::json_schema::JsonSchemaOptions;
-use pie_grammar::matcher::GrammarMatcher;
-use pie_tokenizer::Tokenizer;
+use ::grammar::compiler::{GrammarCompiler, GrammarLimits};
+use ::grammar::json_schema::JsonSchemaOptions;
+use ::grammar::matcher::GrammarMatcher;
+use tokenizer::Tokenizer;
 
 #[test]
 fn cache_separates_frontend_namespaces() {

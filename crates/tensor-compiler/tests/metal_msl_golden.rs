@@ -79,7 +79,7 @@ fn embedded_runtime_matches_the_oracle() {
 
     let runtime = runtime_prefix();
     assert_eq!(
-        (runtime.len(), pie_ir::fnv1a64(runtime.as_bytes())),
+        (runtime.len(), tensor_ir::fnv1a64(runtime.as_bytes())),
         field("# @runtime:"),
         "compiler/codegen/runtime/metal/ptir_m1_runtime.metal has drifted from the copy \
          the C++ oracle read out of crates/driver-metal/csrc/src/kernels/"
@@ -87,7 +87,7 @@ fn embedded_runtime_matches_the_oracle() {
 
     let grouped = grouped_preamble();
     assert_eq!(
-        (grouped.len(), pie_ir::fnv1a64(grouped.as_bytes())),
+        (grouped.len(), tensor_ir::fnv1a64(grouped.as_bytes())),
         field("# @grouped:"),
         "the grouped preamble has drifted from the C++ emitter"
     );

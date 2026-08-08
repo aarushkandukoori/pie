@@ -15,7 +15,7 @@
 //! carries the descriptor instead, so a fact cannot be spelled one way by a
 //! driver and another way here.
 
-use pie_loader::error::Error;
+use model_loader::error::Error;
 
 /// What one authoring call knows about the model, beyond its files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,7 +95,7 @@ impl ModelFacts {
     /// The one place a descriptor becomes facts. Every field above is a field
     /// of the descriptor — no probing of alternate spellings, no
     /// per-`model_type` rule, no defaulting beyond what the schema already
-    /// resolved: `pie-model-config` did all of that once, at import, and this
+    /// resolved: `model-config` did all of that once, at import, and this
     /// is a projection of the result.
     ///
     /// A field the descriptor does not carry keeps [`Default`], which is what
@@ -107,11 +107,11 @@ impl ModelFacts {
         let doc: serde_json::Value = serde_json::from_slice(json)
             .map_err(|err| Error::Contract(format!("model descriptor is not JSON: {err}")))?;
         let version = doc.get("version").and_then(serde_json::Value::as_str);
-        if version != Some(pie_model_config::VERSION) {
+        if version != Some(model_config::VERSION) {
             return Err(Error::Contract(format!(
                 "model descriptor declares version {:?}, this build reads {:?}",
                 version.unwrap_or("<absent>"),
-                pie_model_config::VERSION,
+                model_config::VERSION,
             )));
         }
 

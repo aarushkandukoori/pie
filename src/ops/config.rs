@@ -90,7 +90,7 @@ pub enum ConfigCmd {
     Tune(tune::TuneArgs),
 }
 
-pub async fn run(cmd: ConfigCmd, global: &startup::GlobalArgs) -> Result<Answer> {
+pub async fn run(cmd: ConfigCmd, global: &bootstrap::GlobalArgs) -> Result<Answer> {
     match cmd {
         ConfigCmd::List { prefix } => list(global, prefix),
         ConfigCmd::Show { key } => show(global, key),
@@ -104,11 +104,11 @@ pub async fn run(cmd: ConfigCmd, global: &startup::GlobalArgs) -> Result<Answer>
 
 /// The file every subcommand here reads and writes — the same one the engine
 /// would, flag and env included.
-fn config_path(global: &startup::GlobalArgs) -> PathBuf {
-    startup::cli_config_path(global).0
+fn config_path(global: &bootstrap::GlobalArgs) -> PathBuf {
+    bootstrap::cli_config_path(global).0
 }
 
-fn init(global: &startup::GlobalArgs, force: bool) -> Result<Answer> {
+fn init(global: &bootstrap::GlobalArgs, force: bool) -> Result<Answer> {
     let cfg_path = config_path(global);
     if cfg_path.exists() && !force {
         bail!("config file already exists at {cfg_path:?}; pass --force to overwrite");
@@ -134,15 +134,15 @@ fn init(global: &startup::GlobalArgs, force: bool) -> Result<Answer> {
 /// `show` prints what you wrote; this prints what pie will use, which is a
 /// different and usually more useful answer. A key you never set still has a
 /// value, and until now the only way to learn it was to read the Rust.
-fn list(global: &startup::GlobalArgs, prefix: Option<String>) -> Result<Answer> {
-    let (cfg_path, origin) = startup::cli_config_path(global);
+fn list(global: &bootstrap::GlobalArgs, prefix: Option<String>) -> Result<Answer> {
+    let (cfg_path, origin) = bootstrap::cli_config_path(global);
     let file: toml::Value = match std::fs::read_to_string(&cfg_path) {
         Ok(content) => toml::from_str(&content).map_err(|e| anyhow!("parse {cfg_path:?}: {e}"))?,
         // Absent is normal on the default path -- nothing is set and every row
         // is a default. Named explicitly and absent is the operator pointing at
         // a file that is not there, which `show` and `doctor` both refuse; this
         // silently listed defaults instead.
-        Err(_) if origin == startup::Origin::Default => toml::Value::Table(Default::default()),
+        Err(_) if origin == bootstrap::Origin::Default => toml::Value::Table(Default::default()),
         Err(e) => bail!(
             "no config file at {} ({}): {e}",
             crate::ui::short_path(&cfg_path),
@@ -151,17 +151,17 @@ fn list(global: &startup::GlobalArgs, prefix: Option<String>) -> Result<Answer> 
     };
 
     // Which driver the config asks for decides which option keys exist at all.
-    let driver = pie_worker::config_schema::lookup(&file, "driver.type")
+    let driver = worker::config_schema::lookup(&file, "driver.type")
         .and_then(|v| v.as_str())
         .and_then(|s| match s {
-            "cuda_native" | "cuda" => Some(pie_worker::config::DriverKind::CudaNative),
-            "metal" => Some(pie_worker::config::DriverKind::Metal),
-            "dummy" => Some(pie_worker::config::DriverKind::Dummy),
+            "cuda_native" | "cuda" => Some(worker::config::DriverKind::CudaNative),
+            "metal" => Some(worker::config::DriverKind::Metal),
+            "dummy" => Some(worker::config::DriverKind::Dummy),
             _ => None,
         })
-        .unwrap_or(pie_worker::config::DriverKind::Dummy);
+        .unwrap_or(worker::config::DriverKind::Dummy);
 
-    let fields = pie_worker::config_schema::fields(driver);
+    let fields = worker::config_schema::fields(driver);
     let selected: Vec<_> = fields
         .iter()
         .filter(|f| match &prefix {
@@ -186,7 +186,7 @@ fn list(global: &startup::GlobalArgs, prefix: Option<String>) -> Result<Answer> 
                 // The TYPED value, not the string the table shows: `null` here
                 // means pie derives it, and `required` is what separates that
                 // from "the file must say".
-                value: pie_worker::config_schema::lookup(&file, &field.key)
+                value: worker::config_schema::lookup(&file, &field.key)
                     .cloned()
                     .or_else(|| field.default.clone()),
                 set: is_set(&file, &field.key),
@@ -290,8 +290,8 @@ impl crate::ui::Report for ConfigList {
 }
 
 /// What pie will use for a field, given the file.
-fn effective(file: &toml::Value, field: &pie_worker::config_schema::Field) -> String {
-    if let Some(value) = pie_worker::config_schema::lookup(file, &field.key) {
+fn effective(file: &toml::Value, field: &worker::config_schema::Field) -> String {
+    if let Some(value) = worker::config_schema::lookup(file, &field.key) {
         return display_value(value);
     }
     match (&field.default, field.required) {
@@ -308,8 +308,8 @@ fn effective(file: &toml::Value, field: &pie_worker::config_schema::Field) -> St
 /// rather than as whatever the schema happened to say next. `set nope.key 1`
 /// used to fail with "nope.key does not accept \"1\"", which describes a type
 /// mismatch on a key that does not exist.
-fn schema_field(file: &toml::Value, key: &str) -> Result<pie_worker::config_schema::Field> {
-    let fields = pie_worker::config_schema::fields(driver_kind(file));
+fn schema_field(file: &toml::Value, key: &str) -> Result<worker::config_schema::Field> {
+    let fields = worker::config_schema::fields(driver_kind(file));
     if let Some(found) = fields.iter().find(|f| f.key == key) {
         return Ok(found.clone());
     }
@@ -327,20 +327,20 @@ fn schema_field(file: &toml::Value, key: &str) -> Result<pie_worker::config_sche
 
 /// Which driver the config asks for, since that decides which `[driver]` keys
 /// exist at all.
-fn driver_kind(file: &toml::Value) -> pie_worker::config::DriverKind {
-    pie_worker::config_schema::lookup(file, "driver.type")
+fn driver_kind(file: &toml::Value) -> worker::config::DriverKind {
+    worker::config_schema::lookup(file, "driver.type")
         .and_then(|v| v.as_str())
         .and_then(|s| match s {
-            "cuda_native" | "cuda" => Some(pie_worker::config::DriverKind::CudaNative),
-            "metal" => Some(pie_worker::config::DriverKind::Metal),
-            "dummy" => Some(pie_worker::config::DriverKind::Dummy),
+            "cuda_native" | "cuda" => Some(worker::config::DriverKind::CudaNative),
+            "metal" => Some(worker::config::DriverKind::Metal),
+            "dummy" => Some(worker::config::DriverKind::Dummy),
             _ => None,
         })
-        .unwrap_or(pie_worker::config::DriverKind::Dummy)
+        .unwrap_or(worker::config::DriverKind::Dummy)
 }
 
 fn is_set(file: &toml::Value, key: &str) -> bool {
-    pie_worker::config_schema::lookup(file, key).is_some()
+    worker::config_schema::lookup(file, key).is_some()
 }
 
 /// Strip the markdown emphasis a doc comment carries for rustdoc. Backticks
@@ -419,8 +419,8 @@ impl crate::ui::Report for ConfigShow {
     }
 }
 
-fn show(global: &startup::GlobalArgs, key: Option<String>) -> Result<Answer> {
-    let (cfg_path, origin) = startup::cli_config_path(global);
+fn show(global: &bootstrap::GlobalArgs, key: Option<String>) -> Result<Answer> {
+    let (cfg_path, origin) = bootstrap::cli_config_path(global);
     if !cfg_path.exists() {
         // Absence means opposite things depending on how we got here, and
         // this is the one moment where "which file would you use?" is worth
@@ -432,7 +432,7 @@ fn show(global: &startup::GlobalArgs, key: Option<String>) -> Result<Answer> {
         // explicitly it is the opposite -- the engine treats a missing named
         // file as fatal, so saying "running on defaults" would be the untrue
         // one.
-        if origin == startup::Origin::Default {
+        if origin == bootstrap::Origin::Default {
             return Ok(Answer::report(ConfigShow::File {
                 path: cfg_path,
                 origin: origin.describe().to_string(),
@@ -468,7 +468,7 @@ fn show(global: &startup::GlobalArgs, key: Option<String>) -> Result<Answer> {
                 value: default.clone(),
             })),
             (None, true) => bail!("{key} has no value: the config must set it"),
-            (None, false) => bail!("{key} is not set; pie derives it at startup"),
+            (None, false) => bail!("{key} is not set; pie derives it at bootstrap"),
         };
     }
     let cwd = std::env::current_dir().ok();
@@ -485,11 +485,11 @@ fn show(global: &startup::GlobalArgs, key: Option<String>) -> Result<Answer> {
         origin: origin.describe().to_string(),
         content: Some(content),
         display,
-        redirected: origin != startup::Origin::Default,
+        redirected: origin != bootstrap::Origin::Default,
     }))
 }
 
-fn set(global: &startup::GlobalArgs, key: String, value: String) -> Result<Answer> {
+fn set(global: &bootstrap::GlobalArgs, key: String, value: String) -> Result<Answer> {
     let cfg_path = config_path(global);
     if !cfg_path.exists() {
         bail!("config file not found at {cfg_path:?} (run `pie config init`)");
@@ -661,8 +661,8 @@ fn parse_toml_literal(value: &str) -> Option<toml::Value> {
 /// express gets set, and the way that goes wrong is a typo discovered at the
 /// next boot rather than at the moment of saving. The edit happens on a copy;
 /// the original is only replaced once the copy parses.
-fn edit(global: &startup::GlobalArgs) -> Result<Answer> {
-    let (cfg_path, _) = startup::cli_config_path(global);
+fn edit(global: &bootstrap::GlobalArgs) -> Result<Answer> {
+    let (cfg_path, _) = bootstrap::cli_config_path(global);
     if !cfg_path.exists() {
         bail!(
             "no config file at {}; `pie config init` writes one",
@@ -722,7 +722,7 @@ fn edit(global: &startup::GlobalArgs) -> Result<Answer> {
     )))
 }
 
-fn unset(global: &startup::GlobalArgs, key: String) -> Result<Answer> {
+fn unset(global: &bootstrap::GlobalArgs, key: String) -> Result<Answer> {
     let cfg_path = config_path(global);
     if !cfg_path.exists() {
         bail!("config file not found at {cfg_path:?} (run `pie config init`)");
@@ -1028,7 +1028,7 @@ mod tests {
 
     #[test]
     fn effective_distinguishes_set_from_default_from_derived_from_required() {
-        use pie_worker::config_schema::Field;
+        use worker::config_schema::Field;
         let file: toml::Value = toml::from_str("[server]\nport = 9090\n").unwrap();
         let field = |key: &str, default: Option<toml::Value>, required: bool| Field {
             key: key.to_string(),

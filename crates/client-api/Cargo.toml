@@ -1,5 +1,5 @@
 [package]
-name = "pie-client-api"
+name = "client-api"
 version = "0.1.0"
 edition = "2024"
 authors = ["In Gim <in.gim@yale.edu>"]
@@ -8,7 +8,7 @@ license = "Apache-2.0"
 repository = "https://github.com/pie-project/pie"
 
 [lib]
-name = "pie_client_api"
+name = "client_api"
 crate-type = ["rlib"]
 path = "src/lib.rs"
 

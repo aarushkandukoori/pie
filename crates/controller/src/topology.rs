@@ -7,14 +7,14 @@
 //! the internal [`Topology`] holds every worker's wire-ready peer list keyed by
 //! id; the service projects one [`Neighbors`] from it per `watch_worker`.
 //!
-//! [`Neighbors`]: pie_controller_rpc::Neighbors
+//! [`Neighbors`]: controller_api::Neighbors
 
 use std::collections::HashMap;
 
-use pie_controller_rpc::{
+use controller_api::{
     GatewayEndpoint, Health, NeighborPeer, Neighbors, Role, RoutableWorker, RoutingTable,
 };
-use pie_ids::WorkerId;
+use ids::WorkerId;
 
 use crate::state::Cluster;
 
@@ -168,7 +168,7 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
-    use pie_controller_rpc::Role;
+    use controller_api::Role;
 
     fn add_worker(cluster: &mut Cluster, role: Role, model: &str) -> WorkerId {
         let ordinal = cluster.workers.len();

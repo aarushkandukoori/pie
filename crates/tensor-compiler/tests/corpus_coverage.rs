@@ -18,8 +18,8 @@ mod msl_corpus;
 use std::collections::BTreeSet;
 
 use msl_corpus::{GOLDEN_NAMES, corpus_stages, extended_stages, golden_dir};
-use pie_ir::op::{IntrinsicId, OP_TABLE, Op};
-use pie_ir::registry::Stage;
+use tensor_ir::op::{IntrinsicId, OP_TABLE, Op};
+use tensor_ir::registry::Stage;
 use tensor_compiler::plan::{LibraryOp, RegionKind, ScheduleTemplate};
 
 struct Coverage {

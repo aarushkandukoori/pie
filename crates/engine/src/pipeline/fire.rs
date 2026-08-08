@@ -32,9 +32,9 @@
 /// tart (0.3 re-port step 1): whether the bound container carries
 /// attention-stage programs — the fire planner's hook divergence fact.
 fn container_has_attention_stages(
-    container: &pie_ir::container::TraceContainer,
+    container: &tensor_ir::container::TraceContainer,
 ) -> bool {
-    use pie_ir::registry::Stage;
+    use tensor_ir::registry::Stage;
     container
         .stages
         .iter()
@@ -44,22 +44,22 @@ fn container_has_attention_stages(
 /// Whether the pass carries a `lora` sink — the region table's LORA
 /// signature (an adapter fire batches, but its region must say so, so the
 /// driver's plans see the axis).
-fn container_writes_page_mask(container: &pie_ir::container::TraceContainer) -> bool {
+fn container_writes_page_mask(container: &tensor_ir::container::TraceContainer) -> bool {
     container.stages.iter().flat_map(|s| s.ops.iter()).any(|op| {
         matches!(
             op,
-            pie_ir::op::Op::SinkCall { name, .. }
+            tensor_ir::op::Op::SinkCall { name, .. }
                 if container.names.get(*name as usize).map(String::as_str)
                     == Some("attn_page_mask")
         )
     })
 }
 
-fn container_has_lora_sink(container: &pie_ir::container::TraceContainer) -> bool {
+fn container_has_lora_sink(container: &tensor_ir::container::TraceContainer) -> bool {
     container.stages.iter().flat_map(|s| s.ops.iter()).any(|op| {
         matches!(
             op,
-            pie_ir::op::Op::SinkCall { name, .. }
+            tensor_ir::op::Op::SinkCall { name, .. }
                 if container.names.get(*name as usize).map(String::as_str) == Some("lora")
         )
     })
@@ -84,7 +84,7 @@ use crate::pipeline::channel::{BoundCells, Channel, ChannelError};
 use crate::pipeline::instance::ForwardPass;
 use crate::store::kv::working_set::{KvFireLease, KvWorkingSet};
 use crate::store::rs::working_set::RsWorkingSet;
-use pie_ir::container::HostRole;
+use tensor_ir::container::HostRole;
 
 /// A pass's in-flight fires, submit order. The queue mutex is never held across
 /// an await; the async finalizer gate serializes pop-through-finalize instead.
@@ -1032,7 +1032,7 @@ fn poison_readers(cells: &BoundCells, reason: &str) {
             c.poison(reason);
             // A waiter parked on the reader wait slot must observe the poison.
             if let Some(endpoint) = c.endpoint() {
-                pie_waker::WakerTable::global().wake(endpoint.registered().reader_wait_id);
+                waker::WakerTable::global().wake(endpoint.registered().reader_wait_id);
             }
         }
     }
@@ -2026,7 +2026,7 @@ pub async fn copy_into_inner<C: FireContext>(
         .zip(kv_move_src_pages.into_iter().zip(src_tok_idx.into_iter()))
         .map(
             |((dst_page_id, dst_token_offset), (src_page_id, src_token_offset))| {
-                pie_driver_abi::PieKvMoveCell {
+                driver_abi::PieKvMoveCell {
                     dst_page_id,
                     dst_token_offset,
                     src_page_id,
@@ -2758,8 +2758,8 @@ async fn fire_device_geometry<C: FireContext>(
         let p = ctx.resources().get(&fwd)?;
         let bound = &p.instance.program.bound;
         let channel_bound_mask = bound.container.ports.iter().any(|binding| {
-            binding.port == pie_ir::registry::Port::AttnMask
-                && matches!(binding.source, pie_ir::container::PortSource::Channel(_))
+            binding.port == tensor_ir::registry::Port::AttnMask
+                && matches!(binding.source, tensor_ir::container::PortSource::Channel(_))
         });
         if channel_bound_mask {
             Ok(geometry::FireAttnMask::Device)

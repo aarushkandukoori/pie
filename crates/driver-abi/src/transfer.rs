@@ -1,7 +1,7 @@
 //! Rust-only KV transfer vocabulary.
 //!
 //! Cross-node movement still needs a small shared description of exported KV
-//! memory. These types stay in `pie-driver-abi` so transport, runtime, and
+//! memory. These types stay in `driver-abi` so transport, runtime, and
 //! drivers can agree on page geometry without pulling the local direct-FFI
 //! surface into the generated C header.
 

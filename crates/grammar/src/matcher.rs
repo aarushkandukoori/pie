@@ -16,7 +16,7 @@ use crate::bitmask::{self, clear_bit, set_bit};
 use crate::compiled_grammar::CompiledGrammar;
 use crate::fsm::{FsmEdge, StateId};
 use crate::grammar::Grammar;
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 
 use single_dfa::SingleDfaEngine;
 use stack_parser::{SmallDedup, StackParser, StackState};

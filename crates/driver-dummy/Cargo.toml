@@ -1,5 +1,5 @@
 [package]
-name = "pie-driver-dummy"
+name = "driver-dummy"
 version = "0.1.0"
 edition = "2024"
 authors = ["In Gim <in.gim@icloud.com>"]
@@ -8,12 +8,12 @@ license = "Apache-2.0"
 repository = "https://github.com/pie-project/pie"
 
 [lib]
-name = "pie_driver_dummy_lib"
+name = "driver_dummy"
 crate-type = ["rlib"]
 
 [dependencies]
-pie-driver-abi = { path = "../driver-abi" }
-pie-ir = { path = "../tensor-ir" }
+driver-abi = { path = "../driver-abi" }
+tensor-ir = { path = "../tensor-ir" }
 tensor-compiler = { path = "../tensor-compiler" }
 anyhow = "1.0"
 

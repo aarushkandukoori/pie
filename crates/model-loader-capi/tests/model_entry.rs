@@ -7,15 +7,15 @@
 
 use std::path::Path;
 
-use pie_loader_capi::checkpoint::PieLoaderCheckpoint;
-use pie_loader_capi::entry::{
+use model_loader_capi::checkpoint::PieLoaderCheckpoint;
+use model_loader_capi::entry::{
     PieLoaderStatus, PieLoaderTargetSpec, pie_loader_close_checkpoint, pie_loader_open_checkpoint,
     pie_loader_release, pie_loader_release_diagnostics,
 };
-use pie_loader_capi::model::{
+use model_loader_capi::model::{
     PieLoaderFamilyKnobs, PieLoaderModelRequest, pie_loader_compile_model, pie_loader_verify_model,
 };
-use pie_loader_capi::{PieLoaderBackendKind, PieLoaderBytes, PieLoaderDiagnostics, PieLoaderPlan};
+use model_loader_capi::{PieLoaderBackendKind, PieLoaderBytes, PieLoaderDiagnostics, PieLoaderPlan};
 
 fn bytes(text: &str) -> PieLoaderBytes {
     PieLoaderBytes {
@@ -70,7 +70,7 @@ fn write_snapshot(dir: &Path) {
             ),
         ]);
     }
-    pie_loader::testkit::write_safetensors_fixture(dir, &tensors);
+    model_loader::testkit::write_safetensors_fixture(dir, &tensors);
 }
 
 /// A `pie.model/1` descriptor for `write_snapshot`'s checkpoint.
@@ -78,7 +78,7 @@ fn write_snapshot(dir: &Path) {
 /// Spelled out here rather than normalized from a `config.json` fixture: this
 /// test is about the ABI, and what crosses it is the descriptor. The fields
 /// are the ones `ModelFacts::from_descriptor` projects; the rest of the
-/// schema is `pie-model-config`'s business and has its own tests.
+/// schema is `model-config`'s business and has its own tests.
 ///
 /// A `&'static str` so `bytes()` can borrow it for the whole call, the way a
 /// driver borrows the buffer it read the file into.
@@ -107,10 +107,10 @@ fn llama_request(checkpoint: *const PieLoaderCheckpoint) -> PieLoaderModelReques
             tp_size: 1,
             max_tile_bytes: 64 << 20,
             preferred_alignment: 256,
-            tile_map_mask: pie_loader::plan::CUDA_TILE_MAP_MASK,
+            tile_map_mask: model_loader::plan::CUDA_TILE_MAP_MASK,
             native_mxfp4_moe: false,
             fusion_mask: 0,
-            encode_scratch_dtype: pie_loader_capi::PieLoaderDType::BF16 as u32,
+            encode_scratch_dtype: model_loader_capi::PieLoaderDType::BF16 as u32,
             block_scale_rows: 0,
         },
         descriptor: bytes(LLAMA_DESCRIPTOR),
@@ -297,7 +297,7 @@ fn a_target_claiming_an_unknown_tile_map_transform_is_rejected() {
     // nothing downstream would notice until a kernel dispatch failed at load
     // time.
     let (status, message) = compile_mutated("tile_map", |r| {
-        r.target.tile_map_mask = pie_loader::plan::CUDA_TILE_MAP_MASK | (1 << 30);
+        r.target.tile_map_mask = model_loader::plan::CUDA_TILE_MAP_MASK | (1 << 30);
     });
     assert_eq!(status, PieLoaderStatus::InvalidRequest);
     assert!(
@@ -313,7 +313,7 @@ fn a_target_claiming_fewer_transforms_than_the_loader_knows_is_accepted() {
     // llama plan repacks nothing.
     let (status, message) = compile_mutated("narrow_mask", |r| {
         r.target.tile_map_mask =
-            pie_loader::plan::CUDA_TILE_MAP_MASK & !pie_loader::plan::TILE_MAP_REPACK;
+            model_loader::plan::CUDA_TILE_MAP_MASK & !model_loader::plan::TILE_MAP_REPACK;
     });
     assert_eq!(
         status,
@@ -430,7 +430,7 @@ fn verify_rejects_a_plan_compiled_with_a_different_fusion_setting() {
     );
 
     let mut diverged = request;
-    diverged.target.fusion_mask = pie_loader::plan::FUSION_FP8_TO_MXFP4;
+    diverged.target.fusion_mask = model_loader::plan::FUSION_FP8_TO_MXFP4;
     let mut vdiags: *mut PieLoaderDiagnostics = std::ptr::null_mut();
     let status = unsafe { pie_loader_verify_model(plan, &diverged, &mut vdiags) };
     let message = drain(vdiags);

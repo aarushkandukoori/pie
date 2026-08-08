@@ -6,7 +6,7 @@
 use crate::inferlet::ProcessCtx;
 use crate::inferlet::host::pie;
 use anyhow::Result;
-use pie_model::instruct::{ReasoningDecoder, ReasoningEvent};
+use ::model::instruct::{ReasoningDecoder, ReasoningEvent};
 use wasmtime::component::Resource;
 use wasmtime_wasi::WasiView;
 

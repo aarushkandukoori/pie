@@ -7,7 +7,7 @@
 //! fail a build, it just moves a fact one directory away from the checkpoints
 //! it is about, where the next family to need something similar will copy it.
 //!
-//! This was `pie-model-common`, a crate. It is now the `.rs` files at the root
+//! This was `model`, a crate. It is now the `.rs` files at the root
 //! of `src/`, and the guard got MORE work rather than less: with no crate
 //! boundary to say what is shared, every root file must be classified as
 //! shared vocabulary or as something else, and an unclassified one fails.

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use common::TEXTS;
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 use tokenizers::Tokenizer as HfTokenizer;
 
 struct Model {
@@ -123,9 +123,9 @@ fn assert_model_matches_exactly(path: &Path, id: &str) {
         id
     );
     for &text in TEXTS {
-        let pie_ids = pie.encode(text);
+        let ids = pie.encode(text);
         let hf_ids = hf.encode(text, false).unwrap().get_ids().to_vec();
-        assert_eq!(pie_ids, hf_ids, "{} encoding {text:?}", id);
+        assert_eq!(ids, hf_ids, "{} encoding {text:?}", id);
         assert_eq!(
             pie.decode(&hf_ids, false),
             hf.decode(&hf_ids, false).unwrap(),
@@ -133,8 +133,8 @@ fn assert_model_matches_exactly(path: &Path, id: &str) {
             id
         );
         assert_eq!(
-            pie.decode(&pie_ids, false),
-            hf.decode(&pie_ids, false).unwrap(),
+            pie.decode(&ids, false),
+            hf.decode(&ids, false).unwrap(),
             "{} Pie→HF decode {text:?}",
             id
         );

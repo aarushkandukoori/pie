@@ -1,13 +1,13 @@
 //! The served model: the runtime's global model/tokenizer cache.
 //!
 //! Set once at bootstrap and read from everywhere after. It lived in
-//! `pie-model` while that crate was the only place a `Tokenizer` and an
-//! `Instruct` could be assembled; it is here now because `pie-model` defines
+//! `model` while that crate was the only place a `Tokenizer` and an
+//! `Instruct` could be assembled; it is here now because `model` defines
 //! itself as *what each model family is, backend-blind*, and a process-global
 //! `OnceLock` holding whatever this engine happens to have booted is a fact
 //! about the process, not about any model.
 //!
-//! What stayed behind is [`pie_model::ModelMetadata`]: the shape an
+//! What stayed behind is [`::model::ModelMetadata`]: the shape an
 //! artifact's compiled metadata arrives in, which the worker reads without
 //! linking the runtime.
 
@@ -16,9 +16,9 @@ use std::sync::{Arc, OnceLock};
 
 use anyhow::{Result, anyhow};
 
-use pie_model::instruct::{self, Instruct};
-use pie_model::ModelMetadata;
-use pie_tokenizer::Tokenizer;
+use ::model::instruct::{self, Instruct};
+use ::model::ModelMetadata;
+use tokenizer::Tokenizer;
 
 /// The single model this engine serves. Set once at bootstrap.
 static MODEL: OnceLock<Arc<Model>> = OnceLock::new();
@@ -28,11 +28,11 @@ static MODEL: OnceLock<Arc<Model>> = OnceLock::new();
 ///
 /// Here rather than on [`ModelMetadata`] because it is *consumption*: the type
 /// says what an artifact carries, and this says what this runtime does with
-/// it. `pie-model` should not need a `Tokenizer` to describe a shape.
+/// it. `model` should not need a `Tokenizer` to describe a shape.
 fn compiled_tokenizer(metadata: &ModelMetadata) -> Option<Result<Tokenizer>> {
     let objects = metadata.tokenizer.as_ref()?;
     Some((|| {
-        let canonical = pie_tokenizer::canonical::CanonicalTokenizer::from_objects(|name| {
+        let canonical = tokenizer::canonical::CanonicalTokenizer::from_objects(|name| {
             objects
                 .iter()
                 .find(|(have, _)| have == name)

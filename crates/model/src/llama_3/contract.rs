@@ -5,7 +5,7 @@
 //! contract of their own: `author_llama_like` serves Llama 3, Mistral and
 //! Qwen2/3, and `author_dense` serves a dozen `model_type`s across five
 //! vendors whose checkpoints already use the names the bind path reads.
-//! Those are rows in `pie_model::contract::HF_ROWS`, not dependencies — a
+//! Those are rows in `model::contract::HF_ROWS`, not dependencies — a
 //! generation with nothing of its own to say names the one that says it.
 //!
 //! Phi-3 used to live here, because it is dense with two source-side
@@ -13,7 +13,7 @@
 //! splits are Phi-3's alone, and what it shares is the three-pass dense
 //! tail, which every generation spells out for itself.
 
-use pie_loader::error::Error;
+use model_loader::error::Error;
 
 use crate::builder::Builder;
 use crate::mlx;

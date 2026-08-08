@@ -8,7 +8,7 @@
 //! gateway↔worker and worker↔local-client hops.
 //!
 //! Plain serde vocabulary, independent of the local runtime-driver ABI. Id atoms
-//! (e.g. `SessionId`) live in `pie-ids`; this crate references none of them.
+//! (e.g. `SessionId`) live in `ids`; this crate references none of them.
 
 pub mod edge;
 pub mod message;

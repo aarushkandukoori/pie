@@ -27,12 +27,12 @@
 //! they replaced the retired Design A `ptir_beam.rs`/`beam_goldens` vectors (B5).
 
 use tensor_compiler::eval::interp::{Instance, NoKernels, PassInputs, Value};
-use pie_ir::registry::{ModelProfile, Port};
-use pie_ir::validate::{BoundTrace, bind};
+use tensor_ir::registry::{ModelProfile, Port};
+use tensor_ir::validate::{BoundTrace, bind};
 
-use pie_dsl::builder::Builder;
-use pie_dsl::prelude::*;
-use pie_dsl::{Channel, DType, Traced};
+use tensor_dsl::builder::Builder;
+use tensor_dsl::prelude::*;
+use tensor_dsl::{Channel, DType, Traced};
 
 const B: u32 = 2; // beams
 const V: u32 = 8; // vocab

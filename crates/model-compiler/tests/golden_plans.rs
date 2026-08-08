@@ -21,11 +21,11 @@
 
 use std::path::PathBuf;
 
-use pie_forward::family::{
+use model_compiler::family::{
     llama_like, llama_like_cuda, qwen3_5_full_attn_block, qwen3_5_gdn_block, qwen3_5_hybrid,
     gemma4_cuda, gpt_oss_cuda, qwen3_5_hybrid_cuda, qwen3_5_moe_mlp_block, qwen3_5_moe_mlp_block_cuda,
 };
-use pie_forward::{
+use model_compiler::{
     FireClass, Gemma4CudaFacts, Gemma4Facts, ForwardPlan, GptOssCudaFacts, GptOssFacts, HookStage, LlamaLikeCudaFacts, LlamaLikeFacts, OpKind, Qwen35CudaFacts,
     Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MoeMlpFacts,
 };

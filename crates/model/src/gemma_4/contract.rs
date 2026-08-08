@@ -7,8 +7,8 @@
 //! than a filter applied to a finished contract, the plan it compiles has no
 //! trace of the tensors it skipped.
 
-use pie_loader::contract::Expr;
-use pie_loader::error::Error;
+use model_loader::contract::Expr;
+use model_loader::error::Error;
 
 use crate::builder::{Builder};
 use crate::mlx;

@@ -6,9 +6,9 @@
 //! sharded and `lm_head` replicated, which is a memory trade the driver
 //! makes and the checkpoint knows nothing about.
 
-use pie_loader::contract::Expr;
-use pie_loader::error::Error;
-use pie_loader::types::{DType, Encoding};
+use model_loader::contract::Expr;
+use model_loader::error::Error;
+use model_loader::types::{DType, Encoding};
 
 use crate::builder::{Builder, int4b8_encoding, is_raw};
 
@@ -192,7 +192,7 @@ fn bf16_expert_stacks(b: &mut Builder<'_>, budget: u64) -> Result<(), Error> {
             // split the packed tensors take, applied to the logical shapes.
             let packed = |b: &Builder<'_>, name: &str, shape: Vec<i64>, axis: u8| {
                 b.shard(
-                    Expr::src(name).transmute(pie_loader::contract::TensorType::new(
+                    Expr::src(name).transmute(model_loader::contract::TensorType::new(
                         shape.clone(),
                         int4b8_encoding(2),
                     )),
@@ -203,7 +203,7 @@ fn bf16_expert_stacks(b: &mut Builder<'_>, budget: u64) -> Result<(), Error> {
             };
             let factors = |b: &Builder<'_>, name: &str, shape: Vec<i64>, axis: u8| {
                 b.shard(
-                    Expr::src(name).transmute(pie_loader::contract::TensorType::new(
+                    Expr::src(name).transmute(model_loader::contract::TensorType::new(
                         shape.clone(),
                         Encoding::Raw(DType::BF16),
                     )),

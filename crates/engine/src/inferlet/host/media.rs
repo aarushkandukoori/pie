@@ -17,7 +17,7 @@
 use crate::inferlet::ProcessCtx;
 use crate::inferlet::host::pie;
 use anyhow::Result;
-use pie_model::multimodal::{self, Processor, VisionArch};
+use ::model::multimodal::{self, Processor, VisionArch};
 use wasmtime::component::Resource;
 use wasmtime_wasi::WasiView;
 

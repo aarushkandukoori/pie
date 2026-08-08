@@ -10,8 +10,8 @@ use std::time::Duration;
 mod common;
 use common::{MockEnv, create_mock_env, inferlets, mock_device::EchoBehavior};
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process;
+use engine::inferlet::program::ProgramName;
 
 /// Timeout for a single process to complete.
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(10);
@@ -33,7 +33,7 @@ fn state() -> &'static TestState {
         let env = create_mock_env("test-model", 1, 16, Arc::new(EchoBehavior(42)));
         let config = env.config();
         rt.block_on(async {
-            pie_engine::bootstrap::bootstrap(config).await.unwrap();
+            engine::bootstrap::bootstrap(config).await.unwrap();
         });
         TestState { env, rt }
     })

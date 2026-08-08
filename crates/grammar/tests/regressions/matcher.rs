@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use pie_grammar::bitmask::{bitmask_size, get_bit};
-use pie_grammar::compiled_grammar::CompiledGrammar;
-use pie_grammar::grammar::Grammar;
-use pie_grammar::matcher::GrammarMatcher;
-use pie_tokenizer::Tokenizer;
+use ::grammar::bitmask::{bitmask_size, get_bit};
+use ::grammar::compiled_grammar::CompiledGrammar;
+use ::grammar::grammar::Grammar;
+use ::grammar::matcher::GrammarMatcher;
+use tokenizer::Tokenizer;
 
 #[test]
 fn more_than_eight_nullable_rules_complete_at_one_position() {

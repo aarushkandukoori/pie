@@ -14,8 +14,8 @@
 //!   `has_*: bool` companion, matching the C++ views this replaces, so the
 //!   layout is legible from C without knowing Rust's niche rules.
 
-use pie_loader::contract::Visibility;
-use pie_loader::types::{
+use model_loader::contract::Visibility;
+use model_loader::types::{
     BackendKind, DType, Encoding, QuantGranularity, QuantScheme, QuantSpec, RepackLayout, ScaleForm,
 };
 
@@ -32,7 +32,7 @@ pub const PIE_LOADER_NO_TENSOR: u32 = u32::MAX;
 // producing a plan the device cannot run.
 //
 // These live here, in the module that owns the C surface, because the header is
-// where they have to be correct. `pie_loader::plan` states the same six bits.
+// where they have to be correct. `model_loader::plan` states the same six bits.
 // Restated here rather than aliased because cbindgen emits a literal and cannot
 // follow a path — and because the arrow used to run the other way, with the
 // compiler importing its own serialization format's constants. Two independent
@@ -163,7 +163,7 @@ pub enum PieLoaderEncodingKind {
     Quant = 1,
 }
 
-/// Discriminants follow `pie_loader::types::QuantScheme` declaration order, which is
+/// Discriminants follow `model_loader::types::QuantScheme` declaration order, which is
 /// *not* the order of the hand-written C++ enum this replaces (`MlxAffineU4` is
 /// eighth here and last there). The mismatch was invisible while the boundary
 /// was JSON, because the C++ parser mapped by name. Now that the two sides share
@@ -367,9 +367,9 @@ pub enum PieLoaderTileMapKind {
     Scale = 8,
 }
 
-impl From<pie_loader::plan::TileMapKind> for PieLoaderTileMapKind {
-    fn from(value: pie_loader::plan::TileMapKind) -> Self {
-        use pie_loader::plan::TileMapKind as K;
+impl From<model_loader::plan::TileMapKind> for PieLoaderTileMapKind {
+    fn from(value: model_loader::plan::TileMapKind) -> Self {
+        use model_loader::plan::TileMapKind as K;
         match value {
             K::Cast => Self::Cast,
             K::Decode => Self::Decode,
@@ -395,9 +395,9 @@ pub enum PieLoaderTransformFusion {
     Fp8ToMxfp4 = 1,
 }
 
-impl From<pie_loader::plan::TransformFusion> for PieLoaderTransformFusion {
-    fn from(value: pie_loader::plan::TransformFusion) -> Self {
-        use pie_loader::plan::TransformFusion as F;
+impl From<model_loader::plan::TransformFusion> for PieLoaderTransformFusion {
+    fn from(value: model_loader::plan::TransformFusion) -> Self {
+        use model_loader::plan::TransformFusion as F;
         match value {
             F::None => Self::None,
             F::Fp8ToMxfp4 => Self::Fp8ToMxfp4,
@@ -503,7 +503,7 @@ pub struct PieLoaderTensorDeclView {
 
 pub type PieLoaderTensorDeclSlice = PieLoaderSlice<PieLoaderTensorDeclView>;
 
-/// Whether a declared tensor is bound by the driver. Mirrors [`Visibility`](pie_loader::types::Visibility).
+/// Whether a declared tensor is bound by the driver. Mirrors [`Visibility`](model_loader::types::Visibility).
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PieLoaderVisibility {
@@ -686,17 +686,17 @@ pub enum PieLoaderCheckpointFormat {
     Onnx = 7,
 }
 
-impl From<pie_loader::types::CheckpointFormat> for PieLoaderCheckpointFormat {
-    fn from(value: pie_loader::types::CheckpointFormat) -> Self {
+impl From<model_loader::types::CheckpointFormat> for PieLoaderCheckpointFormat {
+    fn from(value: model_loader::types::CheckpointFormat) -> Self {
         match value {
-            pie_loader::types::CheckpointFormat::Safetensors => Self::Safetensors,
-            pie_loader::types::CheckpointFormat::Gguf => Self::Gguf,
-            pie_loader::types::CheckpointFormat::Unknown => Self::Unknown,
-            pie_loader::types::CheckpointFormat::Zt => Self::Zt,
-            pie_loader::types::CheckpointFormat::Npz => Self::Npz,
-            pie_loader::types::CheckpointFormat::Pt => Self::Pt,
-            pie_loader::types::CheckpointFormat::Hdf5 => Self::Hdf5,
-            pie_loader::types::CheckpointFormat::Onnx => Self::Onnx,
+            model_loader::types::CheckpointFormat::Safetensors => Self::Safetensors,
+            model_loader::types::CheckpointFormat::Gguf => Self::Gguf,
+            model_loader::types::CheckpointFormat::Unknown => Self::Unknown,
+            model_loader::types::CheckpointFormat::Zt => Self::Zt,
+            model_loader::types::CheckpointFormat::Npz => Self::Npz,
+            model_loader::types::CheckpointFormat::Pt => Self::Pt,
+            model_loader::types::CheckpointFormat::Hdf5 => Self::Hdf5,
+            model_loader::types::CheckpointFormat::Onnx => Self::Onnx,
         }
     }
 }
@@ -763,7 +763,7 @@ pub struct PieLoaderStorageInstrView {
 /// What an instruction does, as a tagged union carrying only that operation's
 /// operands.
 ///
-/// This mirrors `pie_loader::plan::StorageInstr` variant for variant. It was a flat
+/// This mirrors `model_loader::plan::StorageInstr` variant for variant. It was a flat
 /// struct of 32 members with a `kind` tag until every reader had grown a
 /// defence against the members that tag left meaningless: `if (!instr.has_source
 /// || !instr.has_dest)` in three executors, `inputs.size() != 1` around a
@@ -901,8 +901,8 @@ pub struct PieLoaderTargetView {
     pub block_scale_rows: u32,
 }
 
-impl From<&pie_loader::plan::StorageTarget> for PieLoaderTargetView {
-    fn from(value: &pie_loader::plan::StorageTarget) -> Self {
+impl From<&model_loader::plan::StorageTarget> for PieLoaderTargetView {
+    fn from(value: &model_loader::plan::StorageTarget) -> Self {
         Self {
             backend: value.backend.into(),
             tp_rank: value.tp_rank,
@@ -965,7 +965,7 @@ pub struct PieLoaderPlan {
 /// is the drift `PieLoaderTileMapKind::capability_bit` would otherwise turn
 /// into a mis-dispatched kernel.
 const _: () = {
-    use pie_loader::plan as p;
+    use model_loader::plan as p;
     assert!(PIE_LOADER_TILE_MAP_CAST == p::TILE_MAP_CAST);
     assert!(PIE_LOADER_TILE_MAP_DECODE == p::TILE_MAP_DECODE);
     assert!(PIE_LOADER_TILE_MAP_ENCODE == p::TILE_MAP_ENCODE);
@@ -991,7 +991,7 @@ impl From<PieLoaderVisibility> for Visibility {
 /// of numbers, which is what a designated initializer is good at.
 pub const PIE_LOADER_NO_AXIS: i32 = -1;
 
-/// [`pie_loader::types::QuantSpec`], flattened.
+/// [`model_loader::types::QuantSpec`], flattened.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PieLoaderQuantSpecView {
@@ -1018,7 +1018,7 @@ impl Default for PieLoaderQuantSpecView {
     }
 }
 
-/// [`pie_loader::types::Encoding`], flattened. `kind` selects which half is read.
+/// [`model_loader::types::Encoding`], flattened. `kind` selects which half is read.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PieLoaderEncodingSpec {

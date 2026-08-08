@@ -6,7 +6,7 @@ use super::{Expr, ExprId, Grammar, Rule, RuleId};
 ///
 /// # Example
 /// ```ignore
-/// use pie_grammar::grammar::builder::GrammarBuilder;
+/// use ::grammar::grammar::builder::GrammarBuilder;
 ///
 /// let mut b = GrammarBuilder::new();
 /// let root = b.add_rule("root");

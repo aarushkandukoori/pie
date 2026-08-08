@@ -6,12 +6,12 @@ use std::task::Poll;
 
 use anyhow::{Result, anyhow};
 use crossbeam_queue::SegQueue;
-use pie_driver_abi::{
+use driver_abi::{
     PIE_DRIVER_ABI_VERSION, PIE_TERMINAL_OUTCOME_FAILED, PIE_TERMINAL_OUTCOME_PENDING,
     PIE_TERMINAL_OUTCOME_RETRY, PIE_TERMINAL_OUTCOME_SUCCESS, PieCompletion, PieRuntimeCallbacks,
     PieTerminalCell,
 };
-use pie_waker::{FIRST_COMPLETION_EPOCH, WakerSlotId, WakerTable};
+use waker::{FIRST_COMPLETION_EPOCH, WakerSlotId, WakerTable};
 
 pub trait CompletionLease: Send + Sync {
     fn is_closed(&self) -> bool;
@@ -1001,7 +1001,7 @@ mod tests {
         drop(completion);
         assert!(matches!(
             WakerTable::global().publish(stale, 99),
-            pie_waker::WakeOutcome::Stale
+            waker::WakeOutcome::Stale
         ));
     }
 
@@ -1015,7 +1015,7 @@ mod tests {
         unsafe { runtime_notify(callbacks.ctx, stale, raw.target_epoch) };
         assert!(matches!(
             WakerTable::global().publish(stale, 99),
-            pie_waker::WakeOutcome::Stale
+            waker::WakeOutcome::Stale
         ));
     }
 

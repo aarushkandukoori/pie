@@ -1,7 +1,7 @@
 //! M3 inversion smoke — the Phase-3 close-out regression guard.
 //!
 //! Proves the post-inversion topology end-to-end, in-proc, against the real
-//! assembled `pie-gateway` crate:
+//! assembled `gateway` crate:
 //!
 //! 1. **The worker dials INTO the gateway.** The gateway is the listening server
 //!    (`worker_listen`, 1:N fan-in); a stub worker is the *client* that dials in
@@ -26,15 +26,15 @@ use anyhow::{Result, bail};
 use futures::StreamExt;
 use tokio::sync::watch;
 
-use pie_client_api::{ClientMessage, ServerMessage};
-use pie_controller_rpc::{
+use client_api::{ClientMessage, ServerMessage};
+use controller_api::{
     Ack, GatewayInfo, Health, Role, RoutableWorker, RoutingTable, WorkerStatus,
 };
-use pie_gateway::session::{Affinity, Identity, TurnInput};
-use pie_gateway::{Gateway, GatewayConfig, GatewayControl, bind};
-use pie_ids::{GatewayId, NodeId, ReqId, TenantId, WorkerId};
-use pie_worker_rpc::{Accepted, Control, Priority, Request, Tokens};
-use pie_worker_rpc::{GatewayInboundClient, WorkerControl, connect_gateway_link, dispatch_codec};
+use gateway::session::{Affinity, Identity, TurnInput};
+use gateway::{Gateway, GatewayConfig, GatewayControl, bind};
+use ids::{GatewayId, NodeId, ReqId, TenantId, WorkerId};
+use worker_api::{Accepted, Control, Priority, Request, Tokens};
+use worker_api::{GatewayInboundClient, WorkerControl, connect_gateway_link, dispatch_codec};
 use tarpc::serde_transport::tcp;
 use tarpc::server::{BaseChannel, Channel};
 

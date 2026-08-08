@@ -152,7 +152,7 @@ pub struct ProgramRegistration {
     /// The canonical PTIR container, for the in-workspace reference driver
     /// only.
     ///
-    /// `pie-driver-dummy` is a Rust crate that links the compiler's own IR and
+    /// `driver-dummy` is a Rust crate that links the compiler's own IR and
     /// interpreter, so it cannot drift from them the way a hand-written C++
     /// mirror can. It is the one consumer that still wants PTIR.
     ///

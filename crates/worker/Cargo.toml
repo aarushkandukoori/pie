@@ -1,5 +1,5 @@
 [package]
-name = "pie-worker"
+name = "worker"
 version = "0.4.0"
 edition = "2024"
 authors = ["In Gim <in.gim@icloud.com>"]
@@ -11,7 +11,7 @@ repository = "https://github.com/pie-project/pie"
 # the supervisors). The `pie` CLI binary below is one consumer; the
 # `pie-server` Python wheel under `sdk/python-server/` is another.
 [lib]
-name = "pie_worker"
+name = "worker"
 path = "src/lib.rs"
 crate-type = ["rlib"]
 
@@ -27,17 +27,17 @@ default = []
 # Each flavor turns on a DEPENDENCY, not a branch in this crate's build
 # script. The driver crates build their own `csrc/` and emit their own link
 # lines; what this crate needs from them is that they be in the graph.
-driver-cuda = ["pie-engine/driver-cuda"]
-driver-metal = ["pie-engine/driver-metal"]
+driver-cuda = ["engine/driver-cuda"]
+driver-metal = ["engine/driver-metal"]
 driver-dummy = []
-nixl = ["dep:pie-transport", "pie-transport/nixl"]
+nixl = ["dep:transport", "transport/nixl"]
 
 # Per-domain probe passthroughs. Each forwards to the runtime crate's
 # corresponding flag. See `runtime/engine/src/scheduler/probe.rs` for the
 # catalog of domains.
-profile-fire = ["pie-engine/profile-fire"]
-profile-hot-path = ["pie-engine/profile-hot-path"]
-profile-all = ["pie-engine/profile-all"]
+profile-fire = ["engine/profile-fire"]
+profile-hot-path = ["engine/profile-hot-path"]
+profile-all = ["engine/profile-all"]
 
 [dependencies]
 # `pie` is the runtime crate. After Phase 8 deleted the legacy
@@ -45,22 +45,22 @@ profile-all = ["pie-engine/profile-all"]
 # disable — pyo3 only lives in `driver/bridge_py/` (the Rust extension
 # bundled into the `pie-driver-bridge` wheel via maturin), not in the
 # runtime crate itself.
-pie-engine = { path = "../engine" }
+engine = { path = "../engine" }
 # Shared tarpc control-plane contract.
-pie-controller-rpc = { path = "../controller-api" }
+controller-api = { path = "../controller-api" }
 # Gateway data-plane RPC contract (post-inversion M3): GatewayInbound +
 # WorkerControl traits + the shared spawn_twoway link glue. The worker dials
 # INTO the gateway and serves WorkerControl over the split connection.
-pie-worker-rpc = { path = "../worker-api" }
+worker-api = { path = "../worker-api" }
 
 # Direct dep so this crate's build script receives `DEP_PIE_DRIVER_ABI_INCLUDE`
 # (the C header dir) from pie-driver-abi's `links` build-script handoff.
-pie-driver-abi = { path = "../driver-abi" }
-pie-transport = { path = "../transport", optional = true }
+driver-abi = { path = "../driver-abi" }
+transport = { path = "../transport", optional = true }
 # Shared id atoms (WorkerId / NodeId / ReqId / SessionId) and the client wire
 # vocabulary (ClientMessage / ServerMessage) the gateway data plane carries.
-pie-ids = { path = "../ids" }
-pie-client-api = { path = "../client-api" }
+ids = { path = "../ids" }
+client-api = { path = "../client-api" }
 anyhow = "1.0"
 # `$PIE_HOME` fallback to the home directory (`crate::paths`).
 dirs = "6.0"
@@ -72,7 +72,7 @@ serde_json = "1.0"
 toml = "1.1"
 tokio = { version = "1.53", features = ["full"] }
 # `serde-transport-bincode` = control-plane codec (pie-controller-rpc client). The
-# data-plane codec is single-sourced in `pie-worker-rpc` (`dispatch_codec`,
+# data-plane codec is single-sourced in `worker-api` (`dispatch_codec`,
 # MessagePack), so no `serde-transport-json` here.
 tarpc = { version = "0.37", features = [
 	"serde-transport",
@@ -95,36 +95,36 @@ tracing = "0.1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
 
 # Always-linked Rust dummy driver — random tokens, no model load.
-pie-driver-dummy = { path = "../driver-dummy" }
+driver-dummy = { path = "../driver-dummy" }
 # `default-features = false` drops the loader's testkit (oracle, contract
 # fixture builder, CPU executor). Nothing under `ffi/` reaches them, and this is
 # what keeps that true.
-pie-loader = { path = "../model-loader", default-features = false }
+model-loader = { path = "../model-loader", default-features = false }
 # tart: no Rust in this process calls the forward toolchain — the drivers
 # reach it over its C ABI — so the dependency exists to put the rlib in the
 # link and to order the build-script include handoff.
-pie-forward = { path = "../model-compiler" }
+model-compiler = { path = "../model-compiler" }
 # The loader's C ABI. Depended on for two build-time reasons: the entry-point
 # anchor in `embedded_driver.rs`, and `DEP_PIE_LOADER_INCLUDE` — this crate's
 # `links = "pie_loader"` metadata — which `build.rs` hands to the C++ drivers.
-pie-loader-capi = { path = "../model-loader-capi", default-features = false }
+model-loader-capi = { path = "../model-loader-capi", default-features = false }
 # The artifact's compiled metadata is lifted here and handed to the runtime
-# whole: `pie-model` owns the shape it arrives in, `pie-tokenizer` names the
+# whole: `model` owns the shape it arrives in, `tokenizer` names the
 # objects that make up a `pie.tokenizer/1`.
-pie-model = { path = "../model" }
-pie-tokenizer = { path = "../tokenizer" }
+model = { path = "../model" }
+tokenizer = { path = "../tokenizer" }
 # Names `pie.model/1` and the object it lives in, so the worker reads the
 # descriptor under the same name `convert` writes it under.
-pie-model-config = { path = "../model-config" }
+model-config = { path = "../model-config" }
 
 # Pie websocket client — used by `pie run` to drive an inferlet against
 # the engine subprocess we boot. Same crate the dummy_roundtrip example
 # uses.
-pie-client = { path = "../client" }
+client = { path = "../client" }
 
 [dev-dependencies]
 tempfile = "3"
-pie-ir = { path = "../tensor-ir" }
+tensor-ir = { path = "../tensor-ir" }
 
 [build-dependencies]
 # `kill(pid, 0)` for the stale-launch-state sweep: reachability only, never a

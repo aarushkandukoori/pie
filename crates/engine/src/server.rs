@@ -28,7 +28,7 @@ use std::time::Duration;
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
 use dashmap::DashMap;
-use pie_client::message::{ClientMessage, ServerMessage as WireServerMessage};
+use client::message::{ClientMessage, ServerMessage as WireServerMessage};
 use tokio::sync::{Mutex as TokioMutex, mpsc};
 
 use crate::inferlet::process;

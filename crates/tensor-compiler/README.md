@@ -42,7 +42,7 @@ different questions about the same bound trace — *how do we execute this* vers
 `tests/module_layering.rs` enforces it now, and says why.
 
 `codegen` is the only module here that reaches outside the toolchain, and only
-for the launch package: it builds one out of `pie-driver-abi`, the same
+for the launch package: it builds one out of `driver-abi`, the same
 declarations the drivers read it back with. That crate is a contract, not a
 driver — it depends on nothing but serde — so the two ends of the host→driver
 ABI are one declaration rather than two copies kept in step by hand.
@@ -51,8 +51,8 @@ ABI are one declaration rather than two copies kept in step by hand.
 
 The three shipped together, versioned together, and were consumed together by
 `engine`. What the split cost was the conformance battery: no one of the three
-could own tests spanning all of them, so it needed a crate of its own
-(`pie-compiler-tests`) that existed only to have dev-dependencies. Folded, that
+could own tests spanning all of them, so it needed a fourth crate
+that existed only to hold dev-dependencies. Folded, that
 is just `tests/`.
 
 The fold gave up one thing: `plan` alone was `no_std` (+ `alloc`). `eval`'s

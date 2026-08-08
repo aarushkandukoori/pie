@@ -17,8 +17,8 @@ use alloc::collections::BTreeSet;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use pie_ir::op::Op;
-use pie_ir::types::{DType, Literal, Predicate, RngKind, Shape, ValueId};
+use tensor_ir::op::Op;
+use tensor_ir::types::{DType, Literal, Predicate, RngKind, Shape, ValueId};
 
 use super::normalize::{NodeIndex, NormalizedStage};
 use super::region::{LibraryOp, StageIndex};
@@ -70,7 +70,7 @@ fn match_nucleus_dataflow(
         .or_else(|| match_nucleus_add_order(stage, final_node, perturbed, right, left, index))
 }
 
-/// The seven ops [`pie_ir::expand::softmax`] emits, recovered by walking back
+/// The seven ops [`tensor_ir::expand::softmax`] emits, recovered by walking back
 /// from the probabilities they produce.
 struct Softmax {
     maximum_node: NodeIndex,
@@ -90,7 +90,7 @@ struct Softmax {
     shape: Shape,
 }
 
-/// Invert [`pie_ir::expand::softmax`], checking that both reductions read the
+/// Invert [`tensor_ir::expand::softmax`], checking that both reductions read the
 /// same `logits` the caller already found.
 ///
 /// Only the `ReduceMax` identity has a mutation of its own
@@ -98,7 +98,7 @@ struct Softmax {
 /// declared-shape comparisons cannot fail alone: the sum is already named as a
 /// consumer of the exponentials by [`Chain::expected_consumers`], and two ops
 /// in one chain that declare different shapes have different types, which
-/// `pie_ir::infer` rejects before this runs. They are here so that reading
+/// `tensor_ir::infer` rejects before this runs. They are here so that reading
 /// this function tells you it matched a softmax.
 fn match_softmax(
     stage: &NormalizedStage,
@@ -181,7 +181,7 @@ fn match_softmax(
     })
 }
 
-/// The chain [`pie_ir::expand::nucleus_sample`] emits, read backwards.
+/// The chain [`tensor_ir::expand::nucleus_sample`] emits, read backwards.
 ///
 /// Recovering the chain and judging it are separate jobs, kept separate.
 /// [`match_chain`] does the recovery and answers nothing about whether the
@@ -262,7 +262,7 @@ impl Chain {
 }
 
 /// Walk back from an `argmax(masked + noise)` over the shape
-/// [`pie_ir::expand::nucleus_sample`] emits.
+/// [`tensor_ir::expand::nucleus_sample`] emits.
 ///
 /// The order mirrors that function read bottom-up: `mask_apply`, then
 /// `gumbel`, then the pivot that decides the kept set, then the softmax the
@@ -470,7 +470,7 @@ fn chain_is_exclusive(
 ///
 /// No test reaches a rejection here, and the two attempts recorded in
 /// `nucleus_lookalikes_remain_generic`'s history -- a `top_p` with the wrong
-/// row count, and rank-3 logits -- were both rejected by `pie_ir::infer`
+/// row count, and rank-3 logits -- were both rejected by `tensor_ir::infer`
 /// first: `Op::PivotThreshold` already requires rank 1 or 2 and a scalar or
 /// per-row threshold, and the elementwise ops already force the chain to one
 /// shape. This is a second opinion on a bound stage, not the first one.

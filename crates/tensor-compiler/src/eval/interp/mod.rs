@@ -19,7 +19,7 @@
 //!   call [`Instance::poison`] after its resubmission budget): blocked host
 //!   ops resolve to errors instead of hanging.
 //!
-//! The in-place lowering classes (`pie_ir::validate::ChannelClass`) are
+//! The in-place lowering classes (`tensor_ir::validate::ChannelClass`) are
 //! perf-only and deliberately *not* consulted here — the ring semantics below
 //! are the observable contract they must preserve.
 //!
@@ -46,11 +46,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 use std::sync::{Arc, Mutex};
 
-use pie_ir::container::{HostRole, PortSource};
-use pie_ir::op::IntrinsicId;
-use pie_ir::registry::{Phase, Port, Stage};
-use pie_ir::types::{DType, Shape, ValueId, ValueType};
-use pie_ir::validate::{BoundTrace, Direction};
+use tensor_ir::container::{HostRole, PortSource};
+use tensor_ir::op::IntrinsicId;
+use tensor_ir::registry::{Phase, Port, Stage};
+use tensor_ir::types::{DType, Shape, ValueId, ValueType};
+use tensor_ir::validate::{BoundTrace, Direction};
 
 /// A runtime value: a flat buffer (length 1 == scalar) tagged by dtype. The
 /// interpreter's working value; the golden model every backend diffs against.
@@ -172,7 +172,7 @@ impl ExternChannel {
         }
     }
     /// Convenience: build the shared ring from one side's channel decl.
-    pub fn for_decl(decl: &pie_ir::container::ChannelDecl) -> ExternChannel {
+    pub fn for_decl(decl: &tensor_ir::container::ChannelDecl) -> ExternChannel {
         ExternChannel::new(
             ValueType::new(decl.shape, decl.dtype.program_dtype()),
             decl.capacity,
@@ -885,4 +885,4 @@ pub(crate) enum Evaled {
     },
 }
 
-pub use pie_ir::validate::Direction as ReadinessDirection;
+pub use tensor_ir::validate::Direction as ReadinessDirection;

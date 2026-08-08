@@ -650,7 +650,7 @@ pub struct PieRegionAnalysisSlice {
 // (`ptir-refactor.md` §2.3). Records are flat and POD; nested `Pie*Slice`
 // fields point at host-owned arrays that outlive the registration call.
 
-/// Where a value comes from. Mirrors `pie_ir` value sources.
+/// Where a value comes from. Mirrors `tensor_ir` value sources.
 pub const PIE_VALUE_CONST: u8 = 0;
 pub const PIE_VALUE_INTRINSIC: u8 = 1;
 pub const PIE_VALUE_CHANNEL_TAKE: u8 = 2;

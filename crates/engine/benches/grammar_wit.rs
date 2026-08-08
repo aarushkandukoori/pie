@@ -20,14 +20,14 @@ use std::time::Duration;
 
 use env::{MockEnv, create_mock_env};
 use mock_device::EchoBehavior;
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::{self, ProgramName};
+use engine::inferlet::process;
+use engine::inferlet::program::{self, ProgramName};
 use tempfile::TempDir;
 
 /// Match production's allocator.
 ///
-/// `pie-worker` sets mimalloc for every engine entry point, but a bench target
-/// links neither it nor `startup`, so without this line these numbers come from
+/// `worker` sets mimalloc for every engine entry point, but a bench target
+/// links neither it nor `bootstrap`, so without this line these numbers come from
 /// glibc malloc -- a machine nobody runs.
 ///
 /// Measured at vocab 151936, 400 iterations x 3 rounds, three runs each:
@@ -146,7 +146,7 @@ fn state(vocab_size: usize) -> BenchState {
     let program = ProgramName::parse("grammar-wit-bench@0.1.0").unwrap();
 
     rt.block_on(async {
-        pie_engine::bootstrap::bootstrap(config).await.unwrap();
+        engine::bootstrap::bootstrap(config).await.unwrap();
         program::add(wasm, manifest, true).await.unwrap();
         program::install(&program).await.unwrap();
     });

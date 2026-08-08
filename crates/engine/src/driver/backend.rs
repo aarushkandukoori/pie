@@ -84,15 +84,15 @@ impl DriverBackend {
     }
 
     pub fn dummy(
-        options: pie_driver_dummy_lib::DummyDriverOptions,
-    ) -> Result<(Self, pie_driver_abi::DeviceFacts)> {
+        options: driver_dummy::DummyDriverOptions,
+    ) -> Result<(Self, driver_abi::DeviceFacts)> {
         let driver = DummyDriver::new(options);
         let facts = driver.device_facts().clone();
         Ok((Self::Dummy(driver), facts))
     }
 
     #[cfg(feature = "driver-cuda")]
-    pub fn cuda_create(config_bytes: &[u8]) -> Result<(Self, pie_driver_abi::DeviceFacts)> {
+    pub fn cuda_create(config_bytes: &[u8]) -> Result<(Self, driver_abi::DeviceFacts)> {
         let (driver, facts) = CudaDriver::create(config_bytes)?;
         Ok((Self::Cuda(driver), facts))
     }
@@ -100,21 +100,21 @@ impl DriverBackend {
     #[cfg(feature = "driver-cuda")]
     pub fn cuda_group_create(
         config_blobs: Vec<Vec<u8>>,
-    ) -> Result<(Self, Vec<pie_driver_abi::DeviceFacts>)> {
+    ) -> Result<(Self, Vec<driver_abi::DeviceFacts>)> {
         let (driver, facts) = CudaDriver::create_group(config_blobs)?;
         Ok((Self::Cuda(driver), facts))
     }
 
     #[cfg(feature = "driver-metal")]
-    pub fn metal_create(config_bytes: &[u8]) -> Result<(Self, pie_driver_abi::DeviceFacts)> {
+    pub fn metal_create(config_bytes: &[u8]) -> Result<(Self, driver_abi::DeviceFacts)> {
         let (driver, facts) = MetalDriver::create(config_bytes)?;
         Ok((Self::Metal(driver), facts))
     }
 
     pub fn load_model(
         &mut self,
-        descs: Vec<pie_driver_abi::ModelLoadDesc>,
-    ) -> Result<pie_driver_abi::DriverCapabilities> {
+        descs: Vec<driver_abi::ModelLoadDesc>,
+    ) -> Result<driver_abi::DriverCapabilities> {
         match self {
             Self::Dummy(driver) => {
                 let [desc] = descs.as_slice() else {
@@ -195,7 +195,7 @@ impl DriverBackend {
                 next.emitted_kernels = emitted
                     .kernels
                     .iter()
-                    .map(|kernel| pie_driver_abi::EmittedKernel {
+                    .map(|kernel| driver_abi::EmittedKernel {
                         kind: kernel.kind,
                         stage_index: kernel.stage_index,
                         region_index: kernel.region_index,
@@ -329,7 +329,7 @@ impl DriverBackend {
         }
     }
 
-    pub fn export_kv_handle(&self) -> Option<pie_driver_abi::KvHandle> {
+    pub fn export_kv_handle(&self) -> Option<driver_abi::KvHandle> {
         match self {
             Self::Dummy(driver) => driver.export_kv_handle(),
             #[cfg(feature = "driver-cuda")]

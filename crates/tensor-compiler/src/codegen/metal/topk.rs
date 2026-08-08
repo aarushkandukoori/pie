@@ -8,7 +8,7 @@
 use crate::codegen::error::{EmitError, RegionForm};
 use alloc::string::String;
 use core::fmt::Write as _;
-use pie_ir::op::tags;
+use tensor_ir::op::tags;
 
 use crate::plan::{CompiledStage, LibraryOp, Region};
 

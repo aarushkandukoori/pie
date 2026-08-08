@@ -1,6 +1,6 @@
 //! Capability assertions for the 4090 real-driver pass (lane L7 / hotel).
 //!
-//! The 3-way native-Rust harness is: **echo** boots `pie_worker::engine` on the
+//! The 3-way native-Rust harness is: **echo** boots `worker::engine` on the
 //! 4090 → **golf** submits the `mirostat`/`grammar` WASM inferlets via `client/rust`
 //! → **hotel** (this module) asserts the capability properties on the inferlets'
 //! structured-JSON output.

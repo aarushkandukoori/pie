@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
-use pie_client::client::{Client, ProcessEvent};
+use client::client::{Client, ProcessEvent};
 
 #[derive(Args, Debug)]
 pub struct RunArgs {
@@ -238,8 +238,8 @@ fn typed(value: &str) -> serde_json::Value {
 }
 
 /// Boot, run, print, exit.
-pub async fn run(global: &startup::GlobalArgs, args: RunArgs) -> Result<crate::ui::Answer> {
-    let (cfg_path, origin) = startup::cli_config_path(global);
+pub async fn run(global: &bootstrap::GlobalArgs, args: RunArgs) -> Result<crate::ui::Answer> {
+    let (cfg_path, origin) = bootstrap::cli_config_path(global);
     let content = std::fs::read_to_string(&cfg_path).with_context(|| {
         format!(
             "no config file at {} ({}); `pie config init` writes one",

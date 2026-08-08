@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use pie_tokenizer::Tokenizer;
+use tokenizer::Tokenizer;
 
 fn add_token(tokens: &mut Vec<Vec<u8>>, seen: &mut HashSet<Vec<u8>>, token: &str) {
     let bytes = token.as_bytes().to_vec();

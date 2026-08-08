@@ -4,15 +4,15 @@
 //! (`model`/`doctor`/...). The only crate that depends on all three role libs.
 //!
 //! Process model (Model A): `#[tokio::main]` owns the one runtime; every
-//! subcommand runs on it. `local`/`serve` use the full daemon `startup::init`
-//! + `run_until_signal`; one-shot ops use the light `startup::init_cli`.
+//! subcommand runs on it. `local`/`serve` use the full daemon `bootstrap::init`
+//! + `run_until_signal`; one-shot ops use the light `bootstrap::init_cli`.
 
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use pie_bin::{compose, derive, local, ops, ui};
+use pie::{compose, derive, local, ops, ui};
 /// Top-level `pie` invocation. The shared global flags (`--config`,
-/// `--log-level`, `--metrics-addr`) are flattened from `startup`.
+/// `--log-level`, `--metrics-addr`) are flattened from `bootstrap`.
 #[derive(Parser, Debug)]
 #[command(
     name = "pie",
@@ -22,7 +22,7 @@ use pie_bin::{compose, derive, local, ops, ui};
 )]
 struct Cli {
     #[command(flatten)]
-    global: startup::GlobalArgs,
+    global: bootstrap::GlobalArgs,
 
     /// Emit one JSON document instead of the human rendering. Works on every
     /// command.
@@ -79,7 +79,7 @@ enum Command {
 
 /// Die quietly when a reader goes away, the way every other CLI does.
 ///
-/// Rust masks SIGPIPE at startup, so a `println!` into a closed pipe returns
+/// Rust masks SIGPIPE at bootstrap, so a `println!` into a closed pipe returns
 /// EPIPE, and `println!` panics on a write error. `pie config list | head` was
 /// therefore printing a panic and exiting non-zero -- for doing exactly what
 /// `head` asks of it. Restoring the default disposition turns that back into
@@ -145,7 +145,7 @@ async fn run() -> anyhow::Result<ExitCode> {
     // Once, for every op. It was written out at the head of all six arms, which
     // is the kind of repetition that stays correct only until somebody adds a
     // seventh arm.
-    startup::init_cli(&cli.global)?;
+    bootstrap::init_cli(&cli.global)?;
 
     // What each op decides for itself is whether it blocks and what it answers
     // with. The threading policy used to be made arm by arm -- `model` got a
@@ -182,9 +182,9 @@ async fn run() -> anyhow::Result<ExitCode> {
 /// The `serve` path: full daemon `init` → derive the three typed role Configs
 /// from the standalone TOML → boot the in-proc cluster (golf's compose) → run
 /// until SIGINT/SIGTERM, then drain.
-async fn serve(global: startup::GlobalArgs) -> anyhow::Result<ExitCode> {
-    let ctx = startup::init(
-        startup::BootSpec::pie().version(env!("CARGO_PKG_VERSION")),
+async fn serve(global: bootstrap::GlobalArgs) -> anyhow::Result<ExitCode> {
+    let ctx = bootstrap::init(
+        bootstrap::BootSpec::pie().version(env!("CARGO_PKG_VERSION")),
         global,
     )?;
     // Provision the embedded Python-WASM runtime before booting — the worker

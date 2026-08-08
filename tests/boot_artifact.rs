@@ -12,7 +12,7 @@
 //!     rebuilt without `tokenizer.json` existing anywhere;
 //!   * `vocab_size` and `num_hidden_layers` read from the `pie.model/1`
 //!     descriptor rather than probed out of a `config.json`;
-//!   * the descriptor written beside the driver's startup TOML.
+//!   * the descriptor written beside the driver's bootstrap TOML.
 //!
 //! The proof that this is not just "it booted" is negative: the artifact is
 //! the *only* file in its directory. There is no `tokenizer.json` and no
@@ -28,8 +28,8 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use pie_bin::derive::derive_standalone;
-use pie_bin::run_standalone;
+use pie::derive::derive_standalone;
+use pie::run_standalone;
 
 /// The same standalone TOML `boot_smoke` uses, pointed at an artifact.
 ///
@@ -82,7 +82,7 @@ fn fixture_artifact() -> String {
         // artifact and not the files it was made from.
         let store = tempfile::tempdir().expect("create artifact dir");
         let artifact = store.path().join("smoke.zt");
-        pie_bin::ops::model::import::run(pie_bin::ops::model::import::ImportArgs {
+        pie::ops::model::import::run(pie::ops::model::import::ImportArgs {
             source: staging.path().to_string_lossy().into_owned(),
             out: Some(artifact.clone()),
             dry_run: false,
@@ -112,7 +112,7 @@ fn assert_only_the_artifact(dir: &Path, artifact: &Path) {
     );
 }
 
-async fn boot() -> Result<pie_bin::StandaloneHandle> {
+async fn boot() -> Result<pie::StandaloneHandle> {
     let (controller, gateway, worker) = derive_standalone(&standalone_toml(&fixture_artifact()))?;
     run_standalone(controller, gateway, worker).await
 }

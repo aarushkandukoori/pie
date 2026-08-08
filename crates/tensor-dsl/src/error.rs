@@ -10,8 +10,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-use pie_ir::registry::Stage;
-use pie_ir::validate::ValidateError;
+use tensor_ir::registry::Stage;
+use tensor_ir::validate::ValidateError;
 
 /// A source location captured at an author call site (`file:line:col`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,7 +113,7 @@ pub enum TraceError {
     /// The trace asked for something the op vocabulary cannot express, or
     /// combined operands whose shapes or dtypes do not agree.
     ///
-    /// Reported rather than panicked. `pie-dsl` traces inside a
+    /// Reported rather than panicked. `tensor-dsl` traces inside a
     /// `wasm32-wasip2` guest, where a panic is a trap: the inferlet aborts
     /// and the author gets a stack-less abort code instead of the file and
     /// line of the call that was wrong. Recording lets the recorder keep

@@ -7,10 +7,10 @@
 //! guarantee the plan makes for both -- that instance `i` differs from instance
 //! 0 only in which bytes it reads.
 
-use pie_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
-use pie_loader::contract::{Expr, GroupContract, ModelContract, TensorContract};
-use pie_loader::plan::{StorageInstr, StorageTarget, compile};
-use pie_loader::types::{BackendKind, CheckpointFormat, DType, Encoding, FileId, TensorId};
+use model_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
+use model_loader::contract::{Expr, GroupContract, ModelContract, TensorContract};
+use model_loader::plan::{StorageInstr, StorageTarget, compile};
+use model_loader::types::{BackendKind, CheckpointFormat, DType, Encoding, FileId, TensorId};
 
 const EXPERTS: u32 = 4;
 const ROWS: i64 = 8;
@@ -19,7 +19,7 @@ const COLS: i64 = 16;
 fn target() -> StorageTarget {
     StorageTarget {
         backend: BackendKind::Cuda,
-        tile_map_mask: pie_loader::plan::CUDA_TILE_MAP_MASK,
+        tile_map_mask: model_loader::plan::CUDA_TILE_MAP_MASK,
         ..StorageTarget::default()
     }
 }
@@ -333,8 +333,8 @@ fn on_disk(mut meta: CheckpointMetadata, tag: &str) -> (CheckpointMetadata, std:
 /// group is verified -- not just the index the template was compiled at.
 #[test]
 fn a_marshalled_group_survives_the_abi_and_every_instance_is_checked() {
-    use pie_loader_capi::arena;
-    use pie_loader_capi::view::verify_marshalled;
+    use model_loader_capi::arena;
+    use model_loader_capi::view::verify_marshalled;
 
     let (meta, dir) = on_disk(named_checkpoint(), "abi");
     let plan = compile(
@@ -371,7 +371,7 @@ fn a_marshalled_group_survives_the_abi_and_every_instance_is_checked() {
 /// template -- index 0 -- is perfectly in bounds.
 #[test]
 fn an_instance_that_reads_past_its_file_is_rejected() {
-    use pie_loader_capi::view::verify_marshalled;
+    use model_loader_capi::view::verify_marshalled;
 
     let (meta, dir) = on_disk(named_checkpoint(), "past-end");
     let mut plan = compile(
@@ -460,8 +460,8 @@ mod streamability {
     /// tensor's own offset reads that tensor whole; one that is displaced from
     /// it reads a band.
     fn streamable_tensors(
-        plan: &pie_loader::plan::LoadPlan,
-        metadata: &pie_loader::checkpoint::CheckpointMetadata,
+        plan: &model_loader::plan::LoadPlan,
+        metadata: &model_loader::checkpoint::CheckpointMetadata,
     ) -> Streamable {
         let by_id: HashMap<_, _> = metadata.tensors.iter().map(|t| (t.id, t)).collect();
         let mut out = Streamable::default();

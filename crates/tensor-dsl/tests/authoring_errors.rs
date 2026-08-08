@@ -1,15 +1,15 @@
 //! Shape and dtype mistakes made while writing a trace are reported, not
 //! trapped.
 //!
-//! `pie-dsl` runs inside a `wasm32-wasip2` guest, where a panic is a trap: the
+//! `tensor-dsl` runs inside a `wasm32-wasip2` guest, where a panic is a trap: the
 //! host sees an aborted instance with no stack, no file and no line. Every
 //! mistake an author can make therefore has to arrive through
 //! [`Builder::build`]'s `Err`, carrying the span of the call that made it.
 
-use pie_dsl::builder::Builder;
-use pie_dsl::error::TraceError;
-use pie_dsl::prelude::*;
-use pie_dsl::{Channel, TraceErrors};
+use tensor_dsl::builder::Builder;
+use tensor_dsl::error::TraceError;
+use tensor_dsl::prelude::*;
+use tensor_dsl::{Channel, TraceErrors};
 
 fn authoring(errors: &TraceErrors) -> Vec<&TraceError> {
     errors

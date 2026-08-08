@@ -9,13 +9,13 @@
 //! emitted op survives `bind` against a profile that advertises the kernel.
 
 use tensor_compiler::eval::interp::{Instance, KernelHost, PassInputs, Value};
-use pie_ir::op::Op;
-use pie_ir::registry::{KernelInfo, ModelProfile};
-use pie_ir::validate::bind;
+use tensor_ir::op::Op;
+use tensor_ir::registry::{KernelInfo, ModelProfile};
+use tensor_ir::validate::bind;
 
-use pie_dsl::builder::Builder;
-use pie_dsl::prelude::*;
-use pie_dsl::{Channel, DType, Traced};
+use tensor_dsl::builder::Builder;
+use tensor_dsl::prelude::*;
+use tensor_dsl::{Channel, DType, Traced};
 
 const V: u32 = 8;
 const PAGES: u32 = 4;
@@ -49,7 +49,7 @@ impl KernelHost for RampKernels {
         &mut self,
         name: &str,
         _args: &[Value],
-        result: pie_ir::types::ValueType,
+        result: tensor_ir::types::ValueType,
     ) -> Result<Value, String> {
         if name != "envelope_dot" {
             return Err(format!("no such kernel: {name}"));
@@ -64,7 +64,7 @@ impl KernelHost for RampKernels {
 /// device-carried `[PAGES]` accumulator; the epilogue publishes the fold.
 fn quest_tap() -> Traced {
     let acc = Channel::from(vec![f32::NEG_INFINITY; PAGES as usize]).named("quest_acc");
-    let out = Channel::new([PAGES], pie_dsl::dtype::f32).named("quest_scores");
+    let out = Channel::new([PAGES], tensor_dsl::dtype::f32).named("quest_scores");
     let acc_tap = acc.clone();
     let acc_epi = acc.clone();
     let mut b = Builder::new(V, PAGE_T);
@@ -115,7 +115,7 @@ fn envelope_dot_interns_its_name_and_emits_a_kernel_call() {
 /// index, and the index is stable across the stage boundary.
 #[test]
 fn repeated_kernel_names_intern_once() {
-    let sink = Channel::new([PAGES], pie_dsl::dtype::f32).named("sink");
+    let sink = Channel::new([PAGES], tensor_dsl::dtype::f32).named("sink");
     let mut b = Builder::new(V, PAGE_T);
     b.stage(Stage::OnAttnProj, || {
         let a = intrinsics::kernel::envelope_dot(PAGES);

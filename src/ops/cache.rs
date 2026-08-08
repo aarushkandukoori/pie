@@ -1,12 +1,12 @@
 //! `pie cache` — what pie has written under `$PIE_HOME`, and reclaiming it.
 //!
-//! `list` and `clear` both read `pie_worker::state`, which is the point of the
+//! `list` and `clear` both read `worker::state`, which is the point of the
 //! registry: describing and reclaiming cannot disagree about what exists.
 
 
 use anyhow::{Result, anyhow, bail};
 use clap::Subcommand;
-use pie_worker::state::{self, Reclaim};
+use worker::state::{self, Reclaim};
 
 use crate::ui::{self, Align, Answer, Mark, Palette, Row, Table};
 
@@ -107,7 +107,7 @@ impl ui::Report for CacheReport {
 
 fn list() -> Result<Answer> {
     let entries = state::entries(Some(hf_hub::resolve_cache_dir()));
-    let home = pie_worker::paths::pie_home();
+    let home = worker::paths::pie_home();
 
     // Measured once and reused: the size is what decides whether a row is
     // worth a person's attention, and walking a weight-sized tree twice to

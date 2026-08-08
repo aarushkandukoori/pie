@@ -1000,7 +1000,7 @@ unsafe impl Sync for EntryAddr {}
 
 /// Anchors the entry points against dead-code elimination.
 ///
-/// `pie-forward` is an rlib, and nothing in Rust calls these functions — the
+/// `model-compiler` is an rlib, and nothing in Rust calls these functions — the
 /// only caller is the C++ driver, linked afterwards. Without a reference
 /// from a reachable item, `rustc` and the linker are free to drop
 /// `#[no_mangle]` functions from an rlib, and the failure surfaces as an

@@ -1,6 +1,6 @@
 //! The materialized-weight artifact, across the ABI.
 //!
-//! [`pie_loader::weight_store`] owns the format; this is how the driver drives it.
+//! [`model_loader::weight_store`] owns the format; this is how the driver drives it.
 //! Two shapes, because the two directions are not symmetric.
 //!
 //! Writing is a **stream**. The payloads live in device memory and are copied
@@ -24,8 +24,8 @@
 use std::ffi::c_void;
 use std::path::Path;
 
-use pie_loader::types::DType;
-use pie_loader::weight_store::{Artifact, ArtifactWriter, Quant, Tensor, View};
+use model_loader::types::DType;
+use model_loader::weight_store::{Artifact, ArtifactWriter, Quant, Tensor, View};
 
 use super::entry::{PieLoaderDiagnostics, PieLoaderStatus};
 use super::types::{PieLoaderBytes, PieLoaderDType, PieLoaderI64Slice, PieLoaderSlice};

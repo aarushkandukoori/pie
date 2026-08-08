@@ -21,7 +21,7 @@
 mod msl_corpus;
 
 use tensor_compiler::codegen::program::{Backend, EmittedKernel, emit_program};
-use pie_ir::validate::bind;
+use tensor_ir::validate::bind;
 use tensor_compiler::plan::compile_bound;
 
 use msl_corpus::{
@@ -305,7 +305,7 @@ fn every_fault_code_is_readable_in_its_kernel_vocabulary() {
             || kernel.source.contains("m1_fault_op(");
         for code in literals {
             if speaks_tags {
-                let is_a_tag = u8::try_from(code).is_ok_and(|tag| pie_ir::op::spec(tag).is_some());
+                let is_a_tag = u8::try_from(code).is_ok_and(|tag| tensor_ir::op::spec(tag).is_some());
                 let is_a_recorded_alias = tensor_compiler::codegen::fault::TAG_ALIASES
                     .iter()
                     .any(|(alias, _)| *alias == code);

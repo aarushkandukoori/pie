@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use pie_ir::types::{DType, Shape, ValueType};
+use tensor_ir::types::{DType, Shape, ValueType};
 
 use crate::context::{self, ChannelRef, ChannelState};
 use crate::error::Span;
@@ -267,7 +267,7 @@ impl Channel {
     /// On a channel bound to a *peeked* descriptor port (geometry, masks — the
     /// ports whose discipline is read, not take) the put drains the stale value
     /// first, so a loop-carried update is one call whichever side of
-    /// [`pie_ir::registry::Port::consumes`] the port falls on. An explicit
+    /// [`tensor_ir::registry::Port::consumes`] the port falls on. An explicit
     /// `take` in the same trace is honoured and not repeated.
     #[track_caller]
     pub fn put(&self, v: impl IntoPut) -> Put {

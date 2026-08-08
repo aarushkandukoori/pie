@@ -20,7 +20,7 @@ const RUNTIME_URL: &str =
 
 /// Where the host loader expects to find the runtime tree.
 pub fn runtime_dir() -> PathBuf {
-    startup::paths::pie_home().join("py-runtime")
+    bootstrap::paths::pie_home().join("py-runtime")
 }
 
 /// Sentinel file the host loader links against. Its presence is what
@@ -39,7 +39,7 @@ pub fn is_installed() -> bool {
 /// Install the runtime if it isn't already. Returns the runtime
 /// directory either way.
 ///
-/// `quiet` suppresses the progress line on the engine startup path
+/// `quiet` suppresses the progress line on the engine bootstrap path
 /// where the user shouldn't be asked to read a download bar. When
 /// invoked manually via `pie config init`, callers pass `quiet=false`
 /// so the user sees the progress.
@@ -49,7 +49,7 @@ pub fn ensure_installed(quiet: bool) -> Result<PathBuf> {
         return Ok(dir);
     }
 
-    let pie_home = startup::paths::pie_home();
+    let pie_home = bootstrap::paths::pie_home();
     std::fs::create_dir_all(&pie_home).map_err(|e| anyhow!("create {pie_home:?}: {e}"))?;
 
     if !quiet {
@@ -72,7 +72,7 @@ pub fn ensure_installed(quiet: bool) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Best-effort install for the engine startup path. Logs and swallows
+/// Best-effort install for the engine bootstrap path. Logs and swallows
 /// failures so a missing network doesn't block users who aren't
 /// running Python inferlets at all.
 pub fn ensure_installed_best_effort() {
@@ -96,7 +96,7 @@ pub fn ensure_installed_best_effort() {
 /// async one is an error tokio reports at runtime rather than a compile error.
 /// `pie config init` used to reach this directly and printed "Cannot drop a
 /// runtime in a context where blocking is not allowed" every time; it goes
-/// through `spawn_blocking` now, as `runtime install` and the startup
+/// through `spawn_blocking` now, as `runtime install` and the bootstrap
 /// best-effort install already did.
 fn fetch() -> Result<Vec<u8>> {
     let resp = reqwest::blocking::Client::new()

@@ -1,4 +1,4 @@
-//! # `pie-codegen` — backend source emission for PTIR
+//! # `tensor-compiler` — backend source emission for PTIR
 //!
 //! Everything Pie generates *from* the IR tables rather than maintaining by
 //! hand. Each emitter is a pure function of the tables, so its output is
@@ -12,7 +12,7 @@
 //!   tags, dtype/stage/port enums, and the arity table the drivers switch on.
 //! * [`rng`] — the CUDA/C++ (`include/rng_contract.generated.h`) and MSL
 //!   (`include/ptir_rng.generated.metal`) projections of the canonical RNG
-//!   contract in [`pie_ir::rng`].
+//!   contract in [`tensor_ir::rng`].
 //! * [`layout`] — the lane-table field list, printed as C and as MSL and
 //!   pinned to the [`crate::codegen::plan`] `#[repr(C)]` structs with `offset_of!`. Adding
 //!   a field to one side without the other is a compile error rather than a
@@ -38,7 +38,7 @@
 //! Anything only one backend's driver reads lives under that backend, not here
 //! — see [`cuda::region_analysis`].
 //!
-//! Those last two are built out of [`pie_driver_abi`], which is why this crate
+//! Those last two are built out of [`driver_abi`], which is why this crate
 //! is the one that reaches outside `compiler/`. That crate is the contract, not
 //! a driver: the compiler writes a `LaunchPackage` and the driver reads one out
 //! of the same declarations, so there is no second copy to keep in step.

@@ -11,11 +11,11 @@
 
 use std::collections::HashMap;
 
-use pie_loader::contract::compile::{Leaf, Lowering, Run, RunSource, compile};
-use pie_loader::contract::infer::{CheckpointTypes, infer_type};
-use pie_loader::contract::{Expr, TensorType};
-use pie_loader::testkit::reference::{TensorValue, replay};
-use pie_loader::types::{DType, Encoding, TensorDecl, TensorId};
+use model_loader::contract::compile::{Leaf, Lowering, Run, RunSource, compile};
+use model_loader::contract::infer::{CheckpointTypes, infer_type};
+use model_loader::contract::{Expr, TensorType};
+use model_loader::testkit::reference::{TensorValue, replay};
+use model_loader::types::{DType, Encoding, TensorDecl, TensorId};
 
 const MAX_RUNS: usize = 1 << 16;
 const DTYPE: DType = DType::I32;

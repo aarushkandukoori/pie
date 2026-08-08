@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use pie_driver_abi::PieChannelEndpointBinding;
+use driver_abi::PieChannelEndpointBinding;
 
 /// One channel's initial (seed) value delivered at bind time — `channel` is
 /// the global channel identity, `bytes` its native-encoded wire payload. No
@@ -125,19 +125,19 @@ impl ChannelEndpoint {
         observed: u64,
     ) -> Result<(), ChannelWaitError> {
         let binding = self.registered.binding;
-        pie_waker::WaitFuture::new(pie_waker::WakerTable::global(), wait_id, move || {
+        waker::WaitFuture::new(waker::WakerTable::global(), wait_id, move || {
             let poison = load_channel_word(binding.word_base, binding.poison_word_index);
             if poison != 0 {
-                return pie_waker::Readiness::Ready(Err(ChannelWaitError::Poisoned(poison)));
+                return waker::Readiness::Ready(Err(ChannelWaitError::Poisoned(poison)));
             }
             if load_channel_word(binding.word_base, binding.closed_word_index) != 0 {
-                return pie_waker::Readiness::Ready(Err(ChannelWaitError::Closed));
+                return waker::Readiness::Ready(Err(ChannelWaitError::Closed));
             }
             let current = load_channel_word(binding.word_base, word_index);
             if current > observed {
-                pie_waker::Readiness::Ready(Ok(()))
+                waker::Readiness::Ready(Ok(()))
             } else {
-                pie_waker::Readiness::Pending {
+                waker::Readiness::Pending {
                     observed_epoch: current,
                 }
             }
@@ -167,7 +167,7 @@ impl ChannelEndpoint {
         if self.closed.swap(true, Ordering::AcqRel) {
             return;
         }
-        let table = pie_waker::WakerTable::global();
+        let table = waker::WakerTable::global();
         let wait_ids = [
             self.registered.reader_wait_id,
             self.registered.writer_wait_id,
@@ -206,7 +206,7 @@ mod tests {
             .map(|_| AtomicU64::new(0))
             .collect::<Vec<_>>()
             .into_boxed_slice();
-        let table = pie_waker::WakerTable::global();
+        let table = waker::WakerTable::global();
         let reader_wait_id = table.alloc();
         let writer_wait_id = table.alloc();
         let endpoint = ChannelEndpoint::new(RegisteredChannel {
@@ -237,7 +237,7 @@ mod tests {
         let publish_reader = async {
             tokio::task::yield_now().await;
             words[1].store(1, Ordering::Release);
-            let _ = pie_waker::WakerTable::global().publish(reader_wait_id, 1);
+            let _ = waker::WakerTable::global().publish(reader_wait_id, 1);
         };
         let (result, ()) = tokio::join!(reader, publish_reader);
         result.unwrap();
@@ -246,7 +246,7 @@ mod tests {
         let publish_writer = async {
             tokio::task::yield_now().await;
             words[0].store(1, Ordering::Release);
-            let _ = pie_waker::WakerTable::global().publish(writer_wait_id, 1);
+            let _ = waker::WakerTable::global().publish(writer_wait_id, 1);
         };
         let (result, ()) = tokio::join!(writer, publish_writer);
         result.unwrap();
@@ -305,7 +305,7 @@ mod tests {
         let poison = async {
             tokio::task::yield_now().await;
             words[2].store(7, Ordering::Release);
-            let _ = pie_waker::WakerTable::global().publish(reader_wait_id, 7);
+            let _ = waker::WakerTable::global().publish(reader_wait_id, 7);
         };
         let (result, ()) = tokio::join!(reader, poison);
         assert_eq!(result, Err(ChannelWaitError::Poisoned(7)));

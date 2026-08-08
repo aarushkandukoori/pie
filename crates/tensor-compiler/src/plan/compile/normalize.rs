@@ -11,11 +11,11 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use pie_ir::container::PortSource;
-use pie_ir::op::{ChannelIndex, Op};
-use pie_ir::registry::Stage;
-use pie_ir::types::{DType, Literal, ValueId, ValueType};
-use pie_ir::validate::BoundTrace;
+use tensor_ir::container::PortSource;
+use tensor_ir::op::{ChannelIndex, Op};
+use tensor_ir::registry::Stage;
+use tensor_ir::types::{DType, Literal, ValueId, ValueType};
+use tensor_ir::validate::BoundTrace;
 
 use super::fold::{canonicalize_commutative, cse_candidate, cse_key, fold_scalar, simplify_alias};
 use super::signature::signature_ports;
@@ -286,7 +286,7 @@ pub(crate) fn result_layout(ops: &[Op]) -> (Vec<ValueId>, Vec<NodeIndex>) {
 /// `select(m, x, broadcast(-inf, [n]))` produce identical normalized ops, and
 /// therefore identical signatures and identical plans.
 pub(crate) fn redundant_select_broadcasts(
-    stage_program: &pie_ir::container::StageProgram,
+    stage_program: &tensor_ir::container::StageProgram,
     original_types: &[ValueType],
     result_bases: &[ValueId],
 ) -> Vec<bool> {
@@ -327,7 +327,7 @@ pub(crate) fn redundant_select_broadcasts(
 }
 
 pub(crate) fn live_ops(
-    stage_program: &pie_ir::container::StageProgram,
+    stage_program: &tensor_ir::container::StageProgram,
     result_bases: &[ValueId],
     producer: &[NodeIndex],
 ) -> Vec<bool> {
@@ -523,7 +523,7 @@ mod value_domain_tests {
         ];
 
         let mut seen = alloc::collections::BTreeSet::new();
-        for op in pie_ir::op::representatives() {
+        for op in tensor_ir::op::representatives() {
             for value_type in &types {
                 seen.insert(value_domain(VOCAB, &op, value_type) as u8);
             }

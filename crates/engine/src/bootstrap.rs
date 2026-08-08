@@ -150,7 +150,7 @@ pub struct ModelConfig {
     /// facts come from, for a `.zt` and for a snapshot alike. The runtime used
     /// to probe `config.json` itself when this was absent — two hand-written
     /// key walks that had to agree with the driver's parser by coincidence.
-    pub metadata: pie_model::ModelMetadata,
+    pub metadata: ::model::ModelMetadata,
     pub drivers: Vec<DriverConfig>,
     pub scheduler: SchedulerConfig,
 }
@@ -417,7 +417,7 @@ async fn bootstrap_inner(config: Config) -> Result<BootstrapHandle> {
     // hardwired to (0, 0) until the per-driver core lands) can physically
     // move KV bytes to/from host swap — arms the suspend rung.
     let kv_swap_required =
-        pie_driver_abi::KV_COPY_DEVICE_TO_HOST | pie_driver_abi::KV_COPY_HOST_TO_DEVICE;
+        driver_abi::KV_COPY_DEVICE_TO_HOST | driver_abi::KV_COPY_HOST_TO_DEVICE;
     let kv_swap_capable = driver_configs
         .first()
         .is_some_and(|d| d.kv_copy_domain_mask & kv_swap_required == kv_swap_required);
@@ -604,13 +604,13 @@ async fn bootstrap_inner(config: Config) -> Result<BootstrapHandle> {
                             |kv| kv.committed_high_water_pages().max(1),
                         );
                         let capacity = capacities[ordinal] as u32;
-                        let unmap_ranges = vec![pie_driver_abi::PiePoolRange {
+                        let unmap_ranges = vec![driver_abi::PiePoolRange {
                             page_index: u64::from(target),
                             page_count: u64::from(capacity - target),
                         }];
                         if let Ok(completion) = crate::scheduler::resize_pool(
                             driver_id,
-                            pie_driver_abi::PIE_ELASTIC_POOL_KV,
+                            driver_abi::PIE_ELASTIC_POOL_KV,
                             u64::from(target),
                             Vec::new(),
                             unmap_ranges,
@@ -630,7 +630,7 @@ async fn bootstrap_inner(config: Config) -> Result<BootstrapHandle> {
                                         state_bytes.saturating_add(page_bytes - 1) / page_bytes;
                                     if let Ok(state) = crate::scheduler::resize_pool(
                                         driver_id,
-                                        pie_driver_abi::PIE_ELASTIC_POOL_STATE,
+                                        driver_abi::PIE_ELASTIC_POOL_STATE,
                                         state_pages,
                                         Vec::new(),
                                         Vec::new(),
@@ -642,7 +642,7 @@ async fn bootstrap_inner(config: Config) -> Result<BootstrapHandle> {
                                 }
                                 if let Ok(workspace) = crate::scheduler::resize_pool(
                                     driver_id,
-                                    pie_driver_abi::PIE_ELASTIC_POOL_WORKSPACE,
+                                    driver_abi::PIE_ELASTIC_POOL_WORKSPACE,
                                     0,
                                     Vec::new(),
                                     Vec::new(),

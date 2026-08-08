@@ -15,7 +15,7 @@
 
 #![cfg(feature = "contract")]
 
-use pie_model::facts::ModelFacts;
+use model::facts::ModelFacts;
 
 /// A descriptor with a distinct, non-default value in every field the
 /// projection reads. Distinct so a mapping that crosses two fields shows up

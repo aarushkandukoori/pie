@@ -6,10 +6,10 @@
 //! and the intermediate dim is split within each expert so every rank
 //! computes a partial expert output that an all-reduce combines.
 
-use pie_loader::checkpoint::RawTensor;
-use pie_loader::contract::{Expr, GroupContract, Scales, TensorContract, TensorType};
-use pie_loader::error::Error;
-use pie_loader::types::{DType, Encoding, QuantGranularity, ScaleForm, TensorId, Visibility};
+use model_loader::checkpoint::RawTensor;
+use model_loader::contract::{Expr, GroupContract, Scales, TensorContract, TensorType};
+use model_loader::error::Error;
+use model_loader::types::{DType, Encoding, QuantGranularity, ScaleForm, TensorId, Visibility};
 
 use crate::builder::{Builder, is_raw, mxfp4_encoding};
 use crate::policy::{Mxfp4MoePolicy, Mxfp4MoeRequest};

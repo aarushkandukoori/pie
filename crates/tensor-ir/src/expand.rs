@@ -23,8 +23,8 @@ pub fn next_id(ops: &[Op]) -> ValueId {
 ///
 /// The expansions themselves do no shape inference — they only say which of
 /// three shapes each step lands in, and the [`Sink`] turns that into whatever
-/// it needs. That is what lets the sequences be shared: `pie-ir` needs
-/// nothing, `pie-dsl` needs a full [`crate::types::ValueType`] per op, and
+/// it needs. That is what lets the sequences be shared: `tensor-ir` needs
+/// nothing, `tensor-dsl` needs a full [`crate::types::ValueType`] per op, and
 /// neither has to restate the op order to get it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StepShape {
@@ -53,7 +53,7 @@ pub trait Sink {
     fn push(&mut self, op: Op, shape: StepShape) -> ValueId;
 }
 
-/// The untyped recorder: `pie-ir` and its callers just want the ops.
+/// The untyped recorder: `tensor-ir` and its callers just want the ops.
 impl Sink for Vec<Op> {
     fn push(&mut self, op: Op, _shape: StepShape) -> ValueId {
         let id = next_id(self);
@@ -139,9 +139,9 @@ pub fn l2norm(sink: &mut impl Sink, x: ValueId, shape: Shape) -> ValueId {
 /// Exact nucleus (top-p) sampling:
 /// `argmax(mask_apply(logits, cummass_le(softmax(logits), top_p)) + gumbel(state))`.
 ///
-/// This is the one expansion `pie-plan` also has to *recognize* — the whole
+/// This is the one expansion `tensor-compiler` also has to *recognize* — the whole
 /// nucleus region template exists to fuse it back into a single kernel. That
-/// recognizer, `compile::region::match_nucleus`, cannot see `pie-dsl`, so
+/// recognizer, `compile::region::match_nucleus`, cannot see `tensor-dsl`, so
 /// until this lived here the SDK spelled the chain out flat in `value.rs` and
 /// the matcher was written against a copy of it. Both are now checked against
 /// this one sequence: the SDK builds it, and the matcher's fixtures are
@@ -239,7 +239,7 @@ mod tests {
         );
 
         // Every step's `StepShape` must be the type inference actually gives
-        // it. `pie-dsl` builds its recorded `ValueType`s out of nothing but
+        // it. `tensor-dsl` builds its recorded `ValueType`s out of nothing but
         // this tag, so a step tagged wrong would be recorded with the wrong
         // type there and only there — which is exactly how two hand-kept
         // copies of these sequences drift.

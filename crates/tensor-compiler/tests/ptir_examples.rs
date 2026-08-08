@@ -6,10 +6,10 @@
 
 use tensor_compiler::eval::interp::Value;
 use tensor_compiler::eval::interp::{Instance, NoKernels, PassInputs};
-use pie_ir::container::{decode, encode};
-use pie_ir::container_hash;
-use pie_ir::registry::{ModelProfile, Port};
-use pie_ir::validate::bind;
+use tensor_ir::container::{decode, encode};
+use tensor_ir::container_hash;
+use tensor_ir::registry::{ModelProfile, Port};
+use tensor_ir::validate::bind;
 
 #[path = "common/traces.rs"]
 mod traces;

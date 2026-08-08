@@ -1,4 +1,4 @@
-//! # `pie-eval` — the PTIR semantics oracle
+//! # `tensor-compiler` — the PTIR semantics oracle
 //!
 //! What a program *produces*, computed on the host. Two consumers, one set of op
 //! semantics:

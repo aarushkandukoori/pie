@@ -970,8 +970,8 @@ macro_rules! declare_ops {
     ($($konst:ident = $tag:literal, $name:literal, $family:ident, $operands:expr, $results:expr,
        $rep:expr, $pat:pat, [$($wire:ident),*];)*) => {
         /// The wire tag of every op, by name. **The only place a PTIR op tag
-        /// is spelled as a number.** Downstream crates (`pie-plan`,
-        /// `pie-codegen`, and drivers via the generated header) import these
+        /// is spelled as a number.** Downstream crates (`tensor-compiler`,
+        /// `tensor-compiler`, and drivers via the generated header) import these
         /// instead of keeping their own copies: a hand-copied tag that drifts
         /// by one hex digit is a silently wrong kernel, and nothing but a
         /// single definition can rule that out.

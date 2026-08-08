@@ -5,7 +5,7 @@
 //! the MXFP4 triplets, the W4A16 stacks — and one `check` per interesting
 //! point in (tp, policy) space. Each check pins the authored contract
 //! against a committed golden and then pushes it through
-//! `pie_loader::plan::compile` + the marshalled-view verifier, the same
+//! `model_loader::plan::compile` + the marshalled-view verifier, the same
 //! pipeline a driver boot runs.
 //!
 //! Regenerate after an intended change:
@@ -19,16 +19,16 @@
 
 use std::path::PathBuf;
 
-use pie_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
-use pie_loader::plan::{
+use model_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
+use model_loader::plan::{
     CUDA_TILE_MAP_MASK, METAL_TILE_MAP_MASK, StorageTarget, compile as compile_load_plan,
 };
-use pie_loader::types::{BackendKind, CheckpointFormat, DType, Encoding, FileId, TensorId};
-use pie_loader::verify::ContractView;
+use model_loader::types::{BackendKind, CheckpointFormat, DType, Encoding, FileId, TensorId};
+use model_loader::verify::ContractView;
 
-use pie_model::facts::ModelFacts;
-use pie_model::policy::{Mxfp4MoeRequest, Naming, Policy, Projections, RuntimeQuant};
-use pie_model::contract::author;
+use model::facts::ModelFacts;
+use model::policy::{Mxfp4MoeRequest, Naming, Policy, Projections, RuntimeQuant};
+use model::contract::author;
 
 // ── fixture machinery ───────────────────────────────────────────────
 
@@ -164,7 +164,7 @@ fn check(
     let plan = compile_load_plan(metadata, &contract, target.clone())
         .unwrap_or_else(|err| panic!("{name}: compiling failed: {err}"));
     if let Err(violations) =
-        pie_loader_capi::view::verify_marshalled(&plan, Some(&ContractView::of(&contract)))
+        model_loader_capi::view::verify_marshalled(&plan, Some(&ContractView::of(&contract)))
     {
         let listed: Vec<String> = violations.iter().map(ToString::to_string).collect();
         panic!(

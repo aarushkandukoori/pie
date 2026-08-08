@@ -1,6 +1,6 @@
 //! The command tree, one module per `pie` subcommand.
 //!
-//! Each runs after the light `startup::init_cli` (tracing + paths, no daemon
+//! Each runs after the light `bootstrap::init_cli` (tracing + paths, no daemon
 //! banner/config/metrics) on the shared `#[tokio::main]` runtime.
 //!
 //! The shape here mirrors the shape a user types: a module per top-level

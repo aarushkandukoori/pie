@@ -23,10 +23,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::eval::interp::{Evaled, PassInputs, Value, const_value, eval_op};
-use pie_ir::container::PortSource;
-use pie_ir::op::{Op, ValueSource};
-use pie_ir::registry::{Port, Stage};
-use pie_ir::validate::BoundTrace;
+use tensor_ir::container::PortSource;
+use tensor_ir::op::{Op, ValueSource};
+use tensor_ir::registry::{Port, Stage};
+use tensor_ir::validate::BoundTrace;
 
 /// Why a value could not be evaluated on the host.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -227,7 +227,7 @@ pub fn fold_stage(
                     }
                     continue;
                 }
-                let ty_of = |id: pie_ir::types::ValueId| types[id as usize];
+                let ty_of = |id: tensor_ir::types::ValueId| types[id as usize];
                 // `StepError`'s `Display` is the one rendering of a step
                 // failure; re-matching the variants here would be a second
                 // vocabulary for the same fault.
@@ -259,12 +259,12 @@ pub fn fold_stage(
 /// whole tensor per blocked op, and in a decode epilogue (where every kernel
 /// and intrinsic is blocked) that dominated the host cost of a forward
 /// submit.
-fn placeholder(ty: pie_ir::types::ValueType) -> Value {
+fn placeholder(ty: tensor_ir::types::ValueType) -> Value {
     match ty.dtype {
-        pie_ir::types::DType::F32 => Value::F32(alloc::vec::Vec::new()),
-        pie_ir::types::DType::I32 => Value::I32(alloc::vec::Vec::new()),
-        pie_ir::types::DType::U32 => Value::U32(alloc::vec::Vec::new()),
-        pie_ir::types::DType::Bool => Value::Bool(alloc::vec::Vec::new()),
+        tensor_ir::types::DType::F32 => Value::F32(alloc::vec::Vec::new()),
+        tensor_ir::types::DType::I32 => Value::I32(alloc::vec::Vec::new()),
+        tensor_ir::types::DType::U32 => Value::U32(alloc::vec::Vec::new()),
+        tensor_ir::types::DType::Bool => Value::Bool(alloc::vec::Vec::new()),
     }
 }
 
@@ -429,13 +429,13 @@ pub fn geometry_taint(bound: &BoundTrace) -> GeometryTaint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_ir::container::{
+    use tensor_ir::container::{
         ChanDType, ChannelDecl, HostRole, PortBinding, StageProgram, TraceContainer,
     };
-    use pie_ir::op::IntrinsicId;
-    use pie_ir::registry::ModelProfile;
-    use pie_ir::types::{DType, Literal, RngKind, Shape};
-    use pie_ir::validate::bind;
+    use tensor_ir::op::IntrinsicId;
+    use tensor_ir::registry::ModelProfile;
+    use tensor_ir::types::{DType, Literal, RngKind, Shape};
+    use tensor_ir::validate::bind;
 
     fn chan(shape: Shape, dtype: DType, capacity: u32) -> ChannelDecl {
         ChannelDecl {
@@ -826,7 +826,7 @@ mod tests {
     #[test]
     fn the_fold_only_generalises_over_pure_ops() {
         let mut checked = 0usize;
-        for op in pie_ir::op::representatives() {
+        for op in tensor_ir::op::representatives() {
             let named_by_the_fold = matches!(
                 op,
                 Op::ChanTake(..)
@@ -847,7 +847,7 @@ mod tests {
         }
         assert_eq!(
             checked,
-            pie_ir::op::OP_TABLE.len(),
+            tensor_ir::op::OP_TABLE.len(),
             "representatives() stopped covering the table"
         );
     }

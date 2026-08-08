@@ -7,7 +7,7 @@ use crate::codegen::error::{EmitError, EmitterKind};
 use alloc::format;
 use alloc::string::String;
 
-use pie_ir::op::OP_TABLE;
+use tensor_ir::op::OP_TABLE;
 
 use super::runtime::singleton_runtime_source;
 

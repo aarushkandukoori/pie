@@ -13,7 +13,7 @@ use std::process::Command;
 
 use half::bf16;
 
-use pie_loader::checkpoint::read::parse_checkpoint_metadata;
+use model_loader::checkpoint::read::parse_checkpoint_metadata;
 
 fn write_snapshot(dir: &Path) {
     std::fs::create_dir_all(dir).unwrap();

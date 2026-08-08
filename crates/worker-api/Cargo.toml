@@ -1,5 +1,5 @@
 [package]
-name = "pie-worker-rpc"
+name = "worker-api"
 version = "0.1.0"
 edition = "2024"
 authors = ["In Gim <in.gim@icloud.com>"]
@@ -8,18 +8,18 @@ license = "Apache-2.0"
 repository = "https://github.com/pie-project/pie"
 
 [lib]
-name = "pie_worker_rpc"
+name = "worker_api"
 path = "src/lib.rs"
 
 [dependencies]
 # Shared id atoms (WorkerId / ReqId / SessionId / TenantId) — REAL dep (the atoms
 # genuinely move to pie-ids in step 1, so they come from here even in Wave A).
-pie-ids = { path = "../ids" }
+ids = { path = "../ids" }
 # The FOREIGN non-atom types this crate embeds but does not define:
 # `ClientMessage`/`ServerMessage` (in Request/Tokens) live in pie-client-api;
 # `WorkerStatus` (in GatewayInbound::report) lives in pie-controller-rpc.
-pie-client-api = { path = "../client-api" }
-pie-controller-rpc = { path = "../controller-api" }
+client-api = { path = "../client-api" }
+controller-api = { path = "../controller-api" }
 # The RPC mechanism. `serde1` enables the serde derives on the macro-generated
 # request/response types; `tokio1` enables `NewClient::spawn` (just `tokio/rt`,
 # used by the typed link constructors). Transport/codec features (serde-transport

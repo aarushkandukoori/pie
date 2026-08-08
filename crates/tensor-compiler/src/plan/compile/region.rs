@@ -14,14 +14,14 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use pie_ir::op::{Family, Op};
-use pie_ir::types::ValueId;
+use tensor_ir::op::{Family, Op};
+use tensor_ir::types::ValueId;
 
 use super::normalize::{ChannelSlot, NodeIndex, NormalizedStage, result_layout};
 use super::nucleus::LibraryMatch;
 use super::symbolic::Dimension;
 
-pie_ir::declare_tagged_enum! {
+tensor_ir::declare_tagged_enum! {
     /// How a region is scheduled on a device.
     ///
     /// Enumerated into the C header as `PtirScheduleTemplate`.
@@ -38,7 +38,7 @@ pie_ir::declare_tagged_enum! {
     }
 }
 
-pie_ir::declare_tagged_enum! {
+tensor_ir::declare_tagged_enum! {
     /// A region a backend implements with a library kernel rather than
     /// generated code.
     ///
@@ -226,7 +226,7 @@ pub(crate) fn build_library_match_region(
 /// generated kernel emits it inline.
 ///
 /// Keyed on the tag rather than the `Op` variant so the classification can be
-/// enumerated against [`pie_ir::op::OP_TABLE`]: `every_op_is_classified` in
+/// enumerated against [`tensor_ir::op::OP_TABLE`]: `every_op_is_classified` in
 /// `compiler/tests` partitions the whole table into this set and the generated
 /// set, which is what makes a new op fail the build until someone says which
 /// side it is on. The `_ => None` arm alone would answer "emit it inline" for
@@ -236,7 +236,7 @@ pub(crate) fn build_library_match_region(
 /// alongside `pivot_threshold` (generated), and `ReduceScan` holds `cumsum`
 /// and `cumprod` (library) alongside the four reductions (generated).
 pub fn library_op_for_tag(tag: u8) -> Option<LibraryOp> {
-    use pie_ir::op::tags;
+    use tensor_ir::op::tags;
     match tag {
         tags::TOP_K => Some(LibraryOp::TopK),
         tags::SORT_DESC => Some(LibraryOp::Sort),

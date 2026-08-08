@@ -10,9 +10,9 @@
 //! three-pass dense tail, which is spelled out below like every other
 //! generation spells it out.
 
-use pie_loader::checkpoint::RawTensor;
-use pie_loader::contract::Expr;
-use pie_loader::error::Error;
+use model_loader::checkpoint::RawTensor;
+use model_loader::contract::Expr;
+use model_loader::error::Error;
 
 use crate::builder::Builder;
 

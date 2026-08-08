@@ -20,9 +20,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(test)]
-use pie_ir::container;
+use tensor_ir::container;
 #[cfg(test)]
-use pie_ir::container::HostRole;
+use tensor_ir::container::HostRole;
 
 use super::program::RegisteredProgram;
 #[cfg(test)]
@@ -656,12 +656,12 @@ pub fn validate_seeds(
 mod tests {
     use super::*;
     use crate::pipeline::program::{Registry, register};
-    use pie_ir::container::{
+    use tensor_ir::container::{
         ChanDType, ChannelDecl, PortBinding, PortSource, StageProgram, TraceContainer,
     };
-    use pie_ir::op::{IntrinsicId, Op};
-    use pie_ir::registry::{ModelProfile, Port, Stage};
-    use pie_ir::types::{DType, Shape};
+    use tensor_ir::op::{IntrinsicId, Op};
+    use tensor_ir::registry::{ModelProfile, Port, Stage};
+    use tensor_ir::types::{DType, Shape};
     use std::num::NonZeroUsize;
 
     const VOCAB: u32 = 32;
@@ -978,7 +978,7 @@ mod tests {
         };
         use crate::pipeline::channel::ChannelCell;
         use crate::scheduler::worker::BatchScheduler;
-        use pie_driver_dummy_lib::DummyDriverOptions;
+        use driver_dummy::DummyDriverOptions;
         use std::sync::Mutex;
 
         /// A trivial driver-registerable program (no `Logits`/vocab
@@ -997,7 +997,7 @@ mod tests {
                     stage: Stage::Epilogue,
                     ops: vec![
                         Op::ChanTake(0),
-                        Op::Const(pie_ir::types::Literal::U32(1)),
+                        Op::Const(tensor_ir::types::Literal::U32(1)),
                         Op::Add(0, 1),
                         Op::ChanPut { chan: 0, value: 2 },
                         Op::ChanPut { chan: 1, value: 2 },
@@ -1006,7 +1006,7 @@ mod tests {
             }
             .encode();
             ProgramRegistration {
-                program_hash: pie_ir::container_hash(&bytes),
+                program_hash: tensor_ir::container_hash(&bytes),
                 reference_ptir: bytes,
                 ..Default::default()
             }
@@ -1091,7 +1091,7 @@ mod tests {
                         dtype: decl.dtype.tag(),
                         host_role: decl.host_role as u8,
                         seeded: decl.seeded,
-                        extern_dir: pie_driver_abi::PIE_CHANNEL_EXTERN_NONE,
+                        extern_dir: driver_abi::PIE_CHANNEL_EXTERN_NONE,
                         capacity: decl.capacity,
                         reader_wait_id: 0,
                         writer_wait_id: 0,

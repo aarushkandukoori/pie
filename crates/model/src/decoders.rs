@@ -6,7 +6,7 @@
 use crate::instruct::{
     ChatDecoder, ChatEvent, ReasoningDecoder, ReasoningEvent, ToolDecoder, ToolEvent,
 };
-use pie_tokenizer::{Tokenizer, TokenizerDecoder};
+use tokenizer::{Tokenizer, TokenizerDecoder};
 use std::sync::Arc;
 
 // ─── GenericChatDecoder ──────────────────────────────────────
@@ -177,7 +177,7 @@ impl ToolDecoder for NoopToolDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_tokenizer::Tokenizer;
+    use tokenizer::Tokenizer;
     use std::sync::Arc;
 
     fn make_tok(vocab: &[&str]) -> Arc<Tokenizer> {

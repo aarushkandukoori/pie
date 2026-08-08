@@ -7,9 +7,9 @@
 use crate::codegen::error::{EmitError, RegionForm, ValueLayoutSite};
 use crate::codegen::wellformed::{ops_valid, region_ranges_valid, value_types_valid};
 
-use pie_ir::op::Op;
-use pie_ir::registry::Stage;
-use pie_ir::types::DType;
+use tensor_ir::op::Op;
+use tensor_ir::registry::Stage;
+use tensor_ir::types::DType;
 use crate::plan::{CompiledStage, Region, RegionKind, ScheduleTemplate, library_op_for_tag};
 
 /// `second_party_region_supported` — `envelope_dot` is the only second-party
@@ -127,11 +127,11 @@ mod tests {
     use alloc::string::ToString;
     use alloc::vec;
     use alloc::vec::Vec;
-    use pie_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
-    use pie_ir::op::Op;
-    use pie_ir::registry::{ModelProfile, Stage};
-    use pie_ir::types::{DType, Shape};
-    use pie_ir::validate::bind;
+    use tensor_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
+    use tensor_ir::op::Op;
+    use tensor_ir::registry::{ModelProfile, Stage};
+    use tensor_ir::types::{DType, Shape};
+    use tensor_ir::validate::bind;
     use crate::plan::{LibraryOp, RegionKind, compile_bound};
 
     /// A prologue `lora` container: three peeked channels feeding the sink,

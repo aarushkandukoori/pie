@@ -18,14 +18,14 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use pie_ir::op::tags;
-use pie_ir::validate::BoundTrace;
+use tensor_ir::op::tags;
+use tensor_ir::validate::BoundTrace;
 use crate::plan::{CompiledStage, LibraryOp, Region, RegionKind};
 
 /// Kind discriminants. Re-exported from the driver ABI rather than restated:
 /// [`EmittedKernel::kind`] is handed straight to the driver, so a second
 /// spelling of these numbers here would be a second thing to keep right.
-pub use pie_driver_abi::local::{
+pub use driver_abi::local::{
     PIE_KERNEL_COMMIT, PIE_KERNEL_FUSED, PIE_KERNEL_GROUPED, PIE_KERNEL_READINESS,
     PIE_KERNEL_SINGLETON,
 };

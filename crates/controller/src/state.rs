@@ -1,7 +1,7 @@
 //! Cluster state — the single source of truth, owned **solely** by the actor
 //! ([`crate::actor`]). No locks, no sharing: every mutation runs on the actor
 //! task. These are **internal** types and never cross the wire — the actor
-//! publishes the `pie_controller_rpc` wire views ([`Neighbors`], [`RoutingTable`])
+//! publishes the `controller_api` wire views ([`Neighbors`], [`RoutingTable`])
 //! derived from this state.
 //!
 //! Two independent monotonic epochs version two independent full snapshots:
@@ -10,14 +10,14 @@
 //! load-bucket crossing bumps only the gateway epoch. An epoch is a version tag
 //! on a *whole* snapshot, never a delta. `role` is immutable once registered.
 //!
-//! [`Neighbors`]: pie_controller_rpc::Neighbors
-//! [`RoutingTable`]: pie_controller_rpc::RoutingTable
+//! [`Neighbors`]: controller_api::Neighbors
+//! [`RoutingTable`]: controller_api::RoutingTable
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use pie_controller_rpc::{Role, WorkerStatus};
-use pie_ids::{GatewayId, NodeId, WorkerId};
+use controller_api::{Role, WorkerStatus};
+use ids::{GatewayId, NodeId, WorkerId};
 
 /// A registered worker. `role`/`model`/`addr` are immutable after registration.
 #[derive(Debug, Clone)]
@@ -100,7 +100,7 @@ impl Cluster {
     }
 
     /// Refresh a member's liveness. Returns `false` for an unknown id (the caller
-    /// replies [`Ack::ReRegister`](pie_controller_rpc::Ack::ReRegister)).
+    /// replies [`Ack::ReRegister`](controller_api::Ack::ReRegister)).
     pub fn touch(&mut self, node: NodeId, now: Instant) -> bool {
         match node {
             NodeId::Worker(id) => match self.workers.get_mut(&id) {

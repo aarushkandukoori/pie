@@ -1,4 +1,4 @@
-//! Gateway control-plane **client** (`pie_controller_rpc::ControlClient`).
+//! Gateway control-plane **client** (`controller_api::ControlClient`).
 //!
 //! The gateway registers as a gateway, heartbeats for liveness, and long-polls
 //! `watch_gateway` for the global [`RoutingTable`] — it never asks the controller
@@ -8,14 +8,14 @@
 //! The [`GatewayControl`] seam abstracts the backend so the launcher can inject
 //! either the dialed [`ControlClient`] (distributed) or an in-proc
 //! `EmbeddedControl(Handle)` newtype (single-node, at the worker-bin composition
-//! root) — keeping `pie-gateway` `pie-controller`-free.
+//! root) — keeping `gateway` `controller`-free.
 
 use std::future::Future;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use pie_controller_rpc::{Ack, ControlClient, GatewayInfo, RoutingTable};
-use pie_ids::{GatewayId, NodeId};
+use controller_api::{Ack, ControlClient, GatewayInfo, RoutingTable};
+use ids::{GatewayId, NodeId};
 use tarpc::serde_transport::{tcp, unix};
 use tarpc::tokio_serde::formats::Bincode;
 use tokio::sync::watch;
@@ -41,11 +41,11 @@ const WATCH_RETRY_BACKOFF: Duration = Duration::from_secs(1);
 ///   long-poll loop and returns its channel.
 /// - an `EmbeddedControl(Handle)` newtype at the single-node composition root
 ///   (the worker binary — the only place that legitimately deps both
-///   `pie-controller` and `pie-gateway`): in-proc `Handle` calls, with
+///   `controller` and `gateway`): in-proc `Handle` calls, with
 ///   `routing_watch` returning the controller's `gateway_watch()` directly.
 ///
-/// Keeping the `Handle` adapter at the root (not here) is what lets `pie-gateway`
-/// stay `pie-controller`-free.
+/// Keeping the `Handle` adapter at the root (not here) is what lets `gateway`
+/// stay `controller`-free.
 pub trait GatewayControl: Clone + Send + Sync + 'static {
     /// Register this gateway; returns its controller-minted [`GatewayId`].
     fn register_gateway(&self, info: GatewayInfo)

@@ -95,7 +95,7 @@ pub mod working_set {
 
 pub mod mask;
 /// The author-facing PTIR bridge (overview §3/§5): `ForwardPass`/`Pipeline`/
-/// `WorkingSet`/`Channel` over the WIT `ptir` resources, driving the `pie-dsl`
+/// `WorkingSet`/`Channel` over the WIT `ptir` resources, driving the `tensor-dsl`
 /// trace `Builder`. The single home of the PTIR authoring surface.
 pub mod ptir;
 

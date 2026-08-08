@@ -1,13 +1,13 @@
 //! The loader's C ABI, as a crate of its own.
 //!
-//! `pie-loader` is the compiler and knows nothing of C; this crate is where
+//! `model-loader` is the compiler and knows nothing of C; this crate is where
 //! its plans become `#[repr(C)]` and its entry points become symbols a driver
 //! links. Splitting the two makes the layering a dependency arrow instead of
 //! a module convention — the compiler cannot reach the ABI, and everything
 //! that must version with the header lives next to the header.
 //!
 //! `types` is the published `#[repr(C)]` vocabulary, `arena` turns a compiled
-//! [`LoadPlan`](pie_loader::plan::LoadPlan) into it, and `entry` holds the
+//! [`LoadPlan`](model_loader::plan::LoadPlan) into it, and `entry` holds the
 //! `extern "C"` functions the driver calls. `model` reads the one input back
 //! the other way — the facts-and-policy request a driver states — and
 //! `checkpoint` says which checkpoint to ask it of. `weight_store` is a
@@ -41,8 +41,8 @@ pub use entry::{
 };
 pub use types::*;
 
-use pie_loader::plan::StorageTarget;
-use pie_loader::types::{BackendKind, DType};
+use model_loader::plan::StorageTarget;
+use model_loader::types::{BackendKind, DType};
 
 /// Build the compiler's [`StorageTarget`] from the driver's measured spec.
 ///
@@ -80,7 +80,7 @@ fn storage_target(
     // has never heard of: that bit would silently pass
     // `validate_target_support` and then fail as an unrecognized kernel
     // dispatch at load time, far from its cause (`architecture.md` §8).
-    let known = pie_loader::plan::passes::tile::tile_map_mask(kind);
+    let known = model_loader::plan::passes::tile::tile_map_mask(kind);
     if spec.tile_map_mask & !known != 0 {
         return Err(format!(
             "target claims tile map transforms {:#x} that the {} backend model \

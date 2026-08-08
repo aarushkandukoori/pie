@@ -1,6 +1,6 @@
 //! What a served model's compiled metadata *is* — the shape, not the cache.
 //!
-//! This is the half of the old model service that stayed in `pie-model` when
+//! This is the half of the old model service that stayed in `model` when
 //! the rest moved to `runtime/engine`. The split is on the crate's own
 //! definition: a global `OnceLock` holding whatever this process booted is
 //! runtime machinery, but "what a `.zt` artifact carries, and what the worker

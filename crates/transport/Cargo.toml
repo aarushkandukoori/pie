@@ -1,5 +1,5 @@
 [package]
-name = "pie-transport"
+name = "transport"
 version = "0.1.0"
 edition = "2024"
 authors = ["In Gim <in.gim@yale.edu>"]
@@ -14,13 +14,13 @@ thiserror = "2.0"
 # control-plane vocab (`cluster`/`transfer`).
 serde = { version = "1.0", features = ["derive"] }
 
-# KV layout + handle vocabulary live in `pie-driver-abi` (the dependency floor):
+# KV layout + handle vocabulary live in `driver-abi` (the dependency floor):
 # `pie_driver_abi::{KvLayout, KvDtype, KvLayoutKind, KvHandle, KvRegion,
 # MemoryDomain}` — pure-Rust types (pie-driver-abi is Python-free, no features).
-pie-driver-abi = { path = "../driver-abi", default-features = false }
-# `WorkerId` now lives on the interface leaf (`pie-ids`); transport names a
+driver-abi = { path = "../driver-abi", default-features = false }
+# `WorkerId` now lives on the interface leaf (`ids`); transport names a
 # transfer's src/dst by it. Plain serde, no internal deps.
-pie-ids = { path = "../ids" }
+ids = { path = "../ids" }
 
 [features]
 # Cross-node RDMA/TCP/NVMe path via NIXL. Off by default: the on-device build

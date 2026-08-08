@@ -18,10 +18,10 @@
 //!
 //! ```rust
 //! use std::sync::Arc;
-//! use pie_grammar::bitmask;
-//! use pie_grammar::grammar::Grammar;
-//! use pie_grammar::matcher::GrammarMatcher;
-//! use pie_tokenizer::Tokenizer;
+//! use ::grammar::bitmask;
+//! use ::grammar::grammar::Grammar;
+//! use ::grammar::matcher::GrammarMatcher;
+//! use tokenizer::Tokenizer;
 //!
 //! // Create grammar from EBNF
 //! let grammar = Arc::new(
@@ -51,7 +51,7 @@
 //! # JSON Schema
 //!
 //! ```rust
-//! use pie_grammar::json_schema::{json_schema_to_grammar, JsonSchemaOptions};
+//! use ::grammar::json_schema::{json_schema_to_grammar, JsonSchemaOptions};
 //!
 //! let grammar = json_schema_to_grammar(r#"{
 //!     "type": "object",
@@ -67,7 +67,7 @@
 //! # Regex
 //!
 //! ```rust
-//! use pie_grammar::regex::regex_to_grammar;
+//! use ::grammar::regex::regex_to_grammar;
 //!
 //! let grammar = regex_to_grammar(r"[a-z]+@[a-z]+\.[a-z]{2,4}").unwrap();
 //! ```
@@ -78,10 +78,10 @@
 //!
 //! ```rust
 //! use std::sync::Arc;
-//! use pie_grammar::compiled_grammar::CompiledGrammar;
-//! use pie_grammar::grammar::Grammar;
-//! use pie_grammar::matcher::GrammarMatcher;
-//! use pie_tokenizer::Tokenizer;
+//! use ::grammar::compiled_grammar::CompiledGrammar;
+//! use ::grammar::grammar::Grammar;
+//! use ::grammar::matcher::GrammarMatcher;
+//! use tokenizer::Tokenizer;
 //!
 //! let grammar = Arc::new(Grammar::from_ebnf(r#"root ::= [a-z]+"#, "root").unwrap());
 //! let vocab: Vec<String> = (0..128u16).map(|b| String::from(b as u8 as char)).collect();

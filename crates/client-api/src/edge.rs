@@ -3,7 +3,7 @@
 //! components that own each RPC surface (gateway, worker), so this crate stays
 //! free of RPC machinery.
 //!
-//! `SessionId` moved to `pie-ids`; these frames carry only the message payload,
+//! `SessionId` moved to `ids`; these frames carry only the message payload,
 //! so this module references no id atom.
 
 use crate::message::{ClientMessage, ServerMessage};

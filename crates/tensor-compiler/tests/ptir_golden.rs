@@ -10,15 +10,15 @@
 
 use tensor_compiler::eval::interp::Value;
 use tensor_compiler::eval::interp::{Instance, NoKernels, PassInputs};
-use pie_ir::container::{
+use tensor_ir::container::{
     ChanDType, ChannelDecl, HostRole, PortBinding, PortSource, StageProgram, TraceContainer, encode,
 };
-use pie_ir::container_hash;
-use pie_ir::op::{IntrinsicId, Op};
-use pie_ir::registry::Port;
-use pie_ir::registry::{ModelProfile, Stage};
-use pie_ir::types::{DType, Literal, Shape};
-use pie_ir::validate::{BoundTrace, bind};
+use tensor_ir::container_hash;
+use tensor_ir::op::{IntrinsicId, Op};
+use tensor_ir::registry::Port;
+use tensor_ir::registry::{ModelProfile, Stage};
+use tensor_ir::types::{DType, Literal, Shape};
+use tensor_ir::validate::{BoundTrace, bind};
 use std::fmt::Write as _;
 
 #[path = "common/traces.rs"]
@@ -40,7 +40,7 @@ impl Report {
         writeln!(s, "container: {}", hex(&bytes)).unwrap();
         Report(s)
     }
-    fn verdict(mut self, r: &Result<BoundTrace, pie_ir::validate::ValidateError>) -> Report {
+    fn verdict(mut self, r: &Result<BoundTrace, tensor_ir::validate::ValidateError>) -> Report {
         match r {
             Ok(b) => {
                 writeln!(self.0, "verdict: OK").unwrap();
@@ -490,7 +490,7 @@ fn golden_nucleus_sample() {
                 Op::Div(6, 8),
                 Op::PivotThreshold {
                     input: 9,
-                    predicate: pie_ir::Predicate::CummassLe(2),
+                    predicate: tensor_ir::Predicate::CummassLe(2),
                 },
                 Op::Const(Literal::F32(f32::NEG_INFINITY)),
                 Op::Select {
@@ -501,7 +501,7 @@ fn golden_nucleus_sample() {
                 Op::RngKeyed {
                     state: 1,
                     shape: Shape::matrix(1, V),
-                    kind: pie_ir::RngKind::Gumbel,
+                    kind: tensor_ir::RngKind::Gumbel,
                 },
                 Op::Add(12, 13),
                 Op::ReduceArgmax(14),
@@ -736,7 +736,7 @@ fn golden_neg_t10_nonreplayable() {
         externs: Vec::new(),
     };
     let mut profile = ModelProfile::dummy();
-    profile.kernels.push(pie_ir::registry::KernelInfo {
+    profile.kernels.push(tensor_ir::registry::KernelInfo {
         name: "gpu_load".into(),
         sink_scope: None,
         replayable: false,
@@ -983,11 +983,11 @@ fn golden_pivot_predicates_multistage() {
     let thr = b.p(Op::ChanRead(1)); // dynamic prob-ge threshold (host-fed — NOT hardcoded)
     let mask_p = b.p(Op::PivotThreshold {
         input: probs,
-        predicate: pie_ir::types::Predicate::CummassLe(p),
+        predicate: tensor_ir::types::Predicate::CummassLe(p),
     });
     let mask_t = b.p(Op::PivotThreshold {
         input: probs,
-        predicate: pie_ir::types::Predicate::ProbGe(thr),
+        predicate: tensor_ir::types::Predicate::ProbGe(thr),
     });
     b.p(Op::ChanPut {
         chan: 2,
@@ -1252,7 +1252,7 @@ impl tensor_compiler::eval::interp::KernelHost for QuestKernels {
         &mut self,
         name: &str,
         args: &[Value],
-        result: pie_ir::types::ValueType,
+        result: tensor_ir::types::ValueType,
     ) -> Result<Value, String> {
         if name != "envelope_dot" {
             return Err(format!("no such kernel: {name}"));
@@ -1272,7 +1272,7 @@ impl tensor_compiler::eval::interp::KernelHost for QuestKernels {
 fn pentathlon_profile() -> ModelProfile {
     let mut p = ModelProfile::dummy(); // num_layers = 2, mtp+value gated ON
     p.vocab = PV;
-    p.kernels.push(pie_ir::registry::KernelInfo {
+    p.kernels.push(tensor_ir::registry::KernelInfo {
         name: "envelope_dot".into(),
         sink_scope: None,
         replayable: true,
@@ -1302,7 +1302,7 @@ fn quest_tap(budget_ch: u32) -> StageProgram {
     });
     let pm = b.p(Op::PivotThreshold {
         input: scores,
-        predicate: pie_ir::types::Predicate::RankLe(buds),
+        predicate: tensor_ir::types::Predicate::RankLe(buds),
     });
     b.p(Op::SinkCall {
         name: 0,
@@ -1351,7 +1351,7 @@ fn contrastive_score(b: &mut B, lse_in: u32, am_take: u32, gmask: u32, rows: u32
         b: ninf,
     })
 }
-use pie_ir::expand;
+use tensor_ir::expand;
 
 /// Quest tap + contrastive beam expansion + leaf value.
 /// Channels: 0 am [1,V] f32 W · 1 gmask [1,V] bool W · 2 budget [1] u32 seed
@@ -1805,7 +1805,7 @@ fn golden_dfa_ingraph() {
 #[test]
 fn golden_extern_contrastive() {
     use tensor_compiler::eval::interp::ExternChannel;
-    use pie_ir::container::{ExternDecl, ExternDir};
+    use tensor_ir::container::{ExternDecl, ExternDir};
     let v = 8u32;
 
     // ── amateur: publish this model's logits into the exported channel ──
@@ -1968,7 +1968,7 @@ fn golden_extern_contrastive() {
 
 #[test]
 fn extern_v2_round_trip_and_v1_hashes_stable() {
-    use pie_ir::container::{ExternDecl, ExternDir, decode, encode};
+    use tensor_ir::container::{ExternDecl, ExternDir, decode, encode};
     // A v1 container (no externs) encodes version 1 — byte layout untouched.
     let c1 = TraceContainer {
         names: vec![],
@@ -1984,7 +1984,7 @@ fn extern_v2_round_trip_and_v1_hashes_stable() {
             stage: Stage::Epilogue,
             ops: vec![
                 Op::ChanTake(0),
-                Op::Const(pie_ir::types::Literal::U32(1)),
+                Op::Const(tensor_ir::types::Literal::U32(1)),
                 Op::Add(0, 1),
                 Op::ChanPut { chan: 0, value: 2 },
             ],
@@ -2022,8 +2022,8 @@ fn extern_v2_round_trip_and_v1_hashes_stable() {
 
 #[test]
 fn extern_direction_violations_rejected() {
-    use pie_ir::container::{ExternDecl, ExternDir};
-    use pie_ir::validate::ValidateError;
+    use tensor_ir::container::{ExternDecl, ExternDir};
+    use tensor_ir::validate::ValidateError;
     // A stage PUT on an IMPORT channel = second producer across the pair.
     let mk = |dir: ExternDir, ops: Vec<Op>| TraceContainer {
         names: vec!["x".to_string()],
@@ -2057,7 +2057,7 @@ fn extern_direction_violations_rejected() {
     let put_on_import = mk(
         ExternDir::Import,
         vec![
-            Op::Const(pie_ir::types::Literal::F32(1.0)),
+            Op::Const(tensor_ir::types::Literal::F32(1.0)),
             Op::Broadcast {
                 value: 0,
                 shape: Shape::vector(1),

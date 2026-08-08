@@ -6,7 +6,7 @@
 use crate::common::{
     matcher_from_ebnf as make_matcher, matcher_with_stop as make_matcher_with_stop,
 };
-use pie_grammar::bitmask;
+use ::grammar::bitmask;
 
 // ---------------------------------------------------------------------------
 // Control char exclusion in JSON-style char classes

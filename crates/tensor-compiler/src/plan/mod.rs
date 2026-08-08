@@ -1,6 +1,6 @@
-//! # `pie-plan` — PTIR execution planning
+//! # `tensor-compiler` — PTIR execution planning
 //!
-//! The backend-neutral middle end. Given a bound trace ([`pie_ir::validate`]),
+//! The backend-neutral middle end. Given a bound trace ([`tensor_ir::validate`]),
 //! this crate decides **how** a program executes: it normalizes each stage,
 //! derives its canonical signature, classifies value domains, partitions the op
 //! DAG into generated / library / second-party regions, and lays out the
@@ -13,7 +13,7 @@
 //! ([`SymbolicExtent`]) so one plan serves many batch shapes.
 //!
 //! Nothing is serialized on the way out. A [`CompiledStage`] is handed to
-//! `pie-codegen` as a Rust value and reaches a driver as generated source plus
+//! `tensor-compiler` as a Rust value and reaches a driver as generated source plus
 //! the launch package's typed records ([`LaneRecord`]); the driver is told what
 //! to run rather than given bytes to parse. [`debug_stage_plan`] renders a plan
 //! for humans, and [`stage_identity`] hashes one for cache keys, but neither is
@@ -23,8 +23,8 @@
 //!
 //! Every entry point here is infallible — [`compile_bound`] returns
 //! `Vec<CompiledStage>`, not `Result`. That is a precondition, not an
-//! oversight: the input is a [`BoundTrace`](pie_ir::validate::BoundTrace), and producing one requires
-//! [`pie_ir::validate::bind`], which is where a malformed guest container is
+//! oversight: the input is a [`BoundTrace`](tensor_ir::validate::BoundTrace), and producing one requires
+//! [`tensor_ir::validate::bind`], which is where a malformed guest container is
 //! rejected. Arity, SSA dominance, value-id range, channel-slot validity,
 //! stage ordering and readiness are all settled before a plan is asked for, so
 //! there is no untrusted input left for this crate to refuse.
@@ -39,7 +39,7 @@
 //! untrusted has reached this crate and the entry points need to change shape.
 //!
 //! The backends are the opposite case and are fallible for the opposite
-//! reason: `pie-codegen` refuses plans it cannot emit (`EmitError`) because
+//! reason: `tensor-compiler` refuses plans it cannot emit (`EmitError`) because
 //! "this backend has no lowering for that" is a normal outcome, not a bug.
 
 

@@ -1,19 +1,19 @@
 //! Standalone client server — local-inference mode.
 //!
 //! Terminates client WebSockets **directly** and bridges each one to the runtime
-//! session broker (`pie_engine::server::*`) with no gateway and no tarpc hop. This is
+//! session broker (`::engine::server::*`) with no gateway and no tarpc hop. This is
 //! the gateway-free local path: a client dials `ws://host:port` and talks
 //! msgpack `ClientMessage`/`ServerMessage` straight to this worker.
 //!
 //! The distributed path is different: there the worker dials INTO a separate
-//! gateway and serves `pie_worker_rpc::WorkerControl` ([`super::gateway_link`]),
+//! gateway and serves `worker_api::WorkerControl` ([`super::gateway_link`]),
 //! which terminates the client and dispatches turns over that link.
 
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use futures::{SinkExt, StreamExt};
-use pie_client::message::ClientMessage;
+use client::message::ClientMessage;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex as TokioMutex, watch};
 use tokio_tungstenite::accept_async;
@@ -64,7 +64,7 @@ async fn handle_connection(stream: TcpStream) -> Result<()> {
     let ws = accept_async(stream).await.context("websocket handshake")?;
     let (tx, mut rx) = ws.split();
 
-    let client_id = pie_engine::server::open_session().map_err(|e| anyhow!("open session: {e}"))?;
+    let client_id = ::engine::server::open_session().map_err(|e| anyhow!("open session: {e}"))?;
 
     let ws_tx = Arc::new(TokioMutex::new(tx));
     let (stop_tx, stop_rx) = watch::channel(false);
@@ -82,7 +82,7 @@ async fn handle_connection(stream: TcpStream) -> Result<()> {
                             break;
                         }
                     }
-                    poll = pie_engine::server::recv_messages(client_id, 200, 64) => {
+                    poll = ::engine::server::recv_messages(client_id, 200, 64) => {
                         let messages = match poll {
                             Ok(m) => m,
                             Err(e) => {
@@ -118,12 +118,12 @@ async fn handle_connection(stream: TcpStream) -> Result<()> {
         };
         let msg: ClientMessage =
             rmp_serde::from_slice(bytes.as_ref()).context("decode ClientMessage")?;
-        pie_engine::server::send_client_message(client_id, msg)
+        ::engine::server::send_client_message(client_id, msg)
             .map_err(|e| anyhow!("send client message: {e}"))?;
     }
 
     let _ = stop_tx.send(true);
     let _ = poll_task.await;
-    pie_engine::server::close_session(client_id);
+    ::engine::server::close_session(client_id);
     Ok(())
 }

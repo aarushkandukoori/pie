@@ -8,7 +8,7 @@
 
 use alloc::vec::Vec;
 
-use pie_ir::types::{DType, Shape, ValueType};
+use tensor_ir::types::{DType, Shape, ValueType};
 
 use super::Value;
 

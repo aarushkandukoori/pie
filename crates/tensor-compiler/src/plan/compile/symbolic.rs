@@ -8,12 +8,12 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use pie_ir::op::{IntrinsicId, Op};
-use pie_ir::registry::Port;
-use pie_ir::types::{DType, Shape, ValueType};
-use pie_ir::validate::BoundTrace;
+use tensor_ir::op::{IntrinsicId, Op};
+use tensor_ir::registry::Port;
+use tensor_ir::types::{DType, Shape, ValueType};
+use tensor_ir::validate::BoundTrace;
 
-pie_ir::declare_tagged_enum! {
+tensor_ir::declare_tagged_enum! {
     /// Runtime-varying dimensions represented symbolically in compiler types.
     ///
     /// The discriminants are the wire encoding, and `ALL` is the whole of it in
@@ -164,7 +164,7 @@ pub(crate) fn symbolic_result_type(
             let operands = mapped_op.operands();
             let left = &normalized_types[operands[0] as usize];
             let right = &normalized_types[operands[1] as usize];
-            // Invariant: `MatMul` operands are exactly rank 2. `pie_ir`'s
+            // Invariant: `MatMul` operands are exactly rank 2. `tensor_ir`'s
             // `infer::body_types` matches both shapes against `[m, k]` and
             // `[k, n]` and returns a shape error otherwise, and
             // `validate::bind` runs it — so `left.dims[0]` and the last of
@@ -449,7 +449,7 @@ mod mapped_value_tests {
     #[test]
     fn the_fallback_is_only_for_a_changed_op_kind() {
         const SENTINEL: u32 = 0xdead;
-        for op in pie_ir::op::representatives() {
+        for op in tensor_ir::op::representatives() {
             let named = matches!(
                 op,
                 Op::ReduceSum(..)

@@ -1,6 +1,6 @@
 //! The edges the crate system used to hold, now that the crates are modules.
 //!
-//! `plan`, `eval` and `codegen` were three crates over `pie-ir`. Two facts
+//! `plan`, `eval` and `codegen` were three crates over `tensor-ir`. Two facts
 //! about that graph were load-bearing, and both were enforced by cargo simply
 //! refusing to resolve a dependency that did not exist:
 //!
@@ -52,8 +52,8 @@ fn sources(dir: &Path) -> Vec<(String, String)> {
 ///
 /// Two things are not: prose (the module names are all over the doc comments
 /// explaining this very layering), and test code. The second is not a
-/// loophole — it is the old graph restated. `pie-eval` DID depend on
-/// `pie-plan`, as a dev-dependency, so its tier-0 parity tests could check the
+/// loophole — it is the old graph restated. `tensor-compiler` DID depend on
+/// `tensor-compiler`, as a dev-dependency, so its tier-0 parity tests could check the
 /// interpreter against planner-partitioned regions. What cargo forbade was the
 /// production edge, and that is what this forbids.
 ///

@@ -1,6 +1,6 @@
 //! `pie inferlet` — the programs pie runs, in the registry and on disk.
 //!
-//! `list`/`download`/`remove` all go through `pie_engine`'s `Repository`
+//! `list`/`download`/`remove` all go through `engine`'s `Repository`
 //! rather than touching `$PIE_HOME/programs` directly. The engine loads the
 //! same cache at boot, so a CLI with its own idea of the layout would be a
 //! CLI that can hide a program from the thing meant to run it.
@@ -10,7 +10,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand};
 use serde::Deserialize;
 
-use pie_engine::inferlet::program::{Manifest, ProgramName, Repository};
+use engine::inferlet::program::{Manifest, ProgramName, Repository};
 
 use crate::ui::{self, Align, Answer, Mark, Palette, Row, Table};
 
@@ -44,7 +44,7 @@ pub struct InfoArgs {
     pub inferlet: String,
 }
 
-pub async fn run(cmd: InferletCmd, global: &startup::GlobalArgs) -> Result<Answer> {
+pub async fn run(cmd: InferletCmd, global: &bootstrap::GlobalArgs) -> Result<Answer> {
     match cmd {
         InferletCmd::List => list(),
         InferletCmd::Info(args) => info(args, global).await,
@@ -56,7 +56,7 @@ pub async fn run(cmd: InferletCmd, global: &startup::GlobalArgs) -> Result<Answe
 /// Where the engine keeps downloaded programs. One expression, so the CLI and
 /// `pie cache`'s registry entry cannot point at different directories.
 fn programs_dir() -> std::path::PathBuf {
-    pie_worker::paths::pie_home().join("programs")
+    worker::paths::pie_home().join("programs")
 }
 
 /// The newest cached version of a bare inferlet name, if it is already here.
@@ -173,8 +173,8 @@ fn list() -> Result<Answer> {
     }))
 }
 
-async fn download(args: TargetArgs, global: &startup::GlobalArgs) -> Result<Answer> {
-    let (cfg_path, _) = startup::cli_config_path(global);
+async fn download(args: TargetArgs, global: &bootstrap::GlobalArgs) -> Result<Answer> {
+    let (cfg_path, _) = bootstrap::cli_config_path(global);
     let cfg = crate::derive::load_worker_config(&cfg_path)?;
     let name = resolve_inferlet_id(&args.inferlet, &cfg.server.registry).await?;
     let mut repo = open(cfg.server.registry.clone());
@@ -234,12 +234,12 @@ async fn remove(args: TargetArgs) -> Result<Answer> {
     })
 }
 
-async fn info(args: InfoArgs, global: &startup::GlobalArgs) -> Result<Answer> {
+async fn info(args: InfoArgs, global: &bootstrap::GlobalArgs) -> Result<Answer> {
     // The global `--config` rather than a local one: this reads the registry
     // URL out of the same config the engine would boot from, so resolving it
     // by a different rule than the engine's could point `info` at one registry
     // while `serve` used another.
-    let (cfg_path, _) = startup::cli_config_path(global);
+    let (cfg_path, _) = bootstrap::cli_config_path(global);
     let cfg = crate::derive::load_worker_config(&cfg_path)?;
 
     // Runs on the ambient `#[tokio::main]` runtime (no nested runtime).
@@ -443,12 +443,12 @@ fn validate_bare_inferlet_name(name: &str) -> Result<()> {
 }
 
 
-fn parameter_type_name(param_type: &pie_engine::inferlet::program::ParameterType) -> &'static str {
+fn parameter_type_name(param_type: &engine::inferlet::program::ParameterType) -> &'static str {
     match param_type {
-        pie_engine::inferlet::program::ParameterType::String => "string",
-        pie_engine::inferlet::program::ParameterType::Int => "int",
-        pie_engine::inferlet::program::ParameterType::Float => "float",
-        pie_engine::inferlet::program::ParameterType::Bool => "bool",
+        engine::inferlet::program::ParameterType::String => "string",
+        engine::inferlet::program::ParameterType::Int => "int",
+        engine::inferlet::program::ParameterType::Float => "float",
+        engine::inferlet::program::ParameterType::Bool => "bool",
     }
 }
 

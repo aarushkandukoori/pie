@@ -26,9 +26,9 @@ cargo run -p pie-loader-cbindgen             # regenerate capi/include/pie_loade
 UPDATE_GOLDEN=1 cargo test -p pie-loader --test golden_plans
 ```
 
-Two crates: `pie-loader` is the compiler and knows nothing of C;
-`pie-loader-capi` (`capi/`) is the repr(C) marshalling, the extern entry
-points, the `pie-loader` CLI, and the committed header. Regenerating the
+Two crates: `model-loader` is the compiler and knows nothing of C;
+`model-loader-capi` (`capi/`) is the repr(C) marshalling, the extern entry
+points, the `model-loader` CLI, and the committed header. Regenerating the
 header must leave it byte-identical unless the ABI changed on purpose;
 `driver/{cuda,metal}` compile against it.
 

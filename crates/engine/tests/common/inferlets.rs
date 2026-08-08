@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use pie_engine::inferlet::process::ProcessId;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process::ProcessId;
+use engine::inferlet::program::ProgramName;
 
 const TARGET: &str = "wasm32-wasip2";
 
@@ -57,11 +57,11 @@ pub fn read_inferlet_wasm(name: &str) -> Vec<u8> {
 }
 
 /// Read and parse the Pie.toml manifest for a test inferlet.
-pub fn read_inferlet_manifest(name: &str) -> pie_engine::inferlet::program::Manifest {
+pub fn read_inferlet_manifest(name: &str) -> engine::inferlet::program::Manifest {
     let path = inferlets_dir().join(name).join("Pie.toml");
     let content = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("Failed to read {}: {}", path.display(), e));
-    pie_engine::inferlet::program::Manifest::parse(&content)
+    engine::inferlet::program::Manifest::parse(&content)
         .unwrap_or_else(|e| panic!("Failed to parse {}: {}", path.display(), e))
 }
 
@@ -70,10 +70,10 @@ pub async fn add_and_install(name: &str) -> ProgramName {
     let wasm = read_inferlet_wasm(name);
     let manifest = read_inferlet_manifest(name);
     let program_name = ProgramName::parse(&format!("{name}@0.1.0")).unwrap();
-    pie_engine::inferlet::program::add(wasm, manifest, true)
+    engine::inferlet::program::add(wasm, manifest, true)
         .await
         .unwrap();
-    pie_engine::inferlet::program::install(&program_name)
+    engine::inferlet::program::install(&program_name)
         .await
         .unwrap();
     program_name
@@ -84,7 +84,7 @@ pub async fn add_and_install(name: &str) -> ProgramName {
 pub fn wait_for_process(id: ProcessId, timeout: Duration) -> bool {
     let start = Instant::now();
     loop {
-        if !pie_engine::inferlet::process::list().contains(&id) {
+        if !engine::inferlet::process::list().contains(&id) {
             return true;
         }
         if start.elapsed() > timeout {

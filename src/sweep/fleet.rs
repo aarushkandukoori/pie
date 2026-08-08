@@ -13,7 +13,7 @@
 
 use std::time::{Duration, Instant};
 
-use pie_client::client::Client;
+use client::client::Client;
 
 /// One round's worth of load, and what it cost.
 pub struct FleetRun {

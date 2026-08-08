@@ -2,7 +2,7 @@
 //!
 //! This is the **client-submit** slice of the programmable-sampler 4090
 //! real-driver harness (Lane L6): it boots no engine of its own — point it at
-//! an already-running engine's client WebSocket (echo's `pie_worker::engine`
+//! an already-running engine's client WebSocket (echo's `worker::engine`
 //! boot on the GPU) — adds the inferlet program, launches it, and prints the
 //! `Return` value (the inferlet's `Result<String>`, e.g. the mirostat/grammar
 //! structured-JSON result hotel's assertions consume).
@@ -24,7 +24,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use pie_client::client::Client;
+use ::client::client::Client;
 
 #[tokio::main]
 async fn main() -> Result<()> {

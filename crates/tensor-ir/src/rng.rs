@@ -1,7 +1,7 @@
 //! The canonical PTIR RNG contract.
 //!
 //! The deterministic CUDA/C++ and MSL projections of this formula are emitted
-//! by `pie-codegen`; this module is the formula itself plus the host
+//! by `tensor-compiler`; this module is the formula itself plus the host
 //! implementation the reference interpreter runs.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

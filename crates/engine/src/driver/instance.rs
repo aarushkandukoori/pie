@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pie_driver_abi::{GeometryClass, PieInstanceBinding};
+use driver_abi::{GeometryClass, PieInstanceBinding};
 
 use super::channel::ChannelValue;
 
@@ -27,7 +27,7 @@ pub struct InstanceBindingPlan {
 
 impl InstanceBindingPlan {
     pub(crate) fn validate_binding(&self, binding: &PieInstanceBinding) -> anyhow::Result<()> {
-        pie_driver_abi::validate_instance_binding(binding)
+        driver_abi::validate_instance_binding(binding)
             .map_err(|err| anyhow::anyhow!("invalid native instance binding: {err}"))?;
         if self.requested_instance_id != 0 {
             anyhow::ensure!(
@@ -100,9 +100,9 @@ impl BoundWaitSlots {
 
     pub(crate) fn close(&self) {
         if !self.close_requested.swap(true, Ordering::AcqRel) {
-            pie_waker::WakerTable::global().sweep(&self.wait_ids());
+            waker::WakerTable::global().sweep(&self.wait_ids());
             let completion_wait_ids = self.completion_wait_ids.lock().unwrap().clone();
-            pie_waker::WakerTable::global().sweep(&completion_wait_ids);
+            waker::WakerTable::global().sweep(&completion_wait_ids);
             self.maybe_finalize();
         }
     }
@@ -126,7 +126,7 @@ impl BoundWaitSlots {
         {
             return;
         }
-        let table = pie_waker::WakerTable::global();
+        let table = waker::WakerTable::global();
         for id in self.wait_ids() {
             table.deregister(id);
             table.free(id);
@@ -194,7 +194,7 @@ impl BoundInstance {
     }
 
     pub fn reserve_completion(&self) -> crate::driver::completion::WorkItemCompletion {
-        let wait_id = pie_waker::WakerTable::global().alloc();
+        let wait_id = waker::WakerTable::global().alloc();
         crate::driver::completion::WorkItemCompletion::with_guard(
             wait_id,
             0,

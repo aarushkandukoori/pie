@@ -17,8 +17,8 @@ use std::time::Duration;
 mod common;
 use common::{MockEnv, create_mock_env, mock_device::EchoBehavior};
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::{Manifest, ProgramName};
+use engine::inferlet::process;
+use engine::inferlet::program::{Manifest, ProgramName};
 use tokio::sync::oneshot;
 
 /// Per-process bootstrap (LazyLock-backed runtime globals → bootstrap exactly once).
@@ -46,7 +46,7 @@ fn harness() -> &'static Harness {
         config.runtime.fs_scratch_dir = fs_tmp.path().to_path_buf();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            pie_engine::bootstrap::bootstrap(config).await.unwrap();
+            engine::bootstrap::bootstrap(config).await.unwrap();
         });
         Harness { rt, env, fs_tmp }
     })
@@ -88,10 +88,10 @@ fn run_curated_inferlet(name: &str, input: &str, timeout: Duration) -> Result<St
     let h = harness();
     let (wasm, manifest, program_name) = load_curated_inferlet(name);
     h.rt.block_on(async {
-        pie_engine::inferlet::program::add(wasm, manifest, true)
+        engine::inferlet::program::add(wasm, manifest, true)
             .await
             .unwrap();
-        pie_engine::inferlet::program::install(&program_name)
+        engine::inferlet::program::install(&program_name)
             .await
             .unwrap();
         let (tx, rx) = oneshot::channel();

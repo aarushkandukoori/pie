@@ -1,5 +1,5 @@
 [package]
-name = "pie-loader"
+name = "model-loader"
 version = "0.1.0"
 edition = "2024"
 authors = ["In Gim <in.gim@icloud.com>"]
@@ -8,13 +8,13 @@ license = "Apache-2.0"
 repository = "https://github.com/pie-project/pie"
 
 [lib]
-name = "pie_loader"
+name = "model_loader"
 crate-type = ["rlib"]
 path = "src/lib.rs"
 
 # The C ABI — repr(C) marshalling, extern entry points, the committed
-# `pie_loader.h`, and the `pie-loader` CLI — lives in `capi/`
-# (`pie-loader-capi`). This crate is the compiler alone and knows nothing of
+# `pie_loader.h`, and the `pie-loader` CLI — is the sibling crate
+# `model-loader-capi`. This crate is the compiler alone and knows nothing of
 # C; the split makes that a dependency arrow instead of a module convention.
 
 [features]
@@ -22,7 +22,7 @@ default = ["testkit"]
 
 # The parts of this crate that exist to *check* the loader rather than to be
 # the loader: the differential oracle and the CPU plan executor the
-# `pie-loader` tool replays with.
+# `model-loader` tool replays with.
 #
 # On by default so `cargo build` and `cargo test` work unasked.
 # `worker/Cargo.toml` turns it off, which is also the check: if the load path
@@ -52,4 +52,4 @@ ztensor = { workspace = true }
 # the *marshalled* view of a plan, and the marshalling lives in the ABI crate
 # above this one. The lib itself must never depend on it — that is the whole
 # point of the split.
-pie-loader-capi = { path = "../model-loader-capi", default-features = false }
+model-loader-capi = { path = "../model-loader-capi", default-features = false }

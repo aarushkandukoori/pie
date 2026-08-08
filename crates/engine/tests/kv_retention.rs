@@ -34,8 +34,8 @@ use std::time::Duration;
 mod common;
 use common::{MockEnv, create_mock_env, inferlets, mock_device::Behavior};
 
-use pie_engine::inferlet::process;
-use pie_engine::inferlet::program::ProgramName;
+use engine::inferlet::process;
+use engine::inferlet::program::ProgramName;
 
 const FLEET: usize = 8;
 /// Enough physical pages that a correct engine hands each concurrent request its
@@ -58,7 +58,7 @@ struct PageProbe {
 }
 
 impl Behavior for PageProbe {
-    fn observe_launch(&self, req: &pie_engine::driver::LaunchPlan) {
+    fn observe_launch(&self, req: &engine::driver::LaunchPlan) {
         if req.kv_page_indices.is_empty() && !req.kv_translation.is_empty() {
             self.log
                 .lock()
@@ -112,7 +112,7 @@ fn state() -> &'static TestState {
         let env = create_mock_env("test-model", 1, NUM_PAGES, behavior);
         let config = env.config();
         rt.block_on(async {
-            pie_engine::bootstrap::bootstrap(config).await.unwrap();
+            engine::bootstrap::bootstrap(config).await.unwrap();
         });
         TestState { env, rt, log }
     })

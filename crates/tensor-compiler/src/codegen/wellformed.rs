@@ -1,6 +1,6 @@
 //! What must hold of a normalized stage before *any* backend emits from it.
 //!
-//! These are claims about `pie-plan`'s output, not about MSL or CUDA C: a
+//! These are claims about `tensor-compiler`'s output, not about MSL or CUDA C: a
 //! region's node list indexes the op list, its inputs and outputs index the
 //! value table, a value's rank fits the wire, and its static extents multiply
 //! without overflowing the `u32` the runtimes count elements in. An emitter
@@ -19,8 +19,8 @@
 use crate::codegen::error::{EmitError, RegionForm, ValueLayoutSite};
 use crate::codegen::op_view::OpView;
 
-use pie_ir::op::{OP_TABLE, VARIADIC, tags};
-use pie_ir::types::MAX_RANK;
+use tensor_ir::op::{OP_TABLE, VARIADIC, tags};
+use tensor_ir::types::MAX_RANK;
 use crate::plan::{CompiledStage, Dimension, Region, SymbolicType};
 
 /// Every value type in the stage is one the runtimes can describe.

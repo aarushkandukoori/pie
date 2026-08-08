@@ -2,7 +2,7 @@
 //!
 //! Tests regex → EBNF conversion correctness.
 
-use pie_grammar::regex::{regex_to_ebnf, regex_to_grammar};
+use ::grammar::regex::{regex_to_ebnf, regex_to_grammar};
 
 /// Helper: get the EBNF body (everything after "root ::= ").
 fn ebnf_body(pattern: &str) -> String {

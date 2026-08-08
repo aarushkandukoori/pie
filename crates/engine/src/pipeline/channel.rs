@@ -46,9 +46,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::driver::ChannelEndpoint;
-use pie_driver_abi::PieChannelEndpointBinding;
-use pie_ir::container::{self, ChanDType, ChannelDecl, ExternDir, HostRole};
-use pie_ir::types::DType;
+use driver_abi::PieChannelEndpointBinding;
+use tensor_ir::container::{self, ChanDType, ChannelDecl, ExternDir, HostRole};
+use tensor_ir::types::DType;
 
 /// Process-wide monotonic source of GLOBAL channel identities (0 reserved as a
 /// null sentinel). Minted when the guest constructs a `channel` resource; a
@@ -1095,8 +1095,8 @@ pub fn unpack_bool(wire: &[u8], numel: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_ir::container::{ChanDType, ChannelDecl};
-    use pie_ir::types::{DType, Shape};
+    use tensor_ir::container::{ChanDType, ChannelDecl};
+    use tensor_ir::types::{DType, Shape};
 
     fn decl(shape: Shape, dtype: DType, role: HostRole, seeded: bool) -> ChannelDecl {
         ChannelDecl {
@@ -1419,7 +1419,7 @@ mod tests {
         cell_bytes: u32,
         capacity: u32,
     ) {
-        let table = pie_waker::WakerTable::global();
+        let table = waker::WakerTable::global();
         let endpoint = ChannelEndpoint::new(crate::driver::RegisteredChannel {
             driver_id: usize::MAX,
             binding: PieChannelEndpointBinding {

@@ -13,10 +13,10 @@
 
 use std::time::{Duration, Instant};
 
-use pie_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
-use pie_loader::contract::{Expr, ModelContract, TensorContract};
-use pie_loader::plan::{StorageTarget, compile};
-use pie_loader::types::{CheckpointFormat, DType, Encoding, FileId, TensorId};
+use model_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
+use model_loader::contract::{Expr, ModelContract, TensorContract};
+use model_loader::plan::{StorageTarget, compile};
+use model_loader::types::{CheckpointFormat, DType, Encoding, FileId, TensorId};
 
 const SPAN: u64 = 8192;
 

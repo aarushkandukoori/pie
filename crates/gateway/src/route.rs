@@ -27,8 +27,8 @@
 //! The gateway's pick is a *hint*; the worker has final admission. So
 //! [`dispatch_with_retry`](RoutingHandle::dispatch_with_retry) walks the ordered
 //! candidates, dispatching the turn until one accepts. A worker may
-//! [`Reject`](pie_worker_rpc::Accepted::Reject) /
-//! [`Redirect`](pie_worker_rpc::Accepted::Redirect) (advance to the next
+//! [`Reject`](worker_api::Accepted::Reject) /
+//! [`Redirect`](worker_api::Accepted::Redirect) (advance to the next
 //! candidate), or the dispatch may fail at the registry/transport layer
 //! (not-connected / no-ack — also advance, the idempotent re-route of §8). The
 //! turn's `ReqId` is minted once by the session *before* this loop, so re-routing
@@ -38,9 +38,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use pie_controller_rpc::{Health, Role, RoutableWorker, RoutingTable};
-use pie_ids::WorkerId;
-use pie_worker_rpc::{Accepted, Request};
+use controller_api::{Health, Role, RoutableWorker, RoutingTable};
+use ids::WorkerId;
+use worker_api::{Accepted, Request};
 use tokio::sync::watch;
 
 use crate::admission::{AdmissionConfig, AdmissionDecision, admit};
@@ -82,8 +82,8 @@ pub trait WorkerDispatch {
 /// session can target [`cancel`]/[`set_priority`] at it) plus the worker's
 /// `Accepted` answer.
 ///
-/// [`cancel`]: pie_worker_rpc::WorkerControl::cancel
-/// [`set_priority`]: pie_worker_rpc::WorkerControl::set_priority
+/// [`cancel`]: worker_api::WorkerControl::cancel
+/// [`set_priority`]: worker_api::WorkerControl::set_priority
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Dispatched {
     /// The worker the turn is now bound to.
@@ -363,10 +363,10 @@ fn p2c_pick(eligible: &[&RoutableWorker], rng: &mut dyn FnMut() -> u64) -> usize
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_client_api::ClientMessage;
-    use pie_controller_rpc::{Role, WorkerStatus};
-    use pie_ids::{ReqId, SessionId, TenantId};
-    use pie_worker_rpc::Priority;
+    use client_api::ClientMessage;
+    use controller_api::{Role, WorkerStatus};
+    use ids::{ReqId, SessionId, TenantId};
+    use worker_api::Priority;
     use std::sync::Mutex;
 
     // ── fixtures ──

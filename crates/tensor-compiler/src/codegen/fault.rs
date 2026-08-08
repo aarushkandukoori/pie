@@ -236,7 +236,7 @@ mod tests {
             );
             let actual = u8::try_from(*code)
                 .ok()
-                .and_then(pie_ir::op::spec)
+                .and_then(tensor_ir::op::spec)
                 .map(|spec| spec.name);
             assert_eq!(
                 actual, *alias,

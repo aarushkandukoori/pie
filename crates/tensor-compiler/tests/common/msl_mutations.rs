@@ -17,8 +17,8 @@
 //! `NodeIndex` newtype -- 245 lines describing a test that was not running.
 #![allow(dead_code)]
 
-use pie_ir::op::Op;
-use pie_ir::types::{DType, Predicate};
+use tensor_ir::op::Op;
+use tensor_ir::types::{DType, Predicate};
 use tensor_compiler::plan::{
     ChannelSink, ChannelSlot, CompiledStage, Dimension, LibraryOp, NodeIndex, PartitionKind,
     RegionKind, SymbolicType,

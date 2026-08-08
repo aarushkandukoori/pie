@@ -6,8 +6,8 @@
 //! across passes that share an epilogue, and discriminating when the program
 //! or its channels differ.
 
-use pie_ir::registry::Stage;
-use pie_ir::validate::BoundTrace;
+use tensor_ir::registry::Stage;
+use tensor_ir::validate::BoundTrace;
 
 /// The compact grouping key the scheduler groups passes by.
 fn stage_key(bound: &BoundTrace, stage: Stage) -> Option<u64> {
@@ -19,11 +19,11 @@ fn stage_key(bound: &BoundTrace, stage: Stage) -> Option<u64> {
     Some(tensor_compiler::plan::compile_stage_at(bound, index).signature.hash)
 }
 
-use pie_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
-use pie_ir::op::Op;
-use pie_ir::registry::ModelProfile;
-use pie_ir::types::{DType, Literal, Shape};
-use pie_ir::validate::bind;
+use tensor_ir::container::{ChanDType, ChannelDecl, HostRole, StageProgram, TraceContainer};
+use tensor_ir::op::Op;
+use tensor_ir::registry::ModelProfile;
+use tensor_ir::types::{DType, Literal, Shape};
+use tensor_ir::validate::bind;
 
 fn ch(dtype: DType) -> ChannelDecl {
     ChannelDecl {

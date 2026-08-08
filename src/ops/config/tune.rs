@@ -58,7 +58,7 @@ impl Objective {
     /// Also derived rather than defaulted, because an arbitrary load measures an
     /// arbitrary thing. The first version of this command shipped 8 lanes of 48
     /// tokens picked by nothing, and that load turned out to be dominated by
-    /// process startup rather than by batching — k=1 measured 4x slower there
+    /// process bootstrap rather than by batching — k=1 measured 4x slower there
     /// and identical at a longer fleet.
     ///
     /// `latency` is a low-concurrency regime by definition, so its fleet is
@@ -206,7 +206,7 @@ pub fn resolve_objective(flag: Option<Objective>, configured: &str) -> Result<Ob
 /// state as the candidates it will be compared against — a baseline taken last
 /// is a baseline taken on a different machine.
 pub fn plan(baseline: Knobs, budget: Option<usize>) -> (Vec<Knobs>, usize) {
-    let staging = pie_worker::config::UPLOAD_STAGING_DEPTH as usize;
+    let staging = worker::config::UPLOAD_STAGING_DEPTH as usize;
     let mut all = vec![baseline];
     all.extend(
         sweep::candidates(staging)
@@ -540,7 +540,7 @@ async fn calibrate_planner(content: &str) -> Result<()> {
     let pie = crate::compose::run_standalone(controller, gateway, worker)
         .await
         .context("boot the engine to calibrate the planner")?;
-    // Calibration runs inside the driver's own startup, so by the time the boot
+    // Calibration runs inside the driver's own bootstrap, so by the time the boot
     // returns the sweep is done and the profile is written. Nothing to drive.
     pie.shutdown().await;
     Ok(())
@@ -603,8 +603,8 @@ async fn calibrate_planner_in_child(content: &str, program: &str) -> Result<()> 
 
 /// Calibrate the planner, then sweep the frame knobs inside the arena that
 /// produced.
-pub async fn run(global: &startup::GlobalArgs, args: TuneArgs) -> Result<crate::ui::Answer> {
-    let (cfg_path, origin) = startup::cli_config_path(global);
+pub async fn run(global: &bootstrap::GlobalArgs, args: TuneArgs) -> Result<crate::ui::Answer> {
+    let (cfg_path, origin) = bootstrap::cli_config_path(global);
     let content = std::fs::read_to_string(&cfg_path).with_context(|| {
         format!(
             "no config file at {} ({}); `pie config init` writes one",
@@ -616,7 +616,7 @@ pub async fn run(global: &startup::GlobalArgs, args: TuneArgs) -> Result<crate::
     let file: toml::Value =
         toml::from_str(&content).map_err(|e| anyhow!("parse {cfg_path:?}: {e}"))?;
     let configured_profile =
-        pie_worker::config_schema::lookup(&file, "driver.memory_profile")
+        worker::config_schema::lookup(&file, "driver.memory_profile")
             .and_then(|v| v.as_str().map(str::to_string))
             .unwrap_or_else(|| "auto".to_string());
     let objective = resolve_objective(args.objective, &configured_profile)?;
@@ -680,7 +680,7 @@ pub async fn run(global: &startup::GlobalArgs, args: TuneArgs) -> Result<crate::
         // load twice -- and the whole reason the frame-knob sweep reuses one
         // boot is that weight loads are the expensive part.
         println!("  This boots the model a second time; `--skip-planner` reuses an earlier one.");
-        let profile = pie_worker::state::planner_profile_path();
+        let profile = worker::state::planner_profile_path();
         // Observed, not assumed. The driver REFUSES to calibrate for
         // `tensor_parallel_size > 1` and for recurrent-state models, saying so
         // on stderr and booting normally -- so a successful boot is not a
@@ -819,7 +819,7 @@ type = \"cuda_native\"
 device = [\"cuda:0\"]
 calibrate_planner = true
 ";
-        let error = pie_worker::Config::parse(asked)
+        let error = worker::Config::parse(asked)
             .expect_err("a config cannot request a measurement")
             .to_string();
         assert!(
@@ -829,7 +829,7 @@ calibrate_planner = true
         // And it is not a settable key either, so `pie config set` cannot
         // produce the document above in the first place.
         assert!(
-            !pie_worker::config_schema::fields(pie_worker::config::DriverKind::CudaNative)
+            !worker::config_schema::fields(worker::config::DriverKind::CudaNative)
                 .iter()
                 .any(|f| f.key.ends_with("calibrate_planner")),
             "a measurement is not a setting"
@@ -858,7 +858,7 @@ calibrate_planner = true
 
     #[test]
     fn every_planned_candidate_respects_the_staging_bound() {
-        let staging = pie_worker::config::UPLOAD_STAGING_DEPTH as usize;
+        let staging = worker::config::UPLOAD_STAGING_DEPTH as usize;
         let (plan, _) = plan(BASE, None);
         for knobs in plan {
             assert!(knobs.steps_in_flight() < staging, "{knobs}");
@@ -968,7 +968,7 @@ calibrate_planner = true
     fn the_workload_follows_the_objective_unless_overridden() {
         // An arbitrary load measures an arbitrary thing: the first version of
         // this command shipped 8 lanes of 48 tokens picked by nothing, and that
-        // load was dominated by process startup rather than by batching.
+        // load was dominated by process bootstrap rather than by batching.
         let latency = Objective::Latency.workload();
         let throughput = Objective::Throughput.workload();
         assert!(

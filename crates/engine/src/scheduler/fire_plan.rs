@@ -43,7 +43,7 @@
 //!   itself declares, true for every member of every fire against it. An
 //!   MoE trace's per-token expert selection ([`SITE_EXPERT_WEIGHTS`]) is
 //!   this provenance; [`site_table::derive_sites`] walks a
-//!   `pie_forward::ForwardPlan` and emits them once per model, not per
+//!   `model_compiler::ForwardPlan` and emits them once per model, not per
 //!   fire.
 //!
 //! [`plan_fire_with_model`] merges both: `build_frame_submission` passes
@@ -201,7 +201,7 @@ pub(crate) const SITE_PROJECTION_WEIGHTS: &str = "projection_weights";
 pub(crate) const SITE_ATTENTION_MASK: &str = "attention_mask";
 
 /// The expert-weights site: per-TOKEN weight divergence — an MoE trace's
-/// expert-indexed matmuls (`pie_forward`'s `Matmul { selector }`, the
+/// expert-indexed matmuls (`model_compiler`'s `Matmul { selector }`, the
 /// `layer.{l}.expert.{e}.*` templates whose `{e}` a `TopK` value resolves
 /// per token). Weight-class like [`SITE_PROJECTION_WEIGHTS`], at the other
 /// granularity: same operator, per-token weights, no branch.
@@ -838,8 +838,8 @@ mod tests {
     /// traced form merge into a fire plan alongside the member-fact sites.
     #[test]
     fn derived_moe_sites_merge_into_a_fire_plan() {
-        let traced = pie_forward::family::qwen3_5_moe_mlp_block(
-            &pie_forward::Qwen35MoeMlpFacts::qwen3_5_35b_a3b(),
+        let traced = model_compiler::family::qwen3_5_moe_mlp_block(
+            &model_compiler::Qwen35MoeMlpFacts::qwen3_5_35b_a3b(),
         );
         let model_sites = site_table::derive_sites(&traced);
         let members = vec![member(false, false, false, 0), member(true, false, false, 1)];

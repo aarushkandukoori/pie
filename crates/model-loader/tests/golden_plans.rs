@@ -24,18 +24,18 @@
 
 use std::path::PathBuf;
 
-use pie_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
-use pie_loader::contract::ModelContract;
-use pie_loader::plan::compile as compile_load_plan;
-use pie_loader::plan::{
+use model_loader::checkpoint::{CheckpointFile, CheckpointMetadata, RawTensor};
+use model_loader::contract::ModelContract;
+use model_loader::plan::compile as compile_load_plan;
+use model_loader::plan::{
     CUDA_TILE_MAP_MASK, FUSION_FP8_TO_MXFP4, HOST_TILE_MAP_MASK, LoadPlan, StorageTarget,
     compiler_version,
 };
-use pie_loader::types::{
+use model_loader::types::{
     BackendKind, CheckpointFormat, DType, Encoding, FileId, QuantScheme, QuantSpec, TensorId,
 };
-use pie_loader::verify::ContractView;
-use pie_loader_capi::view::verify_marshalled;
+use model_loader::verify::ContractView;
+use model_loader_capi::view::verify_marshalled;
 
 // ── the checkpoints ─────────────────────────────────────────────────
 
@@ -388,7 +388,7 @@ fn contract_fixture(name: &str) -> ModelContract {
         panic!(
             "{name}: cannot read {}: {err}\n\
              A new golden needs a contract next to it. Author one the way \
-             production does — a `pie_model::contract` author can be dumped \
+             production does — a `model::contract` author can be dumped \
              as JSON from `model/tests/family_contracts.rs` — or write the \
              expression out by hand.",
             path.display()
@@ -415,14 +415,14 @@ fn golden_path(name: &str) -> PathBuf {
 /// Checking that the histogram accounts for every instruction is what catches an
 /// instruction variant added without a name for it.
 fn check_stats_render(name: &str, plan: &LoadPlan) {
-    let summary = pie_loader::dump::describe(plan);
+    let summary = model_loader::dump::describe(plan);
     assert!(
         summary.contains(&format!("tensors={}", plan.tensors.len()))
             && summary.contains(&format!("instrs={}", plan.instrs.len())),
         "{name}: the boot-log line lost a field: {summary}"
     );
 
-    let rendered = pie_loader::dump::plan_stats_json(plan);
+    let rendered = model_loader::dump::plan_stats_json(plan);
     let stats: serde_json::Value = serde_json::from_str(&rendered)
         .unwrap_or_else(|err| panic!("{name}: stats are not JSON: {err}"));
     let counted: u64 = stats["instruction_kinds"]
@@ -513,14 +513,14 @@ fn replay(name: &str, plan: &LoadPlan, metadata: &CheckpointMetadata) {
         return;
     }
     let snapshot = PathBuf::from(&metadata.files[0].path);
-    let storage = pie_loader::executor::host::execute_plan(plan, snapshot.parent().unwrap())
+    let storage = model_loader::executor::host::execute_plan(plan, snapshot.parent().unwrap())
         .unwrap_or_else(|err| panic!("{name}: the plan does not execute: {err}"));
     for tensor in &plan.tensors {
         let materialized = storage
             .tensors
             .get(&tensor.name)
             .unwrap_or_else(|| panic!("{name}: '{}' was never materialized", tensor.name));
-        let expected = pie_loader::types::encoding_nbytes(&tensor.shape, &tensor.encoding)
+        let expected = model_loader::types::encoding_nbytes(&tensor.shape, &tensor.encoding)
             .unwrap_or_else(|| panic!("{name}: '{}' has no size", tensor.name));
         assert_eq!(
             materialized.len() as u64,

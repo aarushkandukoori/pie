@@ -1,5 +1,5 @@
 [package]
-name = "pie-dsl"
+name = "tensor-dsl"
 version = "0.1.0"
 edition = "2024"
 rust-version.workspace = true
@@ -13,12 +13,12 @@ categories = ["api-bindings"]
 # A host workspace member that also builds for `wasm32-wasip2`: it has no
 # wasm-only dependencies, so unlike `sdk/rust/*` it does not need to be excluded,
 # and being a member is what puts its tests in the CI battery. It lowers to the
-# canonical `pie-ir` primitives (Shape / DType / container encoding
+# canonical `tensor-ir` primitives (Shape / DType / container encoding
 # / FNV-1a identity hash). The authoritative validator (`pie_ir::validate::bind`)
 # is a dev-only parity dependency: the guest does not bind — `forward-pass.new`
 # is the authoritative gate.
 [lib]
-name = "pie_dsl"
+name = "tensor_dsl"
 path = "src/lib.rs"
 
 [features]
@@ -29,17 +29,17 @@ path = "src/lib.rs"
 # → the WIT `forward-pass.new`/`register-program` runs it. A `no_std`
 # single-threaded context is only needed for non-wasip2 no_std targets.
 default = ["std"]
-std = ["pie-ir/std"]
+std = ["tensor-ir/std"]
 
 [dependencies]
-pie-ir = { path = "../tensor-ir", default-features = false }
+tensor-ir = { path = "../tensor-ir", default-features = false }
 
 # Host-only: the CPU reference interpreter for tier-0 result-parity tests.
 # Dev-deps are excluded from the wasm build, so this never reaches the SDK.
 [dev-dependencies]
 tensor-compiler = { path = "../tensor-compiler" }
 
-# Shared ratchet from the root manifest. These six crates are gated with
-# `-D warnings` in CI; see `[workspace.lints]` in the workspace `Cargo.toml`.
+# Shared ratchet from the root manifest. The toolchain's three crates are gated
+# with `-D warnings` in CI; see `[workspace.lints]` in the workspace `Cargo.toml`.
 [lints]
 workspace = true

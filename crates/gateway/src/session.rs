@@ -4,7 +4,7 @@
 //! model: one-shot (REST/SSE) is a 1-turn session, interactive (WebSocket) is a
 //! multi-turn session. The user-facing adapters in [`ingress`](crate::ingress)
 //! are thin shells over this; the worker-facing token push
-//! ([`GatewayInbound`](pie_worker_rpc::GatewayInbound)) demuxes back into here. The
+//! ([`GatewayInbound`](worker_api::GatewayInbound)) demuxes back into here. The
 //! route → admission → dispatch → token-stream pipe is **one path**.
 //!
 //! # Surfaces
@@ -23,7 +23,7 @@
 //! # Token pipe, backpressure, eos vs abort
 //!
 //! Each in-flight turn owns a **bounded** [`mpsc`] pipe keyed by its
-//! [`ReqId`](pie_ids::ReqId). [`feed`](Sessions::feed) forwards a
+//! [`ReqId`](ids::ReqId). [`feed`](Sessions::feed) forwards a
 //! [`Tokens`] chunk into it and **awaits on a full pipe** — that await is the
 //! backpressure point: a slow consumer stalls `push_tokens`, which stalls the
 //! worker's push pump, which backpressures generation (design §6). The consumer
@@ -54,9 +54,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use pie_client_api::ClientMessage;
-use pie_ids::{ReqId, SessionId, TenantId, WorkerId};
-use pie_worker_rpc::{BlobRef, Priority, Request, Tokens};
+use client_api::ClientMessage;
+use ids::{ReqId, SessionId, TenantId, WorkerId};
+use worker_api::{BlobRef, Priority, Request, Tokens};
 use tokio::sync::{mpsc, watch};
 
 /// Default bounded token-pipe capacity (chunks). The pipe is the per-turn
@@ -87,7 +87,7 @@ pub struct Identity {
 /// The user-turn content ingress hands to [`Sessions::create`] /
 /// [`SessionHandle::turn`]. Gateway-internal (never crosses the gateway↔worker
 /// wire — only the assembled [`Request`] does), so it lives here, not on the
-/// `pie_worker_rpc` floor. `session.rs` stamps `{req_id, session, tenant}`
+/// `worker_api` floor. `session.rs` stamps `{req_id, session, tenant}`
 /// onto the `Request`; ingress never mints those.
 #[derive(Debug, Clone)]
 pub struct TurnInput {
@@ -384,13 +384,13 @@ impl Sessions {
     /// Worker → gateway token push (`GatewayInbound::push_tokens`): route a chunk
     /// to its turn's bounded pipe and answer with the [`Control`] for the worker.
     ///
-    /// [`Control`](pie_worker_rpc::Control)`::Continue` while the pipe
+    /// [`Control`](worker_api::Control)`::Continue` while the pipe
     /// accepts; `Abort` when the turn is gone or the consumer dropped. The send
     /// **awaits on a full pipe** — the backpressure point. A forwarded
     /// [`Tokens::Eos`] cleanly ends the turn (the pipe closes after the consumer
     /// observes it).
-    pub async fn feed(&self, req_id: ReqId, chunk: Tokens) -> pie_worker_rpc::Control {
-        use pie_worker_rpc::Control;
+    pub async fn feed(&self, req_id: ReqId, chunk: Tokens) -> worker_api::Control {
+        use worker_api::Control;
 
         let sink = {
             let turns = self.inner.turns.lock().unwrap();
@@ -604,8 +604,8 @@ fn spawn_drop_watcher(inner: Arc<Inner>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pie_client_api::ServerMessage;
-    use pie_worker_rpc::Control;
+    use client_api::ServerMessage;
+    use worker_api::Control;
 
     /// Mock [`TurnRouter`]: admission/dispatch outcomes are scriptable, dispatched
     /// `ReqId`s and cancels are recorded, and the connected set is controllable.

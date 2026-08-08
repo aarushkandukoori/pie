@@ -9,7 +9,7 @@ use crate::inferlet::host::pie;
 use anyhow::Result;
 use crate::model;
 
-/// `pie_model` still hands token tables back as two parallel vectors; the WIT
+/// `model` still hands token tables back as two parallel vectors; the WIT
 /// surface names the pairing instead.
 fn token_table((ids, bytes): (Vec<u32>, Vec<Vec<u8>>)) -> Vec<pie::inferlet::tokenizer::Token> {
     ids.into_iter()

@@ -51,7 +51,7 @@ fn ptir_header_uptodate() {
 ///
 /// So the discipline needs its own gate: a driver header that spells a port,
 /// stage or intrinsic tag as a bare
-/// integer literal has forked from `pie_ir::registry` and nothing else will say so.
+/// integer literal has forked from `tensor_ir::registry` and nothing else will say so.
 #[test]
 fn drivers_do_not_retype_generated_tags() {
     let root = repo_root();

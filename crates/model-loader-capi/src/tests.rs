@@ -9,8 +9,8 @@
 use super::arena::{self, view};
 use super::entry::{PieLoaderDiagnostics, PieLoaderStatus};
 use super::types::*;
-use pie_loader::plan::*;
-use pie_loader::types::*;
+use model_loader::plan::*;
+use model_loader::types::*;
 
 /// Bind an instruction's operands, asserting the operation it is.
 ///
@@ -335,7 +335,7 @@ fn the_plan_declares_the_files_its_offsets_are_relative_to() {
 /// round-trip stays in scope exactly as it was when a C entry point did this.
 fn verify_diagnostics(plan: &LoadPlan) -> String {
     let contract = minimal_contract();
-    let contract_view = pie_loader::verify::ContractView::of(&contract);
+    let contract_view = model_loader::verify::ContractView::of(&contract);
     match crate::view::verify_marshalled(plan, Some(&contract_view)) {
         Ok(_) => String::new(),
         Err(violations) => violations
@@ -694,7 +694,7 @@ fn nested_slices_survive_arena_growth() {
 #[test]
 fn quant_scheme_discriminants_are_stable() {
     // The generated header is the only definition of these values, so a
-    // reordering of `pie_loader::types::QuantScheme` must not silently renumber the
+    // reordering of `model_loader::types::QuantScheme` must not silently renumber the
     // wire format. Pinning the two that differ from the enum this replaces is
     // enough to catch a reorder.
     assert_eq!(
@@ -776,9 +776,9 @@ fn every_declared_enum_value_is_accepted_by_its_checked_conversion() {
 /// marshalling is in scope even though no C entry point remains to drive.
 fn verify_against(
     plan: &LoadPlan,
-    contract: &pie_loader::contract::ModelContract,
+    contract: &model_loader::contract::ModelContract,
 ) -> (bool, String) {
-    let contract_view = pie_loader::verify::ContractView::of(contract);
+    let contract_view = model_loader::verify::ContractView::of(contract);
     match crate::view::verify_marshalled(plan, Some(&contract_view)) {
         Ok(_) => (true, String::new()),
         Err(violations) => (
@@ -796,9 +796,9 @@ fn verify_against(
 /// the last C++ author — and hand the plan to `body`.
 fn with_fixture_plan(body: impl FnOnce(&LoadPlan)) {
     let dir = contract_fixture();
-    let metadata = pie_loader::checkpoint::read::parse_checkpoint_metadata(&dir)
+    let metadata = model_loader::checkpoint::read::parse_checkpoint_metadata(&dir)
         .expect("the fixture checkpoint parses");
-    let plan = pie_loader::plan::compile(&metadata, &fused_contract(), target())
+    let plan = model_loader::plan::compile(&metadata, &fused_contract(), target())
         .expect("the fixture contract compiles");
     body(&plan);
 }
@@ -815,7 +815,7 @@ fn the_contract_a_plan_was_compiled_from_verifies_against_it() {
 
 #[test]
 fn a_contract_naming_a_tensor_the_plan_does_not_deliver_is_a_violation() {
-    use pie_loader::contract::{Expr, TensorContract};
+    use model_loader::contract::{Expr, TensorContract};
     with_fixture_plan(|plan| {
         let mut other = fused_contract();
         other.tensors.push(TensorContract::new(
@@ -878,7 +878,7 @@ fn a_declared_encoding_that_disagrees_with_the_plan_is_a_violation() {
 /// agree, and nothing else forces them to.
 #[test]
 fn dtype_survives_the_c_boundary() {
-    use pie_loader::types::DType;
+    use model_loader::types::DType;
     for dtype in [
         DType::F32,
         DType::F16,
@@ -902,7 +902,7 @@ fn dtype_survives_the_c_boundary() {
 
 #[test]
 fn quant_scheme_survives_the_c_boundary() {
-    use pie_loader::types::QuantScheme;
+    use model_loader::types::QuantScheme;
     for scheme in [
         QuantScheme::None,
         QuantScheme::Fp8E4M3,
@@ -942,7 +942,7 @@ fn quant_scheme_survives_the_c_boundary() {
 fn contract_fixture() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("pie_loader_contract_{}", std::process::id()));
     // Two BF16 [2, 4] tensors, 16 bytes each, laid out back to back.
-    pie_loader::testkit::write_safetensors_fixture(
+    model_loader::testkit::write_safetensors_fixture(
         &dir,
         &[
             ("a.weight".to_string(), vec![2, 4]),
@@ -986,8 +986,8 @@ fn drain(diags: *mut PieLoaderDiagnostics) -> String {
 /// A contract may not be empty — one that declared nothing would compile to a
 /// plan that loads nothing — so "state as little as possible" is one tensor
 /// with its shape left unstated.
-fn minimal_contract() -> pie_loader::contract::ModelContract {
-    use pie_loader::contract::{Expr, ModelContract, TensorContract};
+fn minimal_contract() -> model_loader::contract::ModelContract {
+    use model_loader::contract::{Expr, ModelContract, TensorContract};
     ModelContract {
         alignment: 256,
         tensors: vec![TensorContract::inferred(
@@ -1000,8 +1000,8 @@ fn minimal_contract() -> pie_loader::contract::ModelContract {
 }
 
 /// A contract that fuses the fixture's two tensors along axis 0.
-fn fused_contract() -> pie_loader::contract::ModelContract {
-    use pie_loader::contract::{Expr, ModelContract, TensorContract};
+fn fused_contract() -> model_loader::contract::ModelContract {
+    use model_loader::contract::{Expr, ModelContract, TensorContract};
     ModelContract {
         alignment: 256,
         tensors: vec![TensorContract::new(

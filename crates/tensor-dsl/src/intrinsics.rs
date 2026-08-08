@@ -1,12 +1,12 @@
 //! `intrinsics::*` — first-party stage-scoped values + model constants.
 //! Model constants are functions (a runtime value can't be a bare path in
 //! Rust; deviation approved). Stage-scoped values emit the IR's
-//! [`Op::IntrinsicVal`](pie_ir::op::Op::IntrinsicVal) with the
+//! [`Op::IntrinsicVal`](tensor_ir::op::Op::IntrinsicVal) with the
 //! trace-known shape/dtype the registry checks. `intrinsics::kernel::*` second-
 //! party surface: a minimal `attn_page_mask` sink now; full rollout deferred.
 
-use pie_ir::op::IntrinsicId;
-use pie_ir::types::{DType, Shape};
+use tensor_ir::op::IntrinsicId;
+use tensor_ir::types::{DType, Shape};
 
 use crate::context::current_rows;
 use crate::model;
@@ -60,7 +60,7 @@ pub fn mtp_logits(k: u32) -> Tensor {
 /// `[n_out, width]`.
 ///
 /// `width` is a parameter because the hidden size is not in
-/// [`ModelProfile`](pie_ir::registry::ModelProfile) and the SDK cannot derive
+/// [`ModelProfile`](tensor_ir::registry::ModelProfile) and the SDK cannot derive
 /// it. `bind` deliberately checks only the rank and row count for this
 /// intrinsic, so a wrong width is not refused — it is carried into the plan's
 /// extents. Pass the model's hidden size; it is the same kind of declared
@@ -148,9 +148,9 @@ pub mod kernel {
     use crate::value::{AsTensor, Tensor};
     use alloc::string::String;
     use alloc::vec;
-    use pie_ir::op::{IntrinsicId, Op};
-    use pie_ir::registry::SinkScope;
-    use pie_ir::types::{DType, Shape, ValueType};
+    use tensor_ir::op::{IntrinsicId, Op};
+    use tensor_ir::registry::SinkScope;
+    use tensor_ir::types::{DType, Shape, ValueType};
 
     /// `envelope_dot(p_max)` — Quest page criticality for THIS layer, `[p_max]`
     /// F32 (Tang et al., arXiv:2406.10774). Model-gated on the backend's

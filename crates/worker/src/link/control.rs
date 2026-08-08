@@ -1,9 +1,9 @@
 //! Worker control-plane **seam**: the [`ControlLink`] trait the worker's
 //! register + heartbeat/report/watch loops run against, plus the distributed
-//! [`pie_controller_rpc::ControlClient`] implementation.
+//! [`controller_api::ControlClient`] implementation.
 //!
-//! The seam is what keeps `pie-worker` depending only on the *contract*
-//! (`pie-controller-rpc`) and never on the controller *implementation* (`pie-controller`):
+//! The seam is what keeps `worker` depending only on the *contract*
+//! (`controller-api`) and never on the controller *implementation* (`controller`):
 //!
 //! - **distributed** (always linked): [`ControlLink`] for [`ControlClient`]
 //!   dials the standalone controller over tarpc; [`neighbors_watch`] spawns the
@@ -22,8 +22,8 @@ use std::future::Future;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use pie_controller_rpc::{Ack, ControlClient, Neighbors, WorkerInfo, WorkerStatus};
-use pie_ids::{NodeId, WorkerId};
+use controller_api::{Ack, ControlClient, Neighbors, WorkerInfo, WorkerStatus};
+use ids::{NodeId, WorkerId};
 use tarpc::serde_transport::{tcp, unix};
 use tarpc::tokio_serde::formats::Bincode;
 use tokio::sync::watch;
@@ -60,7 +60,7 @@ fn restart_after_lost_registration(kind: &str) -> ! {
 /// The control-plane operations the worker's loops need, abstracted over the
 /// transport (distributed tarpc client vs in-proc controller handle).
 ///
-/// Mirrors the relevant `pie_controller_rpc::Control` calls minus the tarpc context.
+/// Mirrors the relevant `controller_api::Control` calls minus the tarpc context.
 /// `Clone` so each of the three loops can hold its own cheap copy.
 pub trait ControlLink: Clone + Send + Sync + 'static {
     /// Register this worker; returns its controller-minted [`WorkerId`].
@@ -223,8 +223,8 @@ pub fn spawn_control_tasks<C: ControlLink>(
         loop {
             ticker.tick().await;
             let status = WorkerStatus {
-                kv_pressure_bucket: pie_engine::store::kv_pressure_bucket(),
-                inflight: pie_engine::inferlet::process::list()
+                kv_pressure_bucket: ::engine::store::kv_pressure_bucket(),
+                inflight: ::engine::inferlet::process::list()
                     .len()
                     .min(u32::MAX as usize) as u32,
             };

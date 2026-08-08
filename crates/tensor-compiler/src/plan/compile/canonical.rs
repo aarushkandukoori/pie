@@ -13,9 +13,9 @@
 
 use alloc::vec::Vec;
 
-use pie_ir::container::{encode_op, put_u16, put_u32};
-use pie_ir::op::Op;
-use pie_ir::types::Shape;
+use tensor_ir::container::{encode_op, put_u16, put_u32};
+use tensor_ir::op::Op;
+use tensor_ir::types::Shape;
 
 use super::symbolic::{Dimension, SymbolicType};
 
@@ -68,7 +68,7 @@ fn canonical_symbolic_shape(bytes: &mut Vec<u8>, value_type: &SymbolicType) {
 /// op encoding ([`encode_op`]) rather than growing a second spelling of it.
 pub(crate) fn canonical_op(bytes: &mut Vec<u8>, op: &Op, result_type: Option<&SymbolicType>) {
     // Invariant: every arm below that calls this is a shape-bearing op, and a
-    // shape-bearing op defines exactly one value — `pie_ir::op`'s table says
+    // shape-bearing op defines exactly one value — `tensor_ir::op`'s table says
     // so via `results`, and `validate::bind` checks each op's result count
     // against it. Falling back to a default shape instead would hash two
     // differently-shaped stages to the same signature and hand one stage the

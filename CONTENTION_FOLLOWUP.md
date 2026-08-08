@@ -3018,7 +3018,7 @@ when someone wants to take it.
 ### Verification
 
 - contention suite 16/16 at k=1, k=2 (default) and k=3
-- `cargo test -p pie-engine --test inferlet_canary`: 2 passed, 3 ignored
+- `cargo test -p engine --test inferlet_canary`: 2 passed, 3 ignored
 - all 29 inferlets build for `wasm32-wasip2`
 
 ### Also fixed: embedded engine boot was broken on dev
@@ -3412,7 +3412,7 @@ stash-and-rebuild A/B settled it. Also, the first bench run after the
 contention suite read 28386 at conc 512 and was a pure outlier (next three:
 30267 / 29798 / 30190).
 
-VERIFIED: contention suite 16/16; `cargo test -p pie-eval` 17 passed;
+VERIFIED: contention suite 16/16; `cargo test -p tensor-compiler` 17 passed;
 inferlet_canary 2 passed / 3 ignored; conc 256 28494 / 28522 / 28578 and
 conc 128 22575, both inside the drifted baseline band.
 

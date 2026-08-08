@@ -363,7 +363,7 @@ pub fn init_admission(max_concurrent: Option<usize>) {
     // The staged half opens only once the FIRST cohort is fully seated. A
     // pool that is 2n wide from t=0 lets the successor cohort run its
     // working-set reservation and prefill construction alongside the very
-    // cohort it is staged behind, and at startup that is the only work on
+    // cohort it is staged behind, and at bootstrap that is the only work on
     // the critical path: measured at conc 512, cohort 0's bind ->
     // execution-admit step took 155 ms (p50) against 1536 concurrent guest
     // prologues, and the opening wave cannot dispatch until the LAST of the

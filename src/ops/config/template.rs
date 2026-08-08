@@ -9,7 +9,7 @@
 //! present only because three role libs each parsed their own), no `worker.`
 //! prefixing all 44 keys, and no `[model.driver.options]` four levels down.
 
-use pie_worker::driver_ffi::{self, Flavor};
+use worker::driver_ffi::{self, Flavor};
 
 /// Render the default `config.toml`.
 pub fn default_config_content() -> String {
@@ -21,7 +21,7 @@ pub fn default_config_content() -> String {
         Some(Flavor::Metal) => METAL_DRIVER_BLOCK,
         Some(Flavor::Dummy) => DUMMY_DRIVER_BLOCK,
         // Fallback for exhaustiveness: `default_flavor` always returns `Some`
-        // (dummy is linked unconditionally), and `pie-worker` may compile
+        // (dummy is linked unconditionally), and `worker` may compile
         // `Flavor::Cuda`/`Metal` while this crate's matching `driver-*` arm is
         // cfg'd off (workspace feature-unification can desync the two) — those
         // land here → the dummy block.
@@ -167,7 +167,7 @@ mod tests {
         // The template is the first config almost anyone has, so one that does
         // not parse is the worst possible first impression.
         let content = default_config_content();
-        pie_worker::Config::parse(&content).expect("generated config must parse");
+        worker::Config::parse(&content).expect("generated config must parse");
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::driver::command::{
 use crate::driver::completion::{CompletionBroker, SubmissionCompletion};
 use crate::driver::instance::{BoundInstance, InstanceBindingPlan};
 use crate::driver::submission::FrameSubmission;
-use pie_driver_abi::{
+use driver_abi::{
     PieBytes, PieChannelEndpointBinding, PieDriver, PieDriverCaps, PieDriverCreateDesc,
     PieModelLoadDesc, pie_cuda_bind_instance, pie_cuda_close_channel, pie_cuda_close_instance,
     pie_cuda_copy_kv, pie_cuda_copy_state, pie_cuda_create, pie_cuda_destroy, pie_cuda_encode,
@@ -24,15 +24,15 @@ use pie_driver_abi::{
 struct CudaDriverHandle {
     driver: *mut PieDriver,
     broker: CompletionBroker,
-    device_facts: pie_driver_abi::DeviceFacts,
-    kv_handle: Option<pie_driver_abi::KvHandle>,
+    device_facts: driver_abi::DeviceFacts,
+    kv_handle: Option<driver_abi::KvHandle>,
 }
 
 impl CudaDriverHandle {
     fn create(config_bytes: &[u8]) -> Result<Self> {
         let broker = CompletionBroker::new();
         let desc = PieDriverCreateDesc {
-            abi_version: pie_driver_abi::PIE_DRIVER_ABI_VERSION,
+            abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
             reserved0: 0,
             config_bytes: PieBytes {
                 ptr: config_bytes.as_ptr(),
@@ -45,7 +45,7 @@ impl CudaDriverHandle {
         if driver.is_null() {
             return Err(anyhow!("pie_cuda_create returned null"));
         }
-        let device_facts: pie_driver_abi::DeviceFacts = match parse_json(caps, "device facts") {
+        let device_facts: driver_abi::DeviceFacts = match parse_json(caps, "device facts") {
             Ok(device_facts) => device_facts,
             Err(error) => {
                 unsafe { pie_cuda_destroy(driver) };
@@ -60,20 +60,20 @@ impl CudaDriverHandle {
         })
     }
 
-    fn device_facts(&self) -> &pie_driver_abi::DeviceFacts {
+    fn device_facts(&self) -> &driver_abi::DeviceFacts {
         &self.device_facts
     }
 
     fn load_model(
         &mut self,
-        desc: &pie_driver_abi::ModelLoadDesc,
-    ) -> Result<pie_driver_abi::DriverCapabilities> {
+        desc: &driver_abi::ModelLoadDesc,
+    ) -> Result<driver_abi::DriverCapabilities> {
         let snapshot = desc
             .snapshot_dir
             .to_str()
             .ok_or_else(|| anyhow!("model snapshot path must be UTF-8"))?;
         let raw = PieModelLoadDesc {
-            abi_version: pie_driver_abi::PIE_DRIVER_ABI_VERSION,
+            abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
             component: desc.component as u32,
             mxfp4_moe: desc.mxfp4_moe as u32,
             runtime_quant: PieBytes {
@@ -90,7 +90,7 @@ impl CudaDriverHandle {
             unsafe { pie_cuda_load_model(self.driver, &raw, &mut caps) },
             "pie_cuda_load_model",
         )?;
-        let capabilities: pie_driver_abi::DriverCapabilities =
+        let capabilities: driver_abi::DriverCapabilities =
             parse_json(caps, "model capabilities")?;
         self.kv_handle = capabilities.kv_handle.clone();
         Ok(capabilities)
@@ -113,7 +113,7 @@ impl CudaDriverHandle {
             unsafe { pie_cuda_register_channel(self.driver, borrowed.as_raw(), &mut binding) },
             "pie_cuda_register_channel",
         )?;
-        pie_driver_abi::validate_channel_endpoint_binding(&binding, borrowed.as_raw())
+        driver_abi::validate_channel_endpoint_binding(&binding, borrowed.as_raw())
             .map_err(|error| anyhow!(error))?;
         Ok(RegisteredChannel {
             driver_id: plan.driver_id,
@@ -125,7 +125,7 @@ impl CudaDriverHandle {
 
     fn bind_instance(&mut self, plan: &InstanceBindingPlan) -> Result<BoundInstance> {
         let borrowed = InstanceDescBorrow::new(plan);
-        let mut binding = pie_driver_abi::PieInstanceBinding::default();
+        let mut binding = driver_abi::PieInstanceBinding::default();
         sync_status(
             unsafe { pie_cuda_bind_instance(self.driver, borrowed.as_raw(), &mut binding) },
             "pie_cuda_bind_instance",
@@ -148,8 +148,8 @@ impl CudaDriverHandle {
         let borrowed = FrameDescBorrow::from_submission(frame);
         let status = unsafe { pie_cuda_launch(self.driver, borrowed.as_raw(), raw) };
         match status {
-            pie_driver_abi::PIE_STATUS_EXHAUSTED => Ok(FrameLaunchOutcome::Exhausted),
-            pie_driver_abi::PIE_STATUS_IMPOSSIBLE => Ok(FrameLaunchOutcome::Impossible),
+            driver_abi::PIE_STATUS_EXHAUSTED => Ok(FrameLaunchOutcome::Exhausted),
+            driver_abi::PIE_STATUS_IMPOSSIBLE => Ok(FrameLaunchOutcome::Impossible),
             status => {
                 sync_status(status, "pie_cuda_launch")?;
                 Ok(FrameLaunchOutcome::Launched(completion))
@@ -214,7 +214,7 @@ impl CudaDriverHandle {
         )
     }
 
-    fn export_kv_handle(&self) -> Option<pie_driver_abi::KvHandle> {
+    fn export_kv_handle(&self) -> Option<driver_abi::KvHandle> {
         self.kv_handle.clone()
     }
 }
@@ -237,7 +237,7 @@ pub struct CudaDriver {
 }
 
 impl CudaDriver {
-    pub fn create(config_bytes: &[u8]) -> Result<(Self, pie_driver_abi::DeviceFacts)> {
+    pub fn create(config_bytes: &[u8]) -> Result<(Self, driver_abi::DeviceFacts)> {
         let (driver, mut facts) = Self::create_group(vec![config_bytes.to_vec()])?;
         let facts = facts
             .pop()
@@ -247,7 +247,7 @@ impl CudaDriver {
 
     pub fn create_group(
         config_blobs: Vec<Vec<u8>>,
-    ) -> Result<(Self, Vec<pie_driver_abi::DeviceFacts>)> {
+    ) -> Result<(Self, Vec<driver_abi::DeviceFacts>)> {
         if config_blobs.is_empty() {
             return Err(anyhow!("cuda group requires at least one rank config"));
         }
@@ -302,7 +302,7 @@ impl CudaDriver {
         Err(anyhow!("CUDA local driver is not available in this build"))
     }
 
-    pub fn device_facts(&self) -> Vec<pie_driver_abi::DeviceFacts> {
+    pub fn device_facts(&self) -> Vec<driver_abi::DeviceFacts> {
         std::iter::once(self.leader.device_facts().clone())
             .chain(
                 self.followers
@@ -314,8 +314,8 @@ impl CudaDriver {
 
     pub fn load_model(
         &mut self,
-        descs: Vec<pie_driver_abi::ModelLoadDesc>,
-    ) -> Result<pie_driver_abi::DriverCapabilities> {
+        descs: Vec<driver_abi::ModelLoadDesc>,
+    ) -> Result<driver_abi::DriverCapabilities> {
         if descs.len() != self.followers.len() + 1 {
             return Err(anyhow!(
                 "cuda model-load descriptor count {} does not match rank count {}",
@@ -406,7 +406,7 @@ impl CudaDriver {
         self.leader.close_channel(channel_id)
     }
 
-    pub fn export_kv_handle(&self) -> Option<pie_driver_abi::KvHandle> {
+    pub fn export_kv_handle(&self) -> Option<driver_abi::KvHandle> {
         self.followers
             .is_empty()
             .then(|| self.leader.export_kv_handle())
