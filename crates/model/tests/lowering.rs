@@ -943,3 +943,25 @@ fn the_nemotron_h_decode_text_lowers() {
     );
     assert_eq!(out.coverage(), 1.0);
 }
+
+/// gemma3n's CUDA decode text lowers with nothing left over — the sixth
+/// and last of the families that existed only as C++.
+///
+/// It is also the text that needed two primitives nothing else did:
+/// `select` for the window AltUp's body reads, and `in_place` for the
+/// per-layer embedding's K-1 adds landing back in the windows they read.
+#[test]
+fn the_gemma3n_decode_text_lowers() {
+    use model::gemma3n::forward::facts::Gemma3nFacts;
+    let facts = Gemma3nFacts::gemma3n_synthetic();
+    let plan = model::gemma3n::forward::gemma3n_cuda(&facts, FireClass::Decode);
+    let out = lower(&plan, &sampled(1), Fire::default())
+        .unwrap_or_else(|e| panic!("gemma3n's decode text must lower: {e:?}"));
+    assert!(
+        out.residue.is_empty(),
+        "{} statement(s) still owe a declaration: {:#?}",
+        out.residue.len(),
+        out.residue
+    );
+    assert_eq!(out.coverage(), 1.0);
+}
