@@ -826,3 +826,25 @@ fn dump_gpt_oss_cuda_kernels() {
         }
     }
 }
+
+/// glm5's CUDA decode text lowers with nothing left over.
+///
+/// The gate every declaration is measured against: residue empty means
+/// the flat list IS the whole of what the fire executes, and only then
+/// could a driver stop walking. glm5 has no declared executor yet, so
+/// this is the check that the TEXT is finished — the executor is the
+/// next question, not this one.
+#[test]
+fn the_glm5_decode_text_lowers() {
+    let facts = model::glm5::forward::facts::Glm5Facts::glm5_106b_a12b();
+    let plan = model::glm5::forward::glm5_cuda(&facts, FireClass::Decode);
+    let out = lower(&plan, &sampled(1), Fire::default())
+        .unwrap_or_else(|e| panic!("glm5's decode text must lower: {e:?}"));
+    assert!(
+        out.residue.is_empty(),
+        "{} glm5 statement(s) still owe a declaration: {:#?}",
+        out.residue.len(),
+        out.residue
+    );
+    assert_eq!(out.coverage(), 1.0);
+}
