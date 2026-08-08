@@ -1854,6 +1854,44 @@ pub mod cuda {
         .expect("the gemm produces its value")
     }
 
+    /// `ops::gemm_act_x_wt_bf16`: the plain `x · Wᵀ`.
+    ///
+    /// Stated because families FIRE it — glm5's projections, nemotron_h's,
+    /// qwen3_5's router. It went missing from the table for as long as it
+    /// did because it is an `inline void` forwarder in `ops/gemm.hpp`, and
+    /// the audit's launcher regex required the return type to start the
+    /// line; the fix to that regex is what surfaced this.
+    ///
+    /// Distinct from the ordinary `Matmul` op: this is the CUDA reading
+    /// for a projection whose weight the family names directly rather
+    /// than through the `layer.{l}.{field}` binding — the DSA indexer's,
+    /// for one.
+    pub fn gemm_xwt(act: &Val, w: &str, n: u32) -> Val {
+        record(
+            &act.t, act.layer, "gemm_act_x_wt_bf16",
+            vec![w.to_string()], None, vec![act.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(n)]), DType::BF16)),
+        )
+        .expect("the gemm produces its value")
+    }
+
+    /// `ops::gemm_batched_act_x_wt_bf16`: one GEMM per pointer-array entry.
+    ///
+    /// `whole` for the same reason `gemm_grouped` is, and then some: the
+    /// batch is addressed through DEVICE pointer arrays built for the
+    /// whole fire (`launch_build_moe_ptrs_aligned_bf16` fills them), so a
+    /// row window would leave every pointer aimed at a row the window does
+    /// not own. This is the MoE aligned leg's projection on a deployment
+    /// whose shape the grouped kernel refuses.
+    pub fn gemm_batched_xwt(act: &Val, w: &str, n: u32) -> Val {
+        record(
+            &act.t, act.layer, "gemm_batched_act_x_wt_bf16",
+            vec![w.to_string()], None, vec![act.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(n)]), DType::BF16)),
+        )
+        .expect("the gemm produces its value")
+    }
+
     /// `ops::gemm_grouped_act_x_wt_bf16`: one GEMM per group, batched.
     ///
     /// `whole`: the group boundaries (`M_array`) are fire-global, so a row

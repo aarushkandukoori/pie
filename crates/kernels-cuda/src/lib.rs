@@ -101,6 +101,15 @@ pub static KERNELS: &[KernelSig] = &[
     // The other mamba scan: nemotron_h takes FlashInfer's SSU on sm90+ and
     // its own batched kernel elsewhere.
     kernel!(flashinfer_mamba_ssu "flashinfer_mamba_ssu_bf16", whole = true),
+    // The plain x·Wᵀ, which every family fires and which the table had
+    // never carried -- invisible to the audit until its launcher regex
+    // stopped requiring the return type to start the line (`inline void`).
+    kernel!(gemm_xwt "gemm_act_x_wt_bf16"),
+    // Its batched twin: one GEMM per pointer-array entry. `whole` for the
+    // same reason `gemm_grouped` is -- the batch is addressed through
+    // device pointer arrays built for the WHOLE fire, so a row window
+    // would leave them pointing at rows the window does not own.
+    kernel!(gemm_batched_xwt "gemm_batched_act_x_wt_bf16", whole = true),
     kernel!(gemm_cublas "gemm_act_x_wt_bf16_cublas"),
     kernel!(gemm_out_fp32 "gemm_act_x_wt_bf16_out_fp32"),
     // The group boundaries (`M_array`) are fire-global, so a row window would

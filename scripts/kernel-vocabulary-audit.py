@@ -30,7 +30,14 @@ def params(text, open_at):
 launchers = {}
 for h in HDRS:
     src = h.read_text(errors="ignore")
-    for m in re.finditer(r'^\s*(?:void|bool|int)\s+(\w+)\s*\(', src, re.M):
+    # `inline` and `static` are not decoration here: `ops/gemm.hpp` defines
+    # `gemm_batched_act_x_wt_bf16` as an inline forwarder, and requiring the
+    # return type to start the line made every such launcher INVISIBLE to
+    # this audit -- which then reported families as fully declared while
+    # they fired symbols the table had never heard of.
+    for m in re.finditer(
+        r'^\s*(?:inline\s+|static\s+)*(?:void|bool|int)\s+(\w+)\s*\(', src, re.M
+    ):
         p = params(src, m.end() - 1)
         # A launcher issues DEVICE work, and there are two ways to do that
         # here: a raw launch takes a `cudaStream_t`, a cuBLAS-backed one
