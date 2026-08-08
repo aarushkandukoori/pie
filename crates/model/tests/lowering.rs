@@ -921,3 +921,25 @@ fn the_deepseek_v4_decode_text_lowers() {
     );
     assert_eq!(out.coverage(), 1.0);
 }
+
+/// nemotron_h's CUDA decode text lowers with nothing left over.
+///
+/// The fixture's own test asserts all THREE layer kinds are present, so
+/// this covers the mamba scan, the attention mixer and the mixer-less MLP
+/// layer in one plan — which is the only way to be sure a list-shaped
+/// schedule was read as a list.
+#[test]
+fn the_nemotron_h_decode_text_lowers() {
+    use model::nemotron_h::forward::facts::NemotronHFacts;
+    let facts = NemotronHFacts::nemotron_h_synthetic();
+    let plan = model::nemotron_h::forward::nemotron_h_cuda(&facts, FireClass::Decode);
+    let out = lower(&plan, &sampled(1), Fire::default())
+        .unwrap_or_else(|e| panic!("nemotron_h's decode text must lower: {e:?}"));
+    assert!(
+        out.residue.is_empty(),
+        "{} statement(s) still owe a declaration: {:#?}",
+        out.residue.len(),
+        out.residue
+    );
+    assert_eq!(out.coverage(), 1.0);
+}
