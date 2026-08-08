@@ -47,6 +47,7 @@ pub struct PlanArena {
     shadow_names: Vec<PieForwardName>,
     shadow_name_bytes: Vec<u8>,
     shadow_structural: Vec<super::types::PieForwardSite>,
+    shadow_args: Vec<super::types::PieForwardArg>,
 }
 
 /// Interns strings into the arena's name table during a build.
@@ -477,6 +478,7 @@ pub fn build(plan: &ForwardPlan) -> PieForwardPlan {
         shadow_names: Vec::new(),
         shadow_name_bytes: Vec::new(),
         shadow_structural: Vec::new(),
+        shadow_args: Vec::new(),
     };
     let mut interner = Interner::default();
 
@@ -622,6 +624,7 @@ pub fn lower(
         Err(why) => {
             arena.shadow = None;
             arena.shadow_wire.clear();
+            arena.shadow_args.clear();
             arena.shadow_names.clear();
             arena.shadow_name_bytes.clear();
             arena.shadow_structural.clear();
@@ -644,10 +647,47 @@ pub fn lower(
     };
 
     arena.shadow_wire.clear();
+    arena.shadow_args.clear();
     arena.shadow_wire.reserve(lowered.launches.len());
+    // The operands, in the same order the lowering emitted them. A
+    // weight crosses as an index into the PLAN's name table — the
+    // lowering's own table holds launcher symbols, and confusing the two
+    // would hand the driver a kernel name where a tensor belongs.
+    {
+        use super::types::{PieForwardArg, PieForwardArgKind};
+        use model_compiler::lower::Arg;
+        arena.shadow_args.reserve(lowered.args.len());
+        let slots: Vec<PieForwardArg> = lowered
+            .args
+            .iter()
+            .map(|a| {
+                let (kind, value) = match a {
+                    Arg::Arena(at) => (PieForwardArgKind::Arena, *at as u32),
+                    Arg::Named(v) => (PieForwardArgKind::Named, *v),
+                    Arg::Weight(want) => {
+                        let idx = arena
+                            .names
+                            .iter()
+                            .position(|n| {
+                                let s = &arena.name_bytes
+                                    [n.offset as usize..(n.offset + n.len) as usize];
+                                std::str::from_utf8(s).is_ok_and(|s| s == want)
+                            })
+                            .map(|i| i as u32)
+                            .unwrap_or(PIE_FORWARD_NO_NAME);
+                        (PieForwardArgKind::Weight, idx)
+                    }
+                };
+                PieForwardArg { kind, value }
+            })
+            .collect();
+        arena.shadow_args.extend(slots);
+    }
     for launch in &lowered.launches {
         arena.shadow_wire.push(PieForwardLaunch {
             at_op: launch.op,
+            arg_lo: launch.args.start,
+            arg_hi: launch.args.end,
             kernel_name: launch.kernel as u32,
             row_lo: launch.rows.start,
             row_hi: launch.rows.end,
@@ -696,6 +736,8 @@ pub fn lower(
             ptr: arena.shadow_name_bytes.as_ptr(),
             len: arena.shadow_name_bytes.len(),
         },
+        args: arena.shadow_args.as_ptr(),
+        args_len: arena.shadow_args.len(),
         structural: arena.shadow_structural.as_ptr(),
         structural_len: arena.shadow_structural.len(),
         arena_bytes: lowered.arena_bytes,

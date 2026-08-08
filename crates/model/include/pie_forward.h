@@ -174,6 +174,20 @@ enum class PieForwardOpKind : uint32_t {
   Select = 28,
 };
 
+/// What an operand slot names, as a wire tag.
+///
+/// Appended-only, like every other wire enum here.
+enum class PieForwardArgKind : uint32_t {
+  /// An activation: `value` is a BYTE OFFSET into the frame's arena.
+  Arena = 0,
+  /// A value the backend binds by name: `value` is its value id.
+  Named = 1,
+  /// A weight: `value` indexes the PLAN's name table, which is where
+  /// weight names live (the lowering's own table holds launcher
+  /// symbols, and the two must not be confused).
+  Weight = 2,
+};
+
 /// What [`model_compiler::lower::Uncovered`] crosses as: zero is a lowering, and
 /// every other value is a group that should not have been formed.
 enum class PieForwardUncovered : uint32_t {
@@ -764,8 +778,16 @@ struct PieForwardRow {
 /// `Dim::Requests` for the epilogue (see [`model_compiler::lower::Launch`]).
 struct PieForwardLaunch {
   /// The statement this rectangle came from — an index into the plan's
-  /// ops, and what a shadow comparison keys on.
+  /// ops, and what a shadow comparison keys on. NOT where the driver
+  /// finds operands: that is `arg_lo`/`arg_hi`, and the two were one
+  /// field until the operands existed.
   uint32_t at_op;
+  /// This launch's operands, as a half-open run of
+  /// [`PieForwardLowered::args`]. A driver that reads these needs
+  /// nothing else about the op — which is what lets ONE driver serve
+  /// every family.
+  uint32_t arg_lo;
+  uint32_t arg_hi;
   uint32_t kernel_name;
   uint32_t row_lo;
   uint32_t row_hi;
@@ -784,6 +806,13 @@ struct PieForwardLaunch {
   /// is not a pair of numbers.
   uint8_t rows_device;
   uint8_t _pad;
+};
+
+/// One operand a launch binds. Two words, because that is all an
+/// operand is once the lowering has resolved it.
+struct PieForwardArg {
+  PieForwardArgKind kind;
+  uint32_t value;
 };
 
 /// One STRUCTURAL statement: where it sits, and the rows it brackets.
@@ -810,6 +839,10 @@ struct PieForwardLowered {
   const PieForwardName *kernel_names;
   size_t kernel_names_len;
   PieForwardBytes kernel_name_bytes;
+  /// Every launch's operands, concatenated; `PieForwardLaunch::arg_lo`
+  /// and `arg_hi` index it.
+  const PieForwardArg *args;
+  size_t args_len;
   /// The STRUCTURAL statements inside live regions, in walk order. A
   /// site launches no table kernel, so it has no rectangle, but it
   /// runs guest programs and brackets a layer's sideband; a form
