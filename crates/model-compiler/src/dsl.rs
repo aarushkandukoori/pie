@@ -27,7 +27,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::facts::{LlamaLikeFacts, QkNorm};
+use crate::facts::QkNorm;
 use crate::trace::{
     DType, Dim, FireClass, ForwardPlan, NormVariant, RopeKind, Shape, StateRef, StateStore,
     TraceBuilder,
@@ -157,7 +157,43 @@ pub struct Layer {
     pub kv: Kv,
 }
 
-/// The model context a declaration runs against: the facts and the tape.
+/// The facts a DENSE TRANSFORMER's weight namespace is built from: an
+/// embedding, a stack of `qkv`/`o_proj`/`gate_up`/`down` layers with their
+/// norms, and a readout.
+///
+/// Deliberately not one family's facts type, and that is the whole point.
+/// Every field here is true of any dense transformer; nothing about llama's
+/// rope, its qk-norm placement or its fused-QKV binding appears, because
+/// those reach a family's text as its own parameters. What [`M`] offers is
+/// the namespace, and the namespace is shared.
+///
+/// It exists as a separate struct so a declaration can live OUTSIDE this
+/// crate: the toolchain cannot name a family's facts type without the
+/// dependency pointing the wrong way. Each family projects into it once —
+/// see `LlamaLikeFacts::shape`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelShape {
+    /// Width of the residual stream.
+    pub hidden: u32,
+    /// Width of the MLP's inner dimension. `gate_up` is twice this.
+    pub intermediate: u32,
+    /// Readout width.
+    pub vocab: u32,
+    /// One attention head's width — the per-head qk-norm's row length.
+    pub head_dim: u32,
+    /// `q_heads * head_dim`.
+    pub q_width: u32,
+    /// `kv_heads * head_dim`.
+    pub kv_width: u32,
+    /// Whether the q/k norms are per-head, row-wise, or absent.
+    pub qk_norm: QkNorm,
+    /// Which norm every norm in the namespace is.
+    pub norm_variant: NormVariant,
+    /// The readout reads the embedding table rather than its own weight.
+    pub tied_embeddings: bool,
+}
+
+/// The model context a declaration runs against: the shape and the tape.
 ///
 /// It carries NO lowering. A model text is written for one backend
 /// (`.wiki/tart/dsl.md` ③: the model file is
@@ -167,7 +203,7 @@ pub struct Layer {
 /// be `m.lowering()` is now the CUDA text's own parameters.
 pub struct M {
     t: Trace,
-    f: LlamaLikeFacts,
+    f: ModelShape,
 }
 
 impl Val {
@@ -179,7 +215,7 @@ impl Val {
 }
 
 impl M {
-    pub fn facts(&self) -> &LlamaLikeFacts {
+    pub fn shape(&self) -> &ModelShape {
         &self.f
     }
 
@@ -234,13 +270,13 @@ impl M {
             layer: Some(l),
         };
         Layer {
-            qkv: mat("qkv", f.q_width() + 2 * f.kv_width()),
-            q_proj: mat("q_proj", f.q_width()),
-            k_proj: mat("k_proj", f.kv_width()),
-            v_proj: mat("v_proj", f.kv_width()),
-            q_bias: mat("q_bias", f.q_width()),
-            k_bias: mat("k_bias", f.kv_width()),
-            v_bias: mat("v_bias", f.kv_width()),
+            qkv: mat("qkv", f.q_width + 2 * f.kv_width),
+            q_proj: mat("q_proj", f.q_width),
+            k_proj: mat("k_proj", f.kv_width),
+            v_proj: mat("v_proj", f.kv_width),
+            q_bias: mat("q_bias", f.q_width),
+            k_bias: mat("k_bias", f.kv_width),
+            v_bias: mat("v_bias", f.kv_width),
             o_proj: mat("o_proj", f.hidden),
             gate_up: mat("gate_up", 2 * f.intermediate),
             down: mat("down", f.hidden),
@@ -284,8 +320,8 @@ impl M {
 
 /// Run the SEMANTIC llama_like declaration: no kernel is stated, and the
 /// consumer (Metal, the site table, `declared_dag`) chooses.
-pub fn trace_semantic(facts: &LlamaLikeFacts, body: impl FnOnce(&mut M)) -> ForwardPlan {
-    run("llama_like".to_string(), facts, body)
+pub fn trace_semantic(shape: &ModelShape, body: impl FnOnce(&mut M)) -> ForwardPlan {
+    run("llama_like".to_string(), shape, body)
 }
 
 /// Run a LOWERED llama_like declaration — one per [`FireClass`], the
@@ -293,11 +329,11 @@ pub fn trace_semantic(facts: &LlamaLikeFacts, body: impl FnOnce(&mut M)) -> Forw
 /// takes the backend facts as its own parameter; nothing about the
 /// lowering reaches it through [`M`].
 pub fn trace_cuda(
-    facts: &LlamaLikeFacts,
+    shape: &ModelShape,
     class: FireClass,
     body: impl FnOnce(&mut M),
 ) -> ForwardPlan {
-    run(format!("llama_like.cuda.{}", class_word(class)), facts, body)
+    run(format!("llama_like.cuda.{}", class_word(class)), shape, body)
 }
 
 /// Run a LOWERED llama_like declaration for METAL.
@@ -316,11 +352,11 @@ pub fn trace_cuda(
 /// is, nothing calls it, and the empty Metal kernel table means the
 /// first thing that does must declare its kernels.
 pub fn trace_metal(
-    facts: &LlamaLikeFacts,
+    shape: &ModelShape,
     class: FireClass,
     body: impl FnOnce(&mut M),
 ) -> ForwardPlan {
-    run(format!("llama_like.metal.{}", class_word(class)), facts, body)
+    run(format!("llama_like.metal.{}", class_word(class)), shape, body)
 }
 
 fn class_word(class: FireClass) -> &'static str {
@@ -337,12 +373,12 @@ fn class_word(class: FireClass) -> &'static str {
     }
 }
 
-fn run(family: String, facts: &LlamaLikeFacts, body: impl FnOnce(&mut M)) -> ForwardPlan {
+fn run(family: String, shape: &ModelShape, body: impl FnOnce(&mut M)) -> ForwardPlan {
     let mut m = M {
         t: Trace {
             inner: Rc::new(RefCell::new(TraceBuilder::new(family))),
         },
-        f: facts.clone(),
+        f: *shape,
     };
     body(&mut m);
     Rc::try_unwrap(m.t.inner)

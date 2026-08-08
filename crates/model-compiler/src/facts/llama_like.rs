@@ -47,6 +47,27 @@ pub struct LlamaLikeFacts {
 }
 
 impl LlamaLikeFacts {
+    /// This family's projection into the DSL's family-neutral
+    /// [`ModelShape`](crate::dsl::ModelShape) — the dense-transformer weight
+    /// namespace, and nothing about llama in particular.
+    ///
+    /// The toolchain cannot name `LlamaLikeFacts` -- that edge would point the
+    /// wrong way -- so the projection is written here, on the family side,
+    /// once per family.
+    pub fn shape(&self) -> crate::dsl::ModelShape {
+        crate::dsl::ModelShape {
+            hidden: self.hidden,
+            intermediate: self.intermediate,
+            vocab: self.vocab,
+            head_dim: self.head_dim,
+            q_width: self.q_width(),
+            kv_width: self.kv_width(),
+            qk_norm: self.qk_norm,
+            norm_variant: self.norm_variant,
+            tied_embeddings: self.tied_embeddings,
+        }
+    }
+
     pub fn q_width(&self) -> u32 {
         self.q_heads * self.head_dim
     }

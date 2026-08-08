@@ -41,9 +41,9 @@ use crate::trace::{
 ///   a separate `ResidualAdd` lands it — the hand-written post-norm walk's
 ///   gemm → `launch_rmsnorm_bf16` → `launch_residual_add_bf16` triplet.
 pub fn llama_like(facts: &LlamaLikeFacts) -> ForwardPlan {
-    dsl::trace_semantic(facts, |m| {
+    dsl::trace_semantic(&facts.shape(), |m| {
         dsl::seam(m.trace(), &dsl::seam::IN, &[], None);
-        let f = m.facts().clone();
+        let f = facts.clone();
         let q_w = f.q_width();
         let kv_w = f.kv_width();
         let post_norm = f.norm_placement == NormPlacement::Post;
@@ -170,8 +170,8 @@ fn llama_like_metal_text(
     // decode step) and M>1 (the multi-batch lane). `FireClass` is the
     // same instantiation index it is on CUDA.
     let multi_batch = class != FireClass::Decode;
-    dsl::trace_metal(facts, class, |m| {
-        let f = m.facts().clone();
+    dsl::trace_metal(&facts.shape(), class, |m| {
+        let f = facts.clone();
         let q_w = f.q_width();
         let kv_w = f.kv_width();
         let post_norm = f.norm_placement == NormPlacement::Post;
@@ -278,9 +278,9 @@ fn llama_like_cuda_text(
     cuda: &LlamaLikeCudaFacts,
     class: FireClass,
 ) -> ForwardPlan {
-    dsl::trace_cuda(facts, class, |m| {
+    dsl::trace_cuda(&facts.shape(), class, |m| {
         dsl::seam(m.trace(), &dsl::seam::IN, &[], None);
-        let f = m.facts().clone();
+        let f = facts.clone();
         let q_w = f.q_width();
         let kv_w = f.kv_width();
         let post_norm = f.norm_placement == NormPlacement::Post;
