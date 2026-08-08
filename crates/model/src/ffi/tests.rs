@@ -17,10 +17,10 @@ use super::entry::{
     pie_forward_trace_qwen3_5_moe_mlp,
 };
 use super::types::*;
-use model_compiler::facts::{
-    LlamaLikeFacts, Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MoeMlpFacts,
-};
-use model_compiler::family::{llama_like, qwen3_5_full_attn_block, qwen3_5_gdn_block, qwen3_5_moe_mlp_block};
+use crate::families::llama_like::forward::facts::{LlamaLikeFacts};
+use crate::qwen_3_5::forward::facts::{Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MoeMlpFacts};
+use crate::families::llama_like::forward::llama_like;
+use crate::qwen_3_5::forward::{qwen3_5_full_attn_block, qwen3_5_gdn_block, qwen3_5_moe_mlp_block};
 use model_compiler::trace::OpKind;
 
 /// The qwen3 parity facts, as a C caller would state them.

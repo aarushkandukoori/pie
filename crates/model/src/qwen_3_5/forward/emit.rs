@@ -7,8 +7,8 @@
 //! (decode first), transliterating `qwen3_5/declared_forward.cpp`'s walk
 //! arms exactly as `emit_cuda` transliterated llama's.
 
-use crate::facts::{Qwen35CudaFacts, Qwen35HybridFacts, Qwen35MlpKind};
-use crate::trace::NormVariant;
+use super::facts::{Qwen35CudaFacts, Qwen35HybridFacts, Qwen35MlpKind};
+use model_compiler::trace::NormVariant;
 
 /// The digest naming what a generated qwen3_5 TU is emitted FROM.
 /// Field-for-field the C++ printer in `declared_facts.cpp`.
@@ -51,8 +51,8 @@ pub fn facts_digest(facts: &Qwen35HybridFacts, cuda: &Qwen35CudaFacts) -> String
     )
 }
 
-use crate::family::qwen3_5_hybrid_cuda;
-use crate::trace::{FireClass, ForwardPlan, OpKind};
+use super::qwen3_5_hybrid_cuda;
+use model_compiler::trace::{FireClass, ForwardPlan, OpKind};
 
 /// The parameter list shared with `qwen3_5_forward_declared`, minus the
 /// plan and the per-class-constant inputs (`is_pure_decode`,
@@ -341,10 +341,10 @@ fn emit_range(
     while i < end {
         let op = &plan.ops[i];
         if let OpKind::Guard { arms, else_ops } = &op.kind {
-            let cond_of = |pred: &crate::trace::GuardPred| match pred {
-                crate::trace::GuardPred::HasWriteDesc => "has_write_desc".to_string(),
-                crate::trace::GuardPred::TokensLE(k) => format!("N <= {k}"),
-                crate::trace::GuardPred::TokensGT(k) => format!("N > {k}"),
+            let cond_of = |pred: &model_compiler::trace::GuardPred| match pred {
+                model_compiler::trace::GuardPred::HasWriteDesc => "has_write_desc".to_string(),
+                model_compiler::trace::GuardPred::TokensLE(k) => format!("N <= {k}"),
+                model_compiler::trace::GuardPred::TokensGT(k) => format!("N > {k}"),
                 other => panic!("emitter(q35): guard pred {other:?} out of scope"),
             };
             let mut region = i + 1;
@@ -379,7 +379,7 @@ fn emit_range(
 
 fn emit_op(
     b: &mut Body,
-    op: &crate::trace::Op,
+    op: &model_compiler::trace::Op,
     plan: &ForwardPlan,
     facts: &Qwen35HybridFacts,
     cuda: &Qwen35CudaFacts,
@@ -604,8 +604,8 @@ fn emit_op(
                 ("la.q_pre.data()", "K_h * K_d".to_string(), "true")
             };
             let point = match stage {
-                crate::trace::HookStage::OnAttnProj => "OnAttnProj",
-                crate::trace::HookStage::OnAttn => "OnAttn",
+                model_compiler::trace::HookStage::OnAttnProj => "OnAttnProj",
+                model_compiler::trace::HookStage::OnAttn => "OnAttn",
             };
             b.stmt("if (hooks != nullptr) {");
             b.stmt("    invoke_stage_hook(");
@@ -663,8 +663,8 @@ fn emit_launch(
     b: &mut Body,
     kernel: &str,
     weights: &[String],
-    state: Option<&crate::trace::StateRef>,
-    op: &crate::trace::Op,
+    state: Option<&model_compiler::trace::StateRef>,
+    op: &model_compiler::trace::Op,
     facts: &Qwen35HybridFacts,
     commit: bool,
     repeat_next_is_k: &mut bool,

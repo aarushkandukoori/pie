@@ -6,11 +6,11 @@
 //! trace time and none of it survives into the traced form except as
 //! constants and op choices.
 //!
-//! ## Shared vocabulary here, a family's facts in its own module
+//! ## What is left here is the shared vocabulary
 //!
 //! [`NormPlacement`] and [`QkNorm`] are words more than one family is written
-//! in, so they stay. Everything else is one family's, and sits beside that
-//! family's declaration -- adding a fact to a model should touch that model.
+//! in. Every family's own facts moved to `crates/model`, beside that family's
+//! declaration -- adding a fact to a model touches that model, and only it.
 
 use serde::{Deserialize, Serialize};
 
@@ -51,15 +51,3 @@ pub enum QkNorm {
     Global,
 }
 
-
-pub mod gemma4;
-pub mod gpt_oss;
-pub mod llama_like;
-pub mod qwen3_5;
-
-// Flat re-export, matching `family`: a Facts struct already carries its
-// family's name.
-pub use gemma4::*;
-pub use gpt_oss::*;
-pub use llama_like::*;
-pub use qwen3_5::*;

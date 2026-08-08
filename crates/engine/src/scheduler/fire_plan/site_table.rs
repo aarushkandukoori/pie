@@ -181,10 +181,9 @@ pub(crate) fn derive_sites(plan: &ForwardPlan) -> Vec<Site> {
 mod tests {
     use super::super::{DivClass, Granularity, Lowering, SITE_EXPERT_WEIGHTS};
     use super::*;
-    use model_compiler::facts::{
-        LlamaLikeFacts, Qwen35HybridFacts, Qwen35MlpKind, Qwen35MoeMlpFacts,
-    };
-    use model_compiler::{StateStore, family};
+    use model::families::llama_like::forward::facts::{LlamaLikeFacts};
+use model::qwen_3_5::forward::facts::{Qwen35HybridFacts, Qwen35MlpKind, Qwen35MoeMlpFacts};
+    use model_compiler::{StateStore};
 
     /// The qwen3_5_moe MLP fragment (256 experts, top-8): the walk finds
     /// the selector-carrying matmuls, resolves k off the TopK op and the
@@ -192,7 +191,7 @@ mod tests {
     /// down pair into ONE model-level site of the pinned vocabulary shape.
     #[test]
     fn moe_fragment_derives_the_expert_site() {
-        let plan = family::qwen3_5_moe_mlp_block(&Qwen35MoeMlpFacts::qwen3_5_35b_a3b());
+        let plan = model::qwen_3_5::forward::qwen3_5_moe_mlp_block(&Qwen35MoeMlpFacts::qwen3_5_35b_a3b());
         let sites = derive_sites(&plan);
         assert_eq!(sites.len(), 1, "gate_up + down share one selector group");
         let site = &sites[0];
@@ -213,7 +212,7 @@ mod tests {
             LlamaLikeFacts::mistral_7b_v03(),
             LlamaLikeFacts::olmo2_1b(),
         ] {
-            let plan = family::llama_like(&facts);
+            let plan = model::families::llama_like::forward::llama_like(&facts);
             assert!(
                 derive_sites(&plan).is_empty(),
                 "no model-structural sites in a dense trace ({})",
@@ -229,7 +228,7 @@ mod tests {
     /// only prose.
     #[test]
     fn dense_hybrid_touches_recurrent_state_but_derives_no_site() {
-        let plan = family::qwen3_5_hybrid(&Qwen35HybridFacts::qwen3_5_0_8b());
+        let plan = model::qwen_3_5::forward::qwen3_5_hybrid(&Qwen35HybridFacts::qwen3_5_0_8b());
         assert!(
             plan.ops.iter().any(|op| op
                 .kind
@@ -277,7 +276,7 @@ mod tests {
     /// same plan on this side — the handshake loses nothing.
     #[test]
     fn summary_of_a_moe_trace_round_trips_through_the_vocabulary() {
-        let plan = family::qwen3_5_moe_mlp_block(&Qwen35MoeMlpFacts::qwen3_5_35b_a3b());
+        let plan = model::qwen_3_5::forward::qwen3_5_moe_mlp_block(&Qwen35MoeMlpFacts::qwen3_5_35b_a3b());
         let derived = derive_sites(&plan);
         let summary = driver_abi::ModelSiteSummary {
             expert_sites: vec![driver_abi::ExpertSiteSummary {
@@ -306,7 +305,7 @@ mod tests {
             hidden: facts.hidden(),
             ..Qwen35MoeMlpFacts::qwen3_5_35b_a3b()
         });
-        let plan = family::qwen3_5_hybrid(&facts);
+        let plan = model::qwen_3_5::forward::qwen3_5_hybrid(&facts);
         let sites = derive_sites(&plan);
         assert_eq!(sites.len(), 1, "per-layer repetition dedups to one site");
         assert_eq!(sites[0].name, SITE_EXPERT_WEIGHTS);

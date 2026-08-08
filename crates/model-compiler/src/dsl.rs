@@ -87,7 +87,10 @@ pub struct Kv {
 impl Kv {
     /// The layer's cache handle, for weight namespaces built outside
     /// [`M::layer`] (the qwen3_5 fragments build their own).
-    pub(crate) fn at(t: &Trace, l: u32) -> Kv {
+    /// A layer's KV handle. `pub` because a declaration -- which lives in
+    /// `crates/model` -- names it directly when it builds its own weight
+    /// namespace rather than taking `M`'s.
+    pub fn at(t: &Trace, l: u32) -> Kv {
         Kv { t: t.clone(), l }
     }
 
@@ -130,7 +133,8 @@ pub struct Rs {
 
 impl Rs {
     /// The layer's recurrent-state handle, [`Kv::at`]-style.
-    pub(crate) fn at(t: &Trace, l: u32) -> Rs {
+    /// A layer's recurrent-state handle. `pub` for the reason `Kv::at` is.
+    pub fn at(t: &Trace, l: u32) -> Rs {
         Rs { t: t.clone(), l }
     }
 }
@@ -318,22 +322,31 @@ impl M {
     }
 }
 
-/// Run the SEMANTIC llama_like declaration: no kernel is stated, and the
-/// consumer (Metal, the site table, `declared_dag`) chooses.
-pub fn trace_semantic(shape: &ModelShape, body: impl FnOnce(&mut M)) -> ForwardPlan {
-    run("llama_like".to_string(), shape, body)
+/// Run a SEMANTIC declaration: no kernel is stated, and the consumer (Metal,
+/// the site table, `declared_dag`) chooses.
+///
+/// `family` is the plan's name and nothing more — the caller's, because the
+/// caller is the family. This used to be the literal `"llama_like"`, which
+/// was the last family name baked into the toolchain.
+pub fn trace_semantic(family: &str, shape: &ModelShape, body: impl FnOnce(&mut M)) -> ForwardPlan {
+    run(family.to_string(), shape, body)
 }
 
-/// Run a LOWERED llama_like declaration — one per [`FireClass`], the
-/// family name recording which launch form this trace serves. The body
-/// takes the backend facts as its own parameter; nothing about the
-/// lowering reaches it through [`M`].
+/// Run a LOWERED declaration for CUDA — one per [`FireClass`], the family
+/// name recording which launch form this trace serves. The body takes the
+/// backend facts as its own parameter; nothing about the lowering reaches it
+/// through [`M`].
+///
+/// The recorded name is `<family>.cuda.<class>`, which is what
+/// [`Backend::of_family`](crate::kernels::Backend::of_family) reads the
+/// backend out of.
 pub fn trace_cuda(
+    family: &str,
     shape: &ModelShape,
     class: FireClass,
     body: impl FnOnce(&mut M),
 ) -> ForwardPlan {
-    run(format!("llama_like.cuda.{}", class_word(class)), shape, body)
+    run(format!("{family}.cuda.{}", class_word(class)), shape, body)
 }
 
 /// Run a LOWERED llama_like declaration for METAL.
@@ -352,23 +365,24 @@ pub fn trace_cuda(
 /// is, nothing calls it, and the empty Metal kernel table means the
 /// first thing that does must declare its kernels.
 pub fn trace_metal(
+    family: &str,
     shape: &ModelShape,
     class: FireClass,
     body: impl FnOnce(&mut M),
 ) -> ForwardPlan {
-    run(format!("llama_like.metal.{}", class_word(class)), shape, body)
+    run(format!("{family}.metal.{}", class_word(class)), shape, body)
 }
 
 fn class_word(class: FireClass) -> &'static str {
     match class {
         FireClass::Decode => "decode",
         FireClass::Prefill => "prefill",
-        // The service classes are qwen3_5's; llama_like has no
-        // spec-decode repair pass. The ffi entry rejects them
-        // before tracing; this is the same statement for direct
-        // Rust callers.
+        // The service classes belong to a text that declares an MTP repair
+        // pass, and such a text composes its own trace rather than going
+        // through `M`. A caller that reaches here has asked a whole-model
+        // prologue/epilogue for a class it has no shape for.
         FireClass::CommitAdvance | FireClass::StateOnly | FireClass::FrozenVerify => {
-            panic!("llama_like has no MTP service classes")
+            panic!("the {class:?} service class has no whole-model form here")
         }
     }
 }
@@ -927,7 +941,7 @@ pub fn by_rows(
 /// [`guard`] for declarations that carry no [`M`] (the qwen3_5 bodies
 /// build their own weight namespaces and run against a bare [`Trace`]):
 /// the same two-way chain, opened on the tape directly.
-pub(crate) fn guard_on(
+pub fn guard_on(
     t: &Trace,
     pred: crate::trace::GuardPred,
     then_f: impl FnOnce(),

@@ -41,9 +41,12 @@ contract = ["dep:model-loader", "dep:model-config", "dep:serde_json"]
 # tracing eDSL, and the `#[repr(C)]` boundary a driver traces it across. NOT
 # default -- `pie model convert` reads a chat template and a load contract and
 # must not drag the tracer in behind them.
-forward = ["dep:model-compiler"]
+forward = ["dep:model-compiler", "dep:serde"]
 
 [dependencies]
+# The facts a declaration traces against are serialized for the goldens, the
+# same way the traced form is.
+serde = { version = "1.0", features = ["derive"], optional = true }
 tokenizer = { path = "../tokenizer", optional = true }
 model-config = { path = "../model-config", optional = true }
 # `default-features = false` drops the loader's testkit half — the authoring

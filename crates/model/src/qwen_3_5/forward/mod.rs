@@ -6,17 +6,20 @@
 //! [`qwen3_5_hybrid`] composes their bodies per layer, so a fragment's test
 //! and the whole model's test read the same ops.
 
-use crate::facts::{
+pub mod emit;
+pub mod facts;
+
+use self::facts::{
     Qwen35CudaFacts,
     Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MlpKind, Qwen35MoeMlpFacts,
 };
-use crate::dsl::{
+use model_compiler::dsl::{
     self, attention, causal_conv1d, cuda, gated_delta, gdn_prep, matmul, matmul_per_token,
     rmsnorm, rmsnorm_gated, rope_partial, sigmoid_gate_add, sigmoid_gate_mul, split_gdn,
     split_q_gate, split_qkv, swiglu, topk, weighted_sum, ConvW, GdnPrepW, Kv, MatW, NormW, Rs,
     Trace, Val,
 };
-use crate::trace::{
+use model_compiler::trace::{
     DType, Dim, FireClass, ForwardPlan, GuardPred, NormVariant, RopeKind, Shape,
 };
 
@@ -66,7 +69,7 @@ pub fn qwen3_5_moe_mlp_block(facts: &Qwen35MoeMlpFacts) -> ForwardPlan {
 
 /// The MoE MLP block's weight namespace at layer `l`: the router, the
 /// `{e}`-templated expert banks, and the shared expert's three handles —
-/// eager strings, [`crate::dsl::Layer`]-style, so a checkpoint without a
+/// eager strings, [`model_compiler::dsl::Layer`]-style, so a checkpoint without a
 /// shared expert simply never reads them.
 struct MoeLayerW {
     mlp_norm: NormW,
@@ -163,7 +166,7 @@ pub fn qwen3_5_moe_mlp_block_cuda(
 ///
 /// - the ALIGNED/grouped leg pads routes into blocks, giving its
 ///   intermediates `ceil((N*k + min(E, N*k)*(block-1)) / block) * block`
-///   rows — an extent no [`crate::trace::Dim`] spells;
+///   rows — an extent no [`model_compiler::trace::Dim`] spells;
 /// - the decode GEMV leg is a rectangle, but the aligned block size is
 ///   8 or 16 and never 1, so the aligned leg always exists and the GEMV
 ///   arm covers only `N * k < 64` (N <= 7 at top_k 8);
@@ -289,10 +292,10 @@ fn moe_mlp_body_cuda(
 ///
 /// `CausalConv1d` and `GatedDelta` address the layer's PER-REQUEST
 /// conv/recurrent state — implicit, marked by the op kinds themselves
-/// ([`crate::trace::OpKind::state_ref`]); see the trace module doc's "the
+/// ([`model_compiler::trace::OpKind::state_ref`]); see the trace module doc's "the
 /// per-request state axis" for why the state is not a traced value.
 ///
-/// [`SplitGdn`]: crate::trace::OpKind::SplitGdn
+/// [`SplitGdn`]: model_compiler::trace::OpKind::SplitGdn
 pub fn qwen3_5_gdn_block(facts: &Qwen35GdnFacts) -> ForwardPlan {
     dsl::trace_named("qwen3_5_gdn_block", |t| {
         // The fragment's parameter: the residual stream entering the block.
@@ -592,12 +595,12 @@ fn gdn_attn_body_cuda(
 /// `launch_split_qkv_bf16(packed, qg, k, v, N, 2*Hq, Hk)`) — the
 /// [`SplitQGate`] de-interleave still follows, exactly as in the
 /// hand-written body. `KvAppend`/`Attention` mark the layer's KV cache
-/// ([`crate::trace::StateStore::KvCache`] via
-/// [`crate::trace::OpKind::state_ref`]), the same marking llama_like
+/// ([`model_compiler::trace::StateStore::KvCache`] via
+/// [`model_compiler::trace::OpKind::state_ref`]), the same marking llama_like
 /// carries.
 ///
-/// [`SplitQkv`]: crate::trace::OpKind::SplitQkv
-/// [`SplitQGate`]: crate::trace::OpKind::SplitQGate
+/// [`SplitQkv`]: model_compiler::trace::OpKind::SplitQkv
+/// [`SplitQGate`]: model_compiler::trace::OpKind::SplitQGate
 pub fn qwen3_5_full_attn_block(facts: &Qwen35FullAttnFacts) -> ForwardPlan {
     dsl::trace_named("qwen3_5_full_attn_block", |t| {
         // The fragment's parameter: the residual stream entering the block.
@@ -930,7 +933,7 @@ pub fn qwen3_5_hybrid(facts: &Qwen35HybridFacts) -> ForwardPlan {
 /// The qwen3_5 hybrid's CUDA text — [`qwen3_5_hybrid`]'s kernel-stating
 /// counterpart, traced with the CUDA backend facts and a fire class, so
 /// the traced form states its kernels as raw
-/// signatures ([`crate::dsl::cuda`]; north-star-dsl.md rung 4c). One
+/// signatures ([`model_compiler::dsl::cuda`]; north-star-dsl.md rung 4c). One
 /// trace per [`FireClass`] the deployment fires; family names
 /// `qwen3_5_hybrid.cuda.decode` / `.prefill` — the [`llama_like_cuda`]
 /// naming, verbatim — plus the two SERVICE classes (rung 4c-iv):
@@ -1100,9 +1103,9 @@ mod tests {
     // A handful of tests here compare against the dense family -- "the hybrid's
     // KV marks match llama_like's" is a statement about both, so it is named
     // across the module boundary rather than duplicated.
-    use crate::facts::LlamaLikeFacts;
-    use crate::family::llama_like::llama_like;
-    use crate::trace::{DType, Dim, NormVariant, OpKind, StateRef, StateStore};
+    use crate::families::llama_like::forward::facts::LlamaLikeFacts;
+    use crate::families::llama_like::forward::llama_like;
+    use model_compiler::trace::{DType, Dim, NormVariant, OpKind, StateRef, StateStore};
 
     /// The MoE block fragment's op sequence, mapped launch for launch to
     /// `run_moe_mlp`'s decode fast path (the table on
@@ -1787,9 +1790,9 @@ mod tests {
     /// same SSA dataflow under the id mapping {fragment 0 → the layer's
     /// incoming residual, fragment i → the layer's i-th fresh value}.
     fn assert_layer_head_matches_fragment(
-        hybrid: &crate::trace::ForwardPlan,
+        hybrid: &model_compiler::trace::ForwardPlan,
         l: u32,
-        fragment: &crate::trace::ForwardPlan,
+        fragment: &model_compiler::trace::ForwardPlan,
     ) {
         let h_ops: Vec<_> = hybrid.layer_ops(l).collect();
         let f_ops: Vec<_> = fragment.layer_ops(0).collect();
@@ -2003,7 +2006,7 @@ mod tests {
             qwen3_5_hybrid(&Qwen35HybridFacts::qwen3_5_0_8b()),
         ] {
             let json = serde_json::to_string(&plan).unwrap();
-            let back: crate::trace::ForwardPlan = serde_json::from_str(&json).unwrap();
+            let back: model_compiler::trace::ForwardPlan = serde_json::from_str(&json).unwrap();
             assert_eq!(plan, back);
         }
 

@@ -58,7 +58,9 @@ futures = "0.3.33"
 waker = { path = "../waker" }
 tokenizer = { path = "../tokenizer" }
 grammar = { path = "../grammar" }
-model = { path = "../model" }
+# `forward` for the site table, which traces a real declaration to work out
+# where a fire's hook sites are.
+model = { path = "../model", features = ["forward"] }
 rmp-serde = "1.3.1"
 blake3 = "1.8.5"
 num-traits = "0.2.19"

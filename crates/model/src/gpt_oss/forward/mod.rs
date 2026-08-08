@@ -1,13 +1,15 @@
 //! `gpt-oss`.
 
-use crate::facts::{
+pub mod facts;
+
+use self::facts::{
     GptOssCudaFacts, GptOssFacts,
 };
-use crate::dsl::{
+use model_compiler::dsl::{
     self, matmul,
     rmsnorm, MatW, NormW, Val,
 };
-use crate::trace::{
+use model_compiler::trace::{
     FireClass, ForwardPlan, NormVariant, RopeKind,
 };
 

@@ -27,9 +27,9 @@
 //! the vocabulary fails loudly — an emitter that silently skipped an
 //! op would be a miscompile, not a fallback.
 
-use crate::facts::{LlamaLikeCudaFacts, LlamaLikeFacts, NormPlacement, QkNorm};
-use crate::family::llama_like_cuda;
-use crate::trace::{FireClass, ForwardPlan, NormVariant, OpKind, RopeKind};
+use super::facts::{LlamaLikeCudaFacts, LlamaLikeFacts, NormPlacement, QkNorm};
+use super::llama_like_cuda;
+use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, OpKind, RopeKind};
 
 /// The digest naming what a generated TU was emitted FROM. The driver
 /// composes the same string from its derived facts at model load
@@ -460,8 +460,8 @@ struct SgValuation {
 }
 
 impl SgValuation {
-    fn resolve(&self, pred: &crate::trace::GuardPred) -> bool {
-        use crate::trace::GuardPred;
+    fn resolve(&self, pred: &model_compiler::trace::GuardPred) -> bool {
+        use model_compiler::trace::GuardPred;
         match pred {
             GuardPred::HasCustomMask => self.has_custom_mask,
             GuardPred::HasWriteDesc => true,
@@ -561,7 +561,7 @@ fn emit_range_scoped(
             window,
         } = &op.kind
         {
-            if *window == crate::trace::PeelWindow::UnmaskedPrefix {
+            if *window == model_compiler::trace::PeelWindow::UnmaskedPrefix {
                 // The spatial mask split, STATED (NS-4 landed in the
                 // IR): the declaration's peel names the axis and the
                 // two regions; this emitter only spells the window
@@ -700,20 +700,20 @@ fn emit_range_scoped(
                 i = region + *else_ops as usize;
                 continue;
             }
-            let cond_of = |pred: &crate::trace::GuardPred| match pred {
-                crate::trace::GuardPred::HasWriteDesc => "has_write_desc".to_string(),
-                crate::trace::GuardPred::TokensLE(k) => format!("N <= {k}"),
-                crate::trace::GuardPred::TokensGT(k) => format!("N > {k}"),
-                crate::trace::GuardPred::WantsAttnScore => {
+            let cond_of = |pred: &model_compiler::trace::GuardPred| match pred {
+                model_compiler::trace::GuardPred::HasWriteDesc => "has_write_desc".to_string(),
+                model_compiler::trace::GuardPred::TokensLE(k) => format!("N <= {k}"),
+                model_compiler::trace::GuardPred::TokensGT(k) => format!("N > {k}"),
+                model_compiler::trace::GuardPred::WantsAttnScore => {
                     "hooks != nullptr && hooks->wants_attn_score".to_string()
                 }
-                crate::trace::GuardPred::HasCustomMask => {
+                model_compiler::trace::GuardPred::HasCustomMask => {
                     "custom_mask_d != nullptr".to_string()
                 }
-                crate::trace::GuardPred::HasStageHooks => {
+                model_compiler::trace::GuardPred::HasStageHooks => {
                     "hooks != nullptr".to_string()
                 }
-                crate::trace::GuardPred::HasLora => {
+                model_compiler::trace::GuardPred::HasLora => {
                     "lora != nullptr && lora->usable()".to_string()
                 }
             };
@@ -785,7 +785,7 @@ fn require(layer: u32, member: &str, name: &str) -> String {
 
 fn emit_op(
     b: &mut Body,
-    op: &crate::trace::Op,
+    op: &model_compiler::trace::Op,
     plan: &ForwardPlan,
     facts: &LlamaLikeFacts,
     cuda: &LlamaLikeCudaFacts,
@@ -1005,7 +1005,7 @@ fn emit_op(
             assert!(partial.is_none(), "emitter: partial rope out of scope");
             assert_eq!(
                 *kind,
-                crate::trace::RopeKind::Standard,
+                model_compiler::trace::RopeKind::Standard,
                 "emitter: only standard rope"
             );
             b.stmt("kernels::launch_rope_bf16(");
@@ -1102,7 +1102,7 @@ fn emit_op(
             // (argument no-op, zero launches).
             b.stmt("if (hooks != nullptr) {");
             match stage {
-                crate::trace::HookStage::OnAttnProj => {
+                model_compiler::trace::HookStage::OnAttnProj => {
                     b.stmt("    attn_page_indices = kv_page_indices;");
                     b.stmt("    attn_page_indptr = kv_page_indptr;");
                     b.stmt("    attn_last_page_lens = kv_last_page_lens;");
@@ -1128,7 +1128,7 @@ fn emit_op(
                     b.stmt(&format!("        {layer}u, stream, /*query_is_f32=*/false,"));
                     b.stmt("        {.mask_sink = page_mask.sink()});");
                 }
-                crate::trace::HookStage::OnAttn => {
+                model_compiler::trace::HookStage::OnAttn => {
                     b.stmt("    invoke_stage_hook(");
                     b.stmt("        hooks, StageHookPoint::OnAttn, ws.q.data(),");
                     b.stmt("        static_cast<std::uint32_t>(N),");
@@ -1194,8 +1194,8 @@ fn emit_launch(
     b: &mut Body,
     kernel: &str,
     weights: &[String],
-    state: Option<&crate::trace::StateRef>,
-    op: &crate::trace::Op,
+    state: Option<&model_compiler::trace::StateRef>,
+    op: &model_compiler::trace::Op,
     facts: &LlamaLikeFacts,
     cuda: &LlamaLikeCudaFacts,
     is_decode: bool,
@@ -1652,7 +1652,7 @@ fn emit_launch(
             // independent, so post-norm deployments emit it unchanged.
             if depth_active
                 && op.layer.is_some()
-                && crate::kernels::sig(kernel).is_some_and(|k| k.depth_prefix_plan)
+                && model_compiler::kernels::sig(kernel).is_some_and(|k| k.depth_prefix_plan)
             {
                 // The KERNEL says this launch swaps to the prefix plan
                 // on union tail layers (migration step 5: the fact left

@@ -2,7 +2,7 @@
 //! layer schedule and the CUDA deployment's bindings.
 
 use serde::{Deserialize, Serialize};
-use crate::trace::NormVariant;
+use model_compiler::trace::NormVariant;
 
 /// Facts for one qwen3_5_moe-family MoE MLP block — a traced FRAGMENT, not
 /// a model.
@@ -320,7 +320,7 @@ pub struct Qwen35HybridFacts {
 /// defaults and kernel-eligibility predicates the hand-written
 /// `linear_attn_layer_body` / `declared_forward.cpp` derive per fire
 /// today, hoisted to where a fact belongs. The N-thresholds are VALUES
-/// carried into [`crate::trace::GuardPred`]s — the one branch kind a
+/// carried into [`model_compiler::trace::GuardPred`]s — the one branch kind a
 /// lowered trace keeps — because only N varies per fire; the predicates
 /// AROUND them (env gates, head geometry) resolve here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -464,7 +464,7 @@ impl Qwen35HybridFacts {
     }
 
     /// The model's hidden size (the sub-facts each carry it for standalone
-    /// tracing; [`crate::family::qwen3_5_hybrid`] asserts they agree).
+    /// tracing; [`qwen3_5_hybrid`] asserts they agree).
     pub fn hidden(&self) -> u32 {
         self.attn.hidden
     }

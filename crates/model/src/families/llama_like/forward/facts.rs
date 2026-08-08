@@ -2,8 +2,11 @@
 //! backend for what a deployment bound.
 
 use serde::{Deserialize, Serialize};
-use super::{NormPlacement, QkNorm};
-use crate::trace::{NormVariant, RopeKind};
+// The shared vocabulary stayed with the toolchain -- more than one family
+// is written in these words. Re-exported so a declaration reaches its
+// facts and the words they are stated in from one place.
+pub use model_compiler::facts::{NormPlacement, QkNorm};
+use model_compiler::trace::{NormVariant, RopeKind};
 
 /// The llama_like family's facts: covers qwen3, mistral3, phi3, olmo2/3
 /// (pie-application-plan.md §7 stage 3 scope). Declared so far: the qwen3
@@ -48,14 +51,14 @@ pub struct LlamaLikeFacts {
 
 impl LlamaLikeFacts {
     /// This family's projection into the DSL's family-neutral
-    /// [`ModelShape`](crate::dsl::ModelShape) — the dense-transformer weight
+    /// [`ModelShape`](model_compiler::dsl::ModelShape) — the dense-transformer weight
     /// namespace, and nothing about llama in particular.
     ///
     /// The toolchain cannot name `LlamaLikeFacts` -- that edge would point the
     /// wrong way -- so the projection is written here, on the family side,
     /// once per family.
-    pub fn shape(&self) -> crate::dsl::ModelShape {
-        crate::dsl::ModelShape {
+    pub fn shape(&self) -> model_compiler::dsl::ModelShape {
+        model_compiler::dsl::ModelShape {
             hidden: self.hidden,
             intermediate: self.intermediate,
             vocab: self.vocab,
@@ -277,14 +280,14 @@ pub struct LlamaLikeCudaFacts {
     /// the declaration checks both.
     pub decode_fused_post: bool,
     /// The workspace carries a rope table (`ws.rope_table` non-empty), so
-    /// the fused arm's first layer states [`crate::trace::OpKind::RopeTableBuild`];
+    /// the fused arm's first layer states [`model_compiler::trace::OpKind::RopeTableBuild`];
     /// without it the fused kernel derives cos/sin from theta in-kernel
     /// and no table launch exists.
     pub rope_table: bool,
     /// FlashInfer's decode kernel set lacks this model's GQA ratio
     /// (`!flashinfer_decode_supports_gqa`, context.cpp:1413-1414): decode
     /// fires fall back to dequant + the prefill kernel
-    /// ([`crate::trace::AttnKernel::PrefillDequantDecode`]). XQA, when
+    /// ([`model_compiler::trace::AttnKernel::PrefillDequantDecode`]). XQA, when
     /// eligible, overrides this (context.cpp:1427).
     pub force_prefill_path: bool,
     /// The attention kernels run at a padded `head_dim_kernel` wider than

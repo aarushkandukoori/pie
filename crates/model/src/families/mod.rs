@@ -26,3 +26,4 @@
 /// generations parameterize is not one generation's fact.
 #[cfg(feature = "chat")]
 pub mod chatml;
+pub mod llama_like;

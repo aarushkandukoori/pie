@@ -12,9 +12,10 @@
 //! interpreter, loudly — the mechanism that corrects any guessed fact
 //! on first live run).
 
-use model_compiler::emit_cuda::emit_llama_like_cuda_inc;
-use model_compiler::emit_qwen35::emit_qwen35_cuda_inc;
-use model_compiler::{LlamaLikeCudaFacts, LlamaLikeFacts, Qwen35CudaFacts, Qwen35HybridFacts};
+use model::families::llama_like::forward::emit::emit_llama_like_cuda_inc;
+use model::qwen_3_5::forward::emit::emit_qwen35_cuda_inc;
+use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeFacts};
+use model::qwen_3_5::forward::facts::{Qwen35CudaFacts, Qwen35HybridFacts};
 
 fn write_inc_at(family: &str, name: &str, contents: &str) {
     let dir = format!(

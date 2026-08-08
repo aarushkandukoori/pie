@@ -1,13 +1,15 @@
 //! `gemma-4`.
 
-use crate::facts::{
+pub mod facts;
+
+use self::facts::{
     Gemma4CudaFacts, Gemma4Facts,
 };
-use crate::dsl::{
+use model_compiler::dsl::{
     self, matmul,
     rmsnorm, MatW, NormW,
 };
-use crate::trace::{
+use model_compiler::trace::{
     FireClass, ForwardPlan, NormVariant, RopeKind,
 };
 

@@ -1,10 +1,19 @@
 //! What a model IS: the two registries that turn a model's name into an
 //! implementation, and the implementations they dispatch to.
 //!
-//! ## The two registries
+//! ## Three aspects, one crate
 //!
 //! * [`contract`] — `model_type` to the author that writes its load contract.
 //! * [`instruct`] — `arch_name` to the chat template that formats for it.
+//! * `<generation>::forward` — the forward pass, written in
+//!   `model-compiler`'s tracing eDSL, and [`ffi`] the door a driver reaches it
+//!   through. Behind the non-default `forward` feature, because `pie model
+//!   convert` wants the first two and not a tracer.
+//!
+//! The first two are REGISTRIES and the third is not: a forward pass is
+//! reached by the driver naming a family over the C ABI, not by a row. That
+//! asymmetry is real and is why `forward` sits on the generation module
+//! rather than in a table beside the other two.
 //!
 //! They deliberately partition the model space differently: templates split by
 //! release, contracts by storage schema. So a generation is reached through a
@@ -91,7 +100,10 @@ pub mod instruct;
 // The only thing a generation module may name besides the root. What lives
 // here is what more than one generation binds -- not what one generation
 // wrote first.
-#[cfg(feature = "chat")]
+// Gated on either aspect that has a family module in it: `chatml` is chat's,
+// `llama_like`'s forward pass is the forward aspect's. The directory is the
+// home for what more than one generation binds, whichever aspect binds it.
+#[cfg(any(feature = "chat", feature = "forward"))]
 pub mod families;
 
 /// The `#[repr(C)]` boundary a driver traces a declaration across.

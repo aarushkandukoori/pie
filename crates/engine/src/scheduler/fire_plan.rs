@@ -838,8 +838,8 @@ mod tests {
     /// traced form merge into a fire plan alongside the member-fact sites.
     #[test]
     fn derived_moe_sites_merge_into_a_fire_plan() {
-        let traced = model_compiler::family::qwen3_5_moe_mlp_block(
-            &model_compiler::Qwen35MoeMlpFacts::qwen3_5_35b_a3b(),
+        let traced = model::qwen_3_5::forward::qwen3_5_moe_mlp_block(
+            &model::qwen_3_5::forward::facts::Qwen35MoeMlpFacts::qwen3_5_35b_a3b(),
         );
         let model_sites = site_table::derive_sites(&traced);
         let members = vec![member(false, false, false, 0), member(true, false, false, 1)];

@@ -21,14 +21,21 @@
 
 use std::path::PathBuf;
 
-use model_compiler::family::{
-    llama_like, llama_like_cuda, qwen3_5_full_attn_block, qwen3_5_gdn_block, qwen3_5_hybrid,
-    gemma4_cuda, gpt_oss_cuda, qwen3_5_hybrid_cuda, qwen3_5_moe_mlp_block, qwen3_5_moe_mlp_block_cuda,
-};
-use model_compiler::{
-    FireClass, Gemma4CudaFacts, Gemma4Facts, ForwardPlan, GptOssCudaFacts, GptOssFacts, HookStage, LlamaLikeCudaFacts, LlamaLikeFacts, OpKind, Qwen35CudaFacts,
-    Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MoeMlpFacts,
-};
+use model::families::llama_like::forward::llama_like;
+use model::families::llama_like::forward::llama_like_cuda;
+use model::qwen_3_5::forward::qwen3_5_full_attn_block;
+use model::qwen_3_5::forward::qwen3_5_gdn_block;
+use model::qwen_3_5::forward::qwen3_5_hybrid;
+use model::gemma_4::forward::gemma4_cuda;
+use model::gpt_oss::forward::gpt_oss_cuda;
+use model::qwen_3_5::forward::qwen3_5_hybrid_cuda;
+use model::qwen_3_5::forward::qwen3_5_moe_mlp_block;
+use model::qwen_3_5::forward::qwen3_5_moe_mlp_block_cuda;
+use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeFacts};
+use model::gemma_4::forward::facts::{Gemma4CudaFacts, Gemma4Facts};
+use model::gpt_oss::forward::facts::{GptOssCudaFacts, GptOssFacts};
+use model::qwen_3_5::forward::facts::{Qwen35CudaFacts, Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MoeMlpFacts};
+use model_compiler::{FireClass, ForwardPlan, HookStage, OpKind};
 
 fn golden_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

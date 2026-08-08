@@ -4,14 +4,17 @@
 //! never kernels, and one LOWERED text per backend. The semantic arm is what
 //! parity holds the other two to.
 
-use crate::facts::{
+pub mod emit;
+pub mod facts;
+
+use self::facts::{
     LlamaLikeCudaFacts, LlamaLikeFacts, LlamaLikeMetalFacts, NormPlacement, QkNorm,
 };
-use crate::dsl::{
+use model_compiler::dsl::{
     self, add_bias, attention, cuda, matmul,
     rmsnorm, rope, split_qkv, swiglu, MatW, Val,
 };
-use crate::trace::{
+use model_compiler::trace::{
     DType, Dim, FireClass, ForwardPlan, GuardPred, RopeKind, Shape,
 };
 
@@ -41,7 +44,7 @@ use crate::trace::{
 ///   a separate `ResidualAdd` lands it — the hand-written post-norm walk's
 ///   gemm → `launch_rmsnorm_bf16` → `launch_residual_add_bf16` triplet.
 pub fn llama_like(facts: &LlamaLikeFacts) -> ForwardPlan {
-    dsl::trace_semantic(&facts.shape(), |m| {
+    dsl::trace_semantic("llama_like", &facts.shape(), |m| {
         dsl::seam(m.trace(), &dsl::seam::IN, &[], None);
         let f = facts.clone();
         let q_w = f.q_width();
@@ -116,7 +119,7 @@ pub fn llama_like(facts: &LlamaLikeFacts) -> ForwardPlan {
 /// The LOWERED llama_like: the SAME text as [`llama_like`], traced with
 /// the CUDA backend facts and a fire class in hand, so the class arms run
 /// and the traced form states its kernels as raw signatures
-/// ([`crate::dsl::cuda`]; north-star-dsl.md). One trace per
+/// ([`model_compiler::dsl::cuda`]; north-star-dsl.md). One trace per
 /// [`FireClass`]; family names `llama_like.cuda.decode` / `.prefill`.
 pub fn llama_like_cuda(
     facts: &LlamaLikeFacts,
@@ -170,7 +173,7 @@ fn llama_like_metal_text(
     // decode step) and M>1 (the multi-batch lane). `FireClass` is the
     // same instantiation index it is on CUDA.
     let multi_batch = class != FireClass::Decode;
-    dsl::trace_metal(&facts.shape(), class, |m| {
+    dsl::trace_metal("llama_like", &facts.shape(), class, |m| {
         let f = facts.clone();
         let q_w = f.q_width();
         let kv_w = f.kv_width();
@@ -278,7 +281,7 @@ fn llama_like_cuda_text(
     cuda: &LlamaLikeCudaFacts,
     class: FireClass,
 ) -> ForwardPlan {
-    dsl::trace_cuda(&facts.shape(), class, |m| {
+    dsl::trace_cuda("llama_like", &facts.shape(), class, |m| {
         dsl::seam(m.trace(), &dsl::seam::IN, &[], None);
         let f = facts.clone();
         let q_w = f.q_width();
@@ -686,7 +689,7 @@ fn llama_like_cuda_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::trace::{Dim, OpKind};
+    use model_compiler::trace::{Dim, OpKind};
 
     /// The traced form of one qwen3 layer, mapped op-by-op to the kernel
     /// sequence `llama_like_forward_paged` launches on the unfused path.
@@ -1075,8 +1078,8 @@ mod tests {
 #[cfg(test)]
 mod metal_tests {
     use super::*;
-    use crate::facts::LlamaLikeMetalFacts;
-    use crate::trace::OpKind;
+    use self::facts::LlamaLikeMetalFacts;
+    use model_compiler::trace::OpKind;
 
     /// The Metal text TRACES, and every kernel it states is declared in
     /// Metal's table.
@@ -1097,10 +1100,10 @@ mod metal_tests {
                 class,
             );
             assert_eq!(
-                crate::kernels::Backend::of_family(&plan.family),
-                Some(crate::kernels::Backend::Metal)
+                model_compiler::kernels::Backend::of_family(&plan.family),
+                Some(model_compiler::kernels::Backend::Metal)
             );
-            assert!(crate::kernels::check_plan(&plan).is_empty());
+            assert!(model_compiler::kernels::check_plan(&plan).is_empty());
 
             let launches = plan
                 .ops
