@@ -522,12 +522,23 @@ bool gemma4_forward_declared(
         }
         case PieForwardOpKind::LmHead: {
             const std::string_view name = plan.weight_name(op);
-            const void* input = ws.norm_x.data();
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "lm_head inputs");
+            need(outs, 1, "lm_head outputs");
+            const void* input = values.slot(ins[0]);
             int rows = N;
             if (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
                 num_logit_rows < N) {
+                // The gather's DESTINATION stays named. The epilogue is
+                // one statement that lowers to three rectangles, so the
+                // row-gathered activation between them is a driver
+                // scratch and not a traced value -- there is no id to
+                // ask for. It becomes one when the epilogue states its
+                // gather, which is `Lowerer::epilogue`'s job and not an
+                // arm's.
                 kernels::launch_gather_bf16_rows(
-                    static_cast<const std::uint16_t*>(ws.norm_x.data()),
+                    static_cast<const std::uint16_t*>(input),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_y.data()),
                     num_logit_rows, H, stream);
@@ -535,7 +546,7 @@ bool gemma4_forward_declared(
                 rows = num_logit_rows;
             }
             lm_head_rows = rows;
-            gemm(input, name, ws.logits.data(), rows, V, H, 0.f);
+            gemm(input, name, values.slot(outs[0]), rows, V, H, 0.f);
             break;
         }
         case PieForwardOpKind::Launch: {
@@ -580,20 +591,39 @@ bool gemma4_forward_declared(
                     "has no adapter support on either side (arc 2 should "
                     "have declined this fire)");
             case G4Kernel::ResidualAdd:
-                kernels::launch_residual_add_bf16(
-                    per_layer_proj, per_layer_token,
-                    static_cast<std::size_t>(N) * L * ple_dim, stream);
+                {
+                    const auto ins = plan.inputs(op);
+                    const auto outs = plan.outputs(op);
+                    need(ins, 2, "residual_add inputs");
+                    need(outs, 1, "residual_add outputs");
+                    kernels::launch_residual_add_bf16(
+                        values.slot(outs[0]), values.slot(ins[1]),
+                        static_cast<std::size_t>(N) * row_width(outs[0]),
+                        stream);
+                }
                 break;
             case G4Kernel::TransposeNldToLnd:
-                kernels::launch_transpose_bf16_nld_to_lnd(
-                    static_cast<const std::uint16_t*>(per_layer_proj),
-                    static_cast<std::uint16_t*>(per_layer_token),
-                    N, L, ple_dim, stream);
+                {
+                    // The three EXTENTS stay config: this value's rows
+                    // are `[N, L, ple_dim]`, so `Tokens` is off the
+                    // leading axis and it has no row width at all --
+                    // one of the six such kernels named in
+                    // `model/tests/arena_soundness.rs`.
+                    const auto ins = plan.inputs(op);
+                    const auto outs = plan.outputs(op);
+                    need(ins, 1, "transpose inputs");
+                    need(outs, 1, "transpose outputs");
+                    kernels::launch_transpose_bf16_nld_to_lnd(
+                        static_cast<const std::uint16_t*>(values.slot(ins[0])),
+                        static_cast<std::uint16_t*>(values.slot(outs[0])),
+                        N, L, ple_dim, stream);
+                }
                 break;
             case G4Kernel::QkvPackedPost: {
                 auto kv_view = cache.layer_view(cur_layer);
                 kernels::launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
-                    ws.qkv_fused.data(), ws.q.data(),
+                    values.slot(plan.inputs(op)[0]),
+                    values.slot(plan.outputs(op)[0]),
                     kv_view.k_pages, kv_view.v_pages,
                     require(w, aux(0)).data(), require(w, aux(1)).data(),
                     positions, kv_page_indices, kv_page_indptr,
@@ -606,8 +636,15 @@ bool gemma4_forward_declared(
             }
             case G4Kernel::QkRmsnormRopeRounded: {
                 const bool q_only = names.size == 1;
+                const auto outs_r = plan.outputs(op);
+                need(outs_r, 1, "rounded qk-norm-rope outputs");
                 kernels::launch_qk_rmsnorm_rope_bf16_rounded(
-                    ws.q.data(), ws.k.data(), require(w, aux(0)).data(),
+                    values.slot(outs_r[0]),
+                    // Q-ONLY states one value, so there is no k to ask
+                    // for; the kernel is told `num_kv_heads = 0` below
+                    // and never reads it.
+                    values.slot(outs_r[outs_r.size > 1 ? 1 : 0]),
+                    require(w, aux(0)).data(),
                     q_only ? nullptr : require(w, aux(1)).data(),
                     positions, N, cfg.num_attention_heads,
                     q_only ? 0 : cur_hk / cur_d, cur_d,
@@ -617,16 +654,21 @@ bool gemma4_forward_declared(
             }
             case G4Kernel::RopeQOnlyPartial:
                 kernels::launch_rope_partial_bf16(
-                    ws.q.data(), ws.q.data(), positions, N,
+                    values.slot(plan.outputs(op)[0]),
+                    values.slot(plan.outputs(op)[0]), positions, N,
                     cfg.num_attention_heads, /*num_kv_heads=*/0, cur_d,
                     rotary_of(cur_layer),
                     w.per_layer_rope_theta[static_cast<std::size_t>(cur_layer)],
                     stream);
                 break;
             case G4Kernel::RmsnormNoScale:
-                kernels::launch_rmsnorm_no_scale_bf16(
-                    ws.v.data(), ws.v.data(), N * (cur_hk / cur_d), cur_d,
-                    eps, stream);
+                {
+                    const auto outs = plan.outputs(op);
+                    need(outs, 1, "v-norm outputs");
+                    kernels::launch_rmsnorm_no_scale_bf16(
+                        values.slot(outs[0]), values.slot(outs[0]),
+                        N * (row_width(outs[0]) / cur_d), cur_d, eps, stream);
+                }
                 break;
             case G4Kernel::WriteKvToPages: {
                 auto kv_view = cache.layer_view(cur_layer);
@@ -635,7 +677,8 @@ bool gemma4_forward_declared(
                 // kernel dereferenced it — the illegal access this
                 // drive faulted with on its first live fire.
                 kernels::launch_write_kv_to_pages(
-                    kv_view, ws.k.data(), ws.v.data(),
+                    kv_view, values.slot(plan.inputs(op)[0]),
+                    values.slot(plan.inputs(op)[1]),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, N, R, stream, row_valid_d);
                 break;
@@ -666,8 +709,15 @@ bool gemma4_forward_declared(
                 break;
             }
             case G4Kernel::ChunkedGegluTanh:
-                kernels::launch_chunked_geglu_tanh_bf16(
-                    ws.gate_up_fused.data(), ws.gate.data(), N, cur_inter, stream);
+                {
+                    const auto ins = plan.inputs(op);
+                    const auto outs = plan.outputs(op);
+                    need(ins, 1, "chunked geglu inputs");
+                    need(outs, 1, "chunked geglu outputs");
+                    kernels::launch_chunked_geglu_tanh_bf16(
+                        values.slot(ins[0]), values.slot(outs[0]), N,
+                        row_width(outs[0]), stream);
+                }
                 break;
             case G4Kernel::GegluTanh: {
                 // TWO sites for one kernel, told apart by the WIDTH the
@@ -683,13 +733,19 @@ bool gemma4_forward_declared(
                     const auto* signal =
                         static_cast<const std::uint16_t*>(per_layer_token) +
                         static_cast<std::size_t>(cur_layer) * N * ple_dim;
+                    // The SIGNAL operand stays computed: it is this
+                    // layer's slice of the relay, and the slice is not
+                    // a traced value here -- the declaration passes the
+                    // whole table and the layer offset is the arm's.
                     kernels::launch_geglu_tanh_bf16(
-                        ws.norm_x.data(), signal, ws.norm_x.data(),
-                        N * ple_dim, stream);
+                        values.slot(plan.inputs(op)[0]), signal,
+                        values.slot(out[0]), N * ple_dim, stream);
                 } else {
+                    const auto ins = plan.inputs(op);
+                    need(ins, 2, "geglu pair inputs");
                     kernels::launch_geglu_tanh_bf16(
-                        ws.gate.data(), ws.up.data(), ws.gate.data(),
-                        N * cur_inter, stream);
+                        values.slot(ins[0]), values.slot(ins[1]),
+                        values.slot(out[0]), N * row_width(out[0]), stream);
                 }
                 break;
             }
@@ -739,7 +795,8 @@ bool gemma4_forward_declared(
             }
             case G4Kernel::LogitSoftcap:
                 kernels::launch_logit_softcap_bf16(
-                    ws.logits.data(), fwd_cfg.final_logit_softcap,
+                    values.slot(plan.outputs(op)[0]),
+                    fwd_cfg.final_logit_softcap,
                     static_cast<std::size_t>(lm_head_rows) * V, stream);
                 break;
             case G4Kernel::AttnFlashinferPrefill: {
