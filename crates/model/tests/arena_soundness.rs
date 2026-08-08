@@ -172,6 +172,39 @@ fn families() -> Vec<(&'static str, FireClass, ForwardPlan)> {
             ),
         ));
     }
+    // The DRIVEN families, both classes. These matter most and were the
+    // last to be swept: a declared-only family whose assignment overlaps
+    // has nothing to corrupt yet, while these three are executing.
+    for f in [FireClass::Decode, FireClass::Prefill] {
+        out.push((
+            "gemma_4",
+            f,
+            gemma_4::forward::gemma4_cuda(
+                &gemma_4::forward::facts::Gemma4Facts::gemma_4_e4b(),
+                &gemma_4::forward::facts::Gemma4CudaFacts::gemma_4_e4b_synthetic(),
+                f,
+            ),
+        ));
+        out.push((
+            "gpt_oss",
+            f,
+            gpt_oss::forward::gpt_oss_cuda(
+                &gpt_oss::forward::facts::GptOssFacts::gpt_oss_20b(),
+                &gpt_oss::forward::facts::GptOssCudaFacts::gpt_oss_20b_synthetic(),
+                f,
+            ),
+        ));
+        out.push((
+            "qwen3_5",
+            f,
+            qwen_3_5::forward::qwen3_5_hybrid_cuda(
+                &qwen_3_5::forward::facts::Qwen35HybridFacts::qwen3_5_0_8b(),
+                &qwen_3_5::forward::facts::Qwen35CudaFacts::qwen3_5_0_8b_synthetic(),
+                f,
+            ),
+        ));
+    }
+
     let d = FireClass::Decode;
     out.push((
         "glm5",
