@@ -70,7 +70,7 @@ template <typename T>
 }
 
 #define instantiate_rope_neox(name, itype)                       \
-  template [[host_name("rope_neox_decode_" #name)]]              \
+  template [[host_name("neox_decode_" #name)]]              \
   [[kernel]] void rope_neox_decode<itype>(                       \
       device itype*, const device int*, const constant float&,   \
       const constant float&, const constant int&, uint2, uint2);
@@ -104,7 +104,7 @@ template <typename T>
 }
 
 #define instantiate_rope_neox_mb(name, itype)                    \
-  template [[host_name("rope_neox_mb_" #name)]]                  \
+  template [[host_name("neox_mb_" #name)]]                  \
   [[kernel]] void rope_neox_mb<itype>(                           \
       device itype*, const device int*, const constant float&,   \
       const constant float&, const constant int&, uint3, uint3);
@@ -134,7 +134,7 @@ template <typename T>
 }
 
 #define instantiate_rope_neox_strided(name, itype)               \
-  template [[host_name("rope_neox_strided_" #name)]]             \
+  template [[host_name("neox_strided_" #name)]]             \
   [[kernel]] void rope_neox_strided<itype>(                      \
       device itype*, const device int*, const constant float&,   \
       const constant float&, const constant int&,                \
@@ -188,7 +188,7 @@ template <typename T>
 }
 
 #define instantiate_rope_prop(name, itype)                       \
-  template [[host_name("rope_neox_prop_decode_" #name)]]         \
+  template [[host_name("neox_prop_decode_" #name)]]         \
   [[kernel]] void rope_neox_prop_decode<itype>(                  \
       device itype*, const device int*, const constant float&,   \
       const constant float&, const constant int&, uint2);
@@ -227,7 +227,7 @@ template <typename T>
 }
 
 #define instantiate_rope_prop_mb(name, itype)                    \
-  template [[host_name("rope_neox_prop_mb_" #name)]]             \
+  template [[host_name("neox_prop_mb_" #name)]]             \
   [[kernel]] void rope_neox_prop_mb<itype>(                      \
       device itype*, const device int*, const constant float&,   \
       const constant float&, const constant int&, uint3, uint3);
@@ -294,11 +294,11 @@ template <typename T>
 }
 
 #define instantiate_rope_freqs(name, itype)                        \
-  template [[host_name("rope_neox_freqs_decode_" #name)]]          \
+  template [[host_name("neox_freqs_decode_" #name)]]          \
   [[kernel]] void rope_neox_freqs_decode<itype>(                   \
       device itype*, const device int*, const constant float&,     \
       const device float*, const constant int&, const constant float&, uint2, uint2); \
-  template [[host_name("rope_neox_freqs_mb_" #name)]]              \
+  template [[host_name("neox_freqs_mb_" #name)]]              \
   [[kernel]] void rope_neox_freqs_mb<itype>(                       \
       device itype*, const device int*, const constant float&,     \
       const device float*, const constant int&, const constant float&, \

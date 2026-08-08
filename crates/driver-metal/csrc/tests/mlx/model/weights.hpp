@@ -22,7 +22,7 @@
 
 #include <mlx/ops.h>        // mx::take / mx::dequantize (dequant-gather embed)
 
-#include "ops/gemm.hpp"     // ops::linear / ops::quantized_linear (beta)
+#include "gemm/gemm.hpp"     // ops::linear / ops::quantized_linear (beta)
 #include "ops/tensor.hpp"   // pie_metal_driver::Tensor + ops::empty_tensor() (beta)
 #include "model/config.hpp" // ModelConfig (quant_bits / quant_group_size)
 

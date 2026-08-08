@@ -1,4 +1,4 @@
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 
 #include <mlx/mlx.h>
 

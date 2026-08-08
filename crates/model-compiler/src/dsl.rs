@@ -1597,14 +1597,14 @@ pub mod metal {
         .expect("the residual landing produces its value")
     }
 
-    /// `rope.metal::rope_neox_decode_bfloat16` (M=1) /
-    /// `rope_neox_mb_bfloat16` (M>1). One dispatch for q and k together,
+    /// `rope/rope.metal::neox_decode_bfloat16` (M=1) /
+    /// `neox_mb_bfloat16` (M>1). One dispatch for q and k together,
     /// as the plan states it (`declared_dag.hpp`'s `Kind::Rope`).
     pub fn rope(q: &Val, k: &Val, multi_batch: bool) -> (Val, Val) {
         let kernel = if multi_batch {
-            "rope_neox_mb_bfloat16"
+            "neox_mb_bfloat16"
         } else {
-            "rope_neox_decode_bfloat16"
+            "neox_decode_bfloat16"
         };
         let q_sh = same_shape(q);
         let k_sh = same_shape(k);
@@ -2583,7 +2583,7 @@ pub mod cuda {
         .expect("the norm+rope produces its value")
     }
 
-    /// `kernels::attn::split_gate_up_bf16`: split a packed `[N, 2·I]` bank.
+    /// `kernels::layout::split_gate_up_bf16`: split a packed `[N, 2·I]` bank.
     ///
     /// By HALVES, unlike [`Self::deinterleave_rows`], which splits by parity.
     /// Same shape, different layout, and the checkpoint decides which.
@@ -2591,7 +2591,7 @@ pub mod cuda {
         let outs = record_many(
             &packed.t,
             packed.layer,
-            "attn::split_gate_up_bf16",
+            "layout::split_gate_up_bf16",
             vec![],
             vec![packed.id],
             vec![
@@ -4293,7 +4293,7 @@ pub mod cuda {
     // did. This is the `dyn` axis the trace module doc describes, at the one
     // point where it stops being expressible as a row range.
 
-    /// `kernels::attn::topk_sigmoid_bf16`: the router — each token's top-k
+    /// `kernels::moe::topk_sigmoid_bf16`: the router — each token's top-k
     /// experts and their weights, gated by sigmoid rather than softmax.
     ///
     /// Returns `(topk_idx, topk_w)`. The ONE statement here that is not
@@ -4302,7 +4302,7 @@ pub mod cuda {
         let outs = record_many(
             &logits.t,
             logits.layer,
-            "attn::topk_sigmoid_bf16",
+            "moe::topk_sigmoid_bf16",
             vec![],
             vec![logits.id],
             vec![

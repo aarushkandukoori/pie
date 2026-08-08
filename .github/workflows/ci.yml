@@ -136,7 +136,9 @@ jobs:
       # Compile every target — including benches and the not-yet-consumed
       # data-plane crate `transport` — so they cannot silently bitrot.
       - name: cargo build (workspace, all targets)
-        run: cargo build --workspace --all-targets --exclude pie-server-py
+        run: |
+          cargo build --workspace --all-targets \
+            --exclude pie-server-py --exclude driver-cuda-new
 
       # Run the workspace test set (benches are compiled above, not executed).
       # worker's library tests are pure-Rust, so run them explicitly here to
@@ -144,8 +146,28 @@ jobs:
       # a driver feature and stay in the dedicated jobs below.
       - name: cargo test (workspace + worker lib)
         run: |
-          cargo test --workspace --exclude pie-server-py --exclude worker
+          cargo test --workspace \
+            --exclude pie-server-py --exclude worker --exclude driver-cuda-new
           cargo test -p worker --lib
+
+      # driver-cuda-new is excluded from the two sweeps above because it has no
+      # default feature and refuses to build until one of `cuda-12` / `cuda-13`
+      # is chosen. That is deliberate: the CUDA runtime API is not ABI-stable
+      # across major versions (`cudaGraphAddNode` takes five arguments in
+      # libcudart.so.12 and six in .so.13), and since this crate resolves
+      # symbols by name at run time, a wrong guess is a segfault inside the
+      # driver rather than a build error. So it is built here explicitly
+      # instead, which is also the only way to cover BOTH ABIs.
+      #
+      # No CUDA toolkit and no GPU are needed for either: cudarc is pinned to a
+      # named version with `fallback-dynamic-loading`, so nothing is linked,
+      # and the GPU tests skip themselves when no device is present. What runs
+      # is the host logic the crate is mostly made of -- including the four
+      # differential goldens pinned against the C++ in `tests/oracle/`.
+      - name: cargo test (driver-cuda-new, both CUDA ABIs)
+        run: |
+          cargo test -p driver-cuda-new --features cuda-12
+          cargo test -p driver-cuda-new --features cuda-13
 
   # Drift guard for the committed C++ driver ABI header: regenerate it with
   # pie-driver-abi-cbindgen (cbindgen over pie-driver-abi's repr(C)/cabi surface)
@@ -202,6 +224,61 @@ jobs:
             echo "Regenerate with: cargo run -p model-loader-capi-cbindgen   (then commit)"
             exit 1
           fi
+
+  # Metal host C++ — `driver-metal/build.rs` bails when target_os != macos, so
+  # nothing in this file has ever reached that driver's C++ and a plain
+  # redefinition can sit in HEAD indefinitely. Three did, from one bad merge:
+  # `DeviceTuning::qmm_min_batch_moe` declared twice in one struct, `case 8:`
+  # twice in one switch, and `gemma4::qmv_kn` defined in both a header and a
+  # .cpp. Every one is a hard compile error, and the only platform that would
+  # have caught them is the one platform CI does not have.
+  #
+  # `mtl4_context.hpp` says the driver is built for this: "Pure-C++ surface (no
+  # Obj-C types leak)", with the Metal-4 objects behind a PIMPL in one .mm. So
+  # 28 of its 34 .cpp type-check under plain g++ with the include roots CMake
+  # already passes. This compiles nothing and links nothing; it catches the
+  # class of defect that costs a whole platform's build for a one-line reason.
+  metal-host-syntax:
+    name: metal host C++ (syntax only, no Apple SDK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Type-check driver-metal's host C++
+        run: python3 scripts/metal-host-syntax.py
+
+  # Metal kernel table — the shader tree instantiates its entrypoints from
+  # macros, so `kernels-metal`'s table declares one row per KERNEL plus the
+  # axes it is stamped over, and the product must be exactly what the shaders
+  # hold. The Rust half of that comparison is a normal `cargo test`; this is
+  # the half that needs a C preprocessor to expand `instantiate_*`.
+  metal-kernel-table:
+    name: metal kernel table (shaders vs entrypoints.generated.txt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check the committed entrypoint set against the shaders
+        run: python3 scripts/metal-kernel-audit.py --check
+
+      - name: Check entrypoint.h accepts every real name and refuses the rest
+        run: python3 scripts/metal-kernel-audit.py --cpp
+
+      # Invariant (2): the driver NAMES a kernel, it does not spell one. Before
+      # this, ~40 sites built entrypoint strings with `+` and nothing checked
+      # the result -- `affine_qmv_routed` is compiled for one of six affine
+      # formats, so a mixture at any other reached the Metal compiler as a
+      # string and failed there, at model load, on a Mac.
+      - name: Check no driver source assembles an entrypoint name
+        run: python3 scripts/metal-kernel-audit.py --no-concat
+
+      # Invariant (3): kernels-metal depends on nothing above it. The headers
+      # there are host C++ now -- launch shapes, params, the name grammar -- so
+      # the boundary is no longer enforced by the file extension, and a
+      # `#include` of a driver header would be the arrow turning around. That
+      # is how `runahead.hpp` ended up in kernels-cuda.
+      - name: Check kernels-metal reaches nothing above it
+        run: python3 scripts/metal-kernel-audit.py --one-way
 
   # WIT drift — the canonical inferlet interface (crates/inferlet/wit) is
   # vendored into ONE remaining copy, bakery's

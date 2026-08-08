@@ -34,7 +34,7 @@
 // whole argument is that the only thing separating the three buffers is the
 // binding, so a params layout retyped here — and left behind by an edit to the
 // shader — would answer the wrong question and look like a binding failure.
-#include "row_gather_params.h"
+#include "layout/row_gather_params.h"
 
 using namespace pie::metal;
 

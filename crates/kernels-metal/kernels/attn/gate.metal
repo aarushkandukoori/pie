@@ -84,7 +84,7 @@ template <typename T>
       uint3, uint3);
 
 #define instantiate_attn_gate(name, itype)                        \
-  template [[host_name("attn_gate_" #name)]]                      \
+  template [[host_name("gate_" #name)]]                      \
   [[kernel]] void attn_gate<itype>(                               \
       device itype*, const device itype*, const constant int&, uint2, uint2);
 

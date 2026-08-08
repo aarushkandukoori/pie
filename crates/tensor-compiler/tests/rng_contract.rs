@@ -193,7 +193,7 @@ fn visit_sources(root: &Path, relative: &Path, files: &mut Vec<PathBuf>) {
 /// It is therefore an owner — the contract's own text, at the second place the
 /// contract requires it — and the only entry [`allowlisted_paths_still_exist`]
 /// exempts, because a checkout that has not built it is not a broken checkout.
-const STAGED_RNG_PREAMBLE: &str = "crates/kernels-metal/kernels/ptir_rng.generated.metal";
+const STAGED_RNG_PREAMBLE: &str = "crates/kernels-metal/kernels/ptir/ptir_rng.generated.metal";
 
 /// The four allowlists [`rng_magic_is_owned_by_the_contract`] reads, named so
 /// that [`allowlisted_paths_still_exist`] can check the same lists rather than
@@ -249,11 +249,12 @@ fn allowlists() -> Allowlists {
             "crates/driver-cuda/csrc/src/model/llama_like/llama_like.cpp",
             // boost-style `hash_combine` for the GEMM autotune cache key; the
             // golden-ratio word again, and nothing to do with the PTIR stream.
-            // Both moved to `kernels-cuda` with the rest of `ops/` when the
-            // kernel crate split; the entries followed them, which is the job
-            // `allowlisted_paths_still_exist` now does automatically.
-            "crates/kernels-cuda/csrc/src/ops/gemm.cpp",
-            "crates/kernels-cuda/csrc/src/ops/tuning_cache.hpp",
+            // These have moved twice — `driver-cuda/ops/` to `kernels-cuda/ops/`
+            // when the kernel crate split, then into the family layout — and
+            // both times `allowlisted_paths_still_exist` named the stale entry
+            // instead of letting the guard fail somewhere unrelated.
+            "crates/kernels-cuda/csrc/src/gemm/gemm.cpp",
+            "crates/kernels-cuda/csrc/src/tuning_cache.hpp",
             // And again, for the stage-hook fingerprint's `hash_combine`.
             "crates/driver-cuda/csrc/src/pipeline/dispatch.cu",
         ],

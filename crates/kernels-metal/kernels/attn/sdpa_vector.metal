@@ -97,29 +97,7 @@ template <typename T, int D, int V = D>
     values += inner_v_stride;
   }
 
-  if (simd_lid == 0) {
-    max_scores[simd_gid] = max_score;
-    sum_exp_scores[simd_gid] = sum_exp_score;
-  }
-  threadgroup_barrier(mem_flags::mem_threadgroup);
-  max_score = max_scores[simd_lid];
-  U new_max = simd_max(max_score);
-  U factor = fast::exp(max_score - new_max);
-  sum_exp_score = simd_sum(sum_exp_scores[simd_lid] * factor);
-
-  for (int i = 0; i < v_per_thread; i++) {
-    outputs[simd_lid * BD + simd_gid] = o[i];
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    o[i] = simd_sum(outputs[simd_gid * BD + simd_lid] * factor);
-    o[i] = sum_exp_score == 0 ? o[i] : (o[i] / sum_exp_score);
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-  }
-
-  if (simd_lid == 0) {
-    for (int i = 0; i < v_per_thread; i++) {
-      out[i] = static_cast<T>(o[i]);
-    }
-  }
+  SDPA_ONLINE_FINISH()
 }
 
 #define instantiate_sdpa_decode(name, itype, d, v)                       \

@@ -36,7 +36,7 @@
 
 using namespace metal;
 
-#include "moe_params.h"
+#include "params.h"
 
 // Top-k over each router-logit row, then a softmax over only the selected
 // values. One threadgroup owns one row and one lane owns one expert.
@@ -203,7 +203,7 @@ constant constexpr uint kMaxExperts = 1024;
 /// `perm` is a permutation of `[0, n)` followed by padding, never a truncation:
 /// every pair the router chose gets a position, because a pair silently dropped
 /// here is an expert contribution silently zeroed later.
-[[kernel]] void moe_route_sort(
+[[kernel]] void route_sort(
     const device int* expert_ids [[buffer(0)]],
     device int* perm            [[buffer(1)]],
     device int* row_expert      [[buffer(2)]],
@@ -310,7 +310,7 @@ constant constexpr uint kMaxExperts = 1024;
 /// real weight and the result is discarded, so their VALUE never matters -- but
 /// an unwritten row is whatever the pool held, and bf16 garbage can be inf,
 /// which a later `simd_sum` would spread across a tile that does matter.
-[[kernel]] void moe_route_gather(
+[[kernel]] void route_gather(
     const device bfloat* x     [[buffer(0)]],
     device bfloat* out         [[buffer(1)]],
     const device int* perm     [[buffer(2)]],
@@ -336,7 +336,7 @@ constant constexpr uint kMaxExperts = 1024;
 /// is placed -- but reading `y` at -1 if it ever did would be a wild load, and
 /// the whole reason the sort is a permutation rather than a filter is that a
 /// silently dropped expert is a silently wrong answer.
-[[kernel]] void moe_combine_sorted(
+[[kernel]] void combine_sorted(
     const device bfloat* y              [[buffer(0)]],
     const device bfloat* expert_weights [[buffer(1)]],
     device bfloat* out                  [[buffer(2)]],
