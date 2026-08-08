@@ -67,7 +67,7 @@ void dispatch_attention_flashinfer_prefill_sm90_bf16(
 
 }  // namespace pie_cuda_driver::kernels::attn
 
-namespace pie_cuda_driver::ops::detail {
+namespace pie_cuda_driver::kernels::attn::detail {
 
 void launch_attention_xqa_decode_bf16_gqa8_sm90(
     const void* /*q*/,
@@ -108,4 +108,4 @@ void launch_attention_xqa_decode_bf16_gqa8_sm90_prepared(
 
 void xqa_decode_bf16_gqa8_sm90_warmup_current_device() {}
 
-}  // namespace pie_cuda_driver::ops::detail
+}  // namespace pie_cuda_driver::kernels::attn::detail

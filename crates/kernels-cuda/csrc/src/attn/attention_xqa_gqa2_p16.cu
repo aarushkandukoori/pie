@@ -34,7 +34,7 @@
 #undef launchMHA
 #undef launchMHAFlashInfer
 
-namespace pie_cuda_driver::ops::detail {
+namespace pie_cuda_driver::kernels::attn::detail {
 
 namespace {
 
@@ -253,4 +253,4 @@ void launch_attention_xqa_decode_bf16_gqa2_p16_prepared(
         stream);
 }
 
-}  // namespace pie_cuda_driver::ops::detail
+}  // namespace pie_cuda_driver::kernels::attn::detail
