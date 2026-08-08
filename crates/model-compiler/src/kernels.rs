@@ -1,43 +1,36 @@
-//! ② KERNEL SIGNATURES — one per kernel, backend-owned
-//! (`.wiki/tart/dsl.md` ②).
+//! ② KERNEL SIGNATURES — the compiler's end of the tables.
 //!
-//! `dsl::cuda` has ten wrappers over five attention kernels because
-//! `_region` / `_planned` / `_capture` / `_dequant` encode the DISPATCH
-//! CONTEXT in the wrapper name. The context is a property of the call
-//! site; what belongs to the kernel is its symbol and its contract. This
-//! module holds the contract, once per symbol.
+//! The rows moved out. A kernel's contract belongs beside the kernel, so the
+//! CUDA table is [`kernels_cuda::KERNELS`] and the Metal one is
+//! [`kernels_metal::KERNELS`], each in the crate that also holds the `.cu` /
+//! `.metal` it describes — one source file and one table row, same directory,
+//! same diff hunk. The words a row is written in are the `kernels` crate's,
+//! which is also where the reasons for `whole` / `needs` / `lacks` / `sink`
+//! are written down.
 //!
-//! Four declarations, each replacing something that is a hand-written
-//! runtime rule today:
+//! What stays here is what is about the COMPILER rather than about a kernel:
+//! [`Backend`], which reads a backend out of a traced family name, and
+//! [`check_plan`], which walks a [`ForwardPlan`]. Both are re-exported
+//! through this module so call sites keep saying `kernels::sig(..)`.
 //!
-//! | declaration | replaces |
-//! |---|---|
-//! | `whole`   | `if c.head_dim_padded \|\| (window_one && c.xqa_decode)` in the model body |
-//! | `lacks`   | "a score-wanting program under XQA fails loudly PTIR-side" (a C++ throw) |
-//! | `needs`   | the prepare a stated kernel obligates, named nowhere |
-//! | `sink`    | `emit_cuda::emit_masked_pages_bracket`'s hardcoded page substitution |
-//!
-//! `whole` is CHECKED HERE, at trace time — which is load time, since a
-//! declaration is traced when the model loads. The other three are
-//! declared but not yet consumed: `needs`/`sink` are the emitter's
-//! knowledge until the launch ABI flattens (migration step 6), and
-//! `lacks` needs the deployment's servable-seam set, which is the
-//! support-matrix work. Declaring them here first is the point — the
-//! table is where they land, and it exists.
-//!
-//! The table is kept honest by [`check_plan`]'s second rule: every
-//! `OpKind::Launch` symbol a trace records must be declared here. A new
-//! kernel cannot be stated without its contract.
+//! The tables are consumed with `default-features = false`, so reading a
+//! symbol's contract does not build a single `.cu`.
 
 use crate::trace::{ForwardPlan, OpKind};
+
+// The vocabulary and the two tables, re-exported so this module reads as one
+// surface. `Cap` and `Prepare` are named by model texts and by the tests
+// below; `KernelSig` is what `trace` and `emit_cuda` hold a reference to.
+pub use kernels::{Cap, KernelSig, Prepare};
+pub use kernels_cuda::KERNELS;
+pub use kernels_metal::KERNELS as KERNELS_METAL;
 
 /// Which backend's kernels a lowered trace states.
 ///
 /// The table is per-BACKEND because a kernel signature is backend-owned
-/// (`.wiki/tart/dsl.md` ②: `crates/driver-cuda/csrc/kernels.rs`). A model text is
-/// written for one backend and states that backend's symbols; the
-/// family name says which — `llama_like.cuda.decode` is CUDA's,
-/// `llama_like.metal.decode` would be Metal's.
+/// (`.wiki/tart/dsl.md` ②). A model text is written for one backend and
+/// states that backend's symbols; the family name says which —
+/// `llama_like.cuda.decode` is CUDA's, `llama_like.metal.decode` is Metal's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
     Cuda,
@@ -64,284 +57,9 @@ impl Backend {
     }
 }
 
-/// A capability a seam may ask of the kernel covering its rows. Named
-/// after the seam vocabulary (`.wiki/tart/dsl.md` ①), because that is
-/// what a `lacks` line refuses to serve.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Cap {
-    /// The attention scores, published for an `attn.out` observer.
-    Scores,
-    /// The page-mask sink an `attn.q` tap writes.
-    PageMaskSink,
-}
-
-/// The host-side plan a kernel's contract obligates: stated so a reader
-/// of the model text can see which prepare a launch drags in, rather
-/// than reading the driver to find out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Prepare {
-    /// No host plan.
-    None,
-    /// The FlashInfer decode plan (per fire, per layer group).
-    DecodePlan,
-    /// The FlashInfer ragged prefill plan.
-    PrefillPlan,
-    /// The custom-mask plan (`attn_page_mask`'s consumer).
-    CustomPlan,
-    /// XQA's fire-wide prepare — R-shaped, so it cannot be built per
-    /// row window. This is why `xqa_decode` is also `whole`.
-    FireWide,
-}
-
-/// One kernel's contract.
-pub struct KernelSig {
-    /// The dsl-side name (what a model text spells).
-    pub name: &'static str,
-    /// The C++ launcher symbol the trace records.
-    pub symbol: &'static str,
-    /// The kernel REFUSES a row split: it may not be stated inside a
-    /// [`OpKind::Peel`]'s regions, because its addressing (a fire-wide
-    /// prepare, a padded staging buffer) is not row-offsettable.
-    pub whole: bool,
-    /// The host plan its contract obligates.
-    pub needs: Prepare,
-    /// Capabilities this kernel cannot serve — a seam asking for one of
-    /// these over rows this kernel covers is unservable.
-    pub lacks: &'static [Cap],
-    /// Where a sink-writing seam's output lands, if this kernel accepts
-    /// one (`sink pages -> kv.pages`).
-    pub sink: Option<&'static str>,
-    /// On a union tail layer this dispatch pairs the DEPTH PREFIX plan
-    /// (and its dedicated workspace) instead of the fire's own plan.
-    ///
-    /// This was the `PrefixPlanSwap` half of the retired per-op
-    /// `DepthRole` — a word the IR carried on one launch per layer of
-    /// every depth-declaring trace, restating a fact about the KERNEL.
-    /// Migration step 5 moved it here.
-    pub depth_prefix_plan: bool,
-}
-
-/// Declare one kernel. The syntax is `.wiki/tart/dsl.md` ②'s, minus the
-/// operand shapes: those stay with the emitter until the launch ABI
-/// flattens, and stating them twice would be the duplication this
-/// redesign exists to remove.
-macro_rules! kernel {
-    ($name:ident $symbol:literal $(, $key:ident = $value:expr)* $(,)?) => {
-        KernelSig {
-            name: stringify!($name),
-            symbol: $symbol,
-            $($key: $value,)*
-            ..KernelSig {
-                name: "",
-                symbol: "",
-                whole: false,
-                needs: Prepare::None,
-                lacks: &[],
-                sink: None,
-                depth_prefix_plan: false,
-            }
-        }
-    };
-}
-
-/// Every kernel a lowered declaration may state.
-pub static KERNELS: &[KernelSig] = &[
-    // ── attention ──────────────────────────────────────────────────
-    kernel!(flashinfer_decode "dispatch_attention_flashinfer_decode",
-        needs = Prepare::DecodePlan, sink = Some("kv.pages"),
-        depth_prefix_plan = true),
-    kernel!(flashinfer_decode_capture "dispatch_attention_flashinfer_decode_capture",
-        needs = Prepare::DecodePlan, sink = Some("kv.pages")),
-    kernel!(flashinfer_prefill "dispatch_attention_flashinfer_prefill_bf16",
-        needs = Prepare::PrefillPlan, sink = Some("kv.pages")),
-    // The plan-free prefill wrapper: it builds an R-shaped plan on the
-    // way in, so it owes its caller nothing and cannot be handed a row
-    // window — `whole`, and `FireWide` for the same reason XQA is.
-    kernel!(flashinfer_prefill_planless "ops::launch_attention_flashinfer_prefill",
-        whole = true, needs = Prepare::FireWide, sink = Some("kv.pages")),
-    // Head dims flashinfer's prefill template rejects (gemma-4's 512)
-    // take a naive paged kernel instead. No plan at all; fire-shaped.
-    kernel!(attention_naive_paged "ops::launch_attention_naive_paged",
-        whole = true, sink = Some("kv.pages")),
-    kernel!(flashinfer_prefill_capture "dispatch_attention_flashinfer_prefill_capture_bf16",
-        needs = Prepare::PrefillPlan, sink = Some("kv.pages")),
-    kernel!(flashinfer_custom "dispatch_attention_flashinfer_prefill_custom",
-        needs = Prepare::CustomPlan, sink = Some("kv.pages")),
-    // XQA: its prepare is fire-wide (R-shaped), so the kernel cannot be
-    // given a row window — `whole`. And no capture variant of it
-    // exists, so it cannot publish scores — `lacks Scores`. Both are
-    // hand-written rules today: the first is the model body's
-    // `window_one && c.xqa_decode` test, the second a C++ throw.
-    kernel!(xqa_decode "launch_attention_xqa_decode_bf16_prepared",
-        whole = true, needs = Prepare::FireWide, lacks = &[Cap::Scores]),
-    kernel!(dequant "launch_dequant_kv_cache_layer_to_bf16_active"),
-
-    // ── qkv / norms / rope / kv write ──────────────────────────────
-    kernel!(rope_standard_table "launch_rope_standard_table"),
-    kernel!(qk_rmsnorm_rope "launch_qk_rmsnorm_rope_bf16"),
-    kernel!(qkv_decode_fused "launch_qkv_decode_qk_norm_rope_write_kv_bf16"),
-    kernel!(write_kv_explicit "launch_write_kv_explicit_bf16"),
-    kernel!(write_kv_to_pages "launch_write_kv_to_pages"),
-
-    // ── mlp ────────────────────────────────────────────────────────
-    // Two spellings of one arithmetic, and the BINDING picks: a packed
-    // gate‖up bank feeds the chunked form, two narrow buffers the pair
-    // form. A load-time fact, so the declaration states it.
-    kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
-    kernel!(swiglu "launch_swiglu_bf16"),
-
-    // ── gemma-4 ────────────────────────────────────────────────────
-    // GeGLU-tanh is not a swiglu variant: `gelu_pytorch_tanh` on the
-    // gate is a different function. The packed/pair split is the same
-    // binding question.
-    kernel!(geglu_tanh "launch_geglu_tanh_bf16"),
-    kernel!(chunked_geglu_tanh "launch_chunked_geglu_tanh_bf16"),
-    // Weightless per-head norm (the V-norm) — no gamma, so no variant.
-    kernel!(rmsnorm_no_scale "launch_rmsnorm_no_scale_bf16"),
-    // Four statements in one launch, and two: gemma-4 fuses the next
-    // block's input norm into the previous block's landing, which is why
-    // its layer body appears to be missing one.
-    kernel!(norm_residual_scale_norm "launch_rmsnorm_residual_add_scale_rmsnorm_bf16"),
-    kernel!(norm_residual_add "launch_rmsnorm_residual_add_bf16"),
-    kernel!(scalar_mul "launch_scalar_mul_bf16"),
-    kernel!(logit_softcap "launch_logit_softcap_bf16"),
-    // Q-only rotation: a KV-shared layer's K was rotated at its source
-    // layer. One operand is the statement.
-    kernel!(rope_partial_q_only "launch_rope_partial_bf16"),
-    // Six statements in one launch; the only value that survives is q.
-    kernel!(qkv_packed_post "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
-        sink = Some("kv.pages")),
-    // gemma-4 rounds where qwen3_5 does not, and bf16 rounding is which
-    // numbers come out — so the symbol IS the statement.
-    kernel!(qk_rmsnorm_rope_rounded "launch_qk_rmsnorm_rope_bf16_rounded"),
-    // The PLE relay: [N, L, D] -> [L, N, D], so a layer reads a
-    // contiguous slice. Addressing, not arithmetic.
-    kernel!(transpose_nld_to_lnd "launch_transpose_bf16_nld_to_lnd"),
-
-    // ── MoE ────────────────────────────────────────────────────────
-    // The router's top-k, then the decode GEMV leg's two routed
-    // projections and its combine. The expert axis rides INSIDE the
-    // value on this leg, so the whole branch stays a list of rectangles;
-    // the grouped-GEMM and host-routed legs reach the same numbers by
-    // shapes no `Dim` spells, and are named refusals, not entries.
-    kernel!(topk_softmax "launch_topk_softmax_bf16"),
-    // The whole routed block as one call — permute, both grouped GEMMs,
-    // the activation and the weighted finalize. The leg decode actually
-    // takes, and the only one that is a single rectangle.
-    // Namespaced because it is not a `kernels::launch_*` at all: it is an
-    // `ops::` entry point that installs tactics and runs a CUTLASS
-    // pipeline. The symbol says so.
-    kernel!(moe_fused_cutlass "ops::flashinfer_cutlass_moe_bf16"),
-    kernel!(moe_gate_up_gemv "launch_moe_gate_up_decode_gemv_bf16"),
-    kernel!(moe_down_gemv "launch_moe_down_decode_gemv_bf16"),
-    kernel!(moe_shared_gate_dot "launch_sigmoid_dot_scalar_gate_add_bf16"),
-    kernel!(residual_add_cuda "launch_residual_add_bf16"),
-    // The combine folds the residual when the MoE output lands straight
-    // on the stream (tp=1) — one launch where the semantic text has a
-    // WeightedSum and a ResidualAdd.
-    kernel!(moe_weighted_sum "launch_token_batched_weighted_sum_bf16"),
-    kernel!(moe_weighted_sum_add "launch_token_batched_weighted_sum_add_bf16"),
-
-    // ── gpt-oss ────────────────────────────────────────────────────
-    // The sink rescale, and the fp32 LSE it eats. The LSE has no row of
-    // its own: it is a second OUTPUT of the decode dispatch, requested
-    // by an argument, so the kernel that changes is none.
-    // A projection with its bias in the EPILOGUE — one launch where a
-    // matmul plus an AddBias is two, and a different accumulation order.
-    kernel!(gemm_bias "ops::gemm_act_x_wt_bias_bf16"),
-    // YaRN, as its paper spells it. A deployment's scaling is a load-time
-    // config answer, so it picks a kernel here rather than an argument.
-    kernel!(rope_yarn_original "launch_rope_yarn_original_bf16"),
-    kernel!(attention_sink_rescale "launch_attention_sink_rescale_bf16"),
-    kernel!(bf16_to_fp16 "launch_bf16_to_fp16"),
-    // The routed MXFP4 GEMVs. Like qwen3_5's GEMV leg the expert axis
-    // rides INSIDE the value, so each is one rectangle over `N * k`
-    // routes; unlike it, the weight slot names a per-expert POINTER
-    // BANK, which is a binding question and not a shape one.
-    kernel!(mxfp4_moe_gate_up "launch_mxfp4_moe_gate_up_decode_bf16"),
-    kernel!(mxfp4_moe_down "launch_mxfp4_moe_down_decode_bf16"),
-    // SwiGLU with a clamp. `swiglu_limit` is a config constant, so this
-    // is a different kernel and not a different argument.
-    kernel!(gpt_oss_glu "launch_gpt_oss_glu_bf16"),
-
-    // ── adapters ───────────────────────────────────────────────────
-    kernel!(lora_qkv_correction "pie_lora_qkv_correction"),
-
-    // ── gdn: conv, recurrence, stash ───────────────────────────────
-    kernel!(gdn_conv_update "launch_causal_conv1d_update_batched_bf16"),
-    kernel!(gdn_conv_prefill "launch_causal_conv1d_prefill_batched_bf16"),
-    kernel!(gdn_step "launch_recurrent_gated_delta_step_batched"),
-    kernel!(gdn_step_gqa "launch_recurrent_gated_delta_step_batched_gqa"),
-    kernel!(gdn_step_state_bf16 "launch_recurrent_gated_delta_step_batched_state_bf16"),
-    kernel!(gdn_step_gqa_state_bf16 "launch_recurrent_gated_delta_step_batched_gqa_state_bf16"),
-    kernel!(gdn_prefill_fla "launch_chunk_gated_delta_prefill_batched"),
-    kernel!(gdn_prefill_fla_state_bf16 "launch_chunk_gated_delta_prefill_batched_state_bf16"),
-    kernel!(gdn_prefill_cached "launch_chunk_gated_delta_prefill_batched_cached"),
-    kernel!(gdn_prefill_cached_state_bf16
-        "launch_chunk_gated_delta_prefill_batched_cached_state_bf16"),
-    kernel!(gdn_prefill_warp_tiled_gqa "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa"),
-    kernel!(gdn_prefill_warp_tiled_gqa_state_bf16
-        "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16"),
-    kernel!(repeat_interleave_heads "launch_repeat_interleave_heads_fp32"),
-    kernel!(verify_stash_store "qwen35_verify_stash_store"),
-    kernel!(verify_stash_load "qwen35_verify_stash_load"),
-];
-
-/// METAL's kernel signatures.
-///
-/// EMPTY, and deliberately so: Metal has no lowered text yet. It
-/// consumes the SEMANTIC trace and re-derives its dispatch selection in
-/// C++ (`crates/driver-metal/csrc/src/model/llama_like/declared_dag.hpp`) — the same
-/// "the driver decides" shape the CUDA side is being cured of, from the
-/// other end.
-///
-/// An empty table is not a placeholder that does nothing. Because
-/// [`check_plan`]'s coverage rule refuses any undeclared symbol, a
-/// `llama_like.metal.*` text CANNOT be written without declaring the
-/// kernels it states, which is exactly the discipline the CUDA table
-/// enforces. The first Metal text fills this in.
-pub static KERNELS_METAL: &[KernelSig] = &[
-    // ── io ─────────────────────────────────────────────────────────
-    kernel!(embed_gather "embed_gather_4bit"),
-    kernel!(embed_gather_mb "embed_gather_mb_4bit"),
-
-    // ── norms / activation / residual ──────────────────────────────
-    // One entrypoint serves attn_norm, mlp_norm, q_norm, k_norm and
-    // final_norm — the driver fans five `Kernel` kinds onto it.
-    kernel!(rms_norm "rms_single_row_bfloat16"),
-    kernel!(silu_mul "silu_mul_bfloat16"),
-    kernel!(residual_add "residual_add_bfloat16"),
-
-    // ── projections ────────────────────────────────────────────────
-    // The `_residual` forms fold the block residual in the GEMV/GEMM
-    // epilogue, which is what a `beta_one` matmul is on this backend.
-    // The readout takes this one too — `lm_head` is a projection, and
-    // the driver has no separate entrypoint for it.
-    kernel!(qmv "affine_qmv_fast"),
-    kernel!(qmv_residual "affine_qmv_fast_residual"),
-    kernel!(qmm "affine_qmm_t"),
-    kernel!(qmm_residual "affine_qmm_t_residual"),
-
-    // ── rope / kv ──────────────────────────────────────────────────
-    kernel!(rope_decode "rope_neox_decode_bfloat16"),
-    kernel!(rope_mb "rope_neox_mb_bfloat16"),
-    kernel!(kv_append "kv_append_bfloat16"),
-    kernel!(kv_append_paged "kv_append_paged_bfloat16"),
-
-    // ── attention ──────────────────────────────────────────────────
-    // No `sink` on either: Metal has no page-mask substitution path, so
-    // an `attn.q` tap with PageMaskSink is unservable here — the
-    // declaration says so instead of a C++ throw discovering it. No
-    // capture variant exists either, so neither can publish scores.
-    kernel!(sdpa_vector "sdpa_vector_decode_bfloat16_d_256",
-        lacks = &[Cap::Scores, Cap::PageMaskSink]),
-    kernel!(sdpa_paged "sdpa_paged_decode_bfloat16_d_256",
-        lacks = &[Cap::Scores, Cap::PageMaskSink]),
-];
-
 /// The contract for one recorded symbol, in `backend`'s table.
 pub fn sig_in(backend: Backend, symbol: &str) -> Option<&'static KernelSig> {
-    backend.table().iter().find(|k| k.symbol == symbol)
+    kernels::sig_in(backend.table(), symbol)
 }
 
 /// The contract for one CUDA symbol.

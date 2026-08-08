@@ -78,6 +78,15 @@ members = [
     "crates/model-loader-capi",
     "crates/model-loader-capi-cbindgen",
 
+    # -- kernels-*: the device kernels, and the words their tables use ------
+    # `kernels` is bare for the reason `driver` is: it is the shared floor
+    # under a prefixed pair, holding what both backends' tables are written
+    # in rather than anything either backend does. The two implementation
+    # crates default to table-only -- `native` is what costs nvcc.
+    "crates/kernels",
+    "crates/kernels-cuda",
+    "crates/kernels-metal",
+
     # -- tensor-*: the guest-program toolchain ------------------------------
     # authoring eDSL -> PTIR -> planning -> CUDA/Metal codegen, plus the
     # reference interpreter every backend diffs against.
@@ -133,6 +142,9 @@ default-members = [
     "crates/model-loader",
     "crates/model-loader-capi",
     "crates/model-loader-capi-cbindgen",
+    "crates/kernels",
+    "crates/kernels-cuda",
+    "crates/kernels-metal",
     "crates/tensor-ir",
     "crates/tensor-dsl",
     "crates/tensor-compiler",
