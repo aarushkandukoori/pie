@@ -66,6 +66,34 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── KDA: Kimi Delta Attention ──────────────────────────────────
+    // kimi_k3's linear-attention half. The gated delta rule qwen3_5 runs,
+    // with the decay per KEY CHANNEL rather than per head -- which is why
+    // these exist beside the GDN kernels instead of reusing them with a
+    // broadcast.
+    kernel!(kda_gate_beta "launch_kda_gate_beta_bf16"),
+    // `slot_ids` is indexed `0..R` against the fire's request order, so a row
+    // window would advance the wrong slots.
+    kernel!(kda_recurrent_step "launch_kda_recurrent_step_batched", whole = true),
+    // `whole` twice over: it walks windows out of `qo_indptr`, and the
+    // recurrence has a strict per-token state dependency -- a row window
+    // would start the scan from the wrong state, which is a different answer
+    // rather than a misaddressed one.
+    kernel!(kda_prefill "launch_kda_prefill_batched", whole = true),
+    kernel!(kda_o_norm_gated "launch_kda_o_norm_gated_bf16"),
+
+    // ── kimi_k3: SiTU, and the widenings the recurrence needs ──────
+    // SiTU is not a swiglu variant: the tanh saturates far enough out that a
+    // bf16 intermediate loses the distinction the gate exists to make.
+    kernel!(situ "launch_situ_bf16"),
+    kernel!(chunked_situ "launch_chunked_situ_bf16"),
+    // KDA's arithmetic is fp32 throughout, so operands living in bf16 in the
+    // workspace cross explicitly. Launches, so the trace records them.
+    kernel!(l2norm_scale_to_f32 "launch_l2norm_scale_bf16_to_fp32"),
+    kernel!(bf16_to_f32 "launch_bf16_to_fp32"),
+    kernel!(f32_to_bf16 "launch_fp32_to_bf16"),
+    kernel!(attn_res_blend "launch_attn_res_blend_bf16"),
+
     // ── tensor-parallel shapes ─────────────────────────────────────
     // A vocab-sharded embedding: the rank holds `[local_vocab, hidden]` from
     // `vocab_offset` and writes zeros elsewhere, and the all-reduce after it
