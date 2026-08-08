@@ -509,7 +509,7 @@ async def cli_pie_client(args: argparse.Namespace):
     if not pie_bin.exists():
         feature = "driver-metal" if args.driver == "metal" else "driver-cuda"
         raise FileNotFoundError(
-            f"missing {pie_bin}; build with: cargo build --release -p pie-bin "
+            f"missing {pie_bin}; build with: cargo build --release -p pie "
             f"--no-default-features --features {feature}"
         )
 

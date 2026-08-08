@@ -22,14 +22,14 @@ doctest = false
 # this crate without one of these gets the dummy fallback, which is what the
 # handful of no-GPU diagnostics here run against.
 default = []
-driver-cuda = ["pie-bin/driver-cuda"]
-driver-metal = ["pie-bin/driver-metal"]
-driver-dummy = ["pie-bin/driver-dummy"]
+driver-cuda = ["pie/driver-cuda"]
+driver-metal = ["pie/driver-metal"]
+driver-dummy = ["pie/driver-dummy"]
 
 [dev-dependencies]
 # The composition root. These tests boot the same `run_standalone` a `pie
 # serve` does — that is the point of them.
-pie-bin = { path = "../../bin/pie" }
+pie = { path = "../.." }
 # The client edge. Load goes over the websocket a deployment is reached by,
 # because an in-process shortcut would prove something nobody runs.
 pie-client = { path = "../../crates/client" }

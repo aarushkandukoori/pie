@@ -447,7 +447,7 @@ hand-written path, in an OPTIMIZED build? All prior parity work ran
 debug builds, where host overhead is exaggerated and no perf claim is
 honest.
 
-Protocol: release build (`cargo build --release -p pie-bin --features
+Protocol: release build (`cargo build --release -p pie --features
 driver-cuda`), Qwen3-0.6B on the L40S, `mixed_fire_perf.py` (4
 concurrent naive decode lanes × 48 tokens = pure; + hooked lane =
 mixed), 3 reps per leg, three legs: OFF (hand-written), ON

@@ -305,12 +305,12 @@ jobs:
           cargo test -p pie-worker \
             --no-default-features --features driver-dummy
 
-      # The `pie` command lives in `bin/pie` (`pie-bin`); `pie-worker` is a
+      # The `pie` command is the root package's own binary; `pie-worker` is a
       # library with no `[[bin]]`. Building the worker alone never produced a
       # runnable CLI, so nothing here covered the composition root.
       - name: cargo build (pie binary, dummy)
         run: |
-          cargo build -p pie-bin \
+          cargo build -p pie \
             --no-default-features --features driver-dummy
 
   # macOS Metal driver build. Verifies driver/metal's cmake + link
@@ -349,7 +349,7 @@ jobs:
       # built it — the worker library compiling proves the driver links, not
       # that the platform has a working binary.
       - name: cargo build (pie binary, driver-metal)
-        run: cargo build -p pie-bin --no-default-features --features driver-metal
+        run: cargo build -p pie --no-default-features --features driver-metal
 
       # `src/batch/forward.cpp` compiles a LoadPlan, so every Metal target that
       # links the archive into an executable needs `pie-loader` as a staticlib
@@ -361,7 +361,7 @@ jobs:
       - name: Build the loader staticlib
         run: cargo rustc -p pie-loader --lib --crate-type staticlib
 
-      # `pie-worker` is a library; the `pie` command lives in `bin/pie`. The old
+      # `pie-worker` is a library; the `pie` command is the root package's binary. The old
       # `--bin pie` here named a target this package has never had, so the step
       # could only ever fail.
       - name: cargo test (pie-worker)
