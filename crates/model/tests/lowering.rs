@@ -531,7 +531,7 @@ fn the_epilogue_is_a_row_count_not_a_branch() {
         let out = lower(&plan, rows, Fire::default()).expect("coverable");
         out.launches
             .iter()
-            .filter(|l| l.args == at_op)
+            .filter(|l| l.op == at_op)
             .map(|l| (out.kernels[l.kernel as usize].clone(), l.rows.clone()))
             .collect()
     };
@@ -982,4 +982,59 @@ fn the_gemma_2_decode_text_lowers() {
         out.residue
     );
     assert_eq!(out.coverage(), 1.0);
+}
+
+/// Every rectangle carries its own operands, and they agree with the
+/// arena.
+///
+/// This is the host half of the family-independent driver (north-star
+/// step 6). Today's four `declared_forward.cpp` walk the TRACED ops and
+/// answer "which buffer is this operand?" with a per-family workspace
+/// field — `ws.norm_x`, `la.mixed_qkv` — which is the only reason they
+/// cannot be one file. A launch that carries its operands answers it in
+/// the lowering, once, for every family.
+///
+/// So the claim is narrow and total: no launch has an empty operand run,
+/// and every arena operand names the offset `Buffers` assigned it.
+#[test]
+fn every_launch_carries_operands_that_match_the_arena() {
+    use model_compiler::lower::Arg;
+
+    let plan = decode_plan();
+    let rows = plain(8);
+    let out = lower(&plan, &rows, Fire::default()).expect("must lower");
+    let buffers = Buffers::assign(&plan, &rows);
+
+    assert!(!out.launches.is_empty());
+    let mut arena_args = 0usize;
+    for l in &out.launches {
+        assert!(
+            l.args.end > l.args.start,
+            "a rectangle with no operands cannot be driven"
+        );
+        for a in &out.args[l.args.start as usize..l.args.end as usize] {
+            match a {
+                Arg::Arena(at) => {
+                    arena_args += 1;
+                    assert!(
+                        *at < out.arena_bytes,
+                        "an operand outside the arena ({at} vs {})",
+                        out.arena_bytes
+                    );
+                }
+                Arg::Named(v) => assert_eq!(
+                    buffers.offset[*v as usize],
+                    Buffers::NAMED,
+                    "a Named operand must be one the arena declined"
+                ),
+                Arg::Weight(n) => assert!(!n.is_empty()),
+            }
+        }
+    }
+    assert!(
+        arena_args > out.launches.len(),
+        "most operands are activations; {arena_args} for {} launches reads \
+         like the resolver is not running",
+        out.launches.len()
+    );
 }

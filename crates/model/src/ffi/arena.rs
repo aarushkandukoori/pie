@@ -647,7 +647,7 @@ pub fn lower(
     arena.shadow_wire.reserve(lowered.launches.len());
     for launch in &lowered.launches {
         arena.shadow_wire.push(PieForwardLaunch {
-            at_op: launch.args,
+            at_op: launch.op,
             kernel_name: launch.kernel as u32,
             row_lo: launch.rows.start,
             row_hi: launch.rows.end,

@@ -120,6 +120,27 @@ pub struct Site {
     pub rows: Range<u32>,
 }
 
+/// One operand a launch binds.
+///
+/// This is what makes the flat list FAMILY-INDEPENDENT. An executor that
+/// walks the traced ops has to answer, per op and per family, "which
+/// workspace field is this operand?" — which is why today's four
+/// `declared_forward.cpp` hard-code `ws.norm_x`, `ws.q`, `la.mixed_qkv`
+/// and cannot be shared. A launch that carries its operands answers it
+/// once, in the lowering, for every family at once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Arg {
+    /// An activation: a byte offset into the frame's arena.
+    Arena(usize),
+    /// A value the BACKEND binds by name — the values a seam exposes
+    /// (the observed query, the logits). `Buffers::NAMED` says which.
+    Named(ValueId),
+    /// A weight, by the name the trace states (`layer.3.q_proj`). The
+    /// driver resolves it against its own tensor store, which is the one
+    /// thing that stays per-family and is a MAP rather than a switch.
+    Weight(String),
+}
+
 /// One flat launch: a kernel over a rectangle of (rows × layers).
 ///
 /// `args` is an index into the frame's argument slots — the driver binds
@@ -137,7 +158,17 @@ pub struct Launch {
     pub kernel: u16,
     pub rows: Range<u32>,
     pub layers: Range<u16>,
-    pub args: u32,
+    /// Which traced op produced this rectangle. Kept beside the
+    /// operands because it answers a different question: `args` is what
+    /// a driver BINDS, `op` is where a refusal or a shadow comparison
+    /// points. They shared a field until the operands existed, which
+    /// read as one number meaning two things.
+    pub op: u32,
+    /// This launch's operands, as a run of [`Lowered::args`]. Inputs in
+    /// operand order, then outputs, then the weights the statement
+    /// names — the order the trace states them, so nothing here is a
+    /// convention a reader has to learn twice.
+    pub args: Range<u32>,
     /// Which peel region this rectangle sits in, when it sits in one.
     ///
     /// The executing arms read exactly four things about where they
@@ -230,6 +261,11 @@ pub struct Lowered {
     pub rectangles: usize,
     /// Peak activation bytes the frame needs ([`Buffers`]).
     pub arena_bytes: usize,
+    /// Every launch's operands, concatenated; [`Launch::args`] indexes
+    /// it. Flat rather than per-launch so the whole frame is two arrays
+    /// and a table — which is the shape a driver can walk without
+    /// knowing whose model it is.
+    pub args: Vec<Arg>,
     /// The STRUCTURAL statements inside live regions, in walk order.
     ///
     /// A site launches no table kernel, so it has no rectangle — but it
@@ -288,15 +324,18 @@ pub fn lower(plan: &ForwardPlan, rows: &[Row], fire: Fire) -> Result<Lowered, Un
         residue: Vec::new(),
         fire,
         structural: Vec::new(),
+        args: Vec::new(),
+        buffers: Buffers::assign(plan, rows),
         peel_region: None,
     };
+    let arena_bytes = out.buffers.bytes;
     out.region(0..plan.ops.len(), 0..n)?;
-    let buffers = Buffers::assign(plan, rows);
     Ok(Lowered {
         rectangles: out.launches.len(),
         launches: out.launches,
         kernels: out.kernels,
-        arena_bytes: buffers.bytes,
+        arena_bytes,
+        args: out.args,
         structural: out.structural,
         residue: out.residue,
     })
@@ -317,6 +356,12 @@ struct Lowerer<'a> {
     residue: Vec<Unlowered>,
     fire: Fire,
     structural: Vec<Site>,
+    /// The operand slots emitted so far.
+    args: Vec<Arg>,
+    /// The arena, so an operand can be resolved to an offset as it is
+    /// emitted rather than in a second pass that would have to re-walk
+    /// the regions to know which launches exist.
+    buffers: Buffers,
     /// The peel region the launches being emitted sit in.
     peel_region: Option<PeelRegion>,
 }
@@ -494,14 +539,35 @@ impl Lowerer<'_> {
         // one layer. `Launch::layers` is a range because a ROLLED trace
         // states a layer span; both spellings reach the same driver loop.
         let layer = op.layer.unwrap_or(0) as u16;
+        // The operands, resolved HERE — inputs, then outputs, then the
+        // weight names the statement carries. A driver reading this run
+        // needs nothing else about the op, which is the whole point.
+        let first = self.args.len() as u32;
+        for &v in op.inputs.iter().chain(op.outputs.iter()) {
+            self.args.push(self.slot(v));
+        }
+        if let OpKind::Launch { weights, .. } = &op.kind {
+            for name in weights {
+                self.args.push(Arg::Weight(name.clone()));
+            }
+        }
         self.launches.push(Launch {
             kernel: id,
             rows: window.clone(),
             layers: layer..layer + 1,
-            args: at as u32,
+            op: at as u32,
+            args: first..self.args.len() as u32,
             peel: self.peel_region,
         });
         Ok(())
+    }
+
+    /// Where a value's bytes are: the arena, or the backend's to bind.
+    fn slot(&self, v: ValueId) -> Arg {
+        match self.buffers.offset.get(v as usize) {
+            Some(&Buffers::NAMED) | None => Arg::Named(v),
+            Some(&at) => Arg::Arena(at),
+        }
     }
 
     /// THE EPILOGUE, as rectangles rather than as a branch.
