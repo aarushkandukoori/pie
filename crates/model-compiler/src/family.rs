@@ -31,7 +31,7 @@ use crate::trace::{
 /// backend, so the two readings are now two texts and neither asks "am I
 /// lowered?". The goldens pin that the split changed no traced byte.
 ///
-/// Mirrors `driver/cuda/src/model/llama_like/llama_like.cpp`
+/// Mirrors `crates/driver-cuda/csrc/src/model/llama_like/llama_like.cpp`
 /// (`llama_like_forward_paged`) op for op; the golden test pins that
 /// correspondence and the comment there maps each op to the kernel(s) the
 /// hand-written pass would launch.
@@ -142,7 +142,7 @@ pub fn llama_like_cuda(
 /// deployment. It is boilerplate, requested as such, and it is here so
 /// the shape exists to be corrected rather than invented under time
 /// pressure later. `.wiki/tart/macos.md` rung 3 states the proof it
-/// owes: the descriptors `driver/metal/src/model/llama_like/declared_dag.hpp`
+/// owes: the descriptors `crates/driver-metal/csrc/src/model/llama_like/declared_dag.hpp`
 /// emits must come out unchanged.
 ///
 /// WHAT IT IS FOR. Metal today consumes the SEMANTIC trace and chooses

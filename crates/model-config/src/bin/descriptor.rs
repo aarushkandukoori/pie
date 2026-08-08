@@ -1,7 +1,7 @@
 //! Prints the `pie.model/1` descriptor for a HuggingFace `config.json`.
 //!
 //! The Rust half of the round-trip check in
-//! `driver/cuda/tests/hf_config_dump/check_descriptor.sh`: this normalizes a
+//! `crates/driver-cuda/csrc/tests/hf_config_dump/check_descriptor.sh`: this normalizes a
 //! config the way `pie model import` does, and the C++ reader on the other
 //! side has to turn the result back into exactly what `parse_hf_config` would
 //! have produced from the same input.

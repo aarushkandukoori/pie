@@ -8,7 +8,7 @@
 //! deterministic walk of this structure, so pinning the structure pins the
 //! emitted kernel sequence too: this is the CI-enforceable half of the
 //! parity story, the half that needs no GPU
-//! (`driver/cuda/src/model/llama_like/declared_forward.cpp` is the other).
+//! (`crates/driver-cuda/csrc/src/model/llama_like/declared_forward.cpp` is the other).
 //!
 //! Regenerate after an intended change:
 //!

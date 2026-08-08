@@ -310,7 +310,7 @@ pub fn trace_cuda(
 ///
 /// Metal has NO such text yet — it consumes the semantic trace and
 /// re-derives its dispatch selection in C++
-/// (`driver/metal/src/model/llama_like/declared_dag.hpp`), which is the
+/// (`crates/driver-metal/csrc/src/model/llama_like/declared_dag.hpp`), which is the
 /// same "the driver decides" shape the CUDA side is being cured of.
 /// This entry is the seam that text will be written against; until it
 /// is, nothing calls it, and the empty Metal kernel table means the
@@ -1213,7 +1213,7 @@ pub fn seam(t: &Trace, def: &seam::Def, sees: &[&Val], layer: Option<u32>) {
 /// of the second backend (`.wiki/tart/dsl.md` ②).
 ///
 /// UNVERIFIED (2026-08-05). Every symbol here is an MSL entrypoint read
-/// off the driver's source (`driver/metal/src/kernels/decode_psos.cpp`'s
+/// off the driver's source (`crates/driver-metal/csrc/src/kernels/decode_psos.cpp`'s
 /// `PsoSpec` table and `model/qwen3_5/decode_step.hpp`'s `Kernel` kinds),
 /// not something a running deployment produced: the Metal driver cannot
 /// build on the machine we have, because `xcrun --find metal` fails —

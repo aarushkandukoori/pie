@@ -247,7 +247,7 @@ impl Options {
     ///
     /// Without a target file this is a *stand-in*, not a claim: the numbers are
     /// CUDA's as of writing, and nothing keeps them equal to
-    /// `driver/cuda/src/loader/load_plan.hpp`. They live here rather than in
+    /// `crates/driver-cuda/csrc/src/loader/load_plan.hpp`. They live here rather than in
     /// the library because a device constant inside the compiler is the thing
     /// `architecture.md` §9 removed, and `tests/standalone.rs` enforces that.
     /// Pass a target file to reproduce a specific driver exactly.

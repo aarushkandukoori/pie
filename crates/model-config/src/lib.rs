@@ -2,7 +2,7 @@
 //!
 //! "What is this model made of" used to be answered at every serve boot, four
 //! times over: an 855-line C++ normalizer with 25 `model_type` conditionals
-//! (`driver/cuda/src/model/config.cpp`), Metal's own `read_model_facts`, and
+//! (`crates/driver-cuda/csrc/src/model/config.cpp`), Metal's own `read_model_facts`, and
 //! two smaller Rust probes in the runtime's model service — each walking
 //! `text_config` nesting and key alternatives in its own order, agreeing with
 //! the others by coincidence. All four are deleted. This crate answers the
@@ -14,7 +14,7 @@
 //! `tests/differential.rs` compares this normalizer against the C++ one it
 //! replaced over 56 real and synthetic configs, field for field. The C++ side
 //! is gone, so those goldens are now a recording rather than a live oracle —
-//! see `driver/cuda/tests/hf_config_dump/README.md`. What keeps a second
+//! see `crates/driver-cuda/csrc/tests/hf_config_dump/README.md`. What keeps a second
 //! normalizer from growing back is `tests/one_normalizer.rs`.
 //!
 //! It lives under `model/` because that is what it is: model knowledge, not

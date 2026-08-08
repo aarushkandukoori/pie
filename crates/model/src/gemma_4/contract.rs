@@ -1,6 +1,6 @@
 //! What Gemma-4 binds.
 //!
-//! Ported from `driver/cuda/src/model/gemma4/gemma4_contract.hpp`. The only
+//! Ported from `crates/driver-cuda/csrc/src/model/gemma4/gemma4_contract.hpp`. The only
 //! family the encode pipeline can scope a load to: an encode-scoped rank
 //! declares the vision and audio towers and nothing else, so it never
 //! allocates the language model — and because that is a *declaration* rather
@@ -82,7 +82,7 @@ fn fold_router_scale(b: &mut Builder<'_>) -> Result<(), Error> {
 }
 
 /// The Metal lowering: rename for MLX's binder, bind in place. Ported from
-/// `driver/metal/src/model/gemma4/gemma4_contract.hpp`.
+/// `crates/driver-metal/csrc/src/model/gemma4/gemma4_contract.hpp`.
 pub fn author_gemma4_mlx(b: &mut Builder<'_>) -> Result<(), Error> {
     // KV is shared over the tail of the stack:
     // `layer >= num_hidden_layers - num_kv_shared_layers` attends KV an

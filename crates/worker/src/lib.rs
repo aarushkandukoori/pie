@@ -23,6 +23,23 @@
 #[global_allocator]
 static GLOBAL_ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+// ── The native execution shells ──────────────────────────────────────
+//
+// Nothing in Rust calls into these crates: the shells are C++ archives, and
+// the `extern "C"` declarations that reach them live in `pie-engine`'s driver
+// backends. But a crate whose Rust surface is never named is a crate rustc
+// never loads, and a crate rustc never loads contributes NO native-library
+// records -- so the archives its build script asked for are silently left out
+// and the link fails on `pie_cuda_create`, `ncclGetUniqueId` and friends.
+//
+// `extern crate ... as _` is the `-sys` idiom for exactly this: it puts the
+// crate in the link graph without binding a name. The `as _` is the point --
+// there is nothing to call.
+#[cfg(feature = "driver-cuda")]
+extern crate driver_cuda as _;
+#[cfg(feature = "driver-metal")]
+extern crate driver_metal as _;
+
 pub mod config;
 pub mod config_layout;
 pub mod config_schema;

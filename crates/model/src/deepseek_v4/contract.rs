@@ -1,6 +1,6 @@
 //! What DeepSeek-V4 binds.
 //!
-//! Ported from `driver/cuda/src/model/deepseek_v4/deepseek_v4_contract.hpp`.
+//! Ported from `crates/driver-cuda/csrc/src/model/deepseek_v4/deepseek_v4_contract.hpp`.
 //! The only family with its own tensor-parallel shard-axis rule: its experts
 //! are named `.ffn.experts.w1/w2/w3` rather than `.mlp.experts.gate/up/down`,
 //! and the intermediate dim is split within each expert so every rank

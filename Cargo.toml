@@ -49,6 +49,11 @@ members = [
     "crates/driver-abi-cbindgen",
 
     # -- driver-*: execution shells ----------------------------------------
+    # `driver` is the C++ substrate both shells interpret the ABI with; the two
+    # native shells build their own `csrc/` and are OS-exclusive.
+    "crates/driver",
+    "crates/driver-cuda",
+    "crates/driver-metal",
     "crates/driver-dummy",
 
     # -- model-*: what a model IS, and how it gets onto a device ------------
@@ -114,6 +119,7 @@ default-members = [
     "crates/worker-api",
     "crates/driver-abi",
     "crates/driver-abi-cbindgen",
+    "crates/driver",
     "crates/driver-dummy",
     "crates/model",
     "crates/model-config",

@@ -136,7 +136,7 @@ fn an_incomplete_tokenizer_is_refused_by_name() {
 /// driver build rather than of a checkpoint, is *not* along for the ride.
 ///
 /// Point `PIE_TEST_ARTIFACT` at a converted artifact and `PIE_TEST_GOLDEN` at
-/// the matching `driver/cuda/tests/hf_config_dump/golden/*.json`; a no-op
+/// the matching `crates/driver-cuda/csrc/tests/hf_config_dump/golden/*.json`; a no-op
 /// otherwise.
 #[test]
 fn a_converted_artifact_carries_the_normalized_model_config() {

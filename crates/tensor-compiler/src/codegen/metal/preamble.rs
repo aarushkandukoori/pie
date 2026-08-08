@@ -15,7 +15,7 @@ use crate::codegen::layout;
 const M1: &str = "M1";
 const M3: &str = "M3";
 
-/// `driver/metal/src/kernels/ptir_m1_runtime.metal`, embedded so the emitter
+/// `crates/driver-metal/csrc/src/kernels/ptir_m1_runtime.metal`, embedded so the emitter
 /// is self-contained (the C++ takes it as a `runtime_template` argument the
 /// driver reads from disk at init).
 ///

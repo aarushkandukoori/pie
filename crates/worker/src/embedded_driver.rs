@@ -393,7 +393,7 @@ fn read_hf_config_defaults(snapshot_dir: &Path) -> Result<(u32, String, u32)> {
 }
 
 /// Emit the metal driver's startup TOML — same `[model]` + `[batching]` +
-/// `[runtime]` layout consumed by `driver/metal/src/config.hpp`. The metal
+/// `[runtime]` layout consumed by `crates/driver-metal/csrc/src/config.hpp`. The metal
 /// launch state is identical apart from the `metal:N` backend selector.
 ///
 /// Not gated on `driver-metal`: what it produces is a TOML file, and whether
@@ -487,7 +487,7 @@ fn model_load_desc(
 }
 
 /// Write the cuda driver's startup TOML. Schema mirrors
-/// `driver/cuda/src/config.hpp`: `[model]` with
+/// `crates/driver-cuda/csrc/src/config.hpp`: `[model]` with
 /// `snapshot_dir`/`device`/`dtype` plus model-execution knobs,
 /// `[batching]` with KV-page geometry plus `swap_pool_size`, and `[runtime]`
 /// with the server verbosity flag.
@@ -1285,7 +1285,7 @@ calibrate_planner = true
 
         // Re-parse the emitted TOML to confirm the schema the cuda
         // driver expects matches what we wrote (driver-side parsing
-        // in driver/cuda/src/config.hpp).
+        // in crates/driver-cuda/csrc/src/config.hpp).
         let text = std::fs::read_to_string(&out).unwrap();
         let val: toml::Value = toml::from_str(&text).unwrap();
         assert!(

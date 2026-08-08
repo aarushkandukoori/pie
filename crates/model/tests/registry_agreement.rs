@@ -5,9 +5,9 @@
 //!
 //! * [`pie_model::contract::HF_ROWS`] / [`MLX_ROWS`] — which author writes the
 //!   storage contract (Rust, this crate);
-//! * `driver/cuda/src/model/registry.cpp` — which decode DAG binds and runs
+//! * `crates/driver-cuda/csrc/src/model/registry.cpp` — which decode DAG binds and runs
 //!   (C++, the CUDA driver's arch table);
-//! * `driver/metal/src/model/facts.hpp` — the same question for Metal, whose
+//! * `crates/driver-metal/csrc/src/model/facts.hpp` — the same question for Metal, whose
 //!   `model_family_of` picks both the geometry and the executor.
 //!
 //! They are three because they answer *different* things — an author is a
@@ -97,7 +97,7 @@ fn region<'a>(source: &'a str, what: &str, start: &str, end: &str) -> &'a str {
 /// So take `push`'s first argument when it is a literal, and every element of
 /// the loop list when it is not.
 fn cuda_arch_table() -> BTreeSet<String> {
-    let source = read("driver/cuda/src/model/registry.cpp");
+    let source = read("crates/driver-cuda/csrc/src/model/registry.cpp");
     let table = region(
         &source,
         "cuda registry.cpp",
@@ -122,7 +122,7 @@ fn cuda_arch_table() -> BTreeSet<String> {
 
 /// Metal's `model_family_of`, which answers the same question for that driver.
 fn metal_family_table() -> BTreeSet<String> {
-    let source = read("driver/metal/src/model/facts.hpp");
+    let source = read("crates/driver-metal/csrc/src/model/facts.hpp");
     let table = region(
         &source,
         "metal facts.hpp",
@@ -164,7 +164,7 @@ fn cuda_arch_table_and_the_hf_authors_name_the_same_models() {
         "CUDA",
         &rows_of(HF_ROWS),
         &cuda_arch_table(),
-        "driver/cuda/src/model/registry.cpp",
+        "crates/driver-cuda/csrc/src/model/registry.cpp",
     );
 }
 
@@ -174,7 +174,7 @@ fn metal_family_table_and_the_mlx_authors_name_the_same_models() {
         "Metal",
         &rows_of(MLX_ROWS),
         &metal_family_table(),
-        "driver/metal/src/model/facts.hpp",
+        "crates/driver-metal/csrc/src/model/facts.hpp",
     );
 }
 

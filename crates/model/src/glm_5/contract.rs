@@ -1,6 +1,6 @@
 //! What GLM-5.1 binds.
 //!
-//! Ported from `driver/cuda/src/model/glm5/glm5_contract.hpp`. MLA attention
+//! Ported from `crates/driver-cuda/csrc/src/model/glm5/glm5_contract.hpp`. MLA attention
 //! plus a DSA indexer plus routed and shared MoE. Nothing about the
 //! checkpoint's layout is unusual; what is unusual is that this is the one
 //! family whose routed experts the CUDA driver re-quantizes at load time,

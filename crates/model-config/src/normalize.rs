@@ -1,7 +1,7 @@
 //! HuggingFace `config.json` → the normalized shape, once, at import.
 //!
 //! A transliteration of `parse_hf_config`
-//! (`driver/cuda/src/model/config.cpp`), in the same order, with the same
+//! (`crates/driver-cuda/csrc/src/model/config.cpp`), in the same order, with the same
 //! rules. Not a reimplementation: the order matters, because several fields
 //! are written more than once and the last write wins, and the defaults matter
 //! because most of them are "what HF omits when it means the common case".
@@ -53,7 +53,7 @@ const TIE_BY_DEFAULT: [&str; 8] = [
 ];
 
 /// The head dims the CUDA attention kernels are instantiated for
-/// (`driver/cuda/src/kernels.def`).
+/// (`crates/driver-cuda/csrc/src/kernels.def`).
 const ATTN_HEAD_DIMS: [i32; 4] = [64, 128, 256, 512];
 
 /// Smallest instantiated head dim that can hold `head_dim`, else `head_dim`.
@@ -75,8 +75,8 @@ fn round_up_attn_head_dim(head_dim: i32) -> i32 {
 /// Qwen3 RMS-normalises q and k per head; llama, mistral and qwen2 do not.
 /// There is no `config.json` key for it — it is implied by the architecture.
 /// This list must stay in step with the driver's own inference
-/// (`driver/metal/src/model_facts.cpp`, `ll_qk_norm`) and with the family
-/// table in `driver/metal/src/model/facts.hpp`; a checkpoint that silently
+/// (`crates/driver-metal/csrc/src/model_facts.cpp`, `ll_qk_norm`) and with the family
+/// table in `crates/driver-metal/csrc/src/model/facts.hpp`; a checkpoint that silently
 /// runs without q/k norm produces fluent, plausible, wrong tokens.
 fn infer_qk_norm(model_type: &str, text: &Value, path: &str) -> Result<bool> {
     if text.get("use_qk_norm").is_some() {

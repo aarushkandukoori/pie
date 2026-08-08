@@ -7,7 +7,7 @@
 //!
 //! Everything here answers a question the C++ driver used to answer at run
 //! time. That mattered less for being wrong than for being *unrecorded*:
-//! `driver/cuda/src/loader/transcode_engine.hpp` chose a tile size and a fusion
+//! `crates/driver-cuda/csrc/src/loader/transcode_engine.hpp` chose a tile size and a fusion
 //! strategy while executing, so one plan could run two different kernel
 //! sequences and nothing in the plan said which (`architecture.md` §8.1).
 //! Deciding here puts the answer in the plan, which puts it in the plan hash,

@@ -8,7 +8,7 @@ those declarations by hand once would be tedious; keeping them in step with a
 header that gains fields every time an architecture lands would not happen.
 
 So the struct is derived from the header, exactly as the C++ side's oracle
-emitter is (`driver/cuda/tests/hf_config_dump/generate.py`), and both refuse to
+emitter is (`crates/driver-cuda/csrc/tests/hf_config_dump/generate.py`), and both refuse to
 run if a declaration goes uncaptured.
 
     python3 model/config/generate_schema.py
@@ -114,7 +114,7 @@ def render(structs, name):
 PROLOGUE = '''//! The normalized shape of a HuggingFace `config.json`.
 //!
 //! Field for field the same as `pie_cuda_driver::HfConfig`
-//! (`driver/cuda/src/model/config.hpp`), under the same names, because the
+//! (`crates/driver-cuda/csrc/src/model/config.hpp`), under the same names, because the
 //! Rust normalizer in [`normalize`](crate::normalize) has to be checkable
 //! against the C++ one it replaces. `tests/differential.rs` compares the two
 //! over 55 real and synthetic configs; equality of these names is what lets

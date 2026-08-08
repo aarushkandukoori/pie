@@ -1,6 +1,6 @@
 //! The Metal driver's lowering toolkit: bind-in-place, MLX names.
 //!
-//! Ported from `driver/metal/src/model/contract_detail.hpp`. Where the CUDA
+//! Ported from `crates/driver-metal/csrc/src/model/contract_detail.hpp`. Where the CUDA
 //! lowering fuses, shards and requantizes, this one renames and binds what
 //! the file holds — [`Naming::Mlx`](crate::policy::Naming) selects
 //! it, and the same family authors serve both by branching on the policy.
@@ -518,7 +518,7 @@ pub fn author_mlx_file(
     let quant_group = i64::from(b.facts().quant_group_size);
     let encode_floats = int4_requested(b, schema)?;
     // These three families bind every projection through Metal's affine-U4
-    // path (`push_quant` in `driver/metal/src/loader/heap_bind.cpp` asks for
+    // path (`push_quant` in `crates/driver-metal/csrc/src/loader/heap_bind.cpp` asks for
     // `.weight`/`.scales`/`.biases` unconditionally). A bf16 checkpoint has no
     // `.scales` at all, so without a request to encode them it used to author a
     // contract that looked fine and then died deep in the loader with `llama

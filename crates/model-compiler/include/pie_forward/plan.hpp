@@ -160,7 +160,7 @@ class ForwardPlan {
     /// ("op kind N has no emission rule" — the CUDA executor's
     /// `declared_forward.cpp`, the Metal DAG builder's `declared_dag.hpp`,
     /// which also refuses the MoE weight names before ever reaching a dyn
-    /// kind; `driver/metal/tests/llama_like_declared_dag_test.cpp` pins the
+    /// kind; `crates/driver-metal/csrc/tests/llama_like_declared_dag_test.cpp` pins the
     /// refusal). Emitting the grouped-GEMM lowering is a later, much larger
     /// lift.
     static ForwardPlan trace_qwen3_5_moe_mlp(const PieForwardQwen35MoeMlpFacts& facts) {
@@ -184,7 +184,7 @@ class ForwardPlan {
     /// declared EXECUTORS do not consume it — both emitters' op-kind
     /// switches end in the loud default arm, and the Metal DAG builder
     /// refuses the GDN weight names before ever reaching a GDN kind
-    /// (`driver/metal/tests/llama_like_declared_dag_test.cpp` pins both
+    /// (`crates/driver-metal/csrc/tests/llama_like_declared_dag_test.cpp` pins both
     /// refusals). Emitting the GDN core is the driver-side rung, not this
     /// one.
     static ForwardPlan trace_qwen3_5_gdn(const PieForwardQwen35GdnFacts& facts) {
@@ -206,7 +206,7 @@ class ForwardPlan {
     /// Like the fragments above, this wrapper exposes the plan; the
     /// declared EXECUTORS do not consume it — both emitters' op-kind
     /// switches end in the loud default arm on the appended kinds
-    /// (`driver/metal/tests/llama_like_declared_dag_test.cpp` pins the
+    /// (`crates/driver-metal/csrc/tests/llama_like_declared_dag_test.cpp` pins the
     /// refusal). Emitting the gated attention is a driver-side rung.
     static ForwardPlan trace_qwen3_5_full_attn(const PieForwardQwen35FullAttnFacts& facts) {
         PieForwardPlan raw{};

@@ -1,6 +1,6 @@
 //! What GPT-OSS binds.
 //!
-//! Ported from `driver/cuda/src/model/mixtral/mixtral_contract.hpp` (the
+//! Ported from `crates/driver-cuda/csrc/src/model/mixtral/mixtral_contract.hpp` (the
 //! Mixtral family header — plain Mixtral needs nothing special, GPT-OSS is
 //! the whole file). Its experts ship as an MXFP4 `_blocks`/`_scales`/`_bias`
 //! triplet, and the layout the contract asks for depends on whether this
@@ -338,7 +338,7 @@ fn streamed_expert_groups(b: &mut Builder<'_>) -> Result<(), Error> {
 }
 
 /// The Metal lowering. Ported from
-/// `driver/metal/src/model/gptoss/gptoss_contract.hpp`: rename for MLX's
+/// `crates/driver-metal/csrc/src/model/gptoss/gptoss_contract.hpp`: rename for MLX's
 /// binder, pair the affine triplets (deriving the width from the group-64
 /// kernels' equation), accept shipped MXFP4 by transmute, and — for the
 /// projections the published checkpoint left in BF16 — quantize into the

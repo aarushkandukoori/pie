@@ -1,13 +1,13 @@
 //! The Rust normalizer against the C++ one it replaces, field for field.
 //!
 //! `pie.model/1` only works if this crate answers "what is this model made of"
-//! the same way `driver/cuda/src/model/config.cpp` does. Not approximately —
+//! the same way `crates/driver-cuda/csrc/src/model/config.cpp` does. Not approximately —
 //! a single defaulting rule that differs breaks a model, and it breaks it
 //! *later*, once the C++ side is deleted and there is nothing left to disagree
 //! with.
 //!
 //! So the check is a comparison against recorded output of the real thing.
-//! `driver/cuda/tests/hf_config_dump/` builds `parse_hf_config` behind a JSON
+//! `crates/driver-cuda/csrc/tests/hf_config_dump/` builds `parse_hf_config` behind a JSON
 //! dumper with a host compiler (no CUDA), runs it over 55 configs — 28 real,
 //! 27 synthetic for the branches a model cache does not happen to contain —
 //! and checks in the results. This test re-normalizes the same inputs here and
@@ -28,7 +28,7 @@ fn here() -> PathBuf {
 }
 
 fn oracle_dir() -> PathBuf {
-    here().join("../../driver/cuda/tests/hf_config_dump")
+    here().join("../../crates/driver-cuda/csrc/tests/hf_config_dump")
 }
 
 /// Every (name, config path, golden path) in the corpus.
@@ -103,7 +103,7 @@ fn the_port_matches_the_normalizer_it_replaces() {
     assert!(
         entries.len() >= 50,
         "the corpus should hold 55 configs, found {} — is \
-         driver/cuda/tests/hf_config_dump/corpus checked out?",
+         crates/driver-cuda/csrc/tests/hf_config_dump/corpus checked out?",
         entries.len()
     );
 

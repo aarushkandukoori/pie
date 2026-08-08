@@ -874,7 +874,7 @@ pub mod adapter {
     use super::Channel;
 
     /// Model projection sites, the llama-like bit vocabulary
-    /// (driver/cuda/src/model/lora.hpp `LoraSite` — placement is
+    /// (crates/driver-cuda/csrc/src/model/lora.hpp `LoraSite` — placement is
     /// structure; the driver refuses unconsumed sites loudly).
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Site {

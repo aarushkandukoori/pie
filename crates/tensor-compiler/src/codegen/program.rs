@@ -8,8 +8,8 @@
 //! worked out.
 //!
 //! Entry names and the emitter-selection rules are shared with
-//! `driver/metal/src/pipeline/m1_runtime.cpp` and
-//! `driver/cuda/src/pipeline/generated/module_cache.hpp` — a driver reading
+//! `crates/driver-metal/csrc/src/pipeline/m1_runtime.cpp` and
+//! `crates/driver-cuda/csrc/src/pipeline/generated/module_cache.hpp` — a driver reading
 //! this table has to find exactly the names it looks up, so the naming scheme
 //! is an ABI and not a formatting choice.
 

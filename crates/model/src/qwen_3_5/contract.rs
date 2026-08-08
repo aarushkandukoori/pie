@@ -1,6 +1,6 @@
 //! What the Qwen3.5 hybrid families bind.
 //!
-//! Ported from `driver/cuda/src/model/qwen3_5/qwen3_5_contract.hpp`. The
+//! Ported from `crates/driver-cuda/csrc/src/model/qwen3_5/qwen3_5_contract.hpp`. The
 //! dense hybrid needs one real thing beyond the generic rules: the Gated
 //! DeltaNet tensors stack `[K | K | V]` on axis 0, so a uniform row shard
 //! cuts across the block boundaries and hands a rank part of K where it
@@ -250,7 +250,7 @@ fn shared_expert_gate_up_joins(b: &mut Builder<'_>) {
 }
 
 /// The Metal lowering: rename for MLX's binder, bind in place. Ported from
-/// `driver/metal/src/model/qwen3_5/qwen3_5_contract.hpp`; also answers for
+/// `crates/driver-metal/csrc/src/model/qwen3_5/qwen3_5_contract.hpp`; also answers for
 /// `qwen3_next` and `qwen3_6`, the mlx-side spellings of the same hybrid.
 pub fn author_qwen3_5_mlx(b: &mut Builder<'_>) -> Result<(), Error> {
     let has_lm_head = b.tensors().iter().any(|raw| {

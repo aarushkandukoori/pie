@@ -2,7 +2,7 @@
 #
 # One-way sync of the canonical WIT interface into the vendored SDK copies.
 #
-# Source of truth: interface/inferlet/  (the single `pie:inferlet` package —
+# Source of truth: crates/inferlet-api/wit/  (the single `pie:inferlet` package —
 # world.wit + the sibling interface files + a vendored deps/ tree of the
 # wasi 0.3 packages the wasmtime host implements).
 #
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="$ROOT/interface/inferlet"
+SRC="$ROOT/crates/inferlet-api/wit"
 
 # Vendored copies: each entry is the `wit/` directory of a consumer.
 COPIES=(
@@ -46,7 +46,7 @@ done
 
 if [[ "${1:-}" == "--check" ]]; then
   if ! git -C "$ROOT" diff --quiet -- "${COPIES[@]}"; then
-    echo "error: vendored WIT copies are out of sync with interface/inferlet." >&2
+    echo "error: vendored WIT copies are out of sync with crates/inferlet-api/wit." >&2
     echo "Run scripts/sync-wit.sh and commit the result." >&2
     git -C "$ROOT" --no-pager diff --stat -- "${COPIES[@]}" >&2
     exit 1

@@ -8,8 +8,8 @@
 //! That property is worth a test because it is not one a type can hold: the
 //! second normalizer would be new C++, in another language, behind an FFI
 //! boundary this crate cannot see. It had already grown three times —
-//! `driver/cuda/src/model/config.cpp` (855 lines, 25 `model_type`
-//! conditionals), `driver/metal/src/model_facts.cpp`'s `read_model_facts`,
+//! `crates/driver-cuda/csrc/src/model/config.cpp` (855 lines, 25 `model_type`
+//! conditionals), `crates/driver-metal/csrc/src/model_facts.cpp`'s `read_model_facts`,
 //! and this crate — and the three agreed only by coincidence and a
 //! differential test.
 //!
@@ -18,7 +18,7 @@
 //! language declares, and no amount of Rust-side assertion can reach it.
 //!
 //! What it does **not** check: that the drivers read the descriptor
-//! *correctly*. That is `driver/cuda/tests/hf_config_dump/check_descriptor.sh`,
+//! *correctly*. That is `crates/driver-cuda/csrc/tests/hf_config_dump/check_descriptor.sh`,
 //! which ran the whole round trip — `config.json` → Rust normalize →
 //! `pie.model/1` → C++ read — against `parse_hf_config` on all 55 corpus
 //! configs and got the same answer. This test is what keeps the thing that
@@ -104,7 +104,7 @@ fn callers(path: &Path, needle: &str) -> Vec<String> {
 /// this guards against the declaration coming back as much as against a call.
 #[test]
 fn the_cuda_driver_has_no_config_json_parser() {
-    let found: Vec<String> = sources("driver/cuda/src")
+    let found: Vec<String> = sources("crates/driver-cuda/csrc/src")
         .iter()
         .flat_map(|path| callers(path, "parse_hf_config"))
         .collect();
@@ -112,7 +112,7 @@ fn the_cuda_driver_has_no_config_json_parser() {
         found.is_empty(),
         "`parse_hf_config` is back in the CUDA driver. `config.json` is \
          normalized once, in this crate, and the driver reads the \
-         `pie.model/1` descriptor (`driver/cuda/src/model/descriptor.hpp`):\n{}",
+         `pie.model/1` descriptor (`crates/driver-cuda/csrc/src/model/descriptor.hpp`):\n{}",
         found.join("\n")
     );
 }
@@ -124,7 +124,7 @@ fn the_cuda_driver_has_no_config_json_parser() {
 /// the driver runs may call it. That is the line this holds.
 #[test]
 fn the_metal_driver_boot_has_no_config_json_parser() {
-    let found: Vec<String> = sources("driver/metal/src")
+    let found: Vec<String> = sources("crates/driver-metal/csrc/src")
         .iter()
         .flat_map(|path| callers(path, "read_model_facts"))
         .filter(|line| !line.contains("read_model_facts_from_descriptor"))
@@ -197,13 +197,13 @@ fn the_runtime_does_not_read_config_json() {
 /// forever while the duplication grows back under a new name.
 #[test]
 fn the_grep_finds_what_it_is_looking_for() {
-    let metal = sources("driver/metal/src");
+    let metal = sources("crates/driver-metal/csrc/src");
     let declared = metal
         .iter()
         .any(|path| std::fs::read_to_string(path).unwrap().contains("read_model_facts"));
     assert!(
         declared,
-        "no file under driver/metal/src mentions `read_model_facts`. Either it \
+        "no file under crates/driver-metal/csrc/src mentions `read_model_facts`. Either it \
          moved into the test tree — in which case delete the Metal guard above, \
          the duplication is gone for good — or it was renamed, and the guard is \
          now watching a name nobody uses."

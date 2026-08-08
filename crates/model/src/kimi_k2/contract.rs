@@ -1,6 +1,6 @@
 //! What the MLA families bind.
 //!
-//! Ported from `driver/cuda/src/model/kimi/kimi_contract.hpp`. DeepSeek-V2/V3
+//! Ported from `crates/driver-cuda/csrc/src/model/kimi/kimi_contract.hpp`. DeepSeek-V2/V3
 //! and Kimi-K2 share a binder and a forward. They differ in the contract:
 //! Kimi hides the decoder under `language_model.` and wants `embed_tokens`
 //! sharded and `lm_head` replicated, which is a memory trade the driver

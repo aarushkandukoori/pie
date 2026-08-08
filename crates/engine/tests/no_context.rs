@@ -23,10 +23,10 @@ fn repo_root() -> PathBuf {
 
 /// The canonical inferlet WIT package dir + its vendored mirrors (all must
 /// stay byte-for-byte context-free). Post `pie:inferlet@0.2.0` unification the
-/// package is flat: the canonical dir is `interface/inferlet/` and the mirrors
+/// package is flat: the canonical dir is `crates/inferlet-api/wit/` and the mirrors
 /// vendor the same flat file set (their `deps/` subdirs hold only wasi WIT).
 const WIT_CORE_DIRS: &[&str] = &[
-    "interface/inferlet",
+    "crates/inferlet-api/wit",
     "sdk/rust/inferlet/wit",
     "sdk/tools/bakery/src/bakery/wit",
 ];
@@ -79,7 +79,7 @@ fn no_context_resource_usage_in_core_wit() {
 #[test]
 fn working_set_resources_replace_context() {
     // The replacement must be present in the canonical package.
-    let ws = repo_root().join("interface/inferlet/working-set.wit");
+    let ws = repo_root().join("crates/inferlet-api/wit/working-set.wit");
     let src = std::fs::read_to_string(&ws)
         .unwrap_or_else(|_| panic!("working-set.wit present at {}", ws.display()));
     assert!(

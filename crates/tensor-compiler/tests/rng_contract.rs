@@ -196,14 +196,14 @@ fn rng_magic_is_owned_by_the_contract() {
         Path::new("compiler/ir/src/rng.rs"),
         Path::new("compiler/codegen/include/rng_contract.generated.h"),
         Path::new("compiler/codegen/include/ptir_rng.generated.metal"),
-        // Staged into driver/metal/src/kernels by CMake at configure time so
+        // Staged into crates/driver-metal/csrc/src/kernels by CMake at configure time so
         // ptir_m0.metal / ptir_m1_runtime.metal can `#include` it by name.
-        Path::new("driver/metal/src/kernels/ptir_rng.generated.metal"),
+        Path::new("crates/driver-metal/csrc/src/kernels/ptir_rng.generated.metal"),
     ];
     let unrelated_stride_users = [
-        Path::new("driver/cuda/src/batch/forward_graph.hpp"),
-        Path::new("driver/cuda/src/loader/weight_store_codec.hpp"),
-        Path::new("driver/cuda/src/pipeline/program_identity.hpp"),
+        Path::new("crates/driver-cuda/csrc/src/batch/forward_graph.hpp"),
+        Path::new("crates/driver-cuda/csrc/src/loader/weight_store_codec.hpp"),
+        Path::new("crates/driver-cuda/csrc/src/pipeline/program_identity.hpp"),
         Path::new("gateway/src/route.rs"),
         Path::new("runtime/engine/src/inferlet/linker.rs"),
         // splitmix64 id generation: the canonical splitmix increment happens
@@ -211,11 +211,11 @@ fn rng_magic_is_owned_by_the_contract() {
         Path::new("runtime/engine/src/pipeline/offload.rs"),
         // boost-style `hash_combine` for the GEMM autotune cache key; the
         // golden-ratio word again, and nothing to do with the PTIR stream.
-        Path::new("driver/cuda/src/ops/gemm.cpp"),
-        Path::new("driver/cuda/src/ops/tuning_cache.hpp"),
+        Path::new("crates/driver-cuda/csrc/src/ops/gemm.cpp"),
+        Path::new("crates/driver-cuda/csrc/src/ops/tuning_cache.hpp"),
     ];
     let unrelated_mask_users = [
-        Path::new("driver/cuda/tests/ptir_tier0_test.cu"),
+        Path::new("crates/driver-cuda/csrc/tests/ptir_tier0_test.cu"),
         Path::new("runtime/grammar/src/brle.rs"),
     ];
     let stride = ["9e37", "79b9", "7f4a", "7c15"].concat();

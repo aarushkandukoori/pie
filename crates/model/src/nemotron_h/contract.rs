@@ -1,6 +1,6 @@
 //! What Nemotron-H binds.
 //!
-//! Ported from `driver/cuda/src/model/nemotron_h/nemotron_h_contract.hpp`.
+//! Ported from `crates/driver-cuda/csrc/src/model/nemotron_h/nemotron_h_contract.hpp`.
 //! The Mamba2/attention/MoE hybrid keeps its decoder under
 //! `language_model.backbone.`, and its MoE GEMM addresses all experts of a
 //! layer as one contiguous slab. The contract declares the slab and then

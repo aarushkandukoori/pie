@@ -76,7 +76,7 @@ pub struct RuntimeExtents {
 // cache key, only a description of a cache nobody built.
 //
 // The real one is the CUDA driver's, in
-// `driver/cuda/src/pipeline/generated/module_cache.hpp`. It is a different
+// `crates/driver-cuda/csrc/src/pipeline/generated/module_cache.hpp`. It is a different
 // shape from anything derivable here: it folds in the real `sm_` arch, the
 // NVRTC version the module was compiled by, and a fingerprint of the
 // generated source bytes themselves. Those are properties of the machine and

@@ -7,8 +7,8 @@
 //! The rows are a table and not a `match`, so the supported set is a value
 //! something can iterate. Two other tables in this repo answer the same
 //! question from the other side of the ABI — the CUDA arch table
-//! (`driver/cuda/src/model/registry.cpp`) and Metal's `model_family_of`
-//! (`driver/metal/src/model/facts.hpp`) — and `tests/registry_agreement.rs`
+//! (`crates/driver-cuda/csrc/src/model/registry.cpp`) and Metal's `model_family_of`
+//! (`crates/driver-metal/csrc/src/model/facts.hpp`) — and `tests/registry_agreement.rs`
 //! reads all three and refuses a disagreement. Before it, a `model_type`
 //! added to one side and not the other surfaced as two unrelated errors
 //! ("unsupported model_type" from a driver, "no author" from here) whose
@@ -37,7 +37,7 @@ pub type Author = fn(&mut Builder<'_>) -> Result<(), Error>;
 ///
 /// A table rather than a `match` arm so the row set is a *value*. Three
 /// tables in this repo answer "which `model_type` is supported" — this one,
-/// `driver/cuda/src/model/registry.cpp`'s arch table, and Metal's
+/// `crates/driver-cuda/csrc/src/model/registry.cpp`'s arch table, and Metal's
 /// `model_family_of` — and `tests/registry_agreement.rs` holds them to each
 /// other. That check can only exist if at least this one can be enumerated.
 pub const HF_ROWS: &[(&str, Author)] = &[
@@ -95,7 +95,7 @@ pub const HF_ROWS: &[(&str, Author)] = &[
 /// The MLX-naming rows: the same families at a different point in policy
 /// space, which is what the Metal driver boots through.
 ///
-/// These mirror Metal's `model_family_of` (`driver/metal/src/model/facts.hpp`)
+/// These mirror Metal's `model_family_of` (`crates/driver-metal/csrc/src/model/facts.hpp`)
 /// — the driver decides which decode DAG to run from the same string this
 /// dispatches an author on, so the two lists have to name the same set.
 pub const MLX_ROWS: &[(&str, Author)] = &[

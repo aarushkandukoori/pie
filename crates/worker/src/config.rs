@@ -840,7 +840,7 @@ impl Default for SchedulerConfig {
 }
 
 /// Pinned upload staging slots the CUDA driver allocates, mirroring
-/// `kUploadStagingDepth` in `driver/cuda/src/runahead.hpp` (there:
+/// `kUploadStagingDepth` in `crates/driver-cuda/csrc/src/runahead.hpp` (there:
 /// `kSchedulerMaxInFlight * kMaxPipelinedFrameSize + 1` = 3 * 4 + 1).
 ///
 /// The driver stages per STEP, not per frame, and one frame carries up to
@@ -901,7 +901,7 @@ impl SchedulerConfig {
              (got {} * {} = {steps_in_flight}): the CUDA driver stages one pinned upload slot \
              per STEP and allocates {UPLOAD_STAGING_DEPTH} of them, so at or above that every \
              submit blocks waiting for a slot and re-serializes with no error reported \
-             (kUploadStagingDepth in driver/cuda/src/runahead.hpp)",
+             (kUploadStagingDepth in crates/driver-cuda/csrc/src/runahead.hpp)",
             self.frame_dispatch_depth,
             self.frame_size
         );
@@ -1337,7 +1337,7 @@ pub struct CudaNativeDriverOptions {
     pub weight_dtype: String,
     /// CUDA device string, e.g. `"cuda:0"`. Populated by the caller
     /// from `model.driver.device`; set on the C++ side via
-    /// `cudaSetDevice` (see `driver/cuda/src/engine.cpp`).
+    /// `cudaSetDevice` (see `crates/driver-cuda/csrc/src/engine.cpp`).
     #[serde(skip)]
     pub device: String,
     /// Driver-side verbose logging. Populated from `server.verbose` rather

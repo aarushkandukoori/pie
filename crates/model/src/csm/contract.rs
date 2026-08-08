@@ -1,6 +1,6 @@
 //! What CSM binds.
 //!
-//! Ported from `driver/cuda/src/model/csm/csm_contract.hpp`. One family-wide
+//! Ported from `crates/driver-cuda/csrc/src/model/csm/csm_contract.hpp`. One family-wide
 //! fact: every kernel in the backbone, the depth decoder and the Mimi codec
 //! reads bf16, and the published checkpoints ship fp32.
 

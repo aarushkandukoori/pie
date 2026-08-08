@@ -675,7 +675,7 @@ enum Semantic {
 }
 
 /// The kernels a semantic statement launches, read off the executor that
-/// launches them today (`driver/cuda/src/model/llama_like/
+/// launches them today (`crates/driver-cuda/csrc/src/model/llama_like/
 /// declared_forward.cpp`), not guessed.
 ///
 /// Most of these arms are the ones the doc's Amendment A diagnosed: they

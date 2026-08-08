@@ -34,7 +34,7 @@ use crate::trace::{ForwardPlan, OpKind};
 /// Which backend's kernels a lowered trace states.
 ///
 /// The table is per-BACKEND because a kernel signature is backend-owned
-/// (`.wiki/tart/dsl.md` ②: `driver/cuda/kernels.rs`). A model text is
+/// (`.wiki/tart/dsl.md` ②: `crates/driver-cuda/csrc/kernels.rs`). A model text is
 /// written for one backend and states that backend's symbols; the
 /// family name says which — `llama_like.cuda.decode` is CUDA's,
 /// `llama_like.metal.decode` would be Metal's.
@@ -291,7 +291,7 @@ pub static KERNELS: &[KernelSig] = &[
 ///
 /// EMPTY, and deliberately so: Metal has no lowered text yet. It
 /// consumes the SEMANTIC trace and re-derives its dispatch selection in
-/// C++ (`driver/metal/src/model/llama_like/declared_dag.hpp`) — the same
+/// C++ (`crates/driver-metal/csrc/src/model/llama_like/declared_dag.hpp`) — the same
 /// "the driver decides" shape the CUDA side is being cured of, from the
 /// other end.
 ///

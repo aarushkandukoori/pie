@@ -112,7 +112,7 @@ Evidence, per hashing site:
 - No adapter identity reaches any hashing site anyway. The sites see
   `store.domain()` only; the adapter contents are per-instance channel
   seeds ("an adapter swap is a channel re-seed, never a re-trace",
-  driver/cuda/src/model/lora.hpp) and are NOT in the container or the
+  crates/driver-cuda/csrc/src/model/lora.hpp) and are NOT in the container or the
   program hash (`ChannelDecl` carries just `seeded: bool`) — two instances
   with different adapters share one program identity.
 

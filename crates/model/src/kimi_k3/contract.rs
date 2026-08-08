@@ -1,6 +1,6 @@
 //! What Kimi-K3 binds.
 //!
-//! Ported from `driver/cuda/src/model/kimi_k3/kimi_k3_contract.hpp`. Three
+//! Ported from `crates/driver-cuda/csrc/src/model/kimi_k3/kimi_k3_contract.hpp`. Three
 //! things the generic name-pattern rules cannot state:
 //!
 //! * K3's attention introduces tensor names no other family has (`g_proj`,

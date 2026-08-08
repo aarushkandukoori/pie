@@ -65,7 +65,7 @@ const DECODE_TOKENS: usize = 24;
 /// Known-correct GDN decode prefix (token ids) for the `"hello world"` prompt on
 /// **Qwen/Qwen3.5-0.8B** (the model the harness loads — NOT `-Base`), greedy,
 /// from the HF transformers reference (pure-torch GDN CPU fallback, bf16==fp32).
-/// Generated 2026-07 via driver/cuda/tests/gdn_value_golden.py --model
+/// Generated 2026-07 via crates/driver-cuda/csrc/tests/gdn_value_golden.py --model
 /// Qwen/Qwen3.5-0.8B. Full 24: [271,71093,1497,198,13151,15004,5104,29,198,
 /// 13350,8423,420,268,731,198,15863,29,198,262,361,5317,11284,420,8299]
 /// ("\n\n```html\n<!DOCTYPE html>..."). NOTE: alpha's committed golden b183291b was

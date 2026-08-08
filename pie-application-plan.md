@@ -29,9 +29,9 @@ in two places, and Pie is the only engine that has named the principle:
 - `ptir_program_hashes` is a `Slice`: **one fire holds N different PTIR
   programs**, each owning a disjoint row range
   (`driver/abi/include/pie_native/launch_view.hpp:72-85`).
-- `driver/cuda/src/pipeline/grouped_runtime.cuh` fans one launch across lanes,
+- `crates/driver-cuda/csrc/src/pipeline/grouped_runtime.cuh` fans one launch across lanes,
   one lane per program. That is gather → per-lane work → scatter.
-- `driver/cuda/src/kernels/moe_grouped_gemm.cu` is the same pattern written a
+- `crates/driver-cuda/csrc/src/kernels/moe_grouped_gemm.cu` is the same pattern written a
   second time, for the expert axis.
 - `compiler/plan/src/lane_table.rs` already carries per-lane symbolic extents
   (`kv_len`, `row_count`, `token_count`, `query_len`) plus `active_row_mask` and
@@ -54,9 +54,9 @@ const bool fused_decode_qkv_post =
     !has_custom_mask &&
     ...
 ```
-— `driver/cuda/src/model/llama_like/llama_like.cpp:492-503`
+— `crates/driver-cuda/csrc/src/model/llama_like/llama_like.cpp:492-503`
 
-**112 predicates of this shape across 23 files** in `driver/cuda/src/model/`
+**112 predicates of this shape across 23 files** in `crates/driver-cuda/csrc/src/model/`
 (grep for `active_stage_hooks == nullptr|!has_custom_mask|is_pure_decode`).
 
 Each one is the same rule: *a fused edge cannot be a merge point.* Pie
@@ -68,7 +68,7 @@ missing is that the boolean is all-or-nothing.
 ```cpp
 inline thread_local const StageHooks* active_stage_hooks = nullptr;
 ```
-— `driver/cuda/src/model/stage_hooks.hpp:55`
+— `crates/driver-cuda/csrc/src/model/stage_hooks.hpp:55`
 
 **One pointer per fire.** A single request that wants an attention-score tap
 disables the fused QKV kernel for every request in the batch. This is the
@@ -80,7 +80,7 @@ kernel limitation.
 `preserves_inner_rows()` is `wire_row_count() > 1`, and that forces
 `requires_solo_submission` (`crates/engine/src/scheduler/worker.rs:322-345`).
 The driver enforces a second rule: *"ptir: dense device mask in a multi-program
-batch requires solo retry"* (`driver/cuda/src/batch/frame.cpp:935-943`).
+batch requires solo retry"* (`crates/driver-cuda/csrc/src/batch/frame.cpp:935-943`).
 
 So a KV-sparsity program like `tests/inferlets/quest-attention` — which writes a
 per-lane `attn_page_mask` — cannot share a fire with an ordinary request.
@@ -89,7 +89,7 @@ per-lane `attn_page_mask` — cannot share a fire with an ordinary request.
 
 - *"the engine serves exactly one model"* — `runtime/model/src/lib.rs:97`
 - `IModel::body(ws, kv, attn_ws, cublas, in)` takes no per-request weight, rank
-  or depth (`driver/cuda/src/model/imodel.hpp:79-83`)
+  or depth (`crates/driver-cuda/csrc/src/model/imodel.hpp:79-83`)
 - LoRA does not exist. `("lora", SinkScope::PassWide)` is **reserved and
   unimplemented** (`crates/tensor-ir/src/registry.rs:152`); PEFT adapters are on the
   roadmap for v0.3.0.
@@ -203,7 +203,7 @@ belong at layer granularity, and only for STRUCTURAL divergence.** CORRECTION an
 WEIGHT need no graph node at all — the variant is a pointer, not a branch.
 
 Consequence for `ForwardGraphKey{num_requests, num_tokens, variant}`
-(`driver/cuda/src/batch/forward_graph.hpp:49-59`, LRU capped at 128): with
+(`crates/driver-cuda/csrc/src/batch/forward_graph.hpp:49-59`, LRU capped at 128): with
 polymorphism in the backbone, either the key multiplies by the program set (it
 will not fit) or topology is fixed with conditional regions and the key gains
 only a supergraph generation number. The second is the answer, but note that
@@ -222,7 +222,7 @@ model/                    (new top level; absorbs the existing crates/model-load
   crates/model-compiler/   schema + declaration -> executable forward pass  (specs stay in drivers)
 compiler/                 UNTOUCHED. PTIR only.
 crates/engine/scheduler/ fire planning + row order
-driver/cuda/              prepare() materializes, body() reads, capture
+crates/driver-cuda/csrc/              prepare() materializes, body() reads, capture
 ```
 
 ### 4.1 Why `model/` nests
@@ -239,7 +239,7 @@ directory that only expresses a theme.
 
 ### 4.2 Why the specs live in drivers
 
-Precedent, stated explicitly in `driver/cuda/src/model/contract.hpp`:
+Precedent, stated explicitly in `crates/driver-cuda/csrc/src/model/contract.hpp`:
 
 > *"This header is **the mechanism and nothing else**. The knowledge — that Phi-3
 > ships a fused QKV, that Kimi hides the decoder under `language_model.` — lives
@@ -248,7 +248,7 @@ Precedent, stated explicitly in `driver/cuda/src/model/contract.hpp`:
 > *"**It is CUDA's.** Metal authors its own contract... A header shared between
 > them made each carry the other's vocabulary."*
 
-`model/forward` is the mechanism; `driver/cuda/src/model/qwen3_6/` holds the
+`model/forward` is the mechanism; `crates/driver-cuda/csrc/src/model/qwen3_6/` holds the
 declaration, the contract, and the kernel selection. Same relationship
 `compiler/` has to inferlets and `crates/model-loader/` has to contracts: **a toolchain is
 named for its activity, and its inputs live elsewhere.**
@@ -317,7 +317,7 @@ merge point, so fusion and merging must be chosen together, by the planner.
 - **WEIGHT** comes from binding. The author writes `matmul(x, layer[l].qkv)`. If
   the deployment binds 32 of them, the compiler sees a lane dimension and emits a
   batched GEMM. `ops::gemm_batched_act_x_w` already exists
-  (`driver/cuda/src/ops/gemm.hpp:202`).
+  (`crates/driver-cuda/csrc/src/ops/gemm.hpp:202`).
 - **CORRECTION** comes from algebra. If the binding says "qkv is base plus a
   per-lane low-rank delta", the compiler distributes:
   `x(W + BA)ᵀ = xWᵀ + (xAᵀ)Bᵀ` — one shared GEMM plus a small batched GEMM at
@@ -485,7 +485,7 @@ rejection. Needs per-lane page tables in the attention path.
 **Stage 3 — `model/forward`, one family.** Declare `llama_like` (which covers
 qwen3, mistral3, phi3, olmo3) and emit against the existing kernels. Keep the
 hand-written path alive and diff against it — the parity harness in
-`driver/cuda/tests/load_parity` and `tests/inferlets/naive-baseline` are the
+`crates/driver-cuda/csrc/tests/load_parity` and `tests/inferlets/naive-baseline` are the
 golden models. Do not port the exotic families (nemotron_h, deepseek_v4, csm)
 yet.
 
@@ -522,7 +522,7 @@ prototype too, so expect it to be the hardest.
 The forward pass stays hand-written C++ kernels. Nothing here generates a kernel;
 `model/forward` decides which existing kernels are called, in what order, with
 what indirection. FlashInfer, cuBLAS, CUTLASS and the 196 kernels in
-`driver/cuda/src/kernels` are untouched — and 108 of those are used twice or
+`crates/driver-cuda/csrc/src/kernels` are untouched — and 108 of those are used twice or
 less, which is why the `opaque` escape hatch is load-bearing rather than
 decorative.
 

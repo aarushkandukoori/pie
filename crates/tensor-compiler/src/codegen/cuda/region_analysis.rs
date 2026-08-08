@@ -9,7 +9,7 @@
 //! and no Metal path reads a [`RegionAnalysis`].
 //!
 //! Two per-program analyses the launch package has yet to absorb still live
-//! in one C++ file, `driver/cuda/src/pipeline/region_support.hpp`:
+//! in one C++ file, `crates/driver-cuda/csrc/src/pipeline/region_support.hpp`:
 //!
 //! * the **bind-time region gates** — `second_party_region_supported` and
 //!   `validate_generated_region`, which decide whether a region can be bound

@@ -1714,7 +1714,7 @@ fn instr_id(instr: &StorageInstr) -> pie_loader::types::InstrId {
 /// A block-scaled FP8 source names its scale tensor on the instruction.
 ///
 /// The executor used to rebuild the name by appending `_scale_inv` and looking
-/// it up (`driver/cuda/src/loader/transcode_engine.hpp`), which is the same
+/// it up (`crates/driver-cuda/csrc/src/loader/transcode_engine.hpp`), which is the same
 /// guess-what-the-loader-decided pattern `attachments` removed from the output
 /// side. The loader has the tensor table, so it answers; this pins that the
 /// answer travels.
@@ -1807,7 +1807,7 @@ fn a_source_without_a_scale_sibling_names_none() {
 
 #[test]
 fn a_padded_head_dim_zeroes_the_buffer_before_it_writes_the_rows() {
-    // `driver/cuda/src/model/llama_like/llama_like.cpp:640` wants this: pad Q/K/V
+    // `crates/driver-cuda/csrc/src/model/llama_like/llama_like.cpp:640` wants this: pad Q/K/V
     // up to a head_dim the attention kernel takes. Until `Fill` existed the
     // compiler priced the pad (spec.md §3.3) and then refused to build it.
     let metadata = CheckpointMetadata {

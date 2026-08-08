@@ -1,6 +1,6 @@
 //! Llama 3's load contract — and the dense schema most generations share.
 //!
-//! Ported from `driver/cuda/src/model/llama_like/llama_like_contract.hpp`.
+//! Ported from `crates/driver-cuda/csrc/src/model/llama_like/llama_like_contract.hpp`.
 //! Two of the three authors here are bound by generations that ship no
 //! contract of their own: `author_llama_like` serves Llama 3, Mistral and
 //! Qwen2/3, and `author_dense` serves a dozen `model_type`s across five
@@ -45,7 +45,7 @@ pub fn author_dense(b: &mut Builder<'_>) -> Result<(), Error> {
 
 /// The Metal lowering of the llama-shaped families: rename for MLX's binder,
 /// bind in place. Ported from
-/// `driver/metal/src/model/llama/llama_contract.hpp` — what is
+/// `crates/driver-metal/csrc/src/model/llama/llama_contract.hpp` — what is
 /// family-specific is the tensor NAMES, and the mechanics are
 /// [`mlx::author_mlx_file`].
 pub fn author_llama_mlx(b: &mut Builder<'_>) -> Result<(), Error> {

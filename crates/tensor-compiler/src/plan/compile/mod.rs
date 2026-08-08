@@ -29,7 +29,7 @@ pub use symbolic::*;
 /// Cache-identity tokens, not wire-format versions.
 ///
 /// Both drivers fold these into the key of their compiled-module caches
-/// (`driver/cuda/.../module_cache.hpp`, `driver/metal/.../m1_runtime.cpp`), so
+/// (`crates/driver-cuda/csrc/.../module_cache.hpp`, `crates/driver-metal/csrc/.../m1_runtime.cpp`), so
 /// bumping one is how a change in this crate's planning semantics invalidates
 /// everything a device already built. Nothing parses a byte stream stamped with
 /// them.

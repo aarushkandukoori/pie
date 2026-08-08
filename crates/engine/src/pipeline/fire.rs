@@ -1780,7 +1780,7 @@ fn validate_frame<C: FireContext>(
         // template refused all of them. It no longer does: `299b76320` let an
         // unbuffered fold-all recurrent decode take the template, which is the
         // ordinary hybrid decode shape. `try_device_composed_template` in
-        // `driver/cuda/src/pipeline/dispatch.cu` now refuses exactly two RS
+        // `crates/driver-cuda/csrc/src/pipeline/dispatch.cu` now refuses exactly two RS
         // shapes, and `rs_host_resolved` above mirrors them:
         //
         //   * buffered rows — ragged and sized to the real request count, so a

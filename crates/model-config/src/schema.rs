@@ -1,7 +1,7 @@
 //! The normalized shape of a HuggingFace `config.json`.
 //!
 //! Field for field the same as `pie_cuda_driver::HfConfig`
-//! (`driver/cuda/src/model/config.hpp`), under the same names, because the
+//! (`crates/driver-cuda/csrc/src/model/config.hpp`), under the same names, because the
 //! Rust normalizer in [`normalize`](crate::normalize) has to be checkable
 //! against the C++ one it replaces. `tests/differential.rs` compares the two
 //! over 55 real and synthetic configs; equality of these names is what lets

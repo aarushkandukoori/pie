@@ -3795,7 +3795,7 @@ Two knobs confirm it needs real work rather than tuning:
 - **Not fixable by pipeline depth.** `PIE_SCHED_MAX_IN_FLIGHT` 2/3/4 on
   mixed-phase gave 11115 / 10864 / 12204 — inside the noise band, no trend.
   `kSchedulerMaxInFlight = 3` with `kUploadStagingDepth = 13`
-  (driver/cuda/src/runahead.hpp) already sizes the staging pools for depth 3,
+  (crates/driver-cuda/csrc/src/runahead.hpp) already sizes the staging pools for depth 3,
   so this is not a staging limit; the prefill wave's submit simply cannot start
   until its predecessor completes.
 
@@ -5550,7 +5550,7 @@ A prior claim in this log — "pie has no chunked prefill" — was wrong as a
 capability statement, and the correction matters because it changes which
 levers are even available.
 
-- `driver/cuda/src/batch/frame.cpp:1173-1177` **derives** `is_pure_decode` per
+- `crates/driver-cuda/csrc/src/batch/frame.cpp:1173-1177` **derives** `is_pure_decode` per
   step from `qo_indptr`: true iff every request contributes exactly one token.
   Models then compute `use_decode_path = is_pure_decode && !force_prefill_path`,
   so a step of 511 x Nr=1 plus 1 x Nr=37 simply runs the general ragged-prefill
@@ -5714,7 +5714,7 @@ exactly this model and GPU, and it turns out to be **the wrong one**.
 
 ### Where N=8192 came from
 
-`driver/cuda/src/store/memory_planner.cpp` selects a plan through three tiers:
+`crates/driver-cuda/csrc/src/store/memory_planner.cpp` selects a plan through three tiers:
 
 1. **profile cache** — reads `~/.cache/pie/cuda_memory_profiles.json` and pins
    whatever it finds. **Dead machinery: nothing in the repo ever wrote that

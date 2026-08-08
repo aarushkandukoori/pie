@@ -51,7 +51,7 @@ use msl_corpus::{CorpusStage, corpus_stages, is_library, op_tag, region_shape};
 
 /// FNV-1a 64, the hash the oracle header records for the shared prefixes.
 /// The embedded runtime template must be the same bytes the C++ emitter read
-/// from `driver/metal/src/kernels/ptir_m1_runtime.metal`. Everything else here
+/// from `crates/driver-metal/csrc/src/kernels/ptir_m1_runtime.metal`. Everything else here
 /// compares kernel *tails* with the shared prefix elided, so without this the
 /// two could diverge on the 34 KB nobody diffs.
 #[test]
@@ -82,7 +82,7 @@ fn embedded_runtime_matches_the_oracle() {
         (runtime.len(), pie_ir::fnv1a64(runtime.as_bytes())),
         field("# @runtime:"),
         "compiler/codegen/runtime/metal/ptir_m1_runtime.metal has drifted from the copy \
-         the C++ oracle read out of driver/metal/src/kernels/"
+         the C++ oracle read out of crates/driver-metal/csrc/src/kernels/"
     );
 
     let grouped = grouped_preamble();

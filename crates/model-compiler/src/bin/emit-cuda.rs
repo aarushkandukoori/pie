@@ -5,7 +5,7 @@
 //! cargo run -p pie-forward --bin emit-cuda
 //! ```
 //!
-//! Writes `driver/cuda/src/model/llama_like/generated/{qwen3_0_6b,
+//! Writes `crates/driver-cuda/csrc/src/model/llama_like/generated/{qwen3_0_6b,
 //! olmo2_1b}.inc`. The facts are each deployment's LIVE-anchored set;
 //! the driver runs a generated pair only when its own derived facts
 //! digest matches the constant embedded in that file (drift →
@@ -18,7 +18,7 @@ use pie_forward::{LlamaLikeCudaFacts, LlamaLikeFacts, Qwen35CudaFacts, Qwen35Hyb
 
 fn write_inc_at(family: &str, name: &str, contents: &str) {
     let dir = format!(
-        "{}/../driver/cuda/src/model/{family}/generated",
+        "{}/../crates/driver-cuda/csrc/src/model/{family}/generated",
         env!("CARGO_MANIFEST_DIR")
     );
     std::fs::create_dir_all(&dir).unwrap();

@@ -19,7 +19,7 @@ use crate::trace::{NormVariant, RopeKind};
 /// sub-layer's OUTPUT, and only then does a separate residual add land it —
 /// a genuinely different op ORDER, which is why it is a fact and not an
 /// emitter choice. Mirrors the driver's `NormPlacement`
-/// (`driver/cuda/src/model/llama_like/llama_like.hpp`).
+/// (`crates/driver-cuda/csrc/src/model/llama_like/llama_like.hpp`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NormPlacement {
     #[default]
@@ -347,7 +347,7 @@ pub struct LlamaLikeCudaFacts {
 /// The Metal driver cannot even build on the box we have (`xcrun --find
 /// metal` fails — the shader compiler ships with full Xcode), so every
 /// field here is read off the driver's SOURCE
-/// (`driver/metal/src/kernels/decode_psos.cpp`, `model/qwen3_5/decode_step.hpp`)
+/// (`crates/driver-metal/csrc/src/kernels/decode_psos.cpp`, `model/qwen3_5/decode_step.hpp`)
 /// rather than measured. `.wiki/tart/macos.md` records the ladder; the
 /// precedent for refusing to call an unmeasured fact set measured is
 /// [`Qwen35CudaFacts::qwen3_5_0_8b_synthetic`].
@@ -420,7 +420,7 @@ impl LlamaLikeCudaFacts {
 ///
 /// Deliberately narrower than a `Qwen35MoeFacts` would be: the qwen3.5
 /// family alternates GDN linear-attention layers with full-attention layers
-/// (the HYBRID part, `driver/cuda/src/model/qwen3_5/qwen3_5_forward.cpp`),
+/// (the HYBRID part, `crates/driver-cuda/csrc/src/model/qwen3_5/qwen3_5_forward.cpp`),
 /// and declaring the MoE MLP inside the llama_like skeleton would trace a
 /// model that does not exist. So these facts describe exactly the unit the
 /// qwen3_5 hybrid composes per layer — `y += moe_mlp(rmsnorm(y))`, the
@@ -534,29 +534,29 @@ impl Qwen35GdnFacts {
     }
 
     /// Qwen3.5-0.8B, the workspace's linear-attention parity checkpoint
-    /// (`driver/cuda/tests/parity_qwen3_5_multireq.py` defaults to
+    /// (`crates/driver-cuda/csrc/tests/parity_qwen3_5_multireq.py` defaults to
     /// `Qwen/Qwen3.5-0.8B-Base`).
     ///
     /// No config.json is committed in this tree, so every dimension is
     /// pinned from the drivers' own statements of this checkpoint:
     ///
-    /// * `driver/metal/src/model/qwen3_5/geometry.hpp` (`DecodeGeometry`
+    /// * `crates/driver-metal/csrc/src/model/qwen3_5/geometry.hpp` (`DecodeGeometry`
     ///   defaults, the Metal driver's 0.8B target): `hidden = 1024`,
     ///   `gdn_k_heads = 16`, `gdn_v_heads = 16`, `gdn_k_dim = 128`,
     ///   `gdn_v_dim = 128`, `gdn_conv_k = 4`, `gdn_conv_dim = 6144`,
     ///   `gdn_v_total = 2048` — and `conv_dim()`/`value_width()` here
     ///   reproduce those last two (2·2048 + 2048 = 6144, 16·128 = 2048).
-    /// * `driver/metal/src/model/qwen3_5/decode_consts.cpp` corroborates
+    /// * `crates/driver-metal/csrc/src/model/qwen3_5/decode_consts.cpp` corroborates
     ///   the widths as launch geometry: in-proj 1024 → 6144, z 1024 →
     ///   2048, out-proj 2048 → 1024, "in_proj_a / in_proj_b — DENSE bf16
     ///   GEMV [16, 1024]" (= value_heads × hidden).
-    /// * `driver/cuda/src/model/config.hpp:357` pins the conv window: 4.
+    /// * `crates/driver-cuda/csrc/src/model/config.hpp:357` pins the conv window: 4.
     /// * `fused_in_proj: false` is the live default binding
     ///   (`PIE_QWEN35_FUSED_GDN_PROJ` unset — see the field doc).
     /// * `norm_variant: Gemma`: `qwen3_5_forward.cpp` launches
     ///   `launch_rmsnorm_gemma_bf16` for every block norm, and the Metal
     ///   port states "All RMSNorm gains use the Gemma (1+w) convention"
-    ///   (`driver/metal/tests/mlx/model/qwen3_5.hpp`).
+    ///   (`crates/driver-metal/csrc/tests/mlx/model/qwen3_5.hpp`).
     pub fn qwen3_5_0_8b() -> Self {
         Self {
             hidden: 1024,
@@ -629,17 +629,17 @@ impl Qwen35FullAttnFacts {
     /// own statements of this checkpoint (no config.json is committed;
     /// same provenance discipline as [`Qwen35GdnFacts::qwen3_5_0_8b`]):
     ///
-    /// * `driver/metal/src/model/qwen3_5/geometry.hpp` (`DecodeGeometry`
+    /// * `crates/driver-metal/csrc/src/model/qwen3_5/geometry.hpp` (`DecodeGeometry`
     ///   defaults, the Metal driver's 0.8B target): `hidden = 1024`,
     ///   `n_q_heads = 8`, `n_kv_heads = 2`, `head_dim = 256`,
     ///   `rotary_dims = 64` ("derived from partial_rotary_factor *
     ///   head_dim").
-    /// * `driver/metal/src/model/qwen3_5/decode_consts.cpp` corroborates
+    /// * `crates/driver-metal/csrc/src/model/qwen3_5/decode_consts.cpp` corroborates
     ///   the widths as launch geometry: "2×-wide gated q_proj (4096)" =
     ///   2 · 8 · 256, k/v 1024 → 512 = 2 · 256, o_proj 2048 → 1024.
     /// * `rotary_dim = 64`: `partial_rotary_factor = 0.25` (the family
-    ///   default `driver/metal/src/batch/forward.hpp` states and
-    ///   `driver/cuda/src/model/qwen3_5/qwen3_5.hpp` documents —
+    ///   default `crates/driver-metal/csrc/src/batch/forward.hpp` states and
+    ///   `crates/driver-cuda/csrc/src/model/qwen3_5/qwen3_5.hpp` documents —
     ///   "`partial_rotary_factor=0.25` — only the first 25% of head_dim is
     ///   rotated"); the CUDA derivation `max(2, 2·int(0.5·0.25·256))`
     ///   (`qwen3_5_forward.cpp`) and Metal's `rotary_dims` both land on 64.
@@ -648,7 +648,7 @@ impl Qwen35FullAttnFacts {
     /// * `norm_variant: Gemma`: `full_attn_layer_body` launches
     ///   `launch_rmsnorm_gemma_bf16` for the block norm and both per-head
     ///   q/k norms, and the Metal port states "All RMSNorm gains use the
-    ///   Gemma (1+w) convention" (`driver/metal/tests/mlx/model/qwen3_5.hpp`).
+    ///   Gemma (1+w) convention" (`crates/driver-metal/csrc/tests/mlx/model/qwen3_5.hpp`).
     pub fn qwen3_5_0_8b() -> Self {
         Self {
             hidden: 1024,
@@ -691,14 +691,14 @@ pub enum Qwen35MlpKind {
 /// The checkpoint states them explicitly: `config.json` ships a
 /// `layer_types` array of `"linear_attention"` / `"full_attention"` with one
 /// entry per layer, which is the CUDA driver's sole source
-/// (`HfConfig::layer_types`, parsed in `driver/cuda/src/model/config.cpp`;
+/// (`HfConfig::layer_types`, parsed in `crates/driver-cuda/csrc/src/model/config.cpp`;
 /// `qwen3_5.cpp` refuses a length mismatch). The qwen3.5 checkpoints ship a
 /// REGULAR pattern — one full-attention layer every
 /// `full_attention_interval`, the rest linear
-/// (`driver/metal/tests/mlx/model/qwen3_5.hpp`) — and the Metal driver
+/// (`crates/driver-metal/csrc/tests/mlx/model/qwen3_5.hpp`) — and the Metal driver
 /// reduces the array to exactly that interval, refusing irregular arrays
-/// (`driver/metal/src/batch/forward.hpp`: "-1: `layer_types` is irregular,
-/// refuse"; `driver/metal/src/model/qwen3_5/geometry.hpp::is_full_attn`).
+/// (`crates/driver-metal/csrc/src/batch/forward.hpp`: "-1: `layer_types` is irregular,
+/// refuse"; `crates/driver-metal/csrc/src/model/qwen3_5/geometry.hpp::is_full_attn`).
 /// These facts state the interval, mirroring that reduction: a hypothetical
 /// irregular checkpoint is outside this declaration's vocabulary, exactly
 /// as it is outside the Metal driver's.
@@ -868,7 +868,7 @@ impl Qwen35CudaFacts {
 
 impl Qwen35HybridFacts {
     /// Whether layer `l` runs full attention —
-    /// `driver/metal/src/model/qwen3_5/geometry.hpp::is_full_attn`.
+    /// `crates/driver-metal/csrc/src/model/qwen3_5/geometry.hpp::is_full_attn`.
     pub fn is_full_attn(&self, l: u32) -> bool {
         self.full_attn_interval <= 1
             || l % self.full_attn_interval == self.full_attn_interval - 1
@@ -881,11 +881,11 @@ impl Qwen35HybridFacts {
     }
 
     /// Qwen3.5-0.8B, the workspace's hybrid parity checkpoint
-    /// (`driver/cuda/tests/parity_qwen3_5_multireq.py` defaults to
+    /// (`crates/driver-cuda/csrc/tests/parity_qwen3_5_multireq.py` defaults to
     /// `Qwen/Qwen3.5-0.8B-Base`). Sub-facts are the provenance-pinned 0.8B
     /// fixtures ([`Qwen35FullAttnFacts::qwen3_5_0_8b`],
     /// [`Qwen35GdnFacts::qwen3_5_0_8b`]); the model-level dims are pinned
-    /// from `driver/metal/src/model/qwen3_5/geometry.hpp` (`DecodeGeometry`
+    /// from `crates/driver-metal/csrc/src/model/qwen3_5/geometry.hpp` (`DecodeGeometry`
     /// defaults, the Metal driver's 0.8B target): `n_layers = 24`,
     /// `full_attn_interval = 4` (layers 3, 7, 11, 15, 19, 23 full — the
     /// family's 3:1 linear:full pattern), `vocab = 248320`
@@ -893,7 +893,7 @@ impl Qwen35HybridFacts {
     /// `tied_embeddings = true`. The MLP is DENSE with `intermediate =
     /// 3584` (geometry.hpp; `decode_consts.cpp`: gate/up 1024 → 3584,
     /// down 3584 → 1024) — "Dense only on the 0.8B target (MoE deferred)"
-    /// (`driver/metal/tests/mlx/model/qwen3_5.hpp`), and the CUDA dense
+    /// (`crates/driver-metal/csrc/tests/mlx/model/qwen3_5.hpp`), and the CUDA dense
     /// family (`model_type: qwen3_5`, `qwen3_5_forward.cpp`) runs
     /// `qwen35_dense_mlp_block` on every layer.
     pub fn qwen3_5_0_8b() -> Self {
@@ -993,7 +993,7 @@ impl Qwen35HybridFacts {
 ///   reason gemma-4 cannot be a `llama_like` configuration.
 ///
 /// (There is no altup here. That is gemma3n's mechanism —
-/// `driver/cuda/src/model/gemma4/` never mentions it.)
+/// `crates/driver-cuda/csrc/src/model/gemma4/` never mentions it.)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Gemma4Facts {
     pub hidden: u32,
