@@ -20,7 +20,7 @@
 #include <cuda_runtime.h>
 
 #include "batch/fire_timing.hpp"
-#include "kernels/envelope_device.cuh"
+#include "layout/envelope_device.cuh"
 #include "cuda_check.hpp"
 #include "pipeline/region_support.hpp"
 #include "pipeline/generated/module_cache.hpp"

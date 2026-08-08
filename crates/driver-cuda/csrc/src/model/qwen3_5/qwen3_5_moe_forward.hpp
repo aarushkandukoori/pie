@@ -6,13 +6,13 @@
 
 #include <cstdint>
 
-#include "ops/attention_workspace.hpp"
+#include "attention_workspace.hpp"
 #include "device_buffer.hpp"
 #include "store/kv_cache.hpp"
 #include "model/llama_like/qwen3.hpp"
 #include "model/qwen3_5/qwen3_5_forward.hpp"  // reuse Qwen3_5LinearAttnWorkspace
 #include "model/qwen3_5/qwen3_5_moe.hpp"
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 #include "store/recurrent_state_cache.hpp"
 
 namespace pie_cuda_driver::model {

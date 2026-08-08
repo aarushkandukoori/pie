@@ -2,7 +2,7 @@
 #include <cstdlib>
 #include "model/workspace.hpp"
 
-#include "kernels/argmax.hpp"
+#include "sample/argmax.hpp"
 
 #include <algorithm>
 

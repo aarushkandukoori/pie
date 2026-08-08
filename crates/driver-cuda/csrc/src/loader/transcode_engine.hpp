@@ -35,14 +35,14 @@
 #if PIE_CUDA_TRANSCODE_ENGINE_HAS_CUDA
 #include <cuda_runtime.h>
 #include "cuda_check.hpp"
-#include "kernels/dtype_cast.hpp"
-#include "kernels/mxfp4_marlin.hpp"
-#include "kernels/dequant_fp4.hpp"
-#include "kernels/dequant_wna16.hpp"
-#include "kernels/dequant_fp8.hpp"
-#include "kernels/quant_bf16_to_fp8.hpp"
-#include "kernels/quant_bf16_to_mxfp4.hpp"
-#include "kernels/transcode.hpp"
+#include "quant/dtype_cast.hpp"
+#include "quant/mxfp4_marlin.hpp"
+#include "quant/dequant_fp4.hpp"
+#include "quant/dequant_wna16.hpp"
+#include "quant/dequant_fp8.hpp"
+#include "quant/quant_bf16_to_fp8.hpp"
+#include "quant/quant_bf16_to_mxfp4.hpp"
+#include "quant/transcode.hpp"
 #ifdef PIE_CUDA_HAS_MARLIN
 #include "marlin_wrapper.hpp"
 #endif

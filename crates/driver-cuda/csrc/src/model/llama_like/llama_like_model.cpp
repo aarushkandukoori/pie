@@ -1,7 +1,7 @@
 #include "model/llama_like/llama_like_model.hpp"
 
 #include "model/stage_hooks.hpp"
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 
 #include <atomic>
 #include <cstdio>

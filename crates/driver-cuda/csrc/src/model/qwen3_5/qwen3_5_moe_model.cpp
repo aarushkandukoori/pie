@@ -1,7 +1,7 @@
 #include "model/qwen3_5/qwen3_5_moe_model.hpp"
 #include "model/qwen3_5/declared_forward.hpp"
 #include <algorithm>
-#include "ops/flashinfer_moe.hpp"
+#include "moe/flashinfer_moe.hpp"
 
 #include <cstdlib>
 #include <utility>

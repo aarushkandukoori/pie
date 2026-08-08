@@ -18,7 +18,7 @@
 #include <memory>
 
 #include "batch/forward.hpp"
-#include "ops/attention_workspace.hpp"
+#include "attention_workspace.hpp"
 #include "store/kv_cache.hpp"
 
 namespace pie_forward {

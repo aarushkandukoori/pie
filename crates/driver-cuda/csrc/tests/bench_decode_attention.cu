@@ -26,8 +26,8 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "ops/attention_flashinfer.hpp"
-#include "ops/attention_flashinfer_hopper.hpp"
+#include "attn/attention_flashinfer.hpp"
+#include "attn/attention_flashinfer_hopper.hpp"
 
 using pie_cuda_driver::AttentionWorkspace;
 namespace ops = pie_cuda_driver::ops;

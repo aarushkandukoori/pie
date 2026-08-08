@@ -39,8 +39,8 @@
 #include <cstdint>
 
 #include "distributed.hpp"
-#include "ops/attention_workspace.hpp"
-#include "ops/gemm.hpp"
+#include "attention_workspace.hpp"
+#include "gemm/gemm.hpp"
 #include "store/kv_cache.hpp"
 #include "store/mla_cache.hpp"
 #include "store/recurrent_state_cache.hpp"

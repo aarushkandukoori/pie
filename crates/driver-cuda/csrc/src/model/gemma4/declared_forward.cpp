@@ -7,19 +7,19 @@
 #include <stdexcept>
 #include <vector>
 
-#include "kernels/gather_rows.hpp"
-#include "kernels/residual_add.hpp"
-#include "kernels/rmsnorm.hpp"
-#include "kernels/rope.hpp"
-#include "kernels/scalar_mul.hpp"
-#include "kernels/softcap.hpp"
-#include "kernels/split_packed.hpp"
-#include "kernels/swiglu.hpp"
-#include "kernels/embed.hpp"
-#include "kernels/kv_paged.hpp"
-#include "ops/attention_flashinfer.hpp"
-#include "ops/attention_naive_paged.hpp"
-#include "ops/gemm.hpp"
+#include "layout/gather_rows.hpp"
+#include "norm/residual_add.hpp"
+#include "norm/rmsnorm.hpp"
+#include "rope/rope.hpp"
+#include "norm/scalar_mul.hpp"
+#include "attn/softcap.hpp"
+#include "attn/split_packed.hpp"
+#include "mlp/swiglu.hpp"
+#include "layout/embed.hpp"
+#include "attn/kv_paged.hpp"
+#include "attn/attention_flashinfer.hpp"
+#include "attn/attention_naive_paged.hpp"
+#include "gemm/gemm.hpp"
 #include <string>
 #include <string_view>
 

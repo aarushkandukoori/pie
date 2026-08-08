@@ -23,8 +23,8 @@
 //        -I driver/cuda/src -I driver/cuda/third_party/marlin_moe \
 //        -I driver/cuda/third_party/marlin \
 //        -o /tmp/marlin_verify driver/cuda/bench/marlin_moe_verify.cu \
-//        driver/cuda/src/kernels/mxfp4_marlin.cu \
-//        driver/cuda/src/kernels/moe_dispatch.cu \
+//        driver/cuda/src/quant/mxfp4_marlin.cu \
+//        driver/cuda/src/moe/moe_dispatch.cu \
 //        driver/cuda/third_party/marlin_moe/ops.cu \
 //        driver/cuda/third_party/marlin_moe/marlin_moe_wrapper.cpp \
 //        driver/cuda/third_party/marlin/gptq_marlin_repack.cu \
@@ -43,8 +43,8 @@
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 
-#include "kernels/mxfp4_marlin.hpp"
-#include "kernels/moe_dispatch.hpp"
+#include "quant/mxfp4_marlin.hpp"
+#include "moe/moe_dispatch.hpp"
 #include "marlin_moe_wrapper.hpp"
 
 // Declared rather than pulled in via `marlin_wrapper.hpp`: that header's other

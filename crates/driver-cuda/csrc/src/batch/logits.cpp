@@ -2,10 +2,10 @@
 
 #include "batch/forward.hpp"
 #include "device_buffer.hpp"
-#include "kernels/dtype_cast.hpp"
-#include "kernels/gather_rows.hpp"
+#include "quant/dtype_cast.hpp"
+#include "layout/gather_rows.hpp"
 #include "model/workspace.hpp"
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 
 namespace pie_cuda_driver {
 

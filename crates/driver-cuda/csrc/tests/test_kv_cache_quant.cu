@@ -10,7 +10,7 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels/kv_paged.hpp"
+#include "attn/kv_paged.hpp"
 #include "store/kv_cache.hpp"
 #include "store/kv_cache_format.hpp"
 #include "tensor.hpp"

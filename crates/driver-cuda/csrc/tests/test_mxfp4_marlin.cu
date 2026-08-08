@@ -5,7 +5,7 @@
 
 #include <cuda_runtime.h>
 
-#include "kernels/mxfp4_marlin.hpp"
+#include "quant/mxfp4_marlin.hpp"
 
 namespace {
 

@@ -4,7 +4,7 @@
 
 #include "pipeline/dispatch.hpp"
 
-#include "kernels/pack_dense_mask.hpp"
+#include "attn/pack_dense_mask.hpp"
 
 #include <algorithm>
 #include <array>

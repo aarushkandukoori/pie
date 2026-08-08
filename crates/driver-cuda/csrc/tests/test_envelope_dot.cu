@@ -17,7 +17,7 @@
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 
-#include "kernels/envelope.hpp"
+#include "layout/envelope.hpp"
 
 using pie_cuda_driver::kernels::launch_envelope_dot_f32;
 using pie_cuda_driver::kernels::launch_envelope_merge_written_bf16;

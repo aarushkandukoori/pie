@@ -15,9 +15,9 @@
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
-#include "kernels/dequant_fp8.hpp"
-#include "kernels/quant_bf16_to_mxfp4.hpp"
-#include "kernels/transcode.hpp"
+#include "quant/dequant_fp8.hpp"
+#include "quant/quant_bf16_to_mxfp4.hpp"
+#include "quant/transcode.hpp"
 
 namespace {
 

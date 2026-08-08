@@ -35,7 +35,7 @@
 
 #include <cuda_runtime.h>
 
-#include "ops/attention_flashinfer.hpp"
+#include "attn/attention_flashinfer.hpp"
 
 namespace ops = pie_cuda_driver::ops;
 

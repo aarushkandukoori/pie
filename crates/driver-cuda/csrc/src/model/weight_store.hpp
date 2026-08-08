@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "loader/tensor_spec.hpp"
-#include "ops/quant_meta.hpp"
+#include "quant_meta.hpp"
 #include "tensor.hpp"
 
 namespace pie_cuda_driver {

@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "ops/attention_flashinfer.hpp"
+#include "attn/attention_flashinfer.hpp"
 
 int main() {
     using namespace pie_cuda_driver;

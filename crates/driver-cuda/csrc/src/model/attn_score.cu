@@ -9,7 +9,7 @@
 #include "model/attn_observation.hpp"
 #include "model/hook_sideband_arena.hpp"
 #include "model/stage_hooks.hpp"
-#include "ops/attention_flashinfer.hpp"
+#include "attn/attention_flashinfer.hpp"
 #include "store/kv_cache.hpp"
 
 namespace pie_cuda_driver {

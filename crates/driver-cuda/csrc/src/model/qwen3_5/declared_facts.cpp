@@ -3,7 +3,7 @@
 #include "model/qwen3_5/declared_forward.hpp"
 #include "model/qwen3_5/qwen3_5_forward.hpp"
 #include "model/qwen3_5/qwen3_5_moe_forward.hpp"
-#include "ops/flashinfer_moe.hpp"
+#include "moe/flashinfer_moe.hpp"
 #include "store/recurrent_state_cache.hpp"
 
 #include <algorithm>

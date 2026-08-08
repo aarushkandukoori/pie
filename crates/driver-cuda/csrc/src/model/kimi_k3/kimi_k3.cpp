@@ -7,7 +7,7 @@
 #include <string>
 
 #include "cuda_check.hpp"
-#include "kernels/gated_delta_net.hpp"
+#include "ssm/gated_delta_net.hpp"
 
 namespace pie_cuda_driver::model {
 

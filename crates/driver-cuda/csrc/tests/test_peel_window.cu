@@ -12,10 +12,10 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels/kv_cache_view.hpp"
-#include "kernels/kv_paged.hpp"
-#include "kernels/rope.hpp"
-#include "kernels/split_packed.hpp"
+#include "attn/kv_cache_view.hpp"
+#include "attn/kv_paged.hpp"
+#include "rope/rope.hpp"
+#include "attn/split_packed.hpp"
 
 using namespace pie_cuda_driver;
 

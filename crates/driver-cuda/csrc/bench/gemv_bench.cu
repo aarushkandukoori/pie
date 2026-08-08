@@ -20,7 +20,7 @@
 // Build (~15s):
 //   nvcc -O3 -std=c++20 -arch=sm_100 --expt-relaxed-constexpr \
 //        -I driver/cuda/src -o /tmp/gemv_bench \
-//        driver/cuda/bench/gemv_bench.cu driver/cuda/src/kernels/gemv.cu \
+//        driver/cuda/bench/gemv_bench.cu driver/cuda/src/gemm/gemv.cu \
 //        -lcublas -lcublasLt
 //
 // Run:
@@ -40,7 +40,7 @@
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
-#include "kernels/gemv.hpp"
+#include "gemm/gemv.hpp"
 
 namespace {
 

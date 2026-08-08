@@ -12,17 +12,17 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels/dsa_indexer.hpp"
-#include "kernels/embed.hpp"
-#include "kernels/gather_rows.hpp"
-#include "kernels/kimi_mla.hpp"
-#include "kernels/mla_paged.hpp"
-#include "kernels/moe_dispatch.hpp"
-#include "kernels/residual_add.hpp"
-#include "kernels/rmsnorm.hpp"
-#include "kernels/rope.hpp"
-#include "kernels/swiglu.hpp"
-#include "ops/flashinfer_moe.hpp"
+#include "attn/dsa_indexer.hpp"
+#include "layout/embed.hpp"
+#include "layout/gather_rows.hpp"
+#include "attn/kimi_mla.hpp"
+#include "attn/mla_paged.hpp"
+#include "moe/moe_dispatch.hpp"
+#include "norm/residual_add.hpp"
+#include "norm/rmsnorm.hpp"
+#include "rope/rope.hpp"
+#include "mlp/swiglu.hpp"
+#include "moe/flashinfer_moe.hpp"
 #include "model/llama_like/qwen3.hpp"  // for make_weight_view
 
 namespace pie_cuda_driver::model {

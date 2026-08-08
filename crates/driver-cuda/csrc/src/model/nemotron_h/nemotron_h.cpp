@@ -12,7 +12,7 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels/nemotron_h.hpp"
+#include "ssm/nemotron_h.hpp"
 
 namespace pie_cuda_driver::model {
 

@@ -36,8 +36,8 @@
 //   nvcc -O3 -std=c++20 -arch=sm_100 --expt-relaxed-constexpr \
 //        -I driver/cuda/src -o /tmp/smallop_bench \
 //        driver/cuda/bench/smallop_bench.cu \
-//        driver/cuda/src/kernels/rmsnorm.cu \
-//        driver/cuda/src/kernels/topk_softmax.cu
+//        driver/cuda/src/norm/rmsnorm.cu \
+//        driver/cuda/src/moe/topk_softmax.cu
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -47,10 +47,10 @@
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
-#include "kernels/kv_paged.hpp"
-#include "kernels/rmsnorm.hpp"
-#include "kernels/rope.hpp"
-#include "kernels/topk_softmax.hpp"
+#include "attn/kv_paged.hpp"
+#include "norm/rmsnorm.hpp"
+#include "rope/rope.hpp"
+#include "moe/topk_softmax.hpp"
 
 namespace {
 

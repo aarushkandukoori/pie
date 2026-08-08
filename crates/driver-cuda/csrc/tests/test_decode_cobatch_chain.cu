@@ -23,8 +23,8 @@
 
 #include <cuda_runtime.h>
 
-#include "kernels/split_packed.hpp"
-#include "ops/attention_flashinfer.hpp"
+#include "attn/split_packed.hpp"
+#include "attn/attention_flashinfer.hpp"
 
 using pie_cuda_driver::AttentionWorkspace;
 namespace ops = pie_cuda_driver::ops;

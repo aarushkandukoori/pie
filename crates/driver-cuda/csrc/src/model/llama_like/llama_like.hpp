@@ -25,8 +25,8 @@
 #include "model/llama_like/qwen3.hpp"           // Qwen3Weights
 #include "model/workspace.hpp"       // Workspace
 #include "pie/driver/region_plans.hpp"  // kMaxDepthBands
-#include "ops/attention_flashinfer.hpp"
-#include "ops/attention_xqa.hpp"
+#include "attn/attention_flashinfer.hpp"
+#include "attn/attention_xqa.hpp"
 #include "store/kv_cache.hpp"
 
 namespace pie_cuda_driver::model {

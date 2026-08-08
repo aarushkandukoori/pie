@@ -16,31 +16,31 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels/causal_conv1d.hpp"
-#include "kernels/deinterleave.hpp"
-#include "kernels/embed.hpp"
-#include "kernels/gated_delta_net.hpp"
-#include "kernels/gather_rows.hpp"
-#include "kernels/kv_paged.hpp"
-#include "kernels/moe_dispatch.hpp"
-#include "kernels/moe_grouped_gemm.hpp"
-#include "ops/flashinfer_moe.hpp"
+#include "ssm/causal_conv1d.hpp"
+#include "layout/deinterleave.hpp"
+#include "layout/embed.hpp"
+#include "ssm/gated_delta_net.hpp"
+#include "layout/gather_rows.hpp"
+#include "attn/kv_paged.hpp"
+#include "moe/moe_dispatch.hpp"
+#include "moe/moe_grouped_gemm.hpp"
+#include "moe/flashinfer_moe.hpp"
 #include "model/qwen3_5/qwen3_5_moe.hpp"
-#include "kernels/residual_add.hpp"
+#include "norm/residual_add.hpp"
 #include <mutex>
 #include <set>
 #include <tuple>
 #include <utility>
 
-#include "kernels/rmsnorm.hpp"
-#include "kernels/rope.hpp"
-#include "kernels/slot_ops.hpp"
-#include "kernels/swiglu.hpp"
-#include "kernels/topk_softmax.hpp"
-#include "ops/attention_flashinfer.hpp"
-#include "ops/attention_naive.hpp"
-#include "ops/attention_naive_paged.hpp"
-#include "ops/gemm.hpp"
+#include "norm/rmsnorm.hpp"
+#include "rope/rope.hpp"
+#include "layout/slot_ops.hpp"
+#include "mlp/swiglu.hpp"
+#include "moe/topk_softmax.hpp"
+#include "attn/attention_flashinfer.hpp"
+#include "attn/attention_naive.hpp"
+#include "attn/attention_naive_paged.hpp"
+#include "gemm/gemm.hpp"
 
 namespace pie_cuda_driver::model {
 

@@ -6,7 +6,7 @@
 
 #include <cuda_runtime.h>
 
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 #include "store/elastic.hpp"
 #include "store/mla_cache.hpp"
 

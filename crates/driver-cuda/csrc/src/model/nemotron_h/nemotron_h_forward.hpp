@@ -3,13 +3,13 @@
 #include <cstdint>
 #include <vector>
 
-#include "ops/attention_workspace.hpp"
+#include "attention_workspace.hpp"
 #include "device_buffer.hpp"
 #include "store/kv_cache.hpp"
 #include "model/llama_like/llama_like.hpp"
 #include "model/nemotron_h/nemotron_h.hpp"
 #include "model/workspace.hpp"
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 #include "store/recurrent_state_cache.hpp"
 
 namespace pie_cuda_driver::model {

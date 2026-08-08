@@ -2,13 +2,13 @@
 
 #include <cstdint>
 
-#include "ops/attention_workspace.hpp"
-#include "ops/attention_flashinfer.hpp"
+#include "attention_workspace.hpp"
+#include "attn/attention_flashinfer.hpp"
 #include "distributed.hpp"
 #include "store/kv_cache.hpp"
 #include "store/dsv4_compress_cache.hpp"
 #include "model/deepseek_v4/deepseek_v4.hpp"
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 #include "tensor.hpp"
 
 namespace pie_cuda_driver::model {

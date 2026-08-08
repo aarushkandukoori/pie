@@ -6,15 +6,15 @@
 
 #include <cstdint>
 
-#include "ops/attention_workspace.hpp"
+#include "attention_workspace.hpp"
 #include "device_buffer.hpp"
 #include "distributed.hpp"
 #include "store/kv_cache.hpp"
 #include "model/llama_like/qwen3.hpp"
 #include "model/qwen3_5/qwen3_5.hpp"
 #include "model/workspace.hpp"  // for Workspace (reused)
-#include "ops/attention_flashinfer.hpp"  // DecodePlanCachePtr
-#include "ops/gemm.hpp"
+#include "attn/attention_flashinfer.hpp"  // DecodePlanCachePtr
+#include "gemm/gemm.hpp"
 #include "store/recurrent_state_cache.hpp"
 
 namespace pie_cuda_driver::model {

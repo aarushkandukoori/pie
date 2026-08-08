@@ -19,7 +19,7 @@
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
-#include "kernels/argmax.hpp"
+#include "sample/argmax.hpp"
 
 using pie_cuda_driver::kernels::sample::kArgmaxAccumSlots;
 using pie_cuda_driver::kernels::sample::argmax_accumulate_bf16;

@@ -11,9 +11,9 @@
 #include <stdexcept>
 #include <vector>
 
-#include "ops/attention_workspace.hpp"
-#include "ops/attention_flashinfer.hpp"
-#include "ops/gemm.hpp"
+#include "attention_workspace.hpp"
+#include "attn/attention_flashinfer.hpp"
+#include "gemm/gemm.hpp"
 
 namespace pie_cuda_driver::model {
 

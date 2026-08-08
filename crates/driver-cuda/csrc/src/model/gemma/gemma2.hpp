@@ -28,8 +28,8 @@
 #include "model/llama_like/llama_like.hpp"
 #include "model/llama_like/qwen3.hpp"
 #include "model/workspace.hpp"
-#include "ops/attention_flashinfer.hpp"
-#include "ops/gemm.hpp"
+#include "attn/attention_flashinfer.hpp"
+#include "gemm/gemm.hpp"
 
 namespace pie_cuda_driver::model {
 

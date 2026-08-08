@@ -2,13 +2,13 @@
 
 #include <cstdint>
 
-#include "ops/attention_workspace.hpp"
+#include "attention_workspace.hpp"
 #include "distributed.hpp"
 #include "store/kv_cache.hpp"
 #include "store/mla_cache.hpp"
 #include "model/kimi/kimi.hpp"
-#include "ops/attention_mla.hpp"
-#include "ops/gemm.hpp"
+#include "attn/attention_mla.hpp"
+#include "gemm/gemm.hpp"
 #include "tensor.hpp"
 
 namespace pie_cuda_driver::model {

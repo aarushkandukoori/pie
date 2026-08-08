@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "model/loaded_model.hpp"
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 #include "tensor.hpp"
 
 namespace pie_cuda_driver::model {

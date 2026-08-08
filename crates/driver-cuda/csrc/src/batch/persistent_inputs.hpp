@@ -23,7 +23,7 @@
 #include <cstdint>
 
 #include "device_buffer.hpp"
-#include "kernels/pack_dense_mask.hpp"
+#include "attn/pack_dense_mask.hpp"
 
 namespace pie_cuda_driver {
 

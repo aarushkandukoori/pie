@@ -14,8 +14,8 @@
 #include <cuda_runtime.h>
 
 #include "batch/persistent_inputs.hpp"
-#include "kernels/graph_pad.hpp"
-#include "kernels/pack_dense_mask.hpp"
+#include "layout/graph_pad.hpp"
+#include "attn/pack_dense_mask.hpp"
 
 namespace {
 

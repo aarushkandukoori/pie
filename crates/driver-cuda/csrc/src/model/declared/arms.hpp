@@ -19,7 +19,7 @@
 
 #include <cstdint>
 
-#include "kernels/swiglu.hpp"
+#include "mlp/swiglu.hpp"
 #include "model/workspace.hpp"
 
 namespace pie_cuda_driver::model::declared {

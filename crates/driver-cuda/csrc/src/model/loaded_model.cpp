@@ -14,7 +14,7 @@
 #include "cuda_check.hpp"
 #include "kernels_manifest.hpp"
 #include "distributed.hpp"
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 #include "loader/rust_author.hpp"
 #include "loader/load_plan_executor.hpp"
 #include "model/descriptor.hpp"

@@ -4,7 +4,7 @@
 #include <new>
 #include <stdexcept>
 
-#include "kernels/page_compact.hpp"
+#include "attn/page_compact.hpp"
 #include "model/attn_observation.hpp"
 #include "model/hook_sideband_arena.hpp"
 #include "model/stage_hooks.hpp"

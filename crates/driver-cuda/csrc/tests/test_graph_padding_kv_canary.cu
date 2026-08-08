@@ -5,9 +5,9 @@
 
 #include <cuda_runtime.h>
 
-#include "kernels/kv_paged.hpp"
-#include "kernels/mla_paged.hpp"
-#include "kernels/split_packed.hpp"
+#include "attn/kv_paged.hpp"
+#include "attn/mla_paged.hpp"
+#include "attn/split_packed.hpp"
 
 namespace k = pie_cuda_driver::kernels;
 

@@ -8,9 +8,9 @@
 //
 //   nvcc -std=c++17 -arch=sm_89 -I crates/driver-cuda/csrc/src \
 //        crates/driver-cuda/csrc/tests/kimi_k3_kernels_test.cu \
-//        crates/driver-cuda/csrc/src/kernels/kda.cu \
-//        crates/driver-cuda/csrc/src/kernels/attn_res.cu \
-//        crates/driver-cuda/csrc/src/kernels/swiglu.cu -o /tmp/k3_kernels && /tmp/k3_kernels
+//        crates/driver-cuda/csrc/src/ssm/kda.cu \
+//        crates/driver-cuda/csrc/src/attn/attn_res.cu \
+//        crates/driver-cuda/csrc/src/mlp/swiglu.cu -o /tmp/k3_kernels && /tmp/k3_kernels
 
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -21,9 +21,9 @@
 #include <random>
 #include <vector>
 
-#include "kernels/attn_res.hpp"
-#include "kernels/kda.hpp"
-#include "kernels/swiglu.hpp"
+#include "attn/attn_res.hpp"
+#include "ssm/kda.hpp"
+#include "mlp/swiglu.hpp"
 
 using pie_cuda_driver::kernels::attn::attn_res_blend_bf16;
 using pie_cuda_driver::kernels::ssm::kda_gate_beta_bf16;

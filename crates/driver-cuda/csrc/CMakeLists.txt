@@ -468,10 +468,10 @@ add_custom_target(pie_driver_cuda_test_fixtures SOURCES
 
 # Mixed prefill/decode batch: a continuing T=1 request must reuse its conv window.
 pie_add_cuda_target(test_causal_conv1d
-  SOURCES tests/test_causal_conv1d.cu ${PIE_KERNELS_CUDA_SRC}/kernels/causal_conv1d.cu
+  SOURCES tests/test_causal_conv1d.cu ${PIE_KERNELS_CUDA_SRC}/ssm/causal_conv1d.cu
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_gather_tokens
-  SOURCES tests/test_gather_tokens.cu ${PIE_KERNELS_CUDA_SRC}/kernels/gather_tokens.cu
+  SOURCES tests/test_gather_tokens.cu ${PIE_KERNELS_CUDA_SRC}/layout/gather_tokens.cu
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_pack_dense_mask
   SOURCES tests/pack_dense_mask_test.cu
@@ -482,13 +482,13 @@ pie_add_cuda_target(test_kimi_k3_kernels
   SOURCES tests/kimi_k3_kernels_test.cu
   LIBS pie_driver_cuda_lib)
 pie_add_cuda_target(test_envelope_dot
-  SOURCES tests/test_envelope_dot.cu ${PIE_KERNELS_CUDA_SRC}/kernels/envelope.cu
+  SOURCES tests/test_envelope_dot.cu ${PIE_KERNELS_CUDA_SRC}/layout/envelope.cu
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_kv_len_geometry
-  SOURCES tests/test_kv_len_geometry.cu ${PIE_KERNELS_CUDA_SRC}/kernels/geometry.cu
+  SOURCES tests/test_kv_len_geometry.cu ${PIE_KERNELS_CUDA_SRC}/layout/geometry.cu
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_page_compact
-  SOURCES tests/test_page_compact.cu ${PIE_KERNELS_CUDA_SRC}/kernels/page_compact.cu
+  SOURCES tests/test_page_compact.cu ${PIE_KERNELS_CUDA_SRC}/attn/page_compact.cu
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_brle SOURCES tests/test_brle.cpp src/batch/brle.cpp)
 # Host oracle: fork geometry -> BRLE decode -> masking == prefix truncation.
@@ -559,7 +559,7 @@ pie_add_cuda_target(test_swap_pool
   SOURCES tests/test_swap_pool.cpp
   LIBS pie_driver_cuda_lib)
 pie_add_cuda_target(test_mxfp4_marlin
-  SOURCES tests/test_mxfp4_marlin.cu ${PIE_KERNELS_CUDA_SRC}/kernels/mxfp4_marlin.cu
+  SOURCES tests/test_mxfp4_marlin.cu ${PIE_KERNELS_CUDA_SRC}/quant/mxfp4_marlin.cu
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_transcode_fused
   SOURCES tests/test_transcode_fused.cu
@@ -671,7 +671,7 @@ pie_add_cuda_target(test_strided_copy
   INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/src ${PIE_LOADER_INCLUDE_DIR}
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_chunked_argmax
-  SOURCES tests/test_chunked_argmax.cu ${PIE_KERNELS_CUDA_SRC}/kernels/argmax.cu
+  SOURCES tests/test_chunked_argmax.cu ${PIE_KERNELS_CUDA_SRC}/sample/argmax.cu
   INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/src ${PIE_LOADER_INCLUDE_DIR}
   LIBS CUDA::cudart)
 pie_add_cuda_target(test_nucleus_region

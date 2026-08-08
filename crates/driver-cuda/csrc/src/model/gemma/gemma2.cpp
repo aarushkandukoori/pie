@@ -8,14 +8,14 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels/embed.hpp"
-#include "kernels/kv_paged.hpp"
-#include "kernels/residual_add.hpp"
-#include "kernels/rmsnorm.hpp"
-#include "kernels/rope.hpp"
-#include "kernels/scalar_mul.hpp"
-#include "kernels/softcap.hpp"
-#include "kernels/swiglu.hpp"
+#include "layout/embed.hpp"
+#include "attn/kv_paged.hpp"
+#include "norm/residual_add.hpp"
+#include "norm/rmsnorm.hpp"
+#include "rope/rope.hpp"
+#include "norm/scalar_mul.hpp"
+#include "attn/softcap.hpp"
+#include "mlp/swiglu.hpp"
 
 namespace pie_cuda_driver::model {
 

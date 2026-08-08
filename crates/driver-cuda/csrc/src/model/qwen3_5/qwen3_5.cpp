@@ -9,8 +9,8 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels/gated_delta_net.hpp"
-#include "kernels/quant_bf16_to_fp8.hpp"
+#include "ssm/gated_delta_net.hpp"
+#include "quant/quant_bf16_to_fp8.hpp"
 
 namespace pie_cuda_driver::model {
 

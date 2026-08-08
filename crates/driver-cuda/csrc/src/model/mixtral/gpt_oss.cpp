@@ -10,7 +10,7 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels/deinterleave.hpp"
+#include "layout/deinterleave.hpp"
 
 namespace pie_cuda_driver::model {
 

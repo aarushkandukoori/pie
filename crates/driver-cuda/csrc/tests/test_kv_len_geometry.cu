@@ -18,7 +18,7 @@
 
 #include <cuda_runtime.h>
 
-#include "kernels/geometry.hpp"
+#include "layout/geometry.hpp"
 
 using pie_cuda_driver::kernels::launch_derive_kv_len;
 using pie_cuda_driver::kernels::launch_resolve_slot_to_block;

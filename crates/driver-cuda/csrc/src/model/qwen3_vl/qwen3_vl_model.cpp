@@ -5,7 +5,7 @@
 
 #include "model/qwen3_vl/qwen3_vl_vision_adapter.hpp"  // to_vis_raw_qwen
 #include "model/qwen3_vl/qwen3_vl_vision_forward.hpp"   // Qwen3VLVisionInputs, scatter
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 
 namespace pie_cuda_driver::model {
 

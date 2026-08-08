@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <utility>
 
-#include "ops/attention_workspace.hpp"
+#include "attention_workspace.hpp"
 #include "store/dsa_cache.hpp"
 #include "distributed.hpp"
 #include "store/mla_cache.hpp"

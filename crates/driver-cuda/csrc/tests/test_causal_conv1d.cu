@@ -1,4 +1,4 @@
-#include "kernels/causal_conv1d.hpp"
+#include "ssm/causal_conv1d.hpp"
 
 #include <cmath>
 #include <cstdint>

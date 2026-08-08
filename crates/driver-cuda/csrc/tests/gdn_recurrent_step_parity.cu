@@ -37,7 +37,7 @@
 
 #include <cuda_runtime.h>
 
-#include "kernels/gated_delta_net.hpp"
+#include "ssm/gated_delta_net.hpp"
 
 namespace kernels = pie_cuda_driver::kernels;
 

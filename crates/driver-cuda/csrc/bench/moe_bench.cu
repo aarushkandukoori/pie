@@ -7,15 +7,15 @@
 //   nvcc -O3 -std=c++20 -arch=sm_80 --expt-relaxed-constexpr \
 //        -I crates/driver-cuda/csrc/src -o /tmp/moe_bench \
 //        crates/driver-cuda/csrc/bench/moe_bench.cu \
-//        crates/driver-cuda/csrc/src/kernels/dequant_fp4.cu \
-//        crates/driver-cuda/csrc/src/kernels/moe_dispatch.cu
+//        crates/driver-cuda/csrc/src/quant/dequant_fp4.cu \
+//        crates/driver-cuda/csrc/src/moe/moe_dispatch.cu
 //
 // Build with the Marlin MoE candidate (~2-3 min, only when it changes):
 //   nvcc -O3 -std=c++20 -arch=sm_80 --expt-relaxed-constexpr -DWITH_MARLIN_MOE \
 //        -I crates/driver-cuda/csrc/src -I crates/driver-cuda/csrc/third_party/marlin_moe \
 //        -o /tmp/moe_bench crates/driver-cuda/csrc/bench/moe_bench.cu \
-//        crates/driver-cuda/csrc/src/kernels/dequant_fp4.cu \
-//        crates/driver-cuda/csrc/src/kernels/moe_dispatch.cu \
+//        crates/driver-cuda/csrc/src/quant/dequant_fp4.cu \
+//        crates/driver-cuda/csrc/src/moe/moe_dispatch.cu \
 //        crates/driver-cuda/csrc/third_party/marlin_moe/ops.cu \
 //        crates/driver-cuda/csrc/third_party/marlin_moe/marlin_moe_wrapper.cpp
 //
@@ -38,8 +38,8 @@
 
 #include <cuda_runtime.h>
 
-#include "kernels/dequant_fp4.hpp"
-#include "kernels/moe_dispatch.hpp"
+#include "quant/dequant_fp4.hpp"
+#include "moe/moe_dispatch.hpp"
 
 #ifdef WITH_MARLIN_MOE
   #include "marlin_moe_wrapper.hpp"

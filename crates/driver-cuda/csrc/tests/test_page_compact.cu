@@ -18,7 +18,7 @@
 
 #include <cuda_runtime.h>
 
-#include "kernels/page_compact.hpp"
+#include "attn/page_compact.hpp"
 
 using pie_cuda_driver::kernels::attn::compact_page_csr;
 

@@ -27,8 +27,8 @@
 
 #include <cuda_runtime.h>
 
-#include "ops/attention_workspace.hpp"
-#include "kernels/argmax.hpp"
+#include "attention_workspace.hpp"
+#include "sample/argmax.hpp"
 #include "comm/custom_all_reduce.hpp"
 #include "cuda_check.hpp"
 #include "device_buffer.hpp"
@@ -41,7 +41,7 @@
 #include "model/attn_observation.hpp"
 #include "model/llama_like/qwen3.hpp"
 #include "model/workspace.hpp"
-#include "ops/gemm.hpp"
+#include "gemm/gemm.hpp"
 
 namespace pie_cuda_driver {
 
