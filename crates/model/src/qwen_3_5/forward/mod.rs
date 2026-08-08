@@ -633,22 +633,38 @@ fn gdn_attn_body_cuda(
                 ]),
                 DType::F32,
             );
-            let (mut guard, core) = dsl::guarded_value(t, Some(l), out_shape);
-            if c.warp_tiled {
-                guard = guard.arm(GuardPred::TokensLE(c.warp_tiled_max), || {
-                    cuda::gdn_prefill_warp_tiled(&q, &k, &v, &g, &beta, &w.rs, c.state_bf16)
-                });
-            }
-            guard
-                .arm(GuardPred::TokensLE(c.cached_max), || {
-                    if gqa {
-                        cuda::repeat_interleave_heads(&q);
-                        cuda::repeat_interleave_heads(&k);
+            // A CONDITIONAL arm, which is why `regions` takes `&mut`
+            // rather than a builder chain: whether the warp-tiled leg
+            // exists at all is a deployment fact, and a chain would have
+            // to rebind itself to say so.
+            dsl::regions(
+                t,
+                Some(l),
+                Some(out_shape),
+                |ctx| {
+                    if c.warp_tiled {
+                        ctx.arm(
+                            dsl::Region::Fire(GuardPred::TokensLE(c.warp_tiled_max)),
+                            || {
+                                cuda::gdn_prefill_warp_tiled(
+                                    &q, &k, &v, &g, &beta, &w.rs, c.state_bf16,
+                                );
+                            },
+                        );
                     }
-                    cuda::gdn_prefill_cached(&q, &k, &v, &g, &beta, &w.rs, c.state_bf16)
-                })
-                .otherwise(|| cuda::gdn_prefill_fla(&q, &k, &v, &g, &beta, &w.rs, c.state_bf16));
-            core
+                    ctx.arm(dsl::Region::Fire(GuardPred::TokensLE(c.cached_max)), || {
+                        if gqa {
+                            cuda::repeat_interleave_heads(&q);
+                            cuda::repeat_interleave_heads(&k);
+                        }
+                        cuda::gdn_prefill_cached(&q, &k, &v, &g, &beta, &w.rs, c.state_bf16);
+                    });
+                },
+                || {
+                    cuda::gdn_prefill_fla(&q, &k, &v, &g, &beta, &w.rs, c.state_bf16);
+                },
+            )
+            .expect("the guarded recurrence produces its value")
         }
         FireClass::CommitAdvance => {
             unreachable!("CommitAdvance traces its own pass, never the layer body")
@@ -871,11 +887,18 @@ fn full_attn_body_cuda(
     // descriptors when the fire steers a graph replay, page-derived
     // otherwise) — the same HasWriteDesc guard llama_like's CUDA text
     // carries, both arms stated.
-    dsl::guard_on(
+    dsl::regions(
         t,
-        GuardPred::HasWriteDesc,
-        || cuda::write_kv_explicit(&k, &v, &w.kv),
-        || cuda::write_kv_to_pages(&k, &v, &w.kv),
+        None,
+        None,
+        |c| {
+            c.arm(dsl::Region::Fire(GuardPred::HasWriteDesc), || {
+                cuda::write_kv_explicit(&k, &v, &w.kv);
+            });
+        },
+        || {
+            cuda::write_kv_to_pages(&k, &v, &w.kv);
+        },
     );
 
     // qwen3_5's cache is bf16-gated, so the prefill arm is the
@@ -895,15 +918,19 @@ fn full_attn_body_cuda(
                 Shape(vec![Dim::Tokens, Dim::Const(facts.q_width())]),
                 DType::BF16,
             );
-            let (guard, core) = dsl::guarded_value(t, Some(l), out_shape);
-            guard
-                .arm(GuardPred::TokensLE(1), || {
-                    cuda::attention_flashinfer_prefill(&q, &w.kv);
-                })
-                .otherwise(|| {
+            dsl::regions(
+                t,
+                Some(l),
+                Some(out_shape),
+                |c| {
+                    c.arm(dsl::Region::Fire(GuardPred::TokensLE(1)), || {
+                        cuda::attention_flashinfer_prefill(&q, &w.kv);
+                    });
+                },
+                || {
                     cuda::attention_flashinfer_decode(&q, &w.kv);
-                });
-            Some(core)
+                },
+            )
         }
         FireClass::Decode => cuda::attention_flashinfer_decode(&q, &w.kv),
         FireClass::Prefill | FireClass::StateOnly | FireClass::FrozenVerify => {
