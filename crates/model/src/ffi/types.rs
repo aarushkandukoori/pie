@@ -142,6 +142,10 @@ pub enum PieForwardOpKind {
     /// Broadcast bias add over `[rows, width]` (Qwen-2 family qkv
     /// biases): weight name in `name`, width from the value's shape.
     AddBias = 27,
+    /// [`model_compiler::trace::OpKind::Select`]: the window of a value
+    /// along its leading dim. Produces a value, launches nothing — the
+    /// driver reads its operand's buffer at an offset.
+    Select = 28,
 }
 
 /// Mirrors [`model_compiler::trace::GuardPred`]'s wire KINDS (each arm crosses as

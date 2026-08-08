@@ -815,6 +815,10 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // so cannot answer from the kind alone.
         LmHead { .. } => Semantic::Structural,
 
+        // A window, not a launch: `Buffers` gives its value an offset
+        // into its operand's, and there is no rectangle to emit. That is
+        // the whole of what `Select` means.
+        Select { .. } => Semantic::Structural,
         _ => Semantic::Unlowered("no lowering rule for this kind"),
     }
 }
@@ -825,6 +829,7 @@ fn kind_name(kind: &OpKind) -> &'static str {
     match kind {
         Embed { .. } => "Embed",
         Matmul { .. } => "Matmul",
+        Select { .. } => "Select",
         Rmsnorm { .. } => "Rmsnorm",
         AddBias { .. } => "AddBias",
         RmsnormPerHead { .. } => "RmsnormPerHead",
@@ -997,6 +1002,27 @@ impl Buffers {
                 free.push((offset[v as usize], size[v as usize]));
                 false
             });
+            // A `Select` allocates nothing: its value IS a window of its
+            // operand's bytes, which is the whole of what the op means.
+            // The source must therefore stay live as long as the window
+            // does — `last_use` already says so, because the window's
+            // readers are the source's readers by dataflow.
+            if let OpKind::Select { index } = op.kind {
+                let src = op.inputs[0];
+                let out = op.outputs[0];
+                let want = value_bytes(plan, out, n_tokens, n_requests);
+                if offset[src as usize] == Self::NAMED {
+                    // A window of a NAMED buffer is still the backend's
+                    // to bind; the arena has no address to offset from.
+                    offset[out as usize] = Self::NAMED;
+                } else {
+                    offset[out as usize] =
+                        offset[src as usize] + index as usize * want;
+                }
+                size[out as usize] = want;
+                live.push(out);
+                continue;
+            }
             for &v in &op.outputs {
                 if pinned.binary_search(&v).is_ok() {
                     // Reachable by name from outside the trace — the

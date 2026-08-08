@@ -168,6 +168,10 @@ enum class PieForwardOpKind : uint32_t {
   /// Broadcast bias add over `[rows, width]` (Qwen-2 family qkv
   /// biases): weight name in `name`, width from the value's shape.
   AddBias = 27,
+  /// [`model_compiler::trace::OpKind::Select`]: the window of a value
+  /// along its leading dim. Produces a value, launches nothing — the
+  /// driver reads its operand's buffer at an offset.
+  Select = 28,
 };
 
 /// What [`model_compiler::lower::Uncovered`] crosses as: zero is a lowering, and

@@ -93,3 +93,44 @@
         });
     }
 
+
+/// `select` states a WINDOW: no rectangle, and a buffer offset INTO its
+/// operand's. Both halves matter — a `Select` that lowered to a launch
+/// would be a kernel the driver has to have, and one whose value got its
+/// own allocation would be a copy the model does not make.
+#[test]
+fn a_select_launches_nothing_and_windows_its_operand() {
+    use model_compiler::lower::{lower, Buffers, Fire, Row};
+
+    let plan = trace_named("sel.cuda.decode", |t| {
+        let x = input(t, 8);
+        // A rank-3 value to window: [2, Tokens, 8].
+        let streams = cuda::hc_expand(&x, 2, 8);
+        let one = select(&streams, 1);
+        let _ = cuda::residual_add(&one, &one, 8);
+    });
+
+    let rows: Vec<Row> = (0..4).map(|_| Row::default()).collect();
+    let out = lower(&plan, &rows, Fire::default()).expect("must lower");
+    assert!(
+        out.residue.is_empty(),
+        "a Select is not residue — it is a stated window: {:#?}",
+        out.residue
+    );
+    // hc_expand and residual_add are the only two rectangles.
+    assert_eq!(out.launches.len(), 2, "a Select must launch nothing");
+
+    let sel = plan
+        .ops
+        .iter()
+        .find(|o| matches!(o.kind, OpKind::Select { .. }))
+        .expect("the plan states a Select");
+    let b = Buffers::assign(&plan, &rows);
+    let src = b.offset[sel.inputs[0] as usize];
+    let win = b.offset[sel.outputs[0] as usize];
+    assert_ne!(src, Buffers::NAMED);
+    assert!(
+        win > src,
+        "index 1's window must sit past the source's start ({win} vs {src})"
+    );
+}

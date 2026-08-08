@@ -51,6 +51,7 @@ fn expect_kind(kind: &OpKind) -> PieForwardOpKind {
     match kind {
         OpKind::Embed { .. } => PieForwardOpKind::Embed,
         OpKind::Matmul { .. } => PieForwardOpKind::Matmul,
+        OpKind::Select { .. } => PieForwardOpKind::Select,
         OpKind::Rmsnorm { .. } => PieForwardOpKind::Rmsnorm,
         OpKind::RmsnormPerHead { .. } => PieForwardOpKind::RmsnormPerHead,
         OpKind::SplitQkv { .. } => PieForwardOpKind::SplitQkv,

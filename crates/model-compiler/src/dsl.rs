@@ -458,6 +458,30 @@ pub fn lm_head_at(t: &Trace, x: &Val, weight: &str, vocab: u32) -> Val {
 
 // ── The semantic vocabulary, as free functions ─────────────────────────
 
+/// `x[index]` — the window of a value along its LEADING dim.
+///
+/// Launches nothing. The value it produces is the operand's bytes at an
+/// offset, which `lower::Buffers` computes; `lower` emits no rectangle.
+///
+/// It exists because gemma3n's AltUp needs it and no other family does:
+/// `altup_predict` produces all `k` streams, the layer body runs on ONE,
+/// and in `gemma3n.cpp` that is `predictions + active * N * H` — a
+/// pointer offset with no kernel behind it. Stating it as an op rather
+/// than hiding it in a `Val` method is deliberate: which window the body
+/// reads is a fact about the MODEL, and a reader following the dataflow
+/// has to see it.
+///
+/// The shape drops the leading dim. Selecting from a rank-1 value is
+/// refused — there would be nothing left to name.
+pub fn select(x: &Val, index: u32) -> Val {
+    let id = x.t.with(x.layer, |b| b.select(x.id, index));
+    Val {
+        t: x.t.clone(),
+        id,
+        layer: x.layer,
+    }
+}
+
 pub fn matmul(x: &Val, w: &MatW) -> Val {
     let id = x.t.with(w.layer, |b| b.matmul(x.id, &w.name, w.width));
     Val {

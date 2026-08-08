@@ -414,6 +414,24 @@ pub enum OpKind {
     /// fold impossible. A separate op because it is a separate launch in
     /// the hand-written pass (`launch_residual_add_bf16`).
     ResidualAdd,
+    /// The WINDOW of a value along its leading dim — `x[index]`.
+    ///
+    /// Produces a value and launches NOTHING. gemma3n's AltUp is what
+    /// asked for it: `altup_predict` produces all `k` streams and the
+    /// layer body runs on ONE, which in `gemma3n.cpp` is a pointer
+    /// offset — no kernel, no copy, `predictions + active * N * H`.
+    ///
+    /// It is an OP rather than a `Val` method because every value in this
+    /// IR is an op's output, and because the thing it states is real: the
+    /// text says which window the body reads, and a reader following the
+    /// dataflow needs to see it. What it does NOT state is a launch, so
+    /// `lower` emits no rectangle for it and `Buffers` gives its value an
+    /// offset INTO the source's — which is the whole of its meaning.
+    ///
+    /// deepseek_v4's hyper-connections are rank-K too and never state
+    /// this: they mix all K streams and select none. Two rank-K schemes,
+    /// one new question.
+    Select { index: u32 },
     /// Router top-k over per-token logits: for each token row, the `k`
     /// highest-scoring experts, with softmaxed-and-renormalized routing
     /// weights. Two results: the expert indices (`[Tokens, k]` i32, marked
@@ -1499,6 +1517,31 @@ impl TraceBuilder {
             vec![x, residual],
             vec![(shape, DType::BF16)],
         )[0]
+    }
+
+    /// [`OpKind::Select`]: the window of `x` along its leading dim.
+    ///
+    /// The output shape is the input's minus that dim — computed here
+    /// rather than passed, because it is not a choice: a window of
+    /// `[k, Tokens, hidden]` at an index IS `[Tokens, hidden]`, and a
+    /// caller free to say otherwise could state a value the buffer
+    /// arithmetic would then disagree with.
+    pub fn select(&mut self, x: ValueId, index: u32) -> ValueId {
+        let shape = self.value_shape(x);
+        assert!(
+            shape.0.len() >= 2,
+            "select: a rank-{} value has no leading dim to window",
+            shape.0.len()
+        );
+        if let Dim::Const(k) = shape.0[0] {
+            assert!(
+                index < k,
+                "select: index {index} is outside the leading dim's {k}"
+            );
+        }
+        let dtype = self.values[x as usize].dtype;
+        let inner = Shape(shape.0[1..].to_vec());
+        self.push(OpKind::Select { index }, vec![x], vec![(inner, dtype)])[0]
     }
 
     pub fn lm_head(&mut self, hidden: ValueId, weight: &str, vocab: u32) -> ValueId {
