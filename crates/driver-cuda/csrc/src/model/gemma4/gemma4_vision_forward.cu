@@ -17,13 +17,13 @@
 #include <string>
 #include <vector>
 
+#include "model/gemma4/gemma4_naive_kernels.cuh"
+
 namespace pie_cuda_driver::model {
 namespace {
 
 typedef __nv_bfloat16 bf;
 #define VCK(x) do{cudaError_t e=(x);if(e)throw std::runtime_error(std::string("gemma4_vision: ")+cudaGetErrorString(e));}while(0)
-__device__ __forceinline__ float F(bf x){return __bfloat162float(x);}
-__device__ __forceinline__ bf   Bf(float x){return __float2bfloat16(x);}
 
 class DeviceScratch {
 public:
@@ -46,23 +46,10 @@ private:
 };
 
 __global__ void k_scale(const bf* p,bf* o,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t)o[i]=Bf(2.f*(F(p[i])-0.5f));}
-__global__ void k_matmul(const bf* x,const bf* W,bf* y,int N,int K,int O){
-    int n=blockIdx.y*blockDim.y+threadIdx.y,o=blockIdx.x*blockDim.x+threadIdx.x;if(n>=N||o>=O)return;
-    const bf* xr=x+(long)n*K;const bf* wr=W+(long)o*K;float a=0;for(int k=0;k<K;k++)a+=F(xr[k])*F(wr[k]);y[(long)n*O+o]=Bf(a);}
 __global__ void k_addpos(bf* y,const bf* tb,const float* pos,int N,int O,int P){
     int n=blockIdx.y*blockDim.y+threadIdx.y,o=blockIdx.x*blockDim.x+threadIdx.x;if(n>=N||o>=O)return;
     long x=(long)llrintf(pos[2L*n]),yy=(long)llrintf(pos[2L*n+1]);if(x<0)x=0;if(yy<0)yy=0;
     y[(long)n*O+o]=Bf(F(y[(long)n*O+o])+F(tb[(0L*P+x)*O+o])+F(tb[(1L*P+yy)*O+o]));}
-__global__ void k_clamp(const bf* x,bf* o,const bf* lo,const bf* hi,long t){
-    long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i>=t)return;
-    float v=F(x[i]),l=lo?F(*lo):-CUDART_INF_F,h=hi?F(*hi):CUDART_INF_F;o[i]=Bf(v<l?l:(v>h?h:v));}
-__global__ void k_rms(const bf* x,const bf* w,bf* o,int R,int D,float eps){
-    int r=blockIdx.x;if(r>=R)return;const bf* xr=x+(long)r*D;bf* orow=o+(long)r*D;
-    float loc=0;for(int d=threadIdx.x;d<D;d+=blockDim.x){float v=F(xr[d]);loc+=v*v;}
-    for(int s=warpSize/2;s>0;s>>=1)loc+=__shfl_down_sync(0xffffffff,loc,s);
-    __shared__ float warp[32],ss;if((threadIdx.x&31)==0)warp[threadIdx.x>>5]=loc;__syncthreads();
-    if(threadIdx.x==0){float t=0;int nw=(blockDim.x+31)/32;for(int i=0;i<nw;i++)t+=warp[i];ss=rsqrtf(t/D+eps);}__syncthreads();
-    float inv=ss;for(int d=threadIdx.x;d<D;d+=blockDim.x)orow[d]=Bf(F(xr[d])*inv*(w?F(w[d]):1.f));}
 __global__ void k_rope(bf* q,const float* pos,int N,int H,float theta){
     int n=blockIdx.z,head=blockIdx.y,c=blockIdx.x*blockDim.x+threadIdx.x;if(n>=N||head>=H||c>=16)return;
     bf* v=q+(((long)n*H+head)*64);float px=pos[2L*n],py=pos[2L*n+1];float invf=powf(theta,-(float)c/16.f);
@@ -142,9 +129,6 @@ void run_gemma4_vision(const VisRawWeights& w,
 }
 
 namespace {
-__global__ void k_f32_to_bf16(const float* a, bf* o, long n){
-    long i=blockIdx.x*(long)blockDim.x+threadIdx.x; if(i<n) o[i]=Bf(a[i]);
-}
 }  // namespace
 
 void scatter_gemma4_vision(const Gemma4VisionInputs& vin, bf* hidden,

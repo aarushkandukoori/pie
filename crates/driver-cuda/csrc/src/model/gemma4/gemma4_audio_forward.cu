@@ -35,6 +35,8 @@
 #include <string>
 #include <vector>
 
+#include "model/gemma4/gemma4_naive_kernels.cuh"
+
 namespace pie_cuda_driver::model {
 
 // ── Per-stage checkpoint hook (parity debugging). See .hpp. ─────────────────
@@ -48,8 +50,6 @@ namespace {
 
 typedef __nv_bfloat16 bf;
 #define ACK(x) do{cudaError_t e=(x);if(e)throw std::runtime_error(std::string("gemma4_audio: ")+cudaGetErrorString(e));}while(0)
-__device__ __forceinline__ float F(bf x){return __bfloat162float(x);}
-__device__ __forceinline__ bf   Bf(float x){return __float2bfloat16(x);}
 
 class DeviceScratch {
 public:
@@ -72,25 +72,11 @@ private:
 };
 
 // ── Shared elementwise / GEMM / norm kernels (vision-style) ──────────────────
-__global__ void k_matmul(const bf* x,const bf* W,bf* y,int N,int K,int O){
-    int n=blockIdx.y*blockDim.y+threadIdx.y,o=blockIdx.x*blockDim.x+threadIdx.x;if(n>=N||o>=O)return;
-    const bf* xr=x+(long)n*K;const bf* wr=W+(long)o*K;float a=0;for(int k=0;k<K;k++)a+=F(xr[k])*F(wr[k]);y[(long)n*O+o]=Bf(a);}
 __global__ void k_matmul_bias(const bf* x,const bf* W,const bf* b,bf* y,int N,int K,int O){
     int n=blockIdx.y*blockDim.y+threadIdx.y,o=blockIdx.x*blockDim.x+threadIdx.x;if(n>=N||o>=O)return;
     const bf* xr=x+(long)n*K;const bf* wr=W+(long)o*K;float a=b?F(b[o]):0.f;for(int k=0;k<K;k++)a+=F(xr[k])*F(wr[k]);y[(long)n*O+o]=Bf(a);}
-__global__ void k_clamp(const bf* x,bf* o,const bf* lo,const bf* hi,long t){
-    long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i>=t)return;
-    float v=F(x[i]),l=lo?F(*lo):-CUDART_INF_F,h=hi?F(*hi):CUDART_INF_F;o[i]=Bf(v<l?l:(v>h?h:v));}
 // Plain RMSNorm: `w` may be null (parameterless, gamma=1).
-__global__ void k_rms(const bf* x,const bf* w,bf* o,int R,int D,float eps){
-    int r=blockIdx.x;if(r>=R)return;const bf* xr=x+(long)r*D;bf* orow=o+(long)r*D;
-    float loc=0;for(int d=threadIdx.x;d<D;d+=blockDim.x){float v=F(xr[d]);loc+=v*v;}
-    for(int s=warpSize/2;s>0;s>>=1)loc+=__shfl_down_sync(0xffffffff,loc,s);
-    __shared__ float warp[32],ss;if((threadIdx.x&31)==0)warp[threadIdx.x>>5]=loc;__syncthreads();
-    if(threadIdx.x==0){float t=0;int nw=(blockDim.x+31)/32;for(int i=0;i<nw;i++)t+=warp[i];ss=rsqrtf(t/D+eps);}__syncthreads();
-    float inv=ss;for(int d=threadIdx.x;d<D;d+=blockDim.x)orow[d]=Bf(F(xr[d])*inv*(w?F(w[d]):1.f));}
 __global__ void k_silu(const bf* x,bf* o,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t){float v=F(x[i]);o[i]=Bf(v/(1.f+__expf(-v)));}}
-__global__ void k_f32_to_bf16(const float* a,bf* o,long n){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<n)o[i]=Bf(a[i]);}
 // out = a + scale*b   (residual add with macaron weight).
 __global__ void k_axpy(bf* a,const bf* b,float scale,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t)a[i]=Bf(F(a[i])+scale*F(b[i]));}
 __global__ void k_add(bf* a,const bf* b,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t)a[i]=Bf(F(a[i])+F(b[i]));}
