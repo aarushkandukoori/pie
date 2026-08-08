@@ -31,7 +31,38 @@
 //! one, so its statements are whole-value throughout. Two rank-K residual
 //! schemes, and only one of them asks the IR a new question.
 //!
-//! The facts below are complete and tested; the body follows the
-//! primitive.
+//! # UPDATE (`select` landed): the first gap is closed, a second is not
+//!
+//! `dsl::select` now states exactly the window AltUp reads — no launch,
+//! a buffer offset into its operand. That unblocks the READ half: the
+//! layer body runs on `select(&predictions, active)`.
+//!
+//! The WRITE half is still not expressible. After `altup_correct` the
+//! per-layer embedding is gated and added back into `corrected[k]` for
+//! every `k != active` — K-1 in-place adds, each through a window:
+//!
+//! ```text
+//!   for (int k = 0; k < K; ++k) {
+//!       if (k == act_idx) continue;
+//!       kernels::launch_residual_add_bf16(corrected + k * N * H, ple, ...);
+//!   }
+//! ```
+//!
+//! `select` gives a readable window, but `residual_add(select(s, k), ple)`
+//! produces a NEW SSA value with its own arena offset. The trace would
+//! then say the streams were unchanged, and the `mean_streams` that
+//! follows would read the pre-PLE values — wrong, and wrong silently.
+//!
+//! What is missing is a way to say "this op's output IS its operand's
+//! buffer". `kernel!`'s `sink` is not it (that is the `attn.q` tap's
+//! page-mask substitution), and `Buffers` gives every op output its own
+//! offset by construction. It is a separable primitive with its own
+//! design question — whether in-placeness is a property of the KERNEL
+//! (it is: `launch_residual_add_bf16` accumulates into its first
+//! argument) or of the statement — and it deserves the same treatment
+//! `select` got rather than being bolted on to finish one body.
+//!
+//! The facts below are complete and tested. The body needs one more
+//! primitive, and it is now named.
 
 pub mod facts;
