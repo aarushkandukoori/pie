@@ -144,7 +144,7 @@ impl MoeLayerW {
 /// scatter-add.
 fn moe_mlp_body_aligned_cuda(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val {
     let w = MoeLayerW::new(l, facts);
-    let mut y = y.clone();
+    let y = y.clone();
     let m = rmsnorm(&y, &w.mlp_norm);
 
     let aligned = model_compiler::trace::Dim::MoeAlignedRoutes {
@@ -180,11 +180,12 @@ fn moe_mlp_body_aligned_cuda(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val 
     let gate_up = dsl::cuda::moe_grouped_gemm(
         &aligned_in,
         &sorted,
+        aligned,
         2 * facts.moe_intermediate,
         &w.expert_gate_up.name,
     );
     let act = dsl::cuda::swiglu(&gate_up, facts.moe_intermediate, true);
-    let down = dsl::cuda::moe_grouped_gemm(&act, &sorted, facts.hidden, &w.expert_down.name);
+    let down = dsl::cuda::moe_grouped_gemm(&act, &sorted, aligned, facts.hidden, &w.expert_down.name);
 
     let route_out =
         dsl::cuda::reorder_moe_aligned_output(&down, &sorted, facts.top_k, facts.hidden);
@@ -196,22 +197,23 @@ fn moe_mlp_body_aligned_cuda(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val 
     // name -- `_aligned_` names a kernel that reads block-major rows, and
     // this one no longer has any.
     //
-    // The residual fold is the binding: at tp=1 the MoE output lands straight
-    // on the stream, so the add is not a second launch. Here the shared
-    // expert's landing takes it, so the routed combine does not.
-    let routed = dsl::cuda::weighted_sum(&weights, &route_out, facts.hidden, None);
+    // The residual FOLDS into it. At tp=1 the aligned leg is reached only
+    // through the decode fast path, and there `add_to_residual` is set, so
+    // `moe_out` IS the residual stream: the combine fires the `_add_` form
+    // straight onto `y` and the shared expert's gate lands on top of it.
+    // There is no trailing add. An earlier reading of this block stated the
+    // plain combine and a closing `y += combined`, which is the tp>1 /
+    // general-path shape -- one this leg never takes.
+    let routed = dsl::cuda::weighted_sum(&weights, &route_out, facts.hidden, Some(&y));
 
-    let combined = if facts.shared_expert_intermediate > 0 {
+    if facts.shared_expert_intermediate > 0 {
         let inter = facts.shared_expert_intermediate;
         let act = dsl::cuda::swiglu(&matmul(&m, &w.shared_gate_up), inter, true);
         let shared = matmul(&act, &w.shared_down);
         dsl::cuda::sigmoid_dot_scalar_gate_add(&m, &w.shared_gate, &shared, &routed, facts.hidden)
     } else {
         routed
-    };
-
-    y += combined;
-    y
+    }
 }
 
 fn moe_mlp_body(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val {

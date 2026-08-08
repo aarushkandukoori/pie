@@ -2153,6 +2153,7 @@ pub mod cuda {
     pub fn moe_grouped_gemm(
         act: &Val,
         sorted_route_ids: &Val,
+        aligned: Dim,
         width: u32,
         bank: &str,
     ) -> Val {
@@ -2163,7 +2164,12 @@ pub mod cuda {
             vec![bank.to_string()],
             None,
             vec![act.id, sorted_route_ids.id],
-            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+            // Block-major rows, not tokens: the operand this multiplies is
+            // the gathered aligned bank, and saying `Tokens` here made the
+            // routed leg's values indistinguishable from the shared
+            // expert's -- which is exactly the question an executor has to
+            // answer to pick a buffer.
+            Some((Shape(vec![aligned, Dim::Const(width)]), DType::BF16)),
         )
         .expect("the gemm produces its value")
     }

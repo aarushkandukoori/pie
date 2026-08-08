@@ -51,6 +51,11 @@
 
 #include "model/qwen3_5/declared_facts.hpp"
 #include "model/qwen3_5/qwen3_5_moe.hpp"
+
+// Forward-declared, not included: the executor only takes a pointer to
+// it, and pulling in the MoE forward header would make every dense
+// translation unit depend on the MoE block.
+namespace pie_cuda_driver::model { struct Qwen3_5MoeMlpWorkspace; }
 #include "model/qwen3_5/qwen3_5.hpp"
 #include "model/qwen3_5/qwen3_5_forward.hpp"
 #include "model/stage_hooks.hpp"
@@ -63,6 +68,11 @@ namespace pie_cuda_driver::model {
 // llama_like executor's `[declared-forward]` line reads, so one flag
 // lights up both families.
 bool qwen35_declared_exec_trace_enabled();
+
+// `PIE_DECLARED_MOE`. Default OFF, unlike the dense arc: the MoE half of
+// the executor is newer, and an unset gate should keep every existing MoE
+// deployment on the hand-written body it has always run.
+bool qwen35_declared_moe_enabled();
 
 // Boot validation (rung 4c-iii): every Launch symbol a class trace
 // states must resolve in this executor's name→launcher registry, so a
@@ -85,6 +95,7 @@ bool qwen3_5_forward_declared(
     const Qwen3_5ForwardCfg& fwd_cfg,
     const Qwen3_5PlanState& plan_state,
     Workspace& ws,
+    Qwen3_5MoeMlpWorkspace* moe_ws,
     Qwen3_5LinearAttnWorkspace& la,
     KvCache& cache,
     RecurrentStateCache& state_cache,
@@ -131,6 +142,7 @@ bool qwen3_5_forward_declared(
     const Qwen3_5ForwardCfg& fwd_cfg,
     const Qwen3_5PlanState& plan_state,
     Workspace& ws,
+    Qwen3_5MoeMlpWorkspace* moe_ws,
     Qwen3_5LinearAttnWorkspace& la,
     KvCache& cache,
     RecurrentStateCache& state_cache,

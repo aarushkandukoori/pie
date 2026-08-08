@@ -94,6 +94,23 @@ const GPT_OSS: Family = Family {
     default_on: false,
 };
 
+/// qwen3.5's MoE deployment, and the reason it earns a row: it is the
+/// first family whose declaration covers a ROUTED block. The hybrid
+/// attention below it is the same one the dense qwen3.5 rows already
+/// cover, so what this test is actually asking about is the eight-launch
+/// aligned MoE leg -- the routing permutation, the two grouped GEMMs over
+/// the expert bank, the reorder, and the shared expert's sigmoid gate.
+///
+/// 35B-A3B rather than a smaller MoE because the fixture the DSL
+/// declaration is written against IS this geometry: hidden 2048, 256
+/// experts, top_k 8, moe_intermediate 512, shared_expert 512.
+const QWEN35_MOE: Family = Family {
+    name: "qwen3_5_moe",
+    hub_dir: "models--Qwen--Qwen3.5-35B-A3B",
+    gate: "PIE_DECLARED_MOE",
+    default_on: false,
+};
+
 /// A checkpoint snapshot in the HF cache. Unlike the qwen resolver this
 /// does not require `model.safetensors` by name: both of these ship
 /// sharded weights.
@@ -332,4 +349,10 @@ async fn gpt_oss_declared_forward_parity() -> Result<()> {
 #[ignore = "needs a CUDA GPU + gemma-4-E2B; run gate-OFF then gate-ON"]
 async fn gemma4_e2b_declared_forward_parity() -> Result<()> {
     run_family(&GEMMA4_E2B).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs a CUDA GPU + Qwen3.5-35B-A3B; run gate-OFF then gate-ON"]
+async fn qwen35_moe_declared_forward_parity() -> Result<()> {
+    run_family(&QWEN35_MOE).await
 }

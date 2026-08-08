@@ -131,7 +131,7 @@ void Qwen35Model::body(Workspace& ws,
         if (fallback_reason == nullptr) {
             const bool handled = qwen3_5_forward_declared(
                 declared_, weights_, hf_config_, fwd_cfg_, plan_state_,
-                ws, la_ws_, kv, state_cache_, attn_ws, cublas,
+                ws, /*moe_ws=*/nullptr, la_ws_, kv, state_cache_, attn_ws, cublas,
                 in.token_ids, in.positions,
                 in.qo_indptr_d, in.kv_page_indices_d,
                 in.kv_page_indptr_d, in.kv_last_page_lens_d,
