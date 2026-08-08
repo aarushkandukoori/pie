@@ -66,6 +66,27 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── MoE: the ALIGNED dispatch path ─────────────────────────────
+    // glm5 and kimi_k3 route through a permutation rather than a loop: every
+    // (token, expert) pair is a route, routes are bucketed by expert and
+    // padded to fixed blocks so one batched GEMM covers all experts, and the
+    // permutation is undone afterwards.
+    //
+    // Five of six are `whole`, for the same reason each time: the
+    // permutation is computed over ALL routes in the fire, so a statement
+    // addressed through `sorted_route_ids` cannot take a row window -- the
+    // window would name different routes than the sort did.
+    kernel!(moe_align "launch_moe_align_decode", whole = true),
+    kernel!(gather_moe_aligned_inputs "launch_gather_moe_aligned_inputs_bf16", whole = true),
+    kernel!(build_moe_ptrs_aligned "launch_build_moe_ptrs_aligned_bf16", whole = true),
+    kernel!(reorder_moe_aligned_output "launch_reorder_moe_aligned_output_bf16", whole = true),
+    // `out[dst_idx[i]] += src[i]·w[i]`, and `dst_idx` is route-global: a
+    // window over output ROWS is not a window over routes.
+    kernel!(scatter_add_weighted "launch_scatter_add_weighted_bf16", whole = true),
+    // The exception, and it is the router: a token's top-k reads only its own
+    // logits row, so this one splits like any elementwise statement.
+    kernel!(topk_sigmoid "launch_topk_sigmoid_bf16"),
+
     // ── MLA: latent attention ──────────────────────────────────────
     // deepseek_v4, glm5 and kimi_k3 attend through a compressed KV: a
     // `kv_lora_rank`-wide latent row plus a small rope-carrying companion,

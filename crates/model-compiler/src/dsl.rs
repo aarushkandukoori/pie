@@ -1642,6 +1642,167 @@ pub mod cuda {
         .expect("fused post produces q")
     }
 
+    // ── MoE: the ALIGNED dispatch path ─────────────────────────────
+    //
+    // glm5 and kimi_k3 route through a permutation, not a loop. Every
+    // (token, expert) pair is a ROUTE; the routes are bucketed by expert and
+    // padded to fixed-size blocks so one batched GEMM covers every expert at
+    // once, and the permutation is undone afterwards.
+    //
+    // Five of the six are `whole`, and it is the same reason each time: the
+    // permutation is computed over ALL routes in the fire. `sorted_route_ids`
+    // is a global order, so a statement addressed through it cannot be handed
+    // a row window -- the window would name different routes than the sort
+    // did. This is the `dyn` axis the trace module doc describes, at the one
+    // point where it stops being expressible as a row range.
+
+    /// `kernels::launch_topk_sigmoid_bf16`: the router — each token's top-k
+    /// experts and their weights, gated by sigmoid rather than softmax.
+    ///
+    /// Returns `(topk_idx, topk_w)`. The ONE statement here that is not
+    /// `whole`: a token's routing reads only its own logits row.
+    pub fn topk_sigmoid(logits: &Val, top_k: u32) -> (Val, Val) {
+        let outs = record_many(
+            &logits.t,
+            logits.layer,
+            "launch_topk_sigmoid_bf16",
+            vec![logits.id],
+            vec![
+                (Shape(vec![Dim::Tokens, Dim::Const(top_k)]), DType::I32),
+                (Shape(vec![Dim::Tokens, Dim::Const(top_k)]), DType::F32),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let idx = it.next().expect("the router states two outputs");
+        let w = it.next().expect("the router states two outputs");
+        (idx, w)
+    }
+
+    /// `kernels::launch_moe_align_decode`: bucket the routes by expert and
+    /// pad each bucket to a block.
+    ///
+    /// Returns `(sorted_route_ids, expert_ids, route_to_aligned_row)` — the
+    /// permutation, which expert each block belongs to, and the inverse map
+    /// the combine reads.
+    pub fn moe_align(topk_idx: &Val, max_blocks: u32, block_size: u32, top_k: u32) -> (Val, Val, Val) {
+        let routes = Dim::Const(top_k);
+        let outs = record_many(
+            &topk_idx.t,
+            topk_idx.layer,
+            "launch_moe_align_decode",
+            vec![topk_idx.id],
+            vec![
+                (
+                    Shape(vec![Dim::Const(max_blocks * block_size)]),
+                    DType::I32,
+                ),
+                (Shape(vec![Dim::Const(max_blocks)]), DType::I32),
+                (Shape(vec![Dim::Tokens, routes]), DType::I32),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let sorted = it.next().expect("the align states three outputs");
+        let experts = it.next().expect("the align states three outputs");
+        let inverse = it.next().expect("the align states three outputs");
+        (sorted, experts, inverse)
+    }
+
+    /// `kernels::launch_gather_moe_aligned_inputs_bf16`: the block-major
+    /// operand, gathered in the sorted order.
+    pub fn gather_moe_aligned_inputs(
+        x: &Val,
+        sorted_route_ids: &Val,
+        aligned_rows: u32,
+        hidden: u32,
+    ) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_gather_moe_aligned_inputs_bf16",
+            vec![],
+            None,
+            vec![x.id, sorted_route_ids.id],
+            Some((
+                Shape(vec![Dim::Const(aligned_rows), Dim::Const(hidden)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the gather produces its value")
+    }
+
+    /// `kernels::launch_build_moe_ptrs_aligned_bf16`: the pointer arrays one
+    /// batched GEMM per projection needs.
+    ///
+    /// Produces no tensor — it fills device pointer arrays. Stated anyway,
+    /// because a reader following the dataflow has to see where the batched
+    /// GEMM's operands come from.
+    pub fn build_moe_ptrs_aligned(expert_ids: &Val, aligned_in: &Val, l: u32) {
+        record(
+            &expert_ids.t,
+            Some(l),
+            "launch_build_moe_ptrs_aligned_bf16",
+            vec![],
+            None,
+            vec![expert_ids.id, aligned_in.id],
+            None,
+        );
+    }
+
+    /// `kernels::launch_reorder_moe_aligned_output_bf16`: undo the block
+    /// permutation, back to route order.
+    pub fn reorder_moe_aligned_output(
+        aligned_out: &Val,
+        sorted_route_ids: &Val,
+        top_k: u32,
+        hidden: u32,
+    ) -> Val {
+        record(
+            &aligned_out.t,
+            aligned_out.layer,
+            "launch_reorder_moe_aligned_output_bf16",
+            vec![],
+            None,
+            vec![aligned_out.id, sorted_route_ids.id],
+            Some((
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(top_k),
+                    Dim::Const(hidden),
+                ]),
+                DType::BF16,
+            )),
+        )
+        .expect("the reorder produces its value")
+    }
+
+    /// `kernels::launch_scatter_add_weighted_bf16`: fold the routed rows back
+    /// onto the residual stream, each scaled by its router weight.
+    ///
+    /// `out[dst_idx[i]] += src[i] · row_weights[i]`. `whole` because
+    /// `dst_idx` is route-global: a window over output ROWS is not a window
+    /// over routes.
+    pub fn scatter_add_weighted(
+        out: &Val,
+        src: &Val,
+        dst_idx: &Val,
+        row_weights: &Val,
+        hidden: u32,
+    ) -> Val {
+        record(
+            &out.t,
+            out.layer,
+            "launch_scatter_add_weighted_bf16",
+            vec![],
+            None,
+            vec![out.id, src.id, dst_idx.id, row_weights.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(hidden)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the combine produces its value")
+    }
+
     // ── MLA: latent attention ──────────────────────────────────────
     //
     // deepseek_v4, glm5 and kimi_k3 all attend through a LATENT KV: the
