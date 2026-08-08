@@ -137,6 +137,7 @@ pub mod deepseek_r1;
 pub mod deepseek_v4;
 pub mod gemma_2;
 pub mod gemma_3;
+pub mod gemma3n;
 pub mod gemma_4;
 pub mod glm_5;
 pub mod glm5;
