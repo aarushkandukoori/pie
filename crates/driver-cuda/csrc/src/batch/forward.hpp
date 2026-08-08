@@ -446,7 +446,7 @@ struct BatchEngine {
                 ForwardGraphCache* graph_cache = nullptr,
                 NcclComm* tp_comm = nullptr,
                 std::string tp_cpu_gate_key = {},
-                ops::RuntimeQuantContext* runtime_quant_context = nullptr,
+                kernels::gemm::RuntimeQuantContext* runtime_quant_context = nullptr,
                 RecurrentStateCache* rs_cache = nullptr)
         : loaded_model(loaded_model),
           ws(ws),
@@ -507,7 +507,7 @@ struct BatchEngine {
     // before entering their NCCL receive. This prevents idle followers from
     // burning GPU cycles while rank 0 is between requests.
     std::string tp_cpu_gate_key;
-    ops::RuntimeQuantContext* runtime_quant_context = nullptr;
+    kernels::gemm::RuntimeQuantContext* runtime_quant_context = nullptr;
 
     // Runtime-managed rs_cache storage. Null on models without
     // recurrent-state slots.

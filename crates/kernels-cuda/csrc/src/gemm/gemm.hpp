@@ -17,9 +17,12 @@
 #include <memory>
 
 #include "quant_meta.hpp"
+#include "weight_view.hpp"
 #include "tensor.hpp"
 
 namespace pie_cuda_driver::kernels::gemm {
+
+using ops::WeightView;
 
 struct RuntimeQuantScratchSpec {
     std::size_t max_tokens = 0;
@@ -72,77 +75,6 @@ void reserve_runtime_quant_scratch(
     const RuntimeQuantScratchSpec& spec,
     bool seal_after_reserve);
 
-// Lightweight reference to a weight tensor + (optional) quantization
-// metadata, threaded through the GEMM dispatcher. The bf16 path takes the
-// implicit `WeightView(const DeviceTensor&)` constructor and pays nothing;
-// the quantized path uses `WeightView::quantized(...)`.
-//
-// We deliberately don't store a `const DeviceTensor*` — bind functions may
-// hand us raw pointers (e.g. into a fused expert table) that don't have a
-// DeviceTensor wrapper. Carrying just `(data, dtype)` covers both cases.
-struct WeightView {
-    const void* data = nullptr;
-    DType       dtype = DType::BF16;
-    std::size_t nbytes = 0;
-
-    // Quant metadata. `scale_data == nullptr` means "no quant — bf16 path".
-    // For per-channel / per-group quant the dispatcher reads the layout
-    // hints from `kind`, `group_size`, `channel_axis`.
-    const void*       scale_data = nullptr;
-    DType             scale_dtype = DType::FP32;
-    std::size_t       scale_numel = 0;
-    ops::QuantMeta::Kind   quant_kind = ops::QuantMeta::Kind::PerTensor;
-    const void*       zero_point_data = nullptr;
-    int               group_size = 0;
-    int               channel_axis = 0;
-
-    WeightView() = default;
-
-    // Implicit conversion from a plain DeviceTensor — preserves call-site
-    // terseness for the unquantized path (the 99% case in M0).
-    WeightView(const DeviceTensor& t)
-        : data(t.data()), dtype(t.dtype()), nbytes(t.nbytes()) {}
-
-    // Raw pointer + dtype, for buffers without a DeviceTensor handle
-    // (deinterleaved MoE scratch, expert pointer arrays).
-    static WeightView raw(const void* p, DType d) {
-        WeightView v; v.data = p; v.dtype = d; return v;
-    }
-
-    // Quantized weight: ties together a weight DeviceTensor and a
-    // `ops::QuantMeta` snapshot pulled from `LoadedModel::quant_meta`.
-    static WeightView quantized(const DeviceTensor& weight, const ops::QuantMeta& meta) {
-        WeightView v;
-        v.data = weight.data();
-        v.dtype = weight.dtype();
-        v.nbytes = weight.nbytes();
-        v.scale_data = meta.scale ? meta.scale->data() : nullptr;
-        v.scale_dtype = meta.scale ? meta.scale->dtype() : DType::FP32;
-        v.scale_numel = meta.scale ? meta.scale->numel() : 0;
-        v.quant_kind = meta.kind;
-        v.zero_point_data = meta.zero_point ? meta.zero_point->data() : nullptr;
-        v.group_size = meta.group_size;
-        v.channel_axis = meta.channel_axis;
-        return v;
-    }
-
-    static WeightView mxfp4_marlin(
-        const DeviceTensor& weight,
-        const DeviceTensor& scale)
-    {
-        WeightView v;
-        v.data = weight.data();
-        v.dtype = DType::MXFP4_PACKED;
-        v.nbytes = weight.nbytes();
-        v.scale_data = scale.data();
-        v.scale_dtype = DType::UINT8;
-        v.scale_numel = scale.numel();
-        v.quant_kind = ops::QuantMeta::Kind::PerGroup;
-        v.group_size = 32;
-        v.channel_axis = 0;
-        return v;
-    }
-};
 
 class CublasHandle {
 public:
@@ -406,27 +338,3 @@ void mla_absorb_latent_to_v_bf16(
 
 }  // namespace pie_cuda_driver::kernels::gemm
 
-// ---------------------------------------------------------------------------
-// `ops::` forwarding for the SHARED vocabulary.
-//
-// `WeightView` is not gemm's; it is the driver's, and this header is merely
-// where it was first needed. The driver names it `ops::WeightView` in 31
-// hand-written lines and 1068 generated ones. Moving the launchers into a
-// family namespace must not conscript a thousand lines of unrelated code, so
-// the types travel with the file and stay REACHABLE under their old spelling.
-// Zero call sites change.
-//
-// `CublasHandle` and `RuntimeQuantScratchSpec` are NOT here: four driver
-// headers forward-declare them, and a using-declaration cannot coexist with a
-// declaration of the same name in the same namespace. Those two are spelled
-// `kernels::gemm::` at their call sites -- 108 lines, against WeightView's
-// 1099.
-//
-// A shim with a job to finish: these types belong in a shared header beside
-// `tensor.hpp`, and when they get one this block goes away.
-// See .wiki/kernel-refactor.md §7 step 3.
-namespace pie_cuda_driver::ops {
-using kernels::gemm::WeightView;
-using kernels::gemm::RuntimeQuantContext;
-using kernels::gemm::ScopedRuntimeQuantContext;
-}  // namespace pie_cuda_driver::ops

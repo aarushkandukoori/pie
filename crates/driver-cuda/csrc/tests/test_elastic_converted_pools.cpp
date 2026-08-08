@@ -72,8 +72,8 @@ int main() {
             .has_fp8 = true,
             .has_int8 = true,
         };
-        pie_cuda_driver::ops::RuntimeQuantContext quant_context;
-        pie_cuda_driver::ops::ScopedRuntimeQuantContext quant_scope(
+        pie_cuda_driver::kernels::gemm::RuntimeQuantContext quant_context;
+        pie_cuda_driver::kernels::gemm::ScopedRuntimeQuantContext quant_scope(
             quant_context);
         {
             pie_cuda_driver::ScopedCudaArenaAllocator scoped(allocator);

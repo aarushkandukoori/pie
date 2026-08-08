@@ -681,7 +681,7 @@ class Context::Impl {
     std::shared_ptr<pie_cuda_driver::CudaArenaAllocator> workspace_allocator_;
     std::shared_ptr<pie_cuda_driver::CudaArenaAllocator> attention_allocator_;
     std::size_t elastic_safety_floor_bytes_ = 0;
-    pie_cuda_driver::ops::RuntimeQuantContext runtime_quant_context_;
+    pie_cuda_driver::kernels::gemm::RuntimeQuantContext runtime_quant_context_;
     pie_cuda_driver::NcclComm* tp_comm_ = nullptr;
     pie_cuda_driver::kernels::comm::CustomAllReduce* tp_custom_ar_ = nullptr;
     // CUDA device ordinal of every rank in the TP group, indexed by rank.
@@ -838,7 +838,7 @@ int Context::Impl::load_model(
     const PieModelLoadDesc& load,
     PieDriverCaps* caps_out) {
     using namespace pie_cuda_driver;
-    ops::ScopedRuntimeQuantContext quant_scope(runtime_quant_context_);
+    kernels::gemm::ScopedRuntimeQuantContext quant_scope(runtime_quant_context_);
     if (cfg_ == nullptr || load_attempted_) return PIE_STATUS_CLOSED;
     load_attempted_ = true;
     // Fault injection for the load-failure path, which is otherwise only
@@ -2451,7 +2451,7 @@ int Context::Impl::launch(const PieFrameDesc& frame, PieCompletion completion) {
         while (std::chrono::steady_clock::now() < deadline) {
         }
     }
-    pie_cuda_driver::ops::ScopedRuntimeQuantContext quant_scope(
+    pie_cuda_driver::kernels::gemm::ScopedRuntimeQuantContext quant_scope(
         runtime_quant_context_);
     const PieStepDesc* steps = frame.steps.ptr;
     const std::size_t step_count = frame.steps.len;
@@ -2681,7 +2681,7 @@ int Context::Impl::bind_instance(const PieInstanceDesc& instance, PieInstanceBin
 }
 
 int Context::Impl::encode(const PieEncodeDesc& encode, PieCompletion completion) {
-    pie_cuda_driver::ops::ScopedRuntimeQuantContext quant_scope(
+    pie_cuda_driver::kernels::gemm::ScopedRuntimeQuantContext quant_scope(
         runtime_quant_context_);
     if (model_ == nullptr && encode_vision_ == nullptr &&
         encode_audio_ == nullptr) {
