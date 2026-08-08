@@ -27,10 +27,9 @@
 #include <cuda_runtime.h>
 #include <math_constants.h>
 
-#include "pie/driver/launch/op_table.hpp"
 #include <rng_contract.generated.h>
 
-namespace pie_cuda_driver::pipeline {
+namespace pie_cuda_driver::kernels::ptir {
 
 inline constexpr int kTier0Block = 256;   // fixed CTA width for row-local kernels
 // Largest `k` the `k_topk_rows` radix-select fast path handles; above it the
@@ -1154,4 +1153,4 @@ __global__ void k_transpose(const T* __restrict__ src, T* __restrict__ out,
     if (x < cols && y < rows) out[(std::uint64_t)x * rows + y] = src[(std::uint64_t)y * cols + x];
 }
 
-}  // namespace pie_cuda_driver::pipeline
+}  // namespace pie_cuda_driver::kernels::ptir

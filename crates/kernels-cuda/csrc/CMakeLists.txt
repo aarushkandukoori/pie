@@ -45,6 +45,12 @@
 
 cmake_minimum_required(VERSION 3.23)
 
+# The PTIR contract headers (`rng_contract.generated.h`). `kernels-cuda`'s
+# build.rs passes this; the fallback keeps a bare `cmake csrc/` working.
+if(NOT PIE_PTIR_INCLUDE_DIR)
+  set(PIE_PTIR_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../tensor-compiler/include")
+endif()
+
 include(cmake/DetectCudaArchitecture.cmake)
 detect_cuda_architectures()
 message(STATUS "Using CUDA architecture: ${CMAKE_CUDA_ARCHITECTURES}")
@@ -71,11 +77,17 @@ endif()
 project(PIE_KERNELS_CUDA CUDA CXX)
 
 
-# There is no "where the rest of the repo is" block here, and its absence is
-# the boundary being real: not one file under `src/` includes a header from
-# `driver`, `tensor-compiler`, `driver-abi` or `model-loader-capi`. A kernel
-# takes pointers and extents. Everything it needs is in this directory or
-# fetched into it.
+# The boundary, stated precisely: not one file under `src/` includes a header
+# from `driver`, `driver-abi` or `model-loader-capi`. A kernel takes pointers
+# and extents.
+#
+# One exception, and it is a CONTRACT rather than machinery:
+# `src/ptir/tier0.cuh` includes `tensor-compiler`'s generated
+# `rng_contract.generated.h`. Tier-0 interprets a PTIR trace kernel by kernel
+# and tier-1 re-emits the same math through NVRTC; the two are diffed against
+# a host golden, so their RNG has to agree bit for bit. That agreement is what
+# the generated header IS. Reading it here is the same shape as `kernels.def`
+# being read by both C++ and CMake -- one source, two consumers, no copy.
 
 # Optional compiler cache; speeds clean rebuilds / branch switches.
 # Host C/C++ accepts either sccache or ccache.
@@ -587,6 +599,8 @@ target_compile_options(pie_kernels_cuda PRIVATE
 target_include_directories(pie_kernels_cuda
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    # The PTIR contract headers -- see the boundary note at the top.
+    ${PIE_PTIR_INCLUDE_DIR}
     # Ahead of anything the toolkit ships: FlashInfer needs its own vendored
     # CCCL, and a toolkit that bundles an older one would shadow it.
     ${PIE_CCCL_INCLUDE_DIRS}
