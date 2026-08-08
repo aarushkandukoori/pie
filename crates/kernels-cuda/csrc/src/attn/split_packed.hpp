@@ -33,12 +33,6 @@ void split_qkv_bf16(
     int n_tokens, int q_dim, int kv_dim,
     cudaStream_t stream);
 
-// `packed` is row-major [N, 2*inter]; outputs are row-major [N, inter].
-void split_gate_up_bf16(
-    const void* packed,
-    void* gate_out, void* up_out,
-    int n_tokens, int inter,
-    cudaStream_t stream);
 
 // Pure-decode fast path for fused QKV projections with per-head Q/K RMSNorm
 // and standard RoPE. Reads packed [R, q_dim + 2 * kv_dim], writes Q to

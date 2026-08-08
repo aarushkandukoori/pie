@@ -19,6 +19,7 @@
 #include "layout/embed.hpp"
 #include "layout/gather_rows.hpp"
 #include "attn/kimi_mla.hpp"
+#include "moe/topk_sigmoid.hpp"
 #include "attn/mla_paged.hpp"
 #include "moe/moe_dispatch.hpp"
 #include "norm/residual_add.hpp"
@@ -827,7 +828,7 @@ void kimi_forward_paged(
             kernels::gemm::act_x_w(cublas.handle(),
                 kimi_ws.norm_y.data(), *Lw.router,
                 kimi_ws.router_logits.data(), total_tokens, E, H);
-            kernels::attn::topk_sigmoid_bf16(
+            kernels::moe::topk_sigmoid_bf16(
                 kimi_ws.router_logits.data(),
                 static_cast<std::int32_t*>(kimi_ws.topk_idx.data()),
                 static_cast<float*>(kimi_ws.topk_weights.data()),

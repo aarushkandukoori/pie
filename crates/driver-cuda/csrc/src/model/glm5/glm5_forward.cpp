@@ -16,6 +16,7 @@
 #include "layout/embed.hpp"
 #include "layout/gather_rows.hpp"
 #include "attn/kimi_mla.hpp"
+#include "moe/topk_sigmoid.hpp"
 #include "attn/mla_paged.hpp"
 #include "moe/moe_dispatch.hpp"
 #include "norm/residual_add.hpp"
@@ -555,7 +556,7 @@ void glm5_forward_paged(
             ws.norm_y.data(), *Lw.router,
             ws.router_logits.data(), total_tokens, E, H);
         // noaux_tc + sigmoid scoring with optional per-expert correction bias.
-        kernels::attn::topk_sigmoid_bf16(
+        kernels::moe::topk_sigmoid_bf16(
             ws.router_logits.data(),
             static_cast<std::int32_t*>(ws.topk_idx.data()),
             static_cast<float*>(ws.topk_weights.data()),

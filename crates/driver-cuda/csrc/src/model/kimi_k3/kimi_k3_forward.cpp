@@ -23,6 +23,7 @@
 #include "layout/gather_rows.hpp"
 #include "ssm/kda.hpp"
 #include "attn/kimi_mla.hpp"
+#include "moe/topk_sigmoid.hpp"
 #include "attn/mla_paged.hpp"
 #include "moe/moe_dispatch.hpp"
 #include "norm/residual_add.hpp"
@@ -754,7 +755,7 @@ void kimi_k3_forward_paged(
             // score, renormalised to sum 1. The reference computes the logits
             // in fp32; this GEMM is bf16, which is the one place K3's router
             // is coarser here than upstream.
-            kernels::attn::topk_sigmoid_bf16(
+            kernels::moe::topk_sigmoid_bf16(
                 ws.router_logits.data(),
                 static_cast<std::int32_t*>(ws.topk_idx.data()),
                 static_cast<float*>(ws.topk_weights.data()),

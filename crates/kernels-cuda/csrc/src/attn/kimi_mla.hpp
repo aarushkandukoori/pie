@@ -39,16 +39,5 @@ void kimi_split_kv_a_norm_bf16(
     // `kv_lora_rank + qk_rope_dim` wide.
     int src_row_stride = 0);
 
-void topk_sigmoid_bf16(
-    const void* logits,
-    std::int32_t* topk_idx,
-    float* topk_w,
-    const float* correction_bias,
-    int tokens,
-    int num_experts,
-    int top_k,
-    bool renormalize,
-    float routed_scaling_factor,
-    cudaStream_t stream);
 
 }  // namespace pie_cuda_driver::kernels::attn

@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "model/loaded_model.hpp"
+#include "layout/split_gate_up.hpp"
 #include "gemm/gemm.hpp"
 #include "tensor.hpp"
 
@@ -54,7 +55,7 @@ struct Qwen3LayerWeights {
     // of 3 / 2 narrow gemms — pulls the matmul out of cuBLAS's small-M
     // `gemvx` fallback and into the tensor-core gemm path. The packed
     // gemm output is then sliced into per-projection workspaces via
-    // `kernels::attn::split_qkv_bf16` / `kernels::attn::split_gate_up_bf16`.
+    // `kernels::attn::split_qkv_bf16` / `kernels::layout::split_gate_up_bf16`.
     //
     //   qkv_proj_fused      : [num_q_heads*head_dim + 2*num_kv_heads*head_dim,
     //                         hidden]

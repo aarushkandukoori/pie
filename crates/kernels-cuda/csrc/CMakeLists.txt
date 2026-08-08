@@ -541,6 +541,8 @@ else()
 endif()
 
 add_library(pie_kernels_cuda STATIC
+  src/layout/split_gate_up.cu
+  src/moe/topk_sigmoid.cu
   ${PIE_KERNELS_CUSTOM_ALL_REDUCE_SOURCE}
   src/tensor.cpp
   # ops/ -- attention / GEMM / MoE / SSM wrappers
