@@ -309,6 +309,10 @@ inline bool launch_op(const LaunchOp& o) {
                 case DType::I32: run_select<std::int32_t>(o); return true;
                 case DType::U32: run_select<std::uint32_t>(o); return true;
                 case DType::Bool: run_select<std::uint8_t>(o); return true;
+                // Act is program-side (materialised as F32 before it reaches
+                // tier-0); no kernel takes it. Listed rather than defaulted so
+                // -Wswitch still reports the NEXT dtype someone adds.
+                case DType::Act: return false;
             }
             return false;
         // ── shape ──
@@ -318,6 +322,10 @@ inline bool launch_op(const LaunchOp& o) {
                 case DType::I32: run_broadcast<std::int32_t>(o); return true;
                 case DType::U32: run_broadcast<std::uint32_t>(o); return true;
                 case DType::Bool: run_broadcast<std::uint8_t>(o); return true;
+                // Act is program-side (materialised as F32 before it reaches
+                // tier-0); no kernel takes it. Listed rather than defaulted so
+                // -Wswitch still reports the NEXT dtype someone adds.
+                case DType::Act: return false;
             }
             return false;
         case OpCode::Transpose:
@@ -338,6 +346,10 @@ inline bool launch_op(const LaunchOp& o) {
                 case DType::I32: return run_gather_indexed<std::int32_t>(o);
                 case DType::U32: return run_gather_indexed<std::uint32_t>(o);
                 case DType::Bool: return run_gather_indexed<std::uint8_t>(o);
+                // Act is program-side (materialised as F32 before it reaches
+                // tier-0); no kernel takes it. Listed rather than defaulted so
+                // -Wswitch still reports the NEXT dtype someone adds.
+                case DType::Act: return false;
             }
             return false;
         case OpCode::GatherRow:
