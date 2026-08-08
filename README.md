@@ -63,17 +63,21 @@ pie-client submit text-completion -- --prompt "The capital of France is"
 
 | Directory | Description |
 |---|---|
-| `crates/worker/` | The `pie` CLI and standalone engine — the invariant entry point |
-| `runtime/` | Inferlet runtime |
-| `compiler/` | Tensor-program toolchain: authoring eDSL → PTIR → planning → CUDA/Metal codegen (+ the reference interpreter) |
+| `src/` | The `pie` CLI and the three role daemons — the invariant entry point |
+| `crates/engine/` | Inferlet runtime |
+| `crates/tensor-*/` | Tensor-program toolchain: authoring eDSL → PTIR → planning → CUDA/Metal codegen (+ the reference interpreter) |
+| `crates/model*/` | What a model is: the registries, the generations, the checkpoint loader, the forward compiler |
 | `crates/controller/` | Cluster-coordination control plane (pairing · roles · health) |
 | `crates/transport/` | Worker↔worker P2P KV-tensor data plane |
-| `driver/` | Backend drivers (CUDA · Metal) + runtime↔driver IPC |
-| `interface/` | Boundary contract crates (`ids` · `driver` · `controller` · `worker` · `client` · `inferlet`) — the dependency floor |
+| `crates/driver*/` | Backend drivers (CUDA · Metal) + the shared execution-shell substrate |
+| `crates/*-api`, `crates/*-abi` | Boundary contracts (`client` · `controller` · `worker` · `inferlet` · `driver`) — the dependency floor |
 | `tests/inferlets/` | Curated inferlet E2E fixtures |
-| `sdk/` | Inferlet SDKs (Rust · Python · JavaScript) |
-| `client/` | Client libraries (Rust · Python · JavaScript) |
-| `website/` | [pie-project.org](https://pie-project.org) docs site |
+| `sdk/inferlet/` | SDKs for programs that run ON pie (Python · JavaScript · tools) |
+| `sdk/client/` | SDKs for programs that CALL pie (Python · JavaScript) |
+
+Every Rust crate lives under `crates/`; the repo root is the workspace and the
+`pie` package both. The [pie-project.org](https://pie-project.org) docs site
+has its own repo, [pie-project/website](https://github.com/pie-project/website).
 
 ## Building inferlets
 
