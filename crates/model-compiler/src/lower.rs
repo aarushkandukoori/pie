@@ -1071,6 +1071,17 @@ impl Buffers {
 
         // The values a seam exposes: read off the seam statements, not a
         // per-family table.
+        //
+        // OVER-PINS, deliberately for now. `seam(t, &ATTN_QV, &[&q, &v])`
+        // names the two values it exposes, but `SeamStatement` keeps only
+        // the seam, the layer and the op index — the value list is
+        // `seam::check_plan`'s and is not recorded — so the widest thing
+        // this can say is "the operands of the construct the seam points
+        // at", which for that example is q, k AND v. Pinning too much is
+        // the safe direction: those values stay backend-bound exactly as
+        // they are today, and the cost is arena reuse the fire does not
+        // get. Recording the ids on the statement is what would tighten
+        // it, and that is a trace change, not a lowering one.
         let mut pinned: Vec<ValueId> = Vec::new();
         for stmt in &plan.seams {
             let Some(at) = stmt.op else { continue };

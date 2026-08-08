@@ -254,10 +254,24 @@ fn every_placed_value_fits_the_arena_it_reports() {
         // printed because nothing else states it: `ws.declared_values`
         // is sized by a formula today, and this is the number it has to
         // cover once the host is the one assigning.
+        // Placed vs NAMED is the shape of the remaining driver work, not
+        // just a statistic. A value the host PLACES is one whose arm has
+        // to stop naming a workspace field; a value it leaves NAMED stays
+        // exactly where it is, because a seam exposes it and machinery
+        // outside the walk reaches it by name. The four executors between
+        // them name about twelve buffer roles (`ws.y`, `ws.norm_x`,
+        // `ws.q`, …), so the migration is counted in roles, and this says
+        // how many of those roles the host is even asking about.
+        let named = buffers
+            .offset
+            .iter()
+            .filter(|&&at| at == Buffers::NAMED)
+            .count();
         println!(
-            "{name:12} {class:?}  arena {:>9} bytes  ({} values)",
+            "{name:12} {class:?}  arena {:>9} bytes  {} values ({named} named, {} placed)",
             buffers.bytes,
-            plan.values.len()
+            plan.values.len(),
+            plan.values.len() - named
         );
         for v in 0..plan.values.len() {
             let at = buffers.offset[v];
