@@ -406,15 +406,16 @@ bool gemma4_forward_declared(
         enter(op.layer);
         switch (op.kind) {
         case PieForwardOpKind::Embed: {
+            // ISLAND (value arena). Two sites differing only in WHERE
+            // the rows land and how wide they are -- both the trace's.
+            // `token_ids` stays a driver input: it is the fire's, not a
+            // traced value.
             const std::string_view name = plan.weight_name(op);
-            if (name == "embed") {
-                kernels::launch_embed_bf16(token_ids, require(w, name).data(),
-                                           ws.y.data(), N, H, V, stream);
-            } else {
-                kernels::launch_embed_bf16(
-                    token_ids, require(w, name).data(), per_layer_token,
-                    N, L * ple_dim, V, stream);
-            }
+            const auto outs = plan.outputs(op);
+            need(outs, 1, "embed outputs");
+            kernels::launch_embed_bf16(token_ids, require(w, name).data(),
+                                       values.slot(outs[0]), N,
+                                       row_width(outs[0]), V, stream);
             break;
         }
         case PieForwardOpKind::Matmul: {
@@ -546,25 +547,27 @@ bool gemma4_forward_declared(
             switch (resolve_g4_kernel(sym)) {
             case G4Kernel::ScalarMul: {
                 const std::string_view which = aux(0);
+                // ISLAND (value arena). Four sites that named four
+                // buffers and four element counts to apply one scalar.
+                // The buffer and the count are the value's; only the
+                // SCALAR is a declared fact, and it stays read by name.
+                const auto outs = plan.outputs(op);
+                need(outs, 1, "scalar_mul outputs");
+                float by;
                 if (which == "scale.sqrt_hidden") {
-                    kernels::launch_scalar_mul_bf16(
-                        ws.y.data(), std::sqrt(static_cast<float>(H)),
-                        static_cast<std::size_t>(N) * H, stream);
+                    by = std::sqrt(static_cast<float>(H));
                 } else if (which == "scale.sqrt_ple_dim") {
-                    kernels::launch_scalar_mul_bf16(
-                        per_layer_token, std::sqrt(static_cast<float>(ple_dim)),
-                        static_cast<std::size_t>(N) * L * ple_dim, stream);
+                    by = std::sqrt(static_cast<float>(ple_dim));
                 } else if (which == "scale.rsqrt_hidden") {
-                    kernels::launch_scalar_mul_bf16(
-                        per_layer_proj, 1.0f / std::sqrt(static_cast<float>(H)),
-                        static_cast<std::size_t>(N) * L * ple_dim, stream);
+                    by = 1.0f / std::sqrt(static_cast<float>(H));
                 } else if (which == "scale.rsqrt_2") {
-                    kernels::launch_scalar_mul_bf16(
-                        per_layer_proj, 1.0f / std::sqrt(2.0f),
-                        static_cast<std::size_t>(N) * L * ple_dim, stream);
+                    by = 1.0f / std::sqrt(2.0f);
                 } else {
                     throw_drift("scale '" + std::string(which) + "'");
                 }
+                kernels::launch_scalar_mul_bf16(
+                    values.slot(outs[0]), by,
+                    static_cast<std::size_t>(N) * row_width(outs[0]), stream);
                 break;
             }
             case G4Kernel::LoraQkvCorrection:
@@ -654,7 +657,8 @@ bool gemma4_forward_declared(
                         cache.hnd_layout());
                 }
                 ops::dispatch_attention_flashinfer_decode(
-                    *p, ws.q.data(), kv_view, ws.attn_out.data(),
+                    *p, values.slot(plan.inputs(op)[0]), kv_view,
+                    values.slot(plan.outputs(op)[0]),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
                     attn_ws, stream,
                     w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
@@ -704,20 +708,33 @@ bool gemma4_forward_declared(
                     ple ? w.layers[static_cast<std::size_t>(cur_layer)]
                               .layer_scalar_value
                         : 1.f;
+                const auto ins = plan.inputs(op);
+                const auto outs = plan.outputs(op);
+                need(ins, 1, "norm-residual-scale-norm inputs");
+                need(outs, 2, "norm-residual-scale-norm outputs");
+                // `(landed, mlp_in)`: the stream, then the normed
+                // activation. The `ple ? norm_y : norm_x` input choice
+                // goes with them -- it was this family naming which
+                // scratch the previous statement had landed in.
                 kernels::launch_rmsnorm_residual_add_scale_rmsnorm_bf16(
-                    ple ? ws.norm_y.data() : ws.norm_x.data(),
-                    require(w, first).data(), ws.y.data(), scale,
-                    require(w, aux(1)).data(), ws.norm_x.data(),
+                    values.slot(ins[0]), require(w, first).data(),
+                    values.slot(outs[0]), scale,
+                    require(w, aux(1)).data(), values.slot(outs[1]),
                     N, H, eps, stream);
                 break;
             }
             case G4Kernel::NormResidualAdd: {
+                // The `ple_norm` test that used to live here chose
+                // between two input scratches. The trace names the
+                // input, so there is nothing left to tell apart.
                 const std::string_view first = aux(0);
-                const ParsedName nm = parse_name(first);
-                const bool ple = nm.field == "ple_norm";
+                const auto ins = plan.inputs(op);
+                const auto outs = plan.outputs(op);
+                need(ins, 1, "norm-residual-add inputs");
+                need(outs, 1, "norm-residual-add outputs");
                 kernels::launch_rmsnorm_residual_add_bf16(
-                    ple ? ws.norm_y.data() : ws.norm_x.data(),
-                    require(w, first).data(), ws.y.data(), N, H, eps, stream);
+                    values.slot(ins[0]), require(w, first).data(),
+                    values.slot(outs[0]), N, H, eps, stream);
                 break;
             }
             case G4Kernel::LogitSoftcap:
@@ -728,7 +745,8 @@ bool gemma4_forward_declared(
             case G4Kernel::AttnFlashinferPrefill: {
                 auto kv_view = cache.layer_view(cur_layer);
                 ops::launch_attention_flashinfer_prefill(
-                    ws.q.data(), kv_view, ws.attn_out.data(),
+                    values.slot(plan.inputs(op)[0]), kv_view,
+                    values.slot(plan.outputs(op)[0]),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
                     N, R, cfg.num_attention_heads, attn_ws, stream,
@@ -742,7 +760,8 @@ bool gemma4_forward_declared(
                 // the fire's page count, not the layer's and not the
                 // cache's.
                 ops::launch_attention_naive_paged(
-                    ws.q.data(), kv_view, ws.attn_out.data(),
+                    values.slot(plan.inputs(op)[0]), kv_view,
+                    values.slot(plan.outputs(op)[0]),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, N, R,
                     static_cast<int>(kv_page_indptr_h[R]),
