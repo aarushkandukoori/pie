@@ -1537,6 +1537,29 @@ pub mod metal {
 pub mod cuda {
     use super::*;
 
+    /// A launch that produces MORE THAN ONE value.
+    ///
+    /// `TraceBuilder::launch` always returned a `Vec`; [`record`] narrowed it
+    /// to the first, which was right for every statement until MLA. Its
+    /// prepare splits a latent KV row into four -- `kv_c`, `k_pe`, `q_nope`,
+    /// `q_pe` -- and a statement returning one of them would leave the other
+    /// three unnamed on the tape, which is exactly the silent dataflow gap
+    /// the trace exists to make visible.
+    fn record_many(
+        t: &Trace,
+        layer: Option<u32>,
+        kernel: &str,
+        inputs: Vec<crate::trace::ValueId>,
+        outs: Vec<(Shape, DType)>,
+    ) -> Vec<Val> {
+        let n = outs.len();
+        let ids = t.with(layer, |b| b.launch(kernel, vec![], None, inputs, outs));
+        assert_eq!(ids.len(), n, "the tape recorded a different arity than stated");
+        ids.into_iter()
+            .map(|id| Val { t: t.clone(), id, layer })
+            .collect()
+    }
+
     fn record(
         t: &Trace,
         layer: Option<u32>,
@@ -1617,6 +1640,128 @@ pub mod cuda {
             Some((Shape(vec![Dim::Tokens, Dim::Const(q_width)]), DType::BF16)),
         )
         .expect("fused post produces q")
+    }
+
+    // ── MLA: latent attention ──────────────────────────────────────
+    //
+    // deepseek_v4, glm5 and kimi_k3 all attend through a LATENT KV: the
+    // cache stores a `kv_lora_rank`-wide compressed row plus a small
+    // rope-carrying `qk_rope_head_dim` row, and the heads are reconstructed
+    // on the way in. It is a different attention algebra, not a different
+    // head count -- which is why none of the flashinfer statements above can
+    // stand in for it, and why it gets its own [`Prepare::MlaPlan`].
+
+    /// `ops::launch_mla_prepare_bf16`: one launch that turns the two
+    /// projections into the four operands MLA attends over.
+    ///
+    /// Returns `(kv_c, k_pe, q_nope, q_pe)` — the compressed KV row, its
+    /// rope-carrying companion, and the query split the same way. It is one
+    /// statement rather than four because the kernel is one launch, and the
+    /// trace records launches.
+    ///
+    /// `whole`: it addresses through `qo_indptr` / `kv_page_indptr` /
+    /// `kv_last_page_lens`, which are R-shaped. A row window would leave that
+    /// arithmetic pointing at the wrong request.
+    pub fn mla_prepare(
+        kv_a: &Val,
+        q_b: &Val,
+        heads: u32,
+        kv_lora_rank: u32,
+        qk_nope_dim: u32,
+        qk_rope_dim: u32,
+    ) -> (Val, Val, Val, Val) {
+        let outs = record_many(
+            &kv_a.t,
+            kv_a.layer,
+            "launch_mla_prepare_bf16",
+            vec![kv_a.id, q_b.id],
+            vec![
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(kv_lora_rank)]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![Dim::Tokens, Dim::Const(qk_rope_dim)]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![
+                        Dim::Tokens,
+                        Dim::Const(heads),
+                        Dim::Const(qk_nope_dim),
+                    ]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![
+                        Dim::Tokens,
+                        Dim::Const(heads),
+                        Dim::Const(qk_rope_dim),
+                    ]),
+                    DType::BF16,
+                ),
+            ],
+        );
+        let mut it = outs.into_iter();
+        let kv_c = it.next().expect("mla_prepare states four outputs");
+        let k_pe = it.next().expect("mla_prepare states four outputs");
+        let q_nope = it.next().expect("mla_prepare states four outputs");
+        let q_pe = it.next().expect("mla_prepare states four outputs");
+        (kv_c, k_pe, q_nope, q_pe)
+    }
+
+    /// `kernels::launch_write_mla_to_pages`: commit the compressed KV row and
+    /// its rope companion to the paged latent cache.
+    ///
+    /// The MLA counterpart of `write_kv_to_pages`, and `whole` for the same
+    /// reason `mla_prepare` is: page addressing is per-request.
+    pub fn write_mla_to_pages(kv_c: &Val, k_pe: &Val, l: u32) {
+        record(
+            &kv_c.t,
+            Some(l),
+            "launch_write_mla_to_pages",
+            vec![],
+            Some(StateRef {
+                store: StateStore::KvCache,
+                layer: l,
+            }),
+            vec![kv_c.id, k_pe.id],
+            None,
+        );
+    }
+
+    /// `ops::dispatch_attention_mla_bf16`: attention over the latent cache.
+    ///
+    /// `needs` [`Prepare::MlaPlan`] — its own kind of plan, built from the
+    /// latent geometry (`kv_lora_rank`, `qk_rope_head_dim`) that no other
+    /// prepare has a field for, and cached in an `MlaPlanCache` rather than
+    /// in the shared attention workspace.
+    ///
+    /// `lacks Scores`: there is no capture variant of this dispatch, so a
+    /// program whose `attn.out` seam wants the score matrix cannot be served
+    /// over rows this kernel covers. It publishes an LSE, which is a
+    /// different thing and not what the capability names.
+    pub fn attention_mla(q_nope: &Val, q_pe: &Val, l: u32, heads: u32, kv_lora_rank: u32) -> Val {
+        record(
+            &q_nope.t,
+            Some(l),
+            "dispatch_attention_mla_bf16",
+            vec![],
+            Some(StateRef {
+                store: StateStore::KvCache,
+                layer: l,
+            }),
+            vec![q_nope.id, q_pe.id],
+            Some((
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(heads),
+                    Dim::Const(kv_lora_rank),
+                ]),
+                DType::BF16,
+            )),
+        )
+        .expect("the attention produces its value")
     }
 
     // ── gemma-3n: AltUp ────────────────────────────────────────────

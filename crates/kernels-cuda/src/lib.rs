@@ -66,6 +66,25 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── MLA: latent attention ──────────────────────────────────────
+    // deepseek_v4, glm5 and kimi_k3 attend through a compressed KV: a
+    // `kv_lora_rank`-wide latent row plus a small rope-carrying companion,
+    // with the heads reconstructed on the way in. A different attention
+    // algebra, not a different head count.
+    //
+    // The two paged statements are `whole` because they address through
+    // `qo_indptr` / `kv_page_indptr` / `kv_last_page_lens`, which are
+    // R-shaped: a row window would leave that arithmetic pointing at the
+    // wrong request. The dispatch is not -- like the flashinfer dispatches,
+    // it reads a plan built over the whole fire and still covers a row range.
+    kernel!(mla_prepare "launch_mla_prepare_bf16", whole = true),
+    kernel!(write_mla_to_pages "launch_write_mla_to_pages", whole = true),
+    // No capture variant of this dispatch exists, so it cannot publish the
+    // score matrix an `attn.out` observer asks for. It does publish an LSE,
+    // which is a different thing and not what the capability names.
+    kernel!(attention_mla "dispatch_attention_mla_bf16",
+        needs = Prepare::MlaPlan, lacks = &[Cap::Scores]),
+
     // ── gemma-3n: AltUp ────────────────────────────────────────────
     // A rank-K residual stream: K parallel streams predicted from each
     // other, one of them run through the real layer, the rest corrected
