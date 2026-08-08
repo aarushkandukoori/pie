@@ -1074,14 +1074,38 @@ impl Buffers {
         pinned.sort_unstable();
         pinned.dedup();
 
-        // Last use, in one op pass.
+        // Values that SHARE bytes by construction, and the one of each
+        // set that owns the allocation. Two ops mean this: a `Select`
+        // output is a window of its operand, and an in-place launcher's
+        // output is the operand it accumulates into.
+        let owner = alias_owners(plan);
+
+        // Last use, in one op pass — then folded onto the OWNER, which
+        // is the correction that makes sharing safe.
+        //
+        // Read per value id, a shared buffer frees at the last use of
+        // whichever member the op happened to name. That is not when the
+        // bytes stop being read: a residual stream is a chain of in-place
+        // adds, so the first link's id is dead after one op while the
+        // bytes stay live for the whole network, and the freed block gets
+        // handed to the next value that fits. The window case is the same
+        // shape and was previously reasoned away in a comment here ("the
+        // window's readers are the source's readers by dataflow") — they
+        // are not, because a reader names the WINDOW's id, not the
+        // source's.
         let mut last_use = vec![0usize; plan.values.len()];
         for (i, op) in plan.ops.iter().enumerate() {
             for &v in op.inputs.iter().chain(op.outputs.iter()) {
-                if let Some(slot) = last_use.get_mut(v as usize) {
+                let Some(&own) = owner.get(v as usize) else {
+                    continue;
+                };
+                if let Some(slot) = last_use.get_mut(own as usize) {
                     *slot = (*slot).max(i);
                 }
             }
+        }
+        for v in 0..plan.values.len() {
+            last_use[v] = last_use[owner[v] as usize];
         }
 
         let mut offset = vec![Self::NAMED; plan.values.len()];
@@ -1102,9 +1126,9 @@ impl Buffers {
             });
             // A `Select` allocates nothing: its value IS a window of its
             // operand's bytes, which is the whole of what the op means.
-            // The source must therefore stay live as long as the window
-            // does — `last_use` already says so, because the window's
-            // readers are the source's readers by dataflow.
+            // It joins the operand's alias set rather than entering
+            // `live`, so those bytes return to the pool ONCE, at the last
+            // use of the set — see the `last_use` fold above.
             if let OpKind::Select { index } = op.kind {
                 let src = op.inputs[0];
                 let out = op.outputs[0];
@@ -1118,7 +1142,6 @@ impl Buffers {
                         offset[src as usize] + index as usize * want;
                 }
                 size[out as usize] = want;
-                live.push(out);
                 continue;
             }
             // An IN-PLACE kernel writes over an operand, so its output
@@ -1136,7 +1159,6 @@ impl Buffers {
                         offset[out as usize] = offset[src as usize];
                         size[out as usize] =
                             value_bytes(plan, out, n_tokens, n_requests);
-                        live.push(out);
                         continue;
                     }
                 }
@@ -1173,6 +1195,60 @@ impl Buffers {
             pinned,
         }
     }
+}
+
+/// For each value, the value that OWNS the bytes it lives in.
+///
+/// Most values own their own. The exceptions are the two constructs
+/// whose meaning is that the output does not get memory of its own: a
+/// [`OpKind::Select`] output is a window of its operand, and a launcher
+/// the `kernel!` table marks in-place writes over the operand it
+/// accumulates into. Both chain — a residual stream is a run of in-place
+/// adds — so this is a union-find, and the owner is always the EARLIER
+/// value, i.e. the one whose allocation the rest inherit.
+///
+/// Buffer assignment needs this in two places: the live range of a
+/// shared buffer is the union's, not any one member's, and only the
+/// owner may return those bytes to the free pool.
+fn alias_owners(plan: &ForwardPlan) -> Vec<ValueId> {
+    let mut owner: Vec<ValueId> = (0..plan.values.len() as ValueId).collect();
+
+    fn find(owner: &mut [ValueId], v: ValueId) -> ValueId {
+        let mut v = v;
+        while owner[v as usize] != v {
+            let up = owner[v as usize];
+            owner[v as usize] = owner[up as usize];
+            v = owner[v as usize];
+        }
+        v
+    }
+
+    for op in &plan.ops {
+        let joined = match &op.kind {
+            OpKind::Select { .. } => op.inputs.first().copied(),
+            OpKind::Launch { kernel, .. } => crate::kernels::in_place_operand(plan, kernel)
+                .and_then(|idx| op.inputs.get(idx as usize).copied()),
+            _ => None,
+        };
+        let (Some(src), Some(&out)) = (joined, op.outputs.first()) else {
+            continue;
+        };
+        if src as usize >= owner.len() || out as usize >= owner.len() {
+            continue;
+        }
+        let (a, b) = (find(&mut owner, src), find(&mut owner, out));
+        if a != b {
+            // The earlier value keeps the allocation; SSA numbering makes
+            // "earlier" and "smaller id" the same thing, and the ops are
+            // walked in order anyway.
+            let (keep, drop) = if a <= b { (a, b) } else { (b, a) };
+            owner[drop as usize] = keep;
+        }
+    }
+    for v in 0..owner.len() {
+        owner[v] = find(&mut owner, v as ValueId);
+    }
+    owner
 }
 
 pub fn value_bytes(plan: &ForwardPlan, v: ValueId, n_tokens: usize, n_requests: usize) -> usize {
