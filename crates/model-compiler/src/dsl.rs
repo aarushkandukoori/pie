@@ -2144,12 +2144,23 @@ pub mod cuda {
     }
 
     /// `kernels::launch_moe_grouped_gemm_bf16`: the grouped expert GEMM.
-    pub fn moe_grouped_gemm(act: &Val, sorted_route_ids: &Val, width: u32) -> Val {
+    /// The bank is named, like any other matmul's weight. It is ONE tensor
+    /// (`[E, N, K]`) that the kernel indexes by the block's expert id, not a
+    /// per-expert selection, so the traced name carries the `{e}` the family
+    /// spells it with and the binding resolves to the whole bank. Without
+    /// this the statement said "a grouped GEMM" and left which weights
+    /// entirely to the executor -- readable, but not a declaration.
+    pub fn moe_grouped_gemm(
+        act: &Val,
+        sorted_route_ids: &Val,
+        width: u32,
+        bank: &str,
+    ) -> Val {
         record(
             &act.t,
             act.layer,
             "launch_moe_grouped_gemm_bf16",
-            vec![],
+            vec![bank.to_string()],
             None,
             vec![act.id, sorted_route_ids.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
@@ -4151,12 +4162,18 @@ pub mod cuda {
     /// Produces no tensor — it fills device pointer arrays. Stated anyway,
     /// because a reader following the dataflow has to see where the batched
     /// GEMM's operands come from.
-    pub fn build_moe_ptrs_aligned(expert_ids: &Val, aligned_in: &Val, l: u32) {
+    pub fn build_moe_ptrs_aligned(
+        expert_ids: &Val,
+        aligned_in: &Val,
+        l: u32,
+        gate_up_bank: &str,
+        down_bank: &str,
+    ) {
         record(
             &expert_ids.t,
             Some(l),
             "launch_build_moe_ptrs_aligned_bf16",
-            vec![],
+            vec![gate_up_bank.to_string(), down_bank.to_string()],
             None,
             vec![expert_ids.id, aligned_in.id],
             None,

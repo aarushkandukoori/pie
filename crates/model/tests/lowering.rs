@@ -758,3 +758,18 @@ fn the_arena_is_deterministic() {
     assert_eq!(a.offset, b.offset);
     assert_eq!(a.bytes, b.bytes);
 }
+
+/// Not an assertion so much as a printout: `-- --ignored --nocapture` dumps
+/// the aligned MoE leg's op sequence, which is the list the driver's declared
+/// executor has to answer arm for arm.
+#[test]
+#[ignore]
+fn dump_the_aligned_moe_leg() {
+    let facts = model::qwen_3_5::forward::facts::Qwen35MoeMlpFacts::qwen3_5_35b_a3b();
+    let mut cuda = model::qwen_3_5::forward::facts::Qwen35CudaFacts::qwen3_5_0_8b_synthetic();
+    cuda.moe_cutlass_max_rows = 0;
+    let plan = model::qwen_3_5::forward::qwen3_5_moe_mlp_block_cuda(&facts, &cuda);
+    for (i, op) in plan.ops.iter().enumerate() {
+        println!("{i:3}  {:?}", op.kind);
+    }
+}

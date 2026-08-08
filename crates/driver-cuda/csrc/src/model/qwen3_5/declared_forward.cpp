@@ -89,11 +89,14 @@ const DeviceTensor* bind_qwen3_5_moe_weight(
     if (nm.field == "q_norm") return l.fa_q_norm;
     if (nm.field == "k_norm") return l.fa_k_norm;
     if (nm.field == "router") return l.moe_router;
-    if (nm.field == "expert_gate_up") return l.moe_gate_up_proj;
-    if (nm.field == "expert_down") return l.moe_down_proj;
-    if (nm.field == "shared_gate") return l.shared_gate_proj;
-    if (nm.field == "shared_gate_up") return l.shared_gate_up_proj;
-    if (nm.field == "shared_down") return l.shared_down_proj;
+    // The `{e}` is literal: the trace names the BANK, spelled the way the
+    // family spells a per-expert weight, and the grouped kernel indexes it
+    // by the block's expert id. There is no per-expert tensor to resolve.
+    if (nm.field == "expert.{e}.gate_up") return l.moe_gate_up_proj;
+    if (nm.field == "expert.{e}.down") return l.moe_down_proj;
+    if (nm.field == "shared_expert.gate_up") return l.shared_gate_up_proj;
+    if (nm.field == "shared_expert.down") return l.shared_down_proj;
+    if (nm.field == "shared_expert_gate") return l.shared_gate_proj;
     throw_unknown_weight(name);
 }
 

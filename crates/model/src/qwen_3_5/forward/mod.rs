@@ -166,14 +166,25 @@ fn moe_mlp_body_aligned_cuda(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val 
         facts.top_k,
     );
     let aligned_in = dsl::cuda::gather_moe_aligned_inputs(&m, &sorted, aligned, facts.hidden);
-    dsl::cuda::build_moe_ptrs_aligned(&expert_ids, &aligned_in, l);
+    dsl::cuda::build_moe_ptrs_aligned(
+        &expert_ids,
+        &aligned_in,
+        l,
+        &w.expert_gate_up.name,
+        &w.expert_down.name,
+    );
 
     // Both projections are the SAME statement -- a grouped GEMM over the
     // block-major operand -- which is why the selector matmul lowers to one
     // kernel rather than to a per-expert loop.
-    let gate_up = dsl::cuda::moe_grouped_gemm(&aligned_in, &sorted, 2 * facts.moe_intermediate);
+    let gate_up = dsl::cuda::moe_grouped_gemm(
+        &aligned_in,
+        &sorted,
+        2 * facts.moe_intermediate,
+        &w.expert_gate_up.name,
+    );
     let act = dsl::cuda::swiglu(&gate_up, facts.moe_intermediate, true);
-    let down = dsl::cuda::moe_grouped_gemm(&act, &sorted, facts.hidden);
+    let down = dsl::cuda::moe_grouped_gemm(&act, &sorted, facts.hidden, &w.expert_down.name);
 
     let route_out =
         dsl::cuda::reorder_moe_aligned_output(&down, &sorted, facts.top_k, facts.hidden);
