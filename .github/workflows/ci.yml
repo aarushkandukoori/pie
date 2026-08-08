@@ -204,10 +204,14 @@ jobs:
           fi
 
   # WIT drift — the canonical inferlet interface (crates/inferlet-api/wit) is
-  # vendored into two SDK copies (crates/inferlet/wit,
-  # sdk/inferlet/tools/bakery/src/bakery/wit). Manual three-way editing has regressed
-  # twice (commit 94043eb1). scripts/sync-wit.sh regenerates the copies from
-  # source; this job fails if a PR edited the interface without re-syncing.
+  # vendored into ONE remaining copy, bakery's
+  # (sdk/inferlet/tools/bakery/src/bakery/wit), which is a Python package and
+  # so cannot reach the WIT through a cargo dependency. The Rust guest copy is
+  # gone: `inferlet-api` owns the WIT and runs the `wit_bindgen::generate!`
+  # over it, and `inferlet` gets the bindings as a crate. Manual three-way
+  # editing has regressed twice (commit 94043eb1). scripts/sync-wit.sh
+  # regenerates the copy from source; this job fails if a PR edited the
+  # interface without re-syncing.
   # Guest bitrot — the two inferlet trees are their own cargo workspaces, so
   # `cargo build --workspace` above never touches them and an SDK change that
   # breaks every guest still goes green. That is not hypothetical: nine
@@ -262,10 +266,10 @@ jobs:
       - name: Regenerate vendored WIT copies
         run: ./scripts/sync-wit.sh
 
-      - name: Fail if vendored WIT copies are stale
+      - name: Fail if the vendored WIT copy is stale
         run: |
-          if ! git diff --exit-code -- crates/inferlet/wit sdk/inferlet/tools/bakery/src/bakery/wit; then
-            echo "::error::Vendored WIT copies are out of sync with crates/inferlet-api/wit."
+          if ! git diff --exit-code -- sdk/inferlet/tools/bakery/src/bakery/wit; then
+            echo "::error::The vendored WIT copy is out of sync with crates/inferlet-api/wit."
             echo "Regenerate with: ./scripts/sync-wit.sh   (then commit)"
             exit 1
           fi

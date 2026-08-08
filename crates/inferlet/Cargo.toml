@@ -10,7 +10,11 @@ keywords = ["wasi", "wasm", "pie", "inferlet"]
 categories = ["wasm"]
 
 [dependencies]
-wit-bindgen = { version = "0.59.0", features = ["async-spawn"] }
+# The contract and the bindings generated from it. This crate holds no
+# `wit_bindgen::generate!` of its own and no `wit/` -- both live in
+# `inferlet-api`, which is what lets this crate be published without a
+# vendored copy of the WIT package beside it.
+inferlet-api = { version = "0.4.0", path = "../inferlet-api" }
 trait-variant = "0.1.2"
 inferlet-macros = { version = "0.4.0", path = "../inferlet-macros" }
 futures = "0.3.33"

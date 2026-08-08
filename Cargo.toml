@@ -86,6 +86,11 @@ members = [
     "crates/tensor-compiler",
 
     # -- guest-target members (outside default-members, see below) ----------
+    # `inferlet-api` is the canonical `pie:inferlet` WIT package AND the
+    # wit-bindgen site over it. It is a guest crate for the same reason
+    # `inferlet` is -- the generated import shims are wasm -- even though the
+    # host reads its `wit/` directory by path.
+    "crates/inferlet-api",
     "crates/inferlet",
     "crates/inferlet-macros",
 

@@ -52,9 +52,6 @@ impl<T> Context<T> for Option<T> {
     }
 }
 
-// Re-export wit_bindgen so the macro-generated inline WIT can reference it
-pub use wit_bindgen;
-
 // Re-export serde and serde_json so the macro-generated JSON bridge can use them
 pub use serde;
 pub use serde_json;
@@ -62,18 +59,35 @@ pub use serde_json;
 // Re-export the attribute macro
 pub use inferlet_macros::main;
 
-// Generate WIT bindings directly in lib.rs. With no `async:` option, the
-// WIT's own `async func` annotations drive async generation: only
-// run/execute/receive become `async fn` (component-model-async); sync funcs
-// (model::encode, chat::*, …) stay sync. wit-bindgen generates the wasi:io
-// bindings itself with versioned cabi_realloc symbols so it doesn't collide
-// with std's copy.
-wit_bindgen::generate!({
-    path: "wit",
-    world: "inferlet",
-    pub_export_macro: true,
-    generate_all,
-});
+// =============================================================================
+// The generated bindings
+// =============================================================================
+
+/// The raw `pie:inferlet` bindings, as `wit_bindgen` generated them.
+///
+/// This crate is the ergonomic layer; [`inferlet_api`] is the contract. The
+/// generator lives with the WIT it reads because `generate!`'s `path` is a
+/// filesystem path and this crate is published — see that crate's docs for
+/// why the alternative was a mirrored `wit/` tree and a CI drift job.
+///
+/// Everything below re-exports out of here, so an inferlet that was written
+/// against the old in-crate bindings does not change. Reach for `api`
+/// directly only for a binding this crate has no wrapper for.
+pub use inferlet_api as api;
+
+// The generated roots, re-exported at their old names: `crate::pie::…` and
+// `crate::wasi::…` are what the wrappers in this file and in `ptir`/`chat`
+// name, and `exports` + `export!` are what `#[inferlet::main]` expands into.
+//
+// `export!` is `#[macro_export]`ed by the generator with a `with_types_in`
+// parameter; the attribute macro passes `::inferlet::api`, the real crate
+// root, rather than `::inferlet` -- the expansion reaches generator-internal
+// items that only this re-export of the whole crate is guaranteed to carry.
+pub use inferlet_api::{export, exports, pie, wasi};
+
+// Re-exported so a guest that writes its own inline `generate!` for a private
+// world uses the same wit-bindgen that produced this one.
+pub use inferlet_api::wit_bindgen;
 
 // Re-export types that don't need async wrappers directly
 pub use pie::inferlet::types;

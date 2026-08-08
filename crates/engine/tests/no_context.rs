@@ -21,13 +21,16 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// The canonical inferlet WIT package dir + its vendored mirrors (all must
+/// The canonical inferlet WIT package dir + its vendored mirror (both must
 /// stay byte-for-byte context-free). Post `pie:inferlet@0.2.0` unification the
-/// package is flat: the canonical dir is `crates/inferlet-api/wit/` and the mirrors
-/// vendor the same flat file set (their `deps/` subdirs hold only wasi WIT).
+/// package is flat: the canonical dir is `crates/inferlet-api/wit/` and the mirror
+/// vendors the same flat file set (its `deps/` subdir holds only wasi WIT).
+///
+/// One mirror, not two: the Rust guest reads the canonical package through a
+/// cargo dependency on `inferlet-api` now, so `crates/inferlet/wit` is gone.
+/// bakery's copy remains because bakery is a Python package.
 const WIT_CORE_DIRS: &[&str] = &[
     "crates/inferlet-api/wit",
-    "crates/inferlet/wit",
     "sdk/inferlet/tools/bakery/src/bakery/wit",
 ];
 

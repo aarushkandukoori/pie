@@ -110,7 +110,11 @@ pub fn main(_attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        ::inferlet::export!(__PieMain with_types_in ::inferlet);
+        // `with_types_in ::inferlet::api`, not `::inferlet`: the bindings are
+        // generated in `inferlet-api` and re-exported here, and the
+        // expansion reaches generator-internal items that only the real
+        // crate root is guaranteed to carry.
+        ::inferlet::export!(__PieMain with_types_in ::inferlet::api);
     };
 
     expanded.into()
