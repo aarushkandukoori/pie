@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use crate::trace::{ForwardPlan, Op, OpKind, StateRef, StateStore, ValueInfo};
+use model_compiler::trace::{ForwardPlan, Op, OpKind, StateRef, StateStore, ValueInfo};
 
 use super::types::*;
 
@@ -42,7 +42,7 @@ pub struct PlanArena {
     /// back can point at its kernel names instead of copying them. One
     /// slot: the shadow compares a fire and moves on, and a second ask
     /// invalidates the first — which is stated on `pie_forward_lower`.
-    shadow: Option<crate::lower::Lowered>,
+    shadow: Option<model_compiler::lower::Lowered>,
     shadow_wire: Vec<super::types::PieForwardLaunch>,
     shadow_names: Vec<PieForwardName>,
     shadow_name_bytes: Vec<u8>,
@@ -354,8 +354,8 @@ fn flatten_kind(arena: &mut PlanArena, interner: &mut Interner, kind: &OpKind) -
             PieForwardOpKind::HookSite,
             PIE_FORWARD_NO_NAME,
             match stage {
-                crate::trace::HookStage::OnAttnProj => 0,
-                crate::trace::HookStage::OnAttn => 1,
+                model_compiler::trace::HookStage::OnAttnProj => 0,
+                model_compiler::trace::HookStage::OnAttn => 1,
             },
             *layer,
             PIE_FORWARD_NO_VALUE,
@@ -394,8 +394,8 @@ fn flatten_kind(arena: &mut PlanArena, interner: &mut Interner, kind: &OpKind) -
             window,
         } => {
             let aux = match window {
-                crate::trace::PeelWindow::HookFreePrefix => store_ids(arena, &[]),
-                crate::trace::PeelWindow::UnmaskedPrefix => store_ids(arena, &[1]),
+                model_compiler::trace::PeelWindow::HookFreePrefix => store_ids(arena, &[]),
+                model_compiler::trace::PeelWindow::UnmaskedPrefix => store_ids(arena, &[1]),
             };
             return OpParts {
                 kind: PieForwardOpKind::Peel,
@@ -422,7 +422,7 @@ fn store_ids(arena: &mut PlanArena, ids: &[u32]) -> PieForwardIdRange {
 fn flatten_op(
     arena: &mut PlanArena,
     interner: &mut Interner,
-    plan: &crate::trace::ForwardPlan,
+    plan: &model_compiler::trace::ForwardPlan,
     op: &Op,
 ) -> PieForwardOp {
     let parts = flatten_kind(arena, interner, &op.kind);
@@ -601,8 +601,8 @@ pub(crate) mod view {
 /// which is why the entry point says so.
 pub fn lower(
     header: &mut PieForwardPlan,
-    rows: &[crate::lower::Row],
-    fire: crate::lower::Fire,
+    rows: &[model_compiler::lower::Row],
+    fire: model_compiler::lower::Fire,
 ) -> PieForwardLowered {
     if header.owner.is_null() {
         return PieForwardLowered::default();
@@ -610,7 +610,7 @@ pub fn lower(
     // Borrowed, not taken: `release` still owns the box.
     let arena = unsafe { &mut *header.owner.cast::<PlanArena>() };
 
-    let lowered = match crate::lower::lower(&arena.plan, rows, fire) {
+    let lowered = match model_compiler::lower::lower(&arena.plan, rows, fire) {
         Ok(lowered) => lowered,
         Err(why) => {
             arena.shadow = None;
@@ -620,14 +620,14 @@ pub fn lower(
             arena.shadow_structural.clear();
             return PieForwardLowered {
                 uncovered: match why {
-                    crate::lower::Uncovered::Rows { .. } => PieForwardUncovered::Rows,
-                    crate::lower::Uncovered::WholeKernelSplit { .. } => {
+                    model_compiler::lower::Uncovered::Rows { .. } => PieForwardUncovered::Rows,
+                    model_compiler::lower::Uncovered::WholeKernelSplit { .. } => {
                         PieForwardUncovered::WholeKernelSplit
                     }
-                    crate::lower::Uncovered::Discontiguous { .. } => {
+                    model_compiler::lower::Uncovered::Discontiguous { .. } => {
                         PieForwardUncovered::Discontiguous
                     }
-                    crate::lower::Uncovered::UnknownBackend(_) => {
+                    model_compiler::lower::Uncovered::UnknownBackend(_) => {
                         PieForwardUncovered::UnknownBackend
                     }
                 },
@@ -651,8 +651,8 @@ pub fn lower(
             // executing arm asks about where it is.
             peel_axis: match launch.peel.map(|p| p.axis) {
                 None => 0,
-                Some(crate::trace::PeelWindow::HookFreePrefix) => 1,
-                Some(crate::trace::PeelWindow::UnmaskedPrefix) => 2,
+                Some(model_compiler::trace::PeelWindow::HookFreePrefix) => 1,
+                Some(model_compiler::trace::PeelWindow::UnmaskedPrefix) => 2,
             },
             peel_tail: u8::from(launch.peel.is_some_and(|p| p.tail)),
             rows_device: u8::from(launch.peel.is_some_and(|p| p.rows_device)),

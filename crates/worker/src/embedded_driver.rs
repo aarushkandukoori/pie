@@ -50,10 +50,10 @@ static PIE_LOADER_ENTRY_ANCHOR: unsafe extern "C" fn(
 /// puts it there.
 #[used]
 static PIE_FORWARD_ENTRY_ANCHOR: unsafe extern "C" fn(
-    *const model_compiler::ffi::entry::PieForwardLlamaLikeFacts,
-    *mut model_compiler::ffi::PieForwardPlan,
-) -> model_compiler::ffi::entry::PieForwardStatus =
-    model_compiler::ffi::entry::pie_forward_trace_llama_like;
+    *const model::ffi::entry::PieForwardLlamaLikeFacts,
+    *mut model::ffi::PieForwardPlan,
+) -> model::ffi::entry::PieForwardStatus =
+    model::ffi::entry::pie_forward_trace_llama_like;
 
 #[cfg(feature = "driver-cuda")]
 #[repr(C)]

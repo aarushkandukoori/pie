@@ -94,6 +94,18 @@ pub mod instruct;
 #[cfg(feature = "chat")]
 pub mod families;
 
+/// The `#[repr(C)]` boundary a driver traces a declaration across.
+///
+/// `types` is the published vocabulary, `arena` turns a traced
+/// `ForwardPlan` into it, and `entry` holds the `extern "C"` functions.
+/// The committed `include/pie_forward.h` is the C view of exactly those.
+///
+/// It is here, and not in `model-compiler`, because it is how a DRIVER
+/// reaches a declaration — and a declaration is a model's. The toolchain
+/// that traces one has no business owning the door.
+#[cfg(feature = "forward")]
+pub mod ffi;
+
 // ── The registries ───────────────────────────────────────────────────
 #[cfg(feature = "contract")]
 pub mod contract;

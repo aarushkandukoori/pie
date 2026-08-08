@@ -19,8 +19,8 @@
 //! operand ranges`, so [`PieForwardOp`] stays a plain struct and the
 //! per-kind meaning of the params is documented on it.
 
-use crate::facts::{NormPlacement, QkNorm};
-use crate::trace::{DType, Dim, NormVariant, RopeKind};
+use model_compiler::facts::{NormPlacement, QkNorm};
+use model_compiler::trace::{DType, Dim, NormVariant, RopeKind};
 
 /// `PieForwardOp::weight_name` when the op references no weight.
 pub const PIE_FORWARD_NO_NAME: u32 = u32::MAX;
@@ -133,7 +133,7 @@ pub enum PieForwardOpKind {
     /// that BOTH run over complementary row ranges — prefix `[0,
     /// split)`, tail `[split, N)`. Prefix-region op count in `param0`,
     /// tail-region count in `param1`; the split is a runtime input.
-    /// WHICH runtime row count ([`crate::trace::PeelWindow`]) rides
+    /// WHICH runtime row count ([`model_compiler::trace::PeelWindow`]) rides
     /// the aux run: EMPTY = the hook-free prefix (`fast_rows`, A3),
     /// `[1]` = the unmasked prefix (the spatial mask split — prefix
     /// region serves the plain decode rows, tail the masked suffix;
@@ -144,7 +144,7 @@ pub enum PieForwardOpKind {
     AddBias = 27,
 }
 
-/// Mirrors [`crate::trace::GuardPred`]'s wire KINDS (each arm crosses as
+/// Mirrors [`model_compiler::trace::GuardPred`]'s wire KINDS (each arm crosses as
 /// a (kind, payload) pair in the guard's aux run); same appended-only
 /// discriminant rule as [`PieForwardOpKind`].
 #[repr(u32)]
@@ -172,7 +172,7 @@ pub enum PieForwardGuardPred {
     HasLora = 6,
 }
 
-/// Mirrors [`crate::trace::DType`]; same appended-only discriminant rule as
+/// Mirrors [`model_compiler::trace::DType`]; same appended-only discriminant rule as
 /// [`PieForwardOpKind`].
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -196,7 +196,7 @@ impl From<DType> for PieForwardDType {
 }
 
 /// The tag of one [`PieForwardDim`]: which extent a dim is symbolic in, or
-/// that it is a load-time constant. Mirrors [`crate::trace::Dim`].
+/// that it is a load-time constant. Mirrors [`model_compiler::trace::Dim`].
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PieForwardDimKind {
@@ -208,7 +208,7 @@ pub enum PieForwardDimKind {
     Const = 2,
 }
 
-/// Mirrors [`crate::trace::NormVariant`].
+/// Mirrors [`model_compiler::trace::NormVariant`].
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PieForwardNormVariant {
@@ -225,13 +225,25 @@ impl From<NormVariant> for PieForwardNormVariant {
     }
 }
 
+/// Decode a trace enum from the `uint32_t` it crosses the ABI as.
+///
 /// Facts fields cross as `uint32_t` (see `PieForwardLlamaLikeFacts`), so an
 /// out-of-range value is a diagnosable request rather than an invalid Rust
-/// enum — the same input-side rule `loader/src/ffi/entry.rs` states on
-/// `PieLoaderTargetSpec`. These are the inverses.
-impl TryFrom<u32> for NormVariant {
-    type Error = u32;
-    fn try_from(value: u32) -> Result<Self, u32> {
+/// enum — the same input-side rule `model-loader-capi`'s entry states on
+/// `PieLoaderTargetSpec`. The impls below are the inverses of the `From`
+/// impls above.
+///
+/// A local trait rather than `TryFrom<u32>`: the enums are
+/// `model-compiler`'s and `TryFrom` is core's, so the orphan rule refuses
+/// that pair here. Naming the direction (`from_abi`) is the better read
+/// anyway — every call site is a boundary decode.
+pub trait FromAbi: Sized {
+    /// `Err(value)` carries the offending number back for the diagnostic.
+    fn from_abi(value: u32) -> Result<Self, u32>;
+}
+
+impl FromAbi for NormVariant {
+    fn from_abi(value: u32) -> Result<Self, u32> {
         Ok(match value {
             0 => Self::Plain,
             1 => Self::Gemma,
@@ -240,7 +252,7 @@ impl TryFrom<u32> for NormVariant {
     }
 }
 
-/// Mirrors [`crate::facts::NormPlacement`].
+/// Mirrors [`model_compiler::facts::NormPlacement`].
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PieForwardNormPlacement {
@@ -258,9 +270,8 @@ impl From<NormPlacement> for PieForwardNormPlacement {
     }
 }
 
-impl TryFrom<u32> for NormPlacement {
-    type Error = u32;
-    fn try_from(value: u32) -> Result<Self, u32> {
+impl FromAbi for NormPlacement {
+    fn from_abi(value: u32) -> Result<Self, u32> {
         Ok(match value {
             0 => Self::Pre,
             1 => Self::Post,
@@ -269,7 +280,7 @@ impl TryFrom<u32> for NormPlacement {
     }
 }
 
-/// Mirrors [`crate::facts::QkNorm`]. `Off`/`PerHead` keep the wire values
+/// Mirrors [`model_compiler::facts::QkNorm`]. `Off`/`PerHead` keep the wire values
 /// the field had as a bool (0/1), so a caller that treated it as "non-zero
 /// is per-head qk-norm" still states the same facts.
 #[repr(u32)]
@@ -292,9 +303,8 @@ impl From<QkNorm> for PieForwardQkNorm {
     }
 }
 
-impl TryFrom<u32> for QkNorm {
-    type Error = u32;
-    fn try_from(value: u32) -> Result<Self, u32> {
+impl FromAbi for QkNorm {
+    fn from_abi(value: u32) -> Result<Self, u32> {
         Ok(match value {
             0 => Self::Off,
             1 => Self::PerHead,
@@ -304,7 +314,7 @@ impl TryFrom<u32> for QkNorm {
     }
 }
 
-/// Mirrors [`crate::trace::RopeKind`].
+/// Mirrors [`model_compiler::trace::RopeKind`].
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PieForwardRopeKind {
@@ -322,9 +332,8 @@ impl From<RopeKind> for PieForwardRopeKind {
     }
 }
 
-impl TryFrom<u32> for RopeKind {
-    type Error = u32;
-    fn try_from(value: u32) -> Result<Self, u32> {
+impl FromAbi for RopeKind {
+    fn from_abi(value: u32) -> Result<Self, u32> {
         Ok(match value {
             0 => Self::Standard,
             1 => Self::Yarn,
@@ -450,7 +459,7 @@ pub struct PieForwardIdRange {
 /// One operation of the traced form, flattened.
 ///
 /// The two `param` fields carry what the corresponding
-/// [`crate::trace::OpKind`] variant carries; everything a kind does not use
+/// [`model_compiler::trace::OpKind`] variant carries; everything a kind does not use
 /// rests at zero:
 ///
 /// | `kind`           | `weight_name`        | `param0`                     | `param1`   |
@@ -524,7 +533,7 @@ pub struct PieForwardOp {
     /// the field's contract). Empty for every other kind.
     pub aux_names: PieForwardIdRange,
     /// Values consumed, in operand order.
-    /// The op's role under the DEPTH axis ([`crate::trace::DepthRole`]
+    /// The op's role under the DEPTH axis ([`model_compiler::trace::DepthRole`]
     /// as wire values: 0 = none, 1 = windowed, 2 = prefix-plan-swap).
     /// Appended per the ABI discipline; pre-role consumers read 0.
     pub depth_role: u32,
@@ -561,7 +570,7 @@ pub struct PieForwardPlan {
     /// plans compare as stale-vs-fresh without re-tracing.
     pub compiler_version: u64,
     /// STRUCTURAL S-3: non-zero when the declaration states the depth
-    /// axis ([`crate::trace::ForwardPlan::depth_window`]) — layer-tagged
+    /// axis ([`model_compiler::trace::ForwardPlan::depth_window`]) — layer-tagged
     /// ops may run over the full-depth prefix window (or be skipped on a
     /// uniform truncated fire), keyed on each op's own layer tag.
     pub depth_window: u8,
@@ -591,7 +600,7 @@ impl Default for PieForwardPlan {
 // ── The lowering, for the shadow comparison ────────────────────────────
 
 /// One row of a fire as the engine's seriation ordered them — the input
-/// side of [`crate::lower::lower`], as C states it.
+/// side of [`model_compiler::lower::lower`], as C states it.
 ///
 /// Flags rather than a bitfield because the driver fills this per row per
 /// fire and a named field is what keeps a filler honest; `depth_k` is
@@ -620,7 +629,7 @@ pub struct PieForwardRow {
 /// names are weights.
 ///
 /// `rows` is read in the op's own row space — `Dim::Tokens` for the body,
-/// `Dim::Requests` for the epilogue (see [`crate::lower::Launch`]).
+/// `Dim::Requests` for the epilogue (see [`model_compiler::lower::Launch`]).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PieForwardLaunch {
@@ -663,7 +672,7 @@ pub struct PieForwardSite {
     pub _pad: u32,
 }
 
-/// What [`crate::lower::Uncovered`] crosses as: zero is a lowering, and
+/// What [`model_compiler::lower::Uncovered`] crosses as: zero is a lowering, and
 /// every other value is a group that should not have been formed.
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

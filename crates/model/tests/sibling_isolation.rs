@@ -36,15 +36,16 @@ fn src() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
 }
 
-/// The generation modules: directory modules under `src/`, minus `families/`,
-/// which is the one directory that is not a generation.
+/// The generation modules: directory modules under `src/`, minus the two that
+/// are not generations — `families/` (cross-generation sharing) and `ffi/`
+/// (the C boundary, one door for all of them).
 fn generations() -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(src())
         .expect("src/ exists")
         .filter_map(Result::ok)
         .filter(|e| e.path().is_dir())
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n != "families")
+        .filter(|n| n != "families" && n != "ffi")
         .collect();
     assert!(
         names.len() >= 15,

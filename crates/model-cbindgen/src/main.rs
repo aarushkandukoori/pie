@@ -1,7 +1,7 @@
-//! model-compiler-cbindgen — decoupled generator for the committed C header.
+//! model-cbindgen — decoupled generator for the committed C header.
 //!
-//! Emits `crates/model-compiler/include/pie_forward.h` from the `#[repr(C)]` surface in
-//! `model-compiler::ffi`. The build graph consumes the committed header;
+//! Emits `crates/model/include/pie_forward.h` from the `#[repr(C)]` surface in
+//! `model::ffi`. The build graph consumes the committed header;
 //! developers and CI run this tool to refresh it — the same arrangement as
 //! `loader/cbindgen`, and for the same reason: the generated header is the
 //! *only* definition of the forward crate's C vocabulary, so a hand-written
@@ -13,7 +13,7 @@ use std::path::PathBuf;
 fn main() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // A satellite is a SIBLING of its parent, not a subdirectory of it.
-    let forward_crate = manifest.join("../model-compiler");
+    let forward_crate = manifest.join("../model");
     let config_path = manifest.join("cbindgen.toml");
     let out = forward_crate.join("include").join("pie_forward.h");
 
@@ -24,7 +24,7 @@ fn main() {
         .with_crate(&forward_crate)
         .with_config(config)
         .generate()
-        .expect("generate pie_forward.h from model-compiler::ffi")
+        .expect("generate pie_forward.h from model::ffi")
         .write_to_file(&out);
 
     eprintln!("wrote {}", out.display());

@@ -41,7 +41,7 @@ fn main() {
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
         .define("PIE_DRIVER_ABI_INCLUDE_DIR", dep_include("PIE_DRIVER_ABI", "driver-abi"))
         .define("PIE_LOADER_INCLUDE_DIR", dep_include("PIE_LOADER", "model-loader-capi"))
-        .define("PIE_FORWARD_INCLUDE_DIR", dep_include("PIE_FORWARD", "model-compiler"))
+        .define("PIE_FORWARD_INCLUDE_DIR", dep_include("PIE_FORWARD", "model"))
         .define("PIE_DRIVER_INCLUDE_DIR", dep_include("PIE_DRIVER", "driver"))
         .define("PIE_PTIR_INCLUDE_DIR", sibling("tensor-compiler").join("include"))
         .define("PIE_PTIR_RUNTIME_DIR", sibling("tensor-compiler").join("runtime"))

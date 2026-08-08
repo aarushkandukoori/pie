@@ -7,10 +7,11 @@ description = "Forward-pass declarations: a tracing eDSL from model facts to the
 license = "Apache-2.0"
 repository = "https://github.com/pie-project/pie"
 
-# `links = "pie_forward"` lets downstream crates discover the generated C++
-# header directory via the `DEP_PIE_FORWARD_INCLUDE` env var — the same build
-# script ↔ build script handoff `loader/Cargo.toml` uses for `pie_loader.h`.
-links = "pie_forward"
+# No `links` any more: the C header and the `#[repr(C)]` surface it describes
+# are `crates/model`'s, because they are how a DRIVER reaches a declaration and
+# a declaration is a model's, not the toolchain's. build.rs stays for the
+# tracer fingerprint alone, which needs no `links` -- it is a
+# `cargo:rustc-env`, read back by `compiler_version()`.
 build = "build.rs"
 
 [lib]

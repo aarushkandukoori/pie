@@ -56,7 +56,6 @@ pub mod facts;
 pub mod kernels;
 pub mod lower;
 pub mod family;
-pub mod ffi;
 pub mod trace;
 
 pub use facts::{
@@ -67,3 +66,19 @@ pub use trace::{
     DType, Dim, DynAxis, FireClass, ForwardPlan, HookStage, Op, OpKind, Shape, StateRef,
     StateStore, TraceBuilder, ValueId,
 };
+
+/// The tracer's fingerprint: an FNV-1a content hash of this crate's `src/`,
+/// computed by `build.rs`.
+///
+/// The traced form is a pure function of (declaration code, facts), so this
+/// number plus the facts identifies a plan exactly. `model`'s FFI stamps it
+/// into every plan header so a consumer can key a cache or a golden on
+/// `PieForwardPlan::compiler_version` and have it invalidate itself when the
+/// tracer changes.
+///
+/// It is a function rather than a constant because `env!` only reads the
+/// environment of the crate being compiled, and the crate that needs the
+/// number is no longer this one.
+pub fn compiler_version() -> u64 {
+    env!("PIE_FORWARD_COMPILER_HASH").parse::<u64>().unwrap_or(0)
+}

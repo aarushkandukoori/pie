@@ -39,10 +39,11 @@ use std::path::{Path, PathBuf};
 /// excluded, obviously, and so are the aspect modules that are not families.
 fn family_names() -> Vec<String> {
     // A generation is a DIRECTORY module under `src/`; the shared root is the
-    // loose `.rs` files beside them. `families/` is cross-generation sharing,
-    // not a generation.
+    // loose `.rs` files beside them. Two directories are not generations:
+    // `families/` is cross-generation sharing, and `ffi/` is the C boundary —
+    // one door for all of them.
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
-    let not_a_generation = ["families"];
+    let not_a_generation = ["families", "ffi"];
     let mut names: Vec<String> = std::fs::read_dir(&root)
         .expect("src/ exists")
         .filter_map(Result::ok)
@@ -90,6 +91,11 @@ const NOT_SHARED: &[(&str, &str)] = &[
     ("lib.rs", "the crate doc, which names the generations it declares"),
     ("contract.rs", "a REGISTRY: model_type -> author is a table of family rows"),
     ("multimodal.rs", "family-aware by design -- it dispatches on a VisionArch"),
+    (
+        "ffi.rs",
+        "a DOOR, not vocabulary: one `extern \"C\"` entry per family is what \
+         the C surface of a per-family declaration looks like",
+    ),
 ];
 
 /// `instruct.rs` is half vocabulary and half registry, in that order, split by

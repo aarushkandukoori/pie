@@ -68,7 +68,7 @@ members = [
     # Forward-pass declarations: a tracing eDSL whose static control flow runs
     # at model-load time; the traced form is what a driver executes.
     "crates/model-compiler",
-    "crates/model-compiler-cbindgen",
+    "crates/model-cbindgen",
     # Weight loader: checkpoints -> verified device-memory layouts. Consumed by
     # drivers at cold start, not by the serving runtime. `model-loader` is the
     # compiler alone; `-capi` is its C ABI — the repr(C) marshalling, the extern
@@ -138,7 +138,7 @@ default-members = [
     "crates/model",
     "crates/model-config",
     "crates/model-compiler",
-    "crates/model-compiler-cbindgen",
+    "crates/model-cbindgen",
     "crates/model-loader",
     "crates/model-loader-capi",
     "crates/model-loader-capi-cbindgen",

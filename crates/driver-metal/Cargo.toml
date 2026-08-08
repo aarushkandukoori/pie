@@ -25,7 +25,9 @@ cmake = "0.1"
 driver = { path = "../driver" }
 driver-abi = { path = "../driver-abi" }
 model-loader-capi = { path = "../model-loader-capi", default-features = false }
-model-compiler = { path = "../model-compiler" }
+# `links = "pie_forward"` moved to `model` with the header it publishes;
+# `forward` is the aspect that has one.
+model = { path = "../model", default-features = false, features = ["forward"] }
 # The shaders. `native` is what stages `ptir_rng.generated.metal` beside them;
 # there is nothing to compile, because Metal builds its pipeline state objects
 # from `.metal` text at run time.

@@ -19,14 +19,14 @@
 //!   there is no diagnostics channel to carry, and the status is the whole
 //!   answer.
 
-use crate::facts::{
+use model_compiler::facts::{
     Gemma4CudaFacts, Gemma4Facts, GptOssCudaFacts, GptOssFacts, LlamaLikeCudaFacts, LlamaLikeFacts, NormPlacement, QkNorm, Qwen35CudaFacts,
     Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MlpKind, Qwen35MoeMlpFacts,
 };
-use crate::trace::{FireClass, NormVariant, RopeKind};
+use model_compiler::trace::{FireClass, NormVariant, RopeKind};
 
 use super::arena;
-use super::types::{PieForwardLowered, PieForwardPlan, PieForwardRow};
+use super::types::{FromAbi, PieForwardLowered, PieForwardPlan, PieForwardRow};
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +38,7 @@ pub enum PieForwardStatus {
 }
 
 /// The llama_like facts, as C states them. Mirrors
-/// [`crate::facts::LlamaLikeFacts`] field for field.
+/// [`model_compiler::facts::LlamaLikeFacts`] field for field.
 ///
 /// `rope` and `norm_variant` are plain `uint32_t` rather than their enum
 /// types for the input-side rule `loader/src/ffi/entry.rs` states on
@@ -85,13 +85,13 @@ pub struct PieForwardLlamaLikeFacts {
 /// and the tracer has no basis to second-guess (the loader takes the same
 /// stance on the driver-measured target fields it copies straight through).
 fn read_facts(facts: &PieForwardLlamaLikeFacts) -> Result<LlamaLikeFacts, PieForwardStatus> {
-    let rope = RopeKind::try_from(facts.rope).map_err(|_| PieForwardStatus::InvalidArgument)?;
+    let rope = RopeKind::from_abi(facts.rope).map_err(|_| PieForwardStatus::InvalidArgument)?;
     let norm_variant =
-        NormVariant::try_from(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
-    let norm_placement = NormPlacement::try_from(facts.norm_placement)
+        NormVariant::from_abi(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
+    let norm_placement = NormPlacement::from_abi(facts.norm_placement)
         .map_err(|_| PieForwardStatus::InvalidArgument)?;
     let qk_norm =
-        QkNorm::try_from(facts.qk_norm).map_err(|_| PieForwardStatus::InvalidArgument)?;
+        QkNorm::from_abi(facts.qk_norm).map_err(|_| PieForwardStatus::InvalidArgument)?;
     Ok(LlamaLikeFacts {
         hidden: facts.hidden,
         layers: facts.layers,
@@ -111,7 +111,7 @@ fn read_facts(facts: &PieForwardLlamaLikeFacts) -> Result<LlamaLikeFacts, PieFor
 }
 
 /// The CUDA backend facts for a LOWERED llama_like trace, as C states
-/// them. Mirrors [`crate::facts::LlamaLikeCudaFacts`] field for field;
+/// them. Mirrors [`model_compiler::facts::LlamaLikeCudaFacts`] field for field;
 /// same input-side rules as [`PieForwardLlamaLikeFacts`] (the bools are
 /// `uint8_t`, non-zero is true).
 ///
@@ -154,7 +154,7 @@ fn read_cuda_facts(facts: &PieForwardLlamaLikeCudaFacts) -> LlamaLikeCudaFacts {
     }
 }
 
-/// Mirrors [`crate::trace::FireClass`]; same appended-only discriminant
+/// Mirrors [`model_compiler::trace::FireClass`]; same appended-only discriminant
 /// rule as [`PieForwardOpKind`], same input-side `uint32_t` crossing rule
 /// as every enum here.
 #[repr(u32)]
@@ -178,7 +178,7 @@ pub enum PieForwardFireClass {
 }
 
 /// The qwen3_5_moe MLP-block facts, as C states them. Mirrors
-/// [`crate::facts::Qwen35MoeMlpFacts`] field for field; same input-side
+/// [`model_compiler::facts::Qwen35MoeMlpFacts`] field for field; same input-side
 /// rules as [`PieForwardLlamaLikeFacts`].
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -197,7 +197,7 @@ fn read_moe_facts(
     facts: &PieForwardQwen35MoeMlpFacts,
 ) -> Result<Qwen35MoeMlpFacts, PieForwardStatus> {
     let norm_variant =
-        NormVariant::try_from(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
+        NormVariant::from_abi(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
     // A router with no experts or no routes is not a smaller MoE, it is a
     // malformed request: the tracer would emit ops whose k or E dimension
     // is zero, which no kernel means anything by.
@@ -215,7 +215,7 @@ fn read_moe_facts(
 }
 
 /// The qwen3_5 GDN-block facts, as C states them. Mirrors
-/// [`crate::facts::Qwen35GdnFacts`] field for field; same input-side rules
+/// [`model_compiler::facts::Qwen35GdnFacts`] field for field; same input-side rules
 /// as [`PieForwardLlamaLikeFacts`].
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -235,7 +235,7 @@ pub struct PieForwardQwen35GdnFacts {
 
 fn read_gdn_facts(facts: &PieForwardQwen35GdnFacts) -> Result<Qwen35GdnFacts, PieForwardStatus> {
     let norm_variant =
-        NormVariant::try_from(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
+        NormVariant::from_abi(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
     // A GDN block with no heads, zero-width heads or an empty conv window
     // is not a smaller block, it is a malformed request: the tracer would
     // emit ops whose dimensions no kernel means anything by. The GQA share
@@ -263,7 +263,7 @@ fn read_gdn_facts(facts: &PieForwardQwen35GdnFacts) -> Result<Qwen35GdnFacts, Pi
 }
 
 /// The qwen3_5 full-attention block facts, as C states them. Mirrors
-/// [`crate::facts::Qwen35FullAttnFacts`] field for field; same input-side
+/// [`model_compiler::facts::Qwen35FullAttnFacts`] field for field; same input-side
 /// rules as [`PieForwardLlamaLikeFacts`].
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -286,7 +286,7 @@ fn read_full_attn_facts(
     facts: &PieForwardQwen35FullAttnFacts,
 ) -> Result<Qwen35FullAttnFacts, PieForwardStatus> {
     let norm_variant =
-        NormVariant::try_from(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
+        NormVariant::from_abi(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
     // No heads, zero-width heads, a GQA share that does not divide, or a
     // rotary width outside the head are not smaller blocks, they are
     // malformed requests (the same stance as the GDN validation).
@@ -311,7 +311,7 @@ fn read_full_attn_facts(
 }
 
 /// The qwen3_5 HYBRID model facts, as C states them. Mirrors
-/// [`crate::facts::Qwen35HybridFacts`], with the MLP enum flattened the way
+/// [`model_compiler::facts::Qwen35HybridFacts`], with the MLP enum flattened the way
 /// C states a sum type: `mlp_is_moe` selects which of
 /// `dense_intermediate` / `moe` is read (the other is ignored). Same
 /// input-side rules as [`PieForwardLlamaLikeFacts`].
@@ -346,7 +346,7 @@ fn read_hybrid_facts(
     facts: &PieForwardQwen35HybridFacts,
 ) -> Result<Qwen35HybridFacts, PieForwardStatus> {
     let norm_variant =
-        NormVariant::try_from(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
+        NormVariant::from_abi(facts.norm_variant).map_err(|_| PieForwardStatus::InvalidArgument)?;
     if facts.layers == 0 || facts.full_attn_interval == 0 || facts.vocab == 0 {
         return Err(PieForwardStatus::InvalidArgument);
     }
@@ -387,7 +387,7 @@ fn read_hybrid_facts(
 }
 
 /// The CUDA backend facts for a LOWERED qwen3_5 hybrid trace, as C
-/// states them. Mirrors [`crate::facts::Qwen35CudaFacts`] field for
+/// states them. Mirrors [`model_compiler::facts::Qwen35CudaFacts`] field for
 /// field; same input-side rules as [`PieForwardLlamaLikeFacts`] (the
 /// bools are `uint8_t`, non-zero is true; the thresholds are plain
 /// `uint32_t` values the tracer has no basis to second-guess).
@@ -489,7 +489,7 @@ pub unsafe extern "C" fn pie_forward_trace_llama_like(
             Ok(facts) => facts,
             Err(status) => return status,
         };
-        let plan = crate::family::llama_like(&facts);
+        let plan = model_compiler::family::llama_like(&facts);
         unsafe { *out_plan = arena::build(&plan) };
         PieForwardStatus::Ok
     })
@@ -541,7 +541,7 @@ pub unsafe extern "C" fn pie_forward_trace_llama_like_cuda(
             // MTP, so they stay malformed requests here too.
             _ => return PieForwardStatus::InvalidArgument,
         };
-        let plan = crate::family::llama_like_cuda(&facts, &cuda, class);
+        let plan = model_compiler::family::llama_like_cuda(&facts, &cuda, class);
         unsafe { *out_plan = arena::build(&plan) };
         PieForwardStatus::Ok
     })
@@ -578,7 +578,7 @@ pub unsafe extern "C" fn pie_forward_trace_qwen3_5_moe_mlp(
             Ok(facts) => facts,
             Err(status) => return status,
         };
-        let plan = crate::family::qwen3_5_moe_mlp_block(&facts);
+        let plan = model_compiler::family::qwen3_5_moe_mlp_block(&facts);
         unsafe { *out_plan = arena::build(&plan) };
         PieForwardStatus::Ok
     })
@@ -617,7 +617,7 @@ pub unsafe extern "C" fn pie_forward_trace_qwen3_5_gdn(
             Ok(facts) => facts,
             Err(status) => return status,
         };
-        let plan = crate::family::qwen3_5_gdn_block(&facts);
+        let plan = model_compiler::family::qwen3_5_gdn_block(&facts);
         unsafe { *out_plan = arena::build(&plan) };
         PieForwardStatus::Ok
     })
@@ -655,7 +655,7 @@ pub unsafe extern "C" fn pie_forward_trace_qwen3_5_full_attn(
             Ok(facts) => facts,
             Err(status) => return status,
         };
-        let plan = crate::family::qwen3_5_full_attn_block(&facts);
+        let plan = model_compiler::family::qwen3_5_full_attn_block(&facts);
         unsafe { *out_plan = arena::build(&plan) };
         PieForwardStatus::Ok
     })
@@ -692,7 +692,7 @@ pub unsafe extern "C" fn pie_forward_trace_qwen3_5_hybrid(
             Ok(facts) => facts,
             Err(status) => return status,
         };
-        let plan = crate::family::qwen3_5_hybrid(&facts);
+        let plan = model_compiler::family::qwen3_5_hybrid(&facts);
         unsafe { *out_plan = arena::build(&plan) };
         PieForwardStatus::Ok
     })
@@ -718,7 +718,7 @@ pub unsafe extern "C" fn pie_forward_trace_qwen3_5_hybrid(
 /// `...state_only`) alongside Decode/Prefill. They remain qwen3_5's:
 /// the llama_like entry keeps refusing them.
 /// The gemma-4 facts, as C states them. Mirrors
-/// [`crate::facts::Gemma4Facts`] field for field; same input-side rules
+/// [`model_compiler::facts::Gemma4Facts`] field for field; same input-side rules
 /// as every struct here (bools are `uint8_t`, non-zero is true).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -819,13 +819,13 @@ pub unsafe extern "C" fn pie_forward_trace_gemma4_cuda(
             1 => FireClass::Prefill,
             _ => return PieForwardStatus::InvalidArgument,
         };
-        let plan = crate::family::gemma4_cuda(&f, &cuda, class);
+        let plan = model_compiler::family::gemma4_cuda(&f, &cuda, class);
         unsafe { *out_plan = arena::build(&plan) };
         PieForwardStatus::Ok
     })
 }
 
-/// gpt-oss's shape, as C states it. Mirrors [`crate::facts::GptOssFacts`]
+/// gpt-oss's shape, as C states it. Mirrors [`model_compiler::facts::GptOssFacts`]
 /// field for field.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -933,7 +933,7 @@ pub unsafe extern "C" fn pie_forward_trace_gpt_oss_cuda(
             1 => FireClass::Prefill,
             _ => return PieForwardStatus::InvalidArgument,
         };
-        let plan = crate::family::gpt_oss_cuda(&f, &cuda, class);
+        let plan = model_compiler::family::gpt_oss_cuda(&f, &cuda, class);
         unsafe { *out_plan = arena::build(&plan) };
         PieForwardStatus::Ok
     })
@@ -967,7 +967,7 @@ pub unsafe extern "C" fn pie_forward_trace_qwen3_5_hybrid_cuda(
             4 => FireClass::FrozenVerify,
             _ => return PieForwardStatus::InvalidArgument,
         };
-        let plan = crate::family::qwen3_5_hybrid_cuda(&facts, &cuda, class);
+        let plan = model_compiler::family::qwen3_5_hybrid_cuda(&facts, &cuda, class);
         unsafe { *out_plan = arena::build(&plan) };
         PieForwardStatus::Ok
     })
@@ -1062,9 +1062,9 @@ pub unsafe extern "C" fn pie_forward_lower(
         } else {
             unsafe { std::slice::from_raw_parts(rows, rows_len) }
         };
-        let rows: Vec<crate::lower::Row> = wire
+        let rows: Vec<model_compiler::lower::Row> = wire
             .iter()
-            .map(|r| crate::lower::Row {
+            .map(|r| model_compiler::lower::Row {
                 multi_token: r.multi_token != 0,
                 custom_mask: r.custom_mask != 0,
                 hooked: r.hooked != 0,
@@ -1075,7 +1075,7 @@ pub unsafe extern "C" fn pie_forward_lower(
                 samples: r.samples != 0,
             })
             .collect();
-        let fire = crate::lower::Fire {
+        let fire = model_compiler::lower::Fire {
             captures_across_splits: captures_across_splits != 0,
         };
         unsafe { *out = arena::lower(&mut *plan, &rows, fire) };

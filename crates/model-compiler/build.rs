@@ -51,16 +51,5 @@ fn main() {
     let compiler_hash = hash_sources(&manifest_dir.join("src"));
     println!("cargo:rustc-env=PIE_FORWARD_COMPILER_HASH={compiler_hash}");
 
-    // Hand the committed, cbindgen-generated header directory to downstream
-    // build scripts, the way `loader/build.rs` hands out `pie_loader.h`: a
-    // driver's build script reads `DEP_PIE_FORWARD_INCLUDE` and adds it to
-    // the C++ include path.
-    let include = manifest_dir.join("include");
-    println!(
-        "cargo:rerun-if-changed={}",
-        include.join("pie_forward.h").display()
-    );
-    println!("cargo:include={}", include.display());
-
     println!("cargo:rerun-if-changed=src");
 }

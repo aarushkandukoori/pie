@@ -111,7 +111,7 @@ model-loader-capi = { path = "../model-loader-capi", default-features = false }
 # The artifact's compiled metadata is lifted here and handed to the runtime
 # whole: `model` owns the shape it arrives in, `tokenizer` names the
 # objects that make up a `pie.tokenizer/1`.
-model = { path = "../model" }
+model = { path = "../model", features = ["forward"] }
 tokenizer = { path = "../tokenizer" }
 # Names `pie.model/1` and the object it lives in, so the worker reads the
 # descriptor under the same name `convert` writes it under.
