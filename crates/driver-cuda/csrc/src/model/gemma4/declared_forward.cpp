@@ -366,6 +366,42 @@ bool gemma4_forward_declared(
     // lowering exists, which is the only thing that has to come first.
     declared::ValueArena values;
 
+    // A traced value's ROW WIDTH: the product of every dim but the
+    // leading one, which is the row axis. This is the number the arms
+    // used to carry as `cur_hq`, `cur_hk`, `cur_inter`, `L * ple_dim`
+    // and `H` — per-layer bookkeeping the executor maintained beside a
+    // declaration that already said it.
+    //
+    // Returns 0 when a dim after the first is not a constant, which
+    // happens: a rank-3 value whose middle axis is `Tokens`
+    // (`[N, L, ple_dim]`) has no fixed row width at all. No arm below
+    // asks for one of those, and the ones that would are gated in
+    // `model/tests/arena_soundness.rs` by name.
+    // An operand span is a VIEW into the plan's flat id array, so
+    // indexing past its end reads the next statement's operands and
+    // hands an arm a plausible pointer to the wrong buffer. Every arm
+    // that takes a fixed arity states it here instead.
+    const auto need = [&](const auto& span, std::size_t n, const char* what) {
+        if (span.size < n) {
+            throw std::runtime_error(
+                std::string("declared gemma4: ") + what + " states " +
+                std::to_string(span.size) + " operands, needs " +
+                std::to_string(n));
+        }
+    };
+
+    const auto row_width = [&](std::uint32_t id) {
+        const auto& val = plan.value(id);
+        std::uint32_t out = 1;
+        for (std::uint32_t d = 1; d < val.rank; ++d) {
+            if (val.dims[d].kind != pie_forward::PieForwardDimKind::Const) {
+                return 0;
+            }
+            out *= val.dims[d].value;
+        }
+        return static_cast<int>(out);
+    };
+
     const auto execute_op = [&](const PieForwardOp& op) {
         enter(op.layer);
         switch (op.kind) {
@@ -405,75 +441,84 @@ bool gemma4_forward_declared(
             const std::string_view name = plan.weight_name(op);
             const auto ins = plan.inputs(op);
             const auto outs = plan.outputs(op);
-            if (ins.size == 0 || outs.size == 0) {
-                throw_drift("matmul on '" + std::string(name) +
-                            "' states no operands");
-            }
-            const auto row_width = [&](std::uint32_t id) {
-                const auto& val = plan.value(id);
-                std::uint32_t w_ = 1;
-                for (std::uint32_t d = 1; d < val.rank; ++d) {
-                    w_ *= val.dims[d].value;
-                }
-                return static_cast<int>(w_);
-            };
+            need(ins, 1, "matmul inputs");
+            need(outs, 1, "matmul outputs");
             gemm(values.slot(ins[0]), name, values.slot(outs[0]),
                  N, row_width(outs[0]), row_width(ins[0]), 0.f);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {
+            // ISLAND (value arena). Both sites — layer 0's `attn_norm`
+            // (every later layer's input norm arrives fused into the
+            // previous layer's PLE landing) and the epilogue's
+            // `final_norm` — ran the SAME call with the same buffers,
+            // told apart only to be treated identically. The operands
+            // and the width are the trace's.
             const std::string_view name = plan.weight_name(op);
-            const ParsedName nm = parse_name(name);
-            if (nm.field == "attn_norm") {
-                // Layer 0's only: every later layer's input norm arrives
-                // fused into the previous layer's PLE landing.
-                kernels::launch_rmsnorm_bf16(
-                    ws.y.data(), require(w, name).data(), ws.norm_x.data(),
-                    N, H, eps, stream);
-            } else if (nm.field == "final_norm") {
-                kernels::launch_rmsnorm_bf16(
-                    ws.y.data(), require(w, name).data(), ws.norm_x.data(),
-                    N, H, eps, stream);
-            } else {
-                throw_drift("rmsnorm on '" + std::string(name) + "'");
-            }
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "rmsnorm inputs");
+            need(outs, 1, "rmsnorm outputs");
+            kernels::launch_rmsnorm_bf16(
+                values.slot(ins[0]), require(w, name).data(),
+                values.slot(outs[0]), N, row_width(ins[0]), eps, stream);
             break;
         }
         case PieForwardOpKind::RmsnormPerHead: {
+            // ISLAND (value arena), and three branches become one.
+            //
+            // They differed in nothing but their extents, and the
+            // extents were re-derived per site from config: `N * L` by
+            // `ple_dim`, `N * heads` by `cur_d`, `N * (hk / d)` by
+            // `cur_d`. All three are the same statement — split the
+            // value's row into HEAD-WIDE rows — and the head width is
+            // `param0`, which the op has carried the whole time.
             const std::string_view name = plan.weight_name(op);
-            const ParsedName nm = parse_name(name);
-            if (nm.field == "ple_model_norm") {
-                kernels::launch_rmsnorm_bf16(
-                    per_layer_proj, require(w, name).data(), per_layer_proj,
-                    N * L, ple_dim, eps, stream);
-            } else if (nm.field == "q_norm") {
-                kernels::launch_rmsnorm_bf16(
-                    ws.q.data(), require(w, name).data(), ws.q.data(),
-                    N * cfg.num_attention_heads, cur_d, eps, stream);
-            } else if (nm.field == "k_norm") {
-                kernels::launch_rmsnorm_bf16(
-                    ws.k.data(), require(w, name).data(), ws.k.data(),
-                    N * (cur_hk / cur_d), cur_d, eps, stream);
-            } else {
-                throw_drift("per-head norm on '" + std::string(name) + "'");
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "per-head norm inputs");
+            need(outs, 1, "per-head norm outputs");
+            const int head = static_cast<int>(op.param0);
+            if (head <= 0) {
+                throw_drift("per-head norm on '" + std::string(name) +
+                            "' states no head width");
             }
+            kernels::launch_rmsnorm_bf16(
+                values.slot(ins[0]), require(w, name).data(),
+                values.slot(outs[0]), N * (row_width(ins[0]) / head), head,
+                eps, stream);
             break;
         }
-        case PieForwardOpKind::SplitQkv:
+        case PieForwardOpKind::SplitQkv: {
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "split_qkv inputs");
+            need(outs, 3, "split_qkv outputs");
             kernels::launch_split_qkv_bf16(
-                ws.qkv_fused.data(), ws.q.data(), ws.k.data(), ws.v.data(),
-                N, cur_hq, cur_hk, stream);
+                values.slot(ins[0]), values.slot(outs[0]),
+                values.slot(outs[1]), values.slot(outs[2]),
+                N, row_width(outs[0]), row_width(outs[1]), stream);
             break;
-        case PieForwardOpKind::Rope:
+        }
+        case PieForwardOpKind::Rope: {
             // Only the FULL layers reach the semantic kind: sliding
             // layers state the fused rounded pair instead.
+            //
+            // The head COUNTS stay read from config: rope needs the
+            // rotation's head geometry, and a value's row width divided
+            // by the head dim is that geometry only once you know the
+            // head dim, which this op does not state. The BUFFERS are
+            // the trace's, which is the half that was convention.
+            const auto outs = plan.outputs(op);
+            need(outs, 2, "rope outputs");
             kernels::launch_rope_partial_bf16(
-                ws.q.data(), ws.k.data(), positions, N,
+                values.slot(outs[0]), values.slot(outs[1]), positions, N,
                 cfg.num_attention_heads, cur_hk / cur_d, cur_d,
                 static_cast<int>(op.param1),
                 w.per_layer_rope_theta[static_cast<std::size_t>(cur_layer)],
                 stream);
             break;
+        }
         case PieForwardOpKind::LmHead: {
             const std::string_view name = plan.weight_name(op);
             const void* input = ws.norm_x.data();
