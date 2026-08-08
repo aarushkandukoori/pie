@@ -270,6 +270,18 @@ pub struct Lowered {
     pub rectangles: usize,
     /// Peak activation bytes the frame needs ([`Buffers`]).
     pub arena_bytes: usize,
+    /// Where each traced value lives, by value id: a byte offset into
+    /// the frame's arena, or [`Buffers::NAMED`] for one the backend
+    /// binds.
+    ///
+    /// [`Launch::args`] already carries this for every operand a
+    /// rectangle names, and a driver walking rectangles wants nothing
+    /// else. This is here for the walk that still exists: the per-family
+    /// executors step ops and ask for a value BY ID, so without a table
+    /// they could not move onto host-assigned buffers until they had
+    /// been rewritten to walk rectangles — two migrations chained where
+    /// one will do.
+    pub value_offset: Vec<usize>,
     /// Every launch's operands, concatenated; [`Launch::args`] indexes
     /// it. Flat rather than per-launch so the whole frame is two arrays
     /// and a table — which is the shape a driver can walk without
@@ -338,12 +350,14 @@ pub fn lower(plan: &ForwardPlan, rows: &[Row], fire: Fire) -> Result<Lowered, Un
         peel_region: None,
     };
     let arena_bytes = out.buffers.bytes;
+    let value_offset = out.buffers.offset.clone();
     out.region(0..plan.ops.len(), 0..n)?;
     Ok(Lowered {
         rectangles: out.launches.len(),
         launches: out.launches,
         kernels: out.kernels,
         arena_bytes,
+        value_offset,
         args: out.args,
         structural: out.structural,
         residue: out.residue,

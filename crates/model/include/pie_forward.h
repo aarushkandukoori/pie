@@ -856,6 +856,16 @@ struct PieForwardLowered {
   size_t structural_len;
   /// Peak activation bytes the frame would need.
   size_t arena_bytes;
+  /// Where each traced value lives, by value id: a byte offset into
+  /// the arena, or `usize::MAX` for one the backend binds by name.
+  ///
+  /// `args` already carries this for every operand a rectangle names,
+  /// which is all a driver walking rectangles reads. The table is for
+  /// the walk that still exists — the per-family executors step ops
+  /// and ask for a value BY ID, and this lets them take host-assigned
+  /// buffers without first being rewritten to walk rectangles.
+  const size_t *value_offsets;
+  size_t value_offsets_len;
   /// Non-zero when the fire could not be lowered; `launches` is then
   /// empty and the value says which rule refused.
   PieForwardUncovered uncovered;

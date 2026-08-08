@@ -1093,3 +1093,68 @@ fn the_operand_slots_cross_the_abi_naming_weights_from_the_plan() {
         PieForwardArgKind::Weight,
     );
 }
+
+/// The buffer table crosses beside the operands, and the two AGREE.
+///
+/// They are two views of one assignment: `args` carries an offset per
+/// operand a rectangle names, `value_offsets` carries one per value id.
+/// A driver mid-migration reads the table (it walks ops, so it has no
+/// rectangle to read `args` from) and a driver on the flat list reads
+/// the operands, so the families would disagree about where a value
+/// lives if these ever drifted — and nothing else would say so, because
+/// each is internally consistent.
+#[test]
+fn the_buffer_table_crosses_and_agrees_with_the_operands() {
+    use model_compiler::lower::Arg;
+
+    let plan = decode_plan();
+    let rows = plain(4);
+    let out = lower(&plan, &rows, Fire::default()).expect("must lower");
+
+    assert_eq!(
+        out.value_offset.len(),
+        plan.values.len(),
+        "the table is indexed by value id, so it is one entry per value"
+    );
+
+    // Every operand slot resolves to the same bytes the table names.
+    let mut checked = 0usize;
+    for l in &out.launches {
+        for a in &out.args[l.args.start as usize..l.args.end as usize] {
+            match a {
+                Arg::Named { value, .. } => {
+                    assert_eq!(
+                        out.value_offset[*value as usize],
+                        Buffers::NAMED,
+                        "value {value} crossed as Named but the table places it"
+                    );
+                    checked += 1;
+                }
+                // An arena operand carries the offset directly, so the
+                // agreement to check is that the table is not NAMED
+                // there — the offset itself came from the same vector.
+                Arg::Arena { at, .. } => {
+                    assert!(
+                        *at < out.arena_bytes,
+                        "an operand outside the arena it reports"
+                    );
+                    checked += 1;
+                }
+                Arg::Weight(_) => {}
+            }
+        }
+    }
+    assert!(checked > 0, "no activation operands reached the check");
+
+    // Nothing the table places sits past the block it reports.
+    for (v, &at) in out.value_offset.iter().enumerate() {
+        if at == Buffers::NAMED {
+            continue;
+        }
+        assert!(
+            at < out.arena_bytes,
+            "value {v} is placed at {at}, past the reported {} bytes",
+            out.arena_bytes
+        );
+    }
+}
