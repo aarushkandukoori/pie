@@ -1619,6 +1619,209 @@ pub mod cuda {
         .expect("fused post produces q")
     }
 
+    // ── gemma-3n: AltUp ────────────────────────────────────────────
+    //
+    // Gemma-3n carries K = `altup_num_inputs` PARALLEL residual streams
+    // instead of one. Each layer predicts the post-layer state of all K
+    // from a learned per-token combination of them, runs the real layer on
+    // one ACTIVE stream, and corrects the other K-1 from the difference.
+    // That is a residual stream with a rank, and it is why gemma-3n cannot
+    // be written as `llama_like` with different facts: `Dim::Tokens` rows
+    // are still rows, but the value under them is `[K, T, H]`.
+    //
+    // None of these carry a contract clause. Every one is row-shaped —
+    // token `t`'s output reads only token `t`'s inputs — so a peel may
+    // split them, no host plan is obligated, and there is no seam
+    // capability for one to refuse.
+
+    /// `kernels::launch_altup_predict_bf16`: the K streams' post-layer
+    /// state, predicted.
+    ///
+    /// `predictions[k, t, h] = streams[k, t, h] + Σ_j coefs[t, j, k]·streams[j, t, h]`
+    ///
+    /// `coefs` is fp32 and stays fp32: the K-summation accumulates
+    /// round-off that bf16 cannot absorb, which the kernel's own header
+    /// says is why it takes a float pointer.
+    pub fn altup_predict(streams: &Val, coefs: &Val, k: u32, hidden: u32) -> Val {
+        record(
+            &streams.t,
+            streams.layer,
+            "launch_altup_predict_bf16",
+            vec![],
+            None,
+            vec![streams.id, coefs.id],
+            Some((
+                Shape(vec![Dim::Const(k), Dim::Tokens, Dim::Const(hidden)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the prediction produces its value")
+    }
+
+    /// `kernels::launch_altup_correct_bf16`: the other K-1 streams,
+    /// corrected from what the active one actually computed.
+    ///
+    /// `corrected[k] = predictions[k] + (activated - predictions[active])·(coefs[t,k] + 1)`
+    ///
+    /// The `+1` is folded into the coefficient by
+    /// [`altup_unpack_correct_coefs`], not by this kernel.
+    pub fn altup_correct(
+        predictions: &Val,
+        activated: &Val,
+        correction_coefs: &Val,
+        k: u32,
+        hidden: u32,
+    ) -> Val {
+        record(
+            &predictions.t,
+            predictions.layer,
+            "launch_altup_correct_bf16",
+            vec![],
+            None,
+            vec![predictions.id, activated.id, correction_coefs.id],
+            Some((
+                Shape(vec![Dim::Const(k), Dim::Tokens, Dim::Const(hidden)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the correction produces its value")
+    }
+
+    /// `kernels::launch_altup_unpack_predict_coefs`: the router's bf16
+    /// `[T, K*K]` output as the fp32 `[T, K, K]` [`altup_predict`] reads.
+    ///
+    /// Not a cast. It also applies the transpose HF spells
+    /// `.reshape(*, K, K).permute(0, 1, 3, 2)`, so the statement is a
+    /// distinct op rather than a dtype annotation on the matmul above it.
+    pub fn altup_unpack_predict_coefs(packed: &Val, k: u32) -> Val {
+        record(
+            &packed.t,
+            packed.layer,
+            "launch_altup_unpack_predict_coefs",
+            vec![],
+            None,
+            vec![packed.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(k), Dim::Const(k)]),
+                DType::F32,
+            )),
+        )
+        .expect("the unpack produces its value")
+    }
+
+    /// `kernels::launch_altup_unpack_correct_coefs`: the same for the
+    /// correction's `[T, K]`, with HF's `+ 1.0` folded in.
+    pub fn altup_unpack_correct_coefs(packed: &Val, k: u32) -> Val {
+        record(
+            &packed.t,
+            packed.layer,
+            "launch_altup_unpack_correct_coefs",
+            vec![],
+            None,
+            vec![packed.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(k)]), DType::F32)),
+        )
+        .expect("the unpack produces its value")
+    }
+
+    /// `kernels::launch_mean_streams_bf16`: the K streams averaged into
+    /// one — `out[t, h] = (1/K) Σ_k streams[k, t, h]`.
+    ///
+    /// How a rank-K residual stream is read by anything that expects one.
+    pub fn mean_streams(streams: &Val, hidden: u32) -> Val {
+        record(
+            &streams.t,
+            streams.layer,
+            "launch_mean_streams_bf16",
+            vec![],
+            None,
+            vec![streams.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(hidden)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the mean produces its value")
+    }
+
+    /// `kernels::launch_compute_rms_bf16`: each row's RMS, as fp32.
+    ///
+    /// A MEASUREMENT, not a normalization: it produces the target that
+    /// [`magnitude_rescale`] then holds another tensor to. The pair exists
+    /// because gemma-3n keeps a stream's magnitude fixed across a
+    /// projection rather than re-norming it.
+    pub fn compute_rms(x: &Val) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_compute_rms_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens]), DType::F32)),
+        )
+        .expect("the measurement produces its value")
+    }
+
+    /// `kernels::launch_magnitude_rescale_bf16`: scale each row of `x` so
+    /// its RMS equals `target`'s.
+    ///
+    /// In place in the kernel; a value here, because a trace records what
+    /// a statement produces and the reader should not have to know which
+    /// buffer it landed in.
+    pub fn magnitude_rescale(x: &Val, target_rms: &Val, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_magnitude_rescale_bf16",
+            vec![],
+            None,
+            vec![x.id, target_rms.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(hidden)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the rescale produces its value")
+    }
+
+    /// `kernels::launch_tanh_bf16` on AltUp's modality-router output.
+    ///
+    /// HF computes this in fp32 and casts back; the kernel folds both, so
+    /// the trace states one op where the reference states three.
+    pub fn tanh(x: &Val, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_tanh_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the activation produces its value")
+    }
+
+    /// `kernels::launch_gaussian_topk_bf16`: gemma-3n's activation
+    /// sparsity — zero every element below `mean + std_multiplier·std` of
+    /// its own row.
+    ///
+    /// A top-k by THRESHOLD rather than by count, which is what lets it be
+    /// row-shaped: no sort, no cross-row comparison, so a peel may split
+    /// it like any other elementwise statement.
+    pub fn gaussian_topk(x: &Val, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "launch_gaussian_topk_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the sparsifier produces its value")
+    }
+
     // ── gemma-4 ────────────────────────────────────────────────────
     //
     // The vocabulary the third family needs and the first two did not.

@@ -30,7 +30,7 @@
 
 #![cfg(feature = "contract")]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Every family this repo knows, in the spellings a source file might use.
 ///

@@ -66,6 +66,26 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_swiglu "launch_chunked_swiglu_bf16"),
     kernel!(swiglu "launch_swiglu_bf16"),
 
+    // ── gemma-3n: AltUp ────────────────────────────────────────────
+    // A rank-K residual stream: K parallel streams predicted from each
+    // other, one of them run through the real layer, the rest corrected
+    // from the difference. See `dsl::cuda`'s AltUp block for the algebra.
+    //
+    // Not one of these carries a contract clause, and that is a claim
+    // rather than an omission: every one is row-shaped -- token `t`'s
+    // output reads only token `t`'s inputs -- so a peel may split it, it
+    // obligates no host plan, and there is no seam capability for it to
+    // refuse.
+    kernel!(altup_predict "launch_altup_predict_bf16"),
+    kernel!(altup_correct "launch_altup_correct_bf16"),
+    kernel!(altup_unpack_predict_coefs "launch_altup_unpack_predict_coefs"),
+    kernel!(altup_unpack_correct_coefs "launch_altup_unpack_correct_coefs"),
+    kernel!(mean_streams "launch_mean_streams_bf16"),
+    kernel!(compute_rms "launch_compute_rms_bf16"),
+    kernel!(magnitude_rescale "launch_magnitude_rescale_bf16"),
+    kernel!(tanh "launch_tanh_bf16"),
+    kernel!(gaussian_topk "launch_gaussian_topk_bf16"),
+
     // ── gemma-4 ────────────────────────────────────────────────────
     // GeGLU-tanh is not a swiglu variant: `gelu_pytorch_tanh` on the
     // gate is a different function. The packed/pair split is the same
