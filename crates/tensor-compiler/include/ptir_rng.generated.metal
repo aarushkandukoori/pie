@@ -1,4 +1,4 @@
-// ptir_rng.generated.metal — GENERATED from compiler/ir/src/rng.rs.
+// ptir_rng.generated.metal — GENERATED from crates/tensor-ir/src/rng.rs.
 // DO NOT EDIT. Regenerate: PTIR_REGEN=1 cargo test -p pie-compiler-tests --test rng_contract
 #ifndef PIE_PTIR_RNG_GENERATED_METAL
 #define PIE_PTIR_RNG_GENERATED_METAL

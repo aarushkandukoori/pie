@@ -58,7 +58,7 @@ namespace pie::metal::batch {
 // fire adds (prefill chunk or a single decode token — never the full
 // history; KV history lives in the decoder's resident ring), plus the
 // recurrent-state slot bookkeeping the engine assigns per request
-// (`RS_FLAG_RESET` mirrors `runtime/engine/src/driver/frame.rs`'s
+// (`RS_FLAG_RESET` mirrors `crates/engine/src/driver/frame.rs`'s
 // `RS_FLAG_RESET = 1`) and the this-fire KV page ids (used ONLY to validate
 // the "single linear run" contract — Phase 1a never reads history through
 // them; the decoder's own ring supplies it).

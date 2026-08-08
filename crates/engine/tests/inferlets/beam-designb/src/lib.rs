@@ -21,7 +21,7 @@
 //! does not arise here.
 //!
 //! The steady-state contract is host-verified by
-//! `compiler/dsl/tests/beam_search.rs` (mask evolution across a
+//! `tensor-dsl/tests/beam_search.rs` (mask evolution across a
 //! fork step + a pool page turn) on the CPU reference interpreter. Compaction
 //! (a generic per-token, all-layers KV cell-move — `copy_into`) is OUT OF SCOPE
 //! here; this inferlet exercises the steady-state append + mask-out path only.

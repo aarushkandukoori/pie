@@ -9,7 +9,7 @@
 // (buffers, plan caches, pad/strip staging); it never chooses between two
 // kernels for semantic reasons. The peepholes and `use_*_path` booleans
 // that used to re-derive those choices per fire are deleted; their
-// predicates live in `forward/src/family.rs`'s class arms, evaluated once
+// predicates live in `crates/model-compiler/src/family.rs`'s class arms, evaluated once
 // at model load against `PieForwardLlamaLikeCudaFacts` derived in `build`.
 // Bit-parity requires the same launches, not just the same math — the
 // fused kernels round differently from their unfused sequences.

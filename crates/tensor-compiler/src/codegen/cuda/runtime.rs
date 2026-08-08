@@ -2,7 +2,7 @@
 //!
 //! The C++ built this by concatenating two raw string literals around the
 //! generated RNG preamble (`PTIR_RNG_CUDA_PREAMBLE`). The two literals are
-//! checked in verbatim under `compiler/codegen/runtime/cuda/`; the RNG half is
+//! checked in verbatim under this crate's `runtime/cuda/`; the RNG half is
 //! still generated, by [`crate::codegen::rng`], so the device RNG cannot drift from
 //! `tensor_ir::rng`.
 

@@ -207,7 +207,7 @@ set_source_files_properties(src/batch/forward.cpp
 # the same default when PIE_METAL_KERNELS_DIR is unset. Installed packaging
 # of the kernels dir is a follow-up.
 #
-# ptir_rng.generated.metal is owned by pie-codegen and staged here at configure
+# ptir_rng.generated.metal is owned by tensor-compiler and staged here at configure
 # time rather than checked in twice. The host emitter now embeds the M1 runtime
 # template into every emitted MSL source itself, but the RNG preamble still
 # needs to sit beside the checked-in .metal kernels so a build-time

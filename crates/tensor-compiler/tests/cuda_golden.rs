@@ -204,7 +204,7 @@ fn every_live_device_file_is_spliced_into_a_kernel_verbatim() {
     assert_eq!(
         files.len(),
         6,
-        "compiler/codegen/runtime/cuda/ holds six device files; a new one needs \
+        "crates/tensor-compiler/runtime/cuda/ holds six device files; a new one needs \
          a home in this assertion and, once it moves, in golden-cuda/oracle-inputs/"
     );
     for (name, text) in files {

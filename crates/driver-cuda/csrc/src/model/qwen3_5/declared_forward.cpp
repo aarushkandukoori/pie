@@ -387,7 +387,7 @@ bool qwen3_5_forward_declared(
                      plan.op_count());
     }
     // Both fire shapes run here now (arc 3): the trace is decode/prefill-
-    // agnostic by design (forward/src/trace.rs — CausalConv1d / GatedDelta /
+    // agnostic by design (crates/model-compiler/src/trace.rs — CausalConv1d / GatedDelta /
     // Attention are opaque state ops whose lowering the emitter picks per
     // fire), so the state-op arms below branch on `is_pure_decode` exactly
     // as the hand-written `linear_attn_layer_body` branches. A MIXED fire

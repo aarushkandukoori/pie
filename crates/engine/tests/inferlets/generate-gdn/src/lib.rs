@@ -21,7 +21,7 @@
 //! for its lifetime — `forward-pass.new` errs "may attach to only one pass"
 //! on a second bind attempt, so `tok_in` is wired into a
 //! single `ForwardPass` and that SAME pass is submitted `max_tokens-1` times,
-//! never rebuilt). `RsStore::prepare_write` (`runtime/engine/src/store/rs.rs`,
+//! never rebuilt). `RsStore::prepare_write` (`crates/engine/src/store/rs.rs`,
 //! `pipeline/fire.rs`) already keys reset-vs-continue-in-place off the
 //! `RsWorkingSet`'s OWN `folded` slot + ref-count (bumped only by an explicit
 //! `fork()`, which this inferlet never calls) — NOT off ForwardPass identity —

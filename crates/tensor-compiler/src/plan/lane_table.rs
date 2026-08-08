@@ -89,7 +89,7 @@ pub struct RuntimeExtents {
 // the driver keys on the whole key string, and `pipeline::program`'s registry
 // re-compares the container bytes and returns `RegisterError::HashCollision`
 // rather than serving the wrong program
-// (`runtime/engine/src/pipeline/program.rs`). A hash is an index into those
+// (`crates/engine/src/pipeline/program.rs`). A hash is an index into those
 // caches, never the identity — and any new cache keyed on a signature owes the
 // same re-check.
 

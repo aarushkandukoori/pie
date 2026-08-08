@@ -478,7 +478,7 @@ std::string build_caps_json(const Config& cfg,
         {"activation_dtype", "bf16"},
         {"snapshot_dir", cfg.model.hf_path},
         // Advertising the emitter identity opts this driver into the host
-        // codegen path (see `compiler/codegen/src/program.rs::Backend::parse`);
+        // codegen path (see `tensor-compiler's codegen/src/program.rs::Backend::parse`);
         // the runtime uses it to pick which per-kernel table to build and
         // to key the MSL cache.
         {"codegen_backend", "metal"},

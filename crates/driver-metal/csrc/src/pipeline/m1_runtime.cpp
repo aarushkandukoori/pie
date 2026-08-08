@@ -125,10 +125,10 @@ std::size_t align_up(std::size_t value, std::size_t alignment = 256) {
 }
 
 // The `#include` line the host-embedded runtime template carries verbatim.
-// `compiler/codegen/src/metal/preamble.rs` embeds the full
+// `tensor-compiler's codegen/src/metal/preamble.rs` embeds the full
 // `ptir_m1_runtime.metal` into every emitted MSL source but leaves this
 // include untouched, because expanding it is a driver concern — the RNG
-// preamble is generated from `compiler/ir/src/rng.rs` and lives beside the
+// preamble is generated from `crates/tensor-ir/src/rng.rs` and lives beside the
 // driver's other kernel sources so a build-system `configure_file` keeps
 // them in lockstep. The Metal shader compiler resolves nothing from the
 // filesystem, so we splice the preamble in ourselves here.
@@ -850,10 +850,10 @@ std::unique_ptr<M1Runtime> M1Runtime::create(
     impl->cache_dir =
         cache_dir.empty() ? default_m1_cache_dir() : cache_dir;
     // The host emitter embeds the M1 runtime template into every emitted
-    // source (`compiler/codegen/src/metal/preamble.rs`), so the driver no
+    // source (`tensor-compiler's codegen/src/metal/preamble.rs`), so the driver no
     // longer keeps its own copy on disk. But that template still carries
     // `#include "ptir_rng.generated.metal"` — the RNG preamble is emitted
-    // once from `compiler/ir/src/rng.rs` and staged into `kernels_dir` by
+    // once from `crates/tensor-ir/src/rng.rs` and staged into `kernels_dir` by
     // CMake's `configure_file`, and Metal's runtime shader compiler does
     // no filesystem include lookup, so we splice it in ourselves later.
     const std::filesystem::path rng_path =
@@ -1032,7 +1032,7 @@ std::shared_ptr<M1ProgramExecutable> M1Runtime::compile_program(
         }
         total_regions += stage_plan.singleton.regions.size();
         // Singleton validation is the host's job now; if the whole stage
-        // is unrepresentable, `compiler/codegen/src/program.rs` pushes a
+        // is unrepresentable, `tensor-compiler's codegen/src/program.rs` pushes a
         // single KERNEL_SINGLETON entry at region 0 with a populated
         // `error` and an empty `source` (see `emit_metal_stage`). That is
         // the same deterministic reject the C++ `validate_singleton_plan`
@@ -1338,7 +1338,7 @@ std::shared_ptr<M1ProgramExecutable> M1Runtime::compile_program(
     // The host emits both: the grouped pair at (stage 0, region 0), named by
     // emitter version because it is shared across programs, and the per-program
     // pair at (stage 0, region 1). See `emit_metal_program_effects` in
-    // `compiler/codegen/src/program.rs`.
+    // `tensor-compiler's codegen/src/program.rs`.
     const auto* readiness_entry =
         host_kernels.find(PIE_KERNEL_READINESS, 0, 1);
     if (readiness_entry == nullptr || readiness_entry->source.empty()) {

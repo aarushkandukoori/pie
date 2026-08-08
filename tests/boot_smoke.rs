@@ -102,7 +102,7 @@ async fn boot() -> Result<pie::StandaloneHandle> {
 
 fn build_direct_channel_inferlet() -> Result<(PathBuf, PathBuf)> {
     let workspace =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime/engine/tests/inferlets");
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/engine/tests/inferlets");
     let status = Command::new("cargo")
         .args([
             "build",

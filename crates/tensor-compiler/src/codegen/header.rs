@@ -1,5 +1,5 @@
 //! Deterministic C header generation from the op table and registries —
-//! `compiler/codegen/include/ptir_abi.h` is checked in and kept in sync by the
+//! `crates/tensor-compiler/include/ptir_abi.h` is checked in and kept in sync by the
 //! `ptir_header_uptodate` test (regenerate with `PTIR_REGEN=1 cargo test -p
 //! pie-compiler-tests --test ptir_header`). The C++ driver includes that header, so op
 //! ids / stage tags / port ids cannot drift between Rust and CUDA.
@@ -18,7 +18,7 @@ use crate::plan::{LibraryOp, ScheduleTemplate, SymbolicExtent};
 /// Render `include/ptir_abi.h`. Pure function of the tables — byte-stable.
 pub fn generate_c_header() -> String {
     let mut s = String::new();
-    s.push_str("// ptir_abi.h — GENERATED from `compiler/ir/src/{op,registry}.rs`.\n");
+    s.push_str("// ptir_abi.h — GENERATED from `crates/tensor-ir/src/{op,registry}.rs`.\n");
     s.push_str(
         "// DO NOT EDIT. Regenerate: PTIR_REGEN=1 cargo test -p pie-compiler-tests --test ptir_header\n",
     );
@@ -199,7 +199,7 @@ pub fn generate_c_header() -> String {
     );
     s.push_str("// cummass_le(p): inclusive nucleus (keep while exclusive prefix mass < p). prob_ge: >=.\n");
     s.push_str("// rng_keyed(state=[key,ctr]): seed64 = splitmix64((key<<32)|ctr); u(j) = hash_uniform(seed64, j)\n");
-    s.push_str("//   with splitmix64/hash_uniform exactly as compiler/ir/src/rng.rs; gumbel = -log(-log(u)).\n");
+    s.push_str("//   with splitmix64/hash_uniform exactly as crates/tensor-ir/src/rng.rs; gumbel = -log(-log(u)).\n");
     s
 }
 

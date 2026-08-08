@@ -39,7 +39,7 @@ async fn grammar_mask_op_on_real_driver() -> Result<()> {
     eprintln!("[grammar-op] booted, listen_addr={}", pie.listen_addr);
 
     // Build the grammar mask-apply OP verify inferlet.
-    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/engine/tests/inferlets");
+    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/engine/tests/inferlets");
     let ok = Command::new("cargo")
         .args(["build", "--target", "wasm32-wasip2", "-p", "grammar"])
         .current_dir(&ws)

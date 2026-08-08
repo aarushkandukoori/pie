@@ -14,7 +14,7 @@
 //! surface of its own: the materialized-weight artifact, which is about
 //! finished device memory rather than about compiling anything, and carries
 //! its own entry points for that reason. The generated header
-//! (`loader/capi/include/pie_loader.h`) is the C view of exactly those five
+//! (`crates/model-loader-capi/include/pie_loader.h`) is the C view of exactly those five
 //! files; `view` is Rust-side borrowing helpers over them and publishes
 //! nothing. (A driver used to be able to hand over a fully-authored contract
 //! graph instead — `contract`, `contract_writer` and the C++ builder in

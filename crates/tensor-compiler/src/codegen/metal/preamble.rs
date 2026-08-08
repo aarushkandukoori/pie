@@ -124,7 +124,7 @@ mod tests {
         assert_eq!(
             GROUPED_PREAMBLE,
             grouped_preamble(),
-            "compiler/codegen/runtime/metal/ptir_m1_grouped.metal has drifted from \
+            "crates/tensor-compiler/runtime/metal/ptir_m1_grouped.metal has drifted from \
              what layout::HOST_SHARED prints; re-copy the emitted text into the file"
         );
     }

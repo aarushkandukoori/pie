@@ -10,7 +10,7 @@
 //!   (`Cargo.toml` `[profile.release-min]`) so no unwinding happens at all.
 //!   Nothing in this module tries to convert one into a status code.
 //! * **Never hold global state.** Ranks compile in parallel
-//!   (`runtime/engine/src/driver/backend/cuda.rs:331-345` runs one thread per
+//!   (`crates/engine/src/driver/backend/cuda.rs:331-345` runs one thread per
 //!   rank), so two `pie_loader_compile` calls can be in flight at once. Every
 //!   allocation is reachable only from the handle it is returned through.
 //! * **Status answers *did it work*; diagnostics answer *what went wrong*.** The

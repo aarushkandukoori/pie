@@ -2,7 +2,7 @@
 
 // PTIR pre-forward descriptor resolution (metal_ptir_plan.md Phase 2, W1.1) —
 // the Metal mirror of CUDA's `crates/driver-cuda/csrc/src/ptir/descriptor_resolve.hpp`
-// and the host's `map_geometry` (runtime/engine/src/pipeline/fire/geometry.rs).
+// and the host's `map_geometry` (crates/engine/src/pipeline/fire/geometry.rs).
 // For a program whose descriptor ports bind CHANNELS (device-produced
 // geometry, e.g. the run-ahead beam epilogue), the driver reads the port
 // channels' CURRENT cells BEFORE the forward and fills the standard

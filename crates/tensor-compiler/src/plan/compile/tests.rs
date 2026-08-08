@@ -1066,7 +1066,7 @@ fn explicit_candidate_batch_does_not_inherit_sampled_rows() {
 
 /// The rendering a plan reaches humans through is a pure function of the plan.
 ///
-/// `debug_stage_plan` is what `runtime/engine/src/pipeline/program.rs` prints
+/// `debug_stage_plan` is what `crates/engine/src/pipeline/program.rs` prints
 /// when a program is registered under a debug flag, and what the extended
 /// golden pins. Both uses assume it does not vary run to run.
 #[test]

@@ -71,7 +71,7 @@ async fn run_fleet_concurrent(addr: &str) -> Vec<Option<Vec<i64>>> {
 async fn concurrent_runahead_matches_sequential() -> Result<()> {
     common::init_trace();
 
-    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/engine/tests/inferlets");
+    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/engine/tests/inferlets");
     anyhow::ensure!(
         Command::new("cargo")
             .args(["build", "--target", "wasm32-wasip2", "-p", "runahead"])

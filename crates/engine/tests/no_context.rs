@@ -12,12 +12,12 @@
 
 use std::path::{Path, PathBuf};
 
-/// Repo root = grandparent of the engine crate dir (`runtime/engine/`).
+/// Repo root = grandparent of the engine crate dir (`crates/engine/`).
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("runtime/engine/ has a grandparent")
+        .expect("crates/engine/ has a grandparent")
         .to_path_buf()
 }
 
@@ -27,8 +27,8 @@ fn repo_root() -> PathBuf {
 /// vendor the same flat file set (their `deps/` subdirs hold only wasi WIT).
 const WIT_CORE_DIRS: &[&str] = &[
     "crates/inferlet-api/wit",
-    "sdk/rust/inferlet/wit",
-    "sdk/tools/bakery/src/bakery/wit",
+    "crates/inferlet/wit",
+    "sdk/inferlet/tools/bakery/src/bakery/wit",
 ];
 
 /// Whole-`.wit` substrings that only ever belong to the retired `context`

@@ -81,7 +81,7 @@ fn embedded_runtime_matches_the_oracle() {
     assert_eq!(
         (runtime.len(), tensor_ir::fnv1a64(runtime.as_bytes())),
         field("# @runtime:"),
-        "compiler/codegen/runtime/metal/ptir_m1_runtime.metal has drifted from the copy \
+        "crates/tensor-compiler/runtime/metal/ptir_m1_runtime.metal has drifted from the copy \
          the C++ oracle read out of crates/driver-metal/csrc/src/kernels/"
     );
 
@@ -336,7 +336,7 @@ fn every_live_device_file_is_spliced_into_a_kernel_verbatim() {
     assert_eq!(
         files.len(),
         2,
-        "compiler/codegen/runtime/metal/ holds two device files; a new one needs \
+        "crates/tensor-compiler/runtime/metal/ holds two device files; a new one needs \
          a home in this assertion and, once it moves, in golden-msl/oracle-inputs/"
     );
     for (name, text) in files {

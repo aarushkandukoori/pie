@@ -3,7 +3,7 @@
 //! Regenerate with
 //! `PTIR_REGEN=1 cargo test -p pie-compiler-tests --test ptir_header`.
 //!
-//! One copy is checked in, under `compiler/codegen/include`; the native drivers
+//! One copy is checked in, under `crates/tensor-compiler/include`; the native drivers
 //! put that directory on their include path directly. The hand-maintained
 //! driver mirror is gone.
 

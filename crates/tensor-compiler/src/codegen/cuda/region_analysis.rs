@@ -5,7 +5,7 @@
 //! backend's contract — which regions bind, and how the generated kernel's
 //! intrinsic side tables are laid out — so they mean nothing to a driver
 //! running someone else's kernels. The engine already gates on that
-//! (`runtime/engine/src/driver/backend.rs`, `codegen_backend == Some("cuda")`)
+//! (`crates/engine/src/driver/backend.rs`, `codegen_backend == Some("cuda")`)
 //! and no Metal path reads a [`RegionAnalysis`].
 //!
 //! Two per-program analyses the launch package has yet to absorb still live

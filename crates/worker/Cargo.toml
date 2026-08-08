@@ -33,7 +33,7 @@ driver-dummy = []
 nixl = ["dep:transport", "transport/nixl"]
 
 # Per-domain probe passthroughs. Each forwards to the runtime crate's
-# corresponding flag. See `runtime/engine/src/scheduler/probe.rs` for the
+# corresponding flag. See `crates/engine/src/scheduler/probe.rs` for the
 # catalog of domains.
 profile-fire = ["engine/profile-fire"]
 profile-hot-path = ["engine/profile-hot-path"]

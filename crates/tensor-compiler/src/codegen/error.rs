@@ -3,7 +3,7 @@
 //! Emission is total in the sense that it never panics on a plan: every path
 //! that cannot produce source returns instead, and the reason travels to the
 //! host as a string in [`EmittedKernel::error`]. That string is ABI — the
-//! runtime copies it across the C boundary (`runtime/engine/src/driver/abi.rs`)
+//! runtime copies it across the C boundary (`crates/engine/src/driver/abi.rs`)
 //! and a human reads it out of a driver log — so the [`Display`](core::fmt::Display) impl here is
 //! the one definition of that text, and `every_refusal_renders` pins all of
 //! it.
@@ -44,7 +44,7 @@
 //! Nothing branches on the grouping today; it is how the list is read.
 //!
 //! [`EmittedKernel::error`]: crate::codegen::program::EmittedKernel::error
-//! [`CompiledStage`]: https://github.com/pie-project/pie/tree/dev/compiler/plan
+//! [`CompiledStage`]: https://github.com/pie-project/pie/tree/dev/tensor-compiler's plan
 //! [`METAL_M2_MAX_FUSED_CHANNELS`]: crate::codegen::metal::METAL_M2_MAX_FUSED_CHANNELS
 
 use core::fmt;

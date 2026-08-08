@@ -55,7 +55,7 @@ struct FusedRegionExecutable {
 
 // One `argmax` that reads a logits intrinsic's device buffer directly, and
 // the nodes that rewrite makes redundant. Decided by the host
-// (`compiler/codegen/src/cuda/region_analysis.rs`), because the kernel that
+// (`tensor-compiler's codegen/src/cuda/region_analysis.rs`), because the kernel that
 // reads these slots was emitted from the same answer.
 struct StageRegionArgmax {
     std::uint32_t node = 0;
@@ -137,10 +137,10 @@ class ModuleCache {
     // Source the host generated for one region, or nullptr when the host did
     // not supply this program's kernels. Indexed by (stage, region) because
     // that is the identity the host emits under; see
-    // `compiler/codegen/src/program.rs`.
+    // `tensor-compiler's codegen/src/program.rs`.
     //
     // The entry name travels with the source rather than being re-derived
-    // here. `entry_name` below and `compiler/codegen`'s `format!` are two
+    // here. `entry_name` below and `tensor-compiler's codegen`'s `format!` are two
     // hand-written spellings of one convention, and they had already drifted
     // (`_r0` on the host, `_0` here) the moment the emitter moved out of the
     // driver -- a divergence that surfaces as `named symbol not found` at
@@ -295,7 +295,7 @@ class ModuleCache {
                         ? *host_region.entry
                         : entry_name(plan.signature_hash, region_index);
                 // The stage key is built from version constants, which someone
-                // has to remember to bump. Editing `compiler/codegen`'s device
+                // has to remember to bump. Editing `tensor-compiler's codegen`'s device
                 // templates changes none of them, so a cubin compiled from the
                 // previous source stayed on disk and was silently reused --
                 // kernel edits appeared to do nothing, and the model's output
@@ -321,7 +321,7 @@ class ModuleCache {
                     }
                 }
                 if (executable == nullptr) {
-                    // The host is the only emitter now (`compiler/codegen`).
+                    // The host is the only emitter now (`tensor-compiler's codegen`).
                     // A region with no supplied source is a deterministic
                     // failure, not a cue to generate one here: the in-driver
                     // emitter is gone, and silently diverging from the host's

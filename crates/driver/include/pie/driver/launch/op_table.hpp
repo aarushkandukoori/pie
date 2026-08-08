@@ -3,12 +3,12 @@
 // The op table — the driver-side view of the closed first-party op set
 // (CUDA-free; consumed by both the CUDA and Metal drivers).
 //
-// SOURCE OF TRUTH: the generated `compiler/codegen/include/ptir_abi.h` (from
-// `compiler/ir/src/{op,registry}.rs`; regenerate with
+// SOURCE OF TRUTH: the generated `crates/tensor-compiler/include/ptir_abi.h` (from
+// `crates/tensor-ir/src/{op,registry}.rs`; regenerate with
 // `PTIR_REGEN=1 cargo test -p pie-compiler-tests --test ptir_header`) — op tag
 // bytes come from its `PTIR_OP_*` constants, NOT hand-copied ("include the
 // header, don't hand-copy ids"). Container byte layout is defined by the
-// encoder in `compiler/ir/src/container.rs`; there is no prose spec, and no
+// encoder in `crates/tensor-ir/src/container.rs`; there is no prose spec, and no
 // C++ container reader — the driver consumes the LOWERED `PieLaunchPort` /
 // op-table form, not the container.
 //

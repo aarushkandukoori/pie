@@ -84,7 +84,7 @@ pub const PTIR_VERSION_EXTERN: u16 = 2;
 ///
 /// This is the *primitive*. It is not an identity: what a hash means depends on
 /// what was fed to it, so the named contracts below (and
-/// [`compile::stage_identity`](../tensor_compiler/plan/compile/fn.stage_identity.html)) say
+/// [`compile::stage_identity`](../tensor_tensor-compiler's plan/compile/fn.stage_identity.html)) say
 /// which bytes they walk. Two callers hashing different byte sets must not be
 /// read as agreeing just because they share this function.
 ///

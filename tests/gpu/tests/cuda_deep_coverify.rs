@@ -117,7 +117,7 @@ async fn deep_presubmit_coverify_on_real_driver() -> Result<()> {
     let input = deep_input();
 
     // Build the deep-pre-submission inferlet (wasm32-wasip2, raw-WIT carrier).
-    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/engine/tests/inferlets");
+    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/engine/tests/inferlets");
     let ok = Command::new("cargo")
         .args(["build", "--target", "wasm32-wasip2", "-p", &pkg])
         .current_dir(&ws)

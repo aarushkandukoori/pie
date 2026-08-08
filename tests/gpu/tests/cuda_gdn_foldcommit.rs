@@ -1,7 +1,7 @@
 //! **fold-commit on the REAL linear model** — drives the `gdn-foldcommit`
 //! inferlet on Qwen3.5-0.8B (GDN backbone) so the buffer/fold machinery is
 //! exercised against real weights rather than the mock model in
-//! `runtime/engine/tests/rs_frame.rs`.
+//! `crates/engine/tests/rs_frame.rs`.
 //!
 //! `rs_frame.rs` proves the HOST bookkeeping (slot accounting, CSR shapes,
 //! refusals). It cannot prove the driver actually replays buffered
@@ -35,7 +35,7 @@ mod common;
 
 /// Build `gdn-foldcommit` to wasm and return the workspace dir.
 fn build_inferlet() -> Result<std::path::PathBuf> {
-    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/engine/tests/inferlets");
+    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/engine/tests/inferlets");
     let ok = Command::new("cargo")
         .args(["build", "--target", "wasm32-wasip2", "-p", "gdn-foldcommit"])
         .current_dir(&ws)

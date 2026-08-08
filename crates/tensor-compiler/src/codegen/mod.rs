@@ -43,8 +43,8 @@
 //! a driver: the compiler writes a `LaunchPackage` and the driver reads one out
 //! of the same declarations, so there is no second copy to keep in step.
 //!
-//! [`crate::codegen::plan`]: https://github.com/pie-project/pie/tree/dev/compiler/plan
-//! [`CompiledStage`]: https://github.com/pie-project/pie/tree/dev/compiler/plan
+//! [`crate::codegen::plan`]: https://github.com/pie-project/pie/tree/dev/tensor-compiler's plan
+//! [`CompiledStage`]: https://github.com/pie-project/pie/tree/dev/tensor-compiler's plan
 //! [`EmittedKernel`]: program::EmittedKernel
 
 // The emitters were authored against `alloc` paths in the `no_std` IR crate and

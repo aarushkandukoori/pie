@@ -28,7 +28,7 @@ pub use types::*;
 
 /// The tracer's fingerprint, stamped into every plan header.
 ///
-/// The FNV-1a content hash of `forward/src/**.rs`, computed by `build.rs`
+/// The FNV-1a content hash of `crates/model-compiler/src/**.rs`, computed by `build.rs`
 /// exactly the way `loader/build.rs` fingerprints the load-plan compiler:
 /// (this hash, facts) identifies a traced form, so a consumer can key a
 /// cache or a golden on `PieForwardPlan::compiler_version` and have it

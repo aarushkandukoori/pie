@@ -274,7 +274,7 @@ async fn over_capacity_fleet_preempts_and_restores_transparently() -> Result<()>
             .unwrap_or(8)
     };
 
-    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/engine/tests/inferlets");
+    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/engine/tests/inferlets");
     anyhow::ensure!(
         Command::new("cargo")
             .args(["build", "--target", "wasm32-wasip2", "-p", "generate"])

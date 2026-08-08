@@ -5,7 +5,7 @@
 namespace pie_cuda_driver {
 
 // The engine scheduler's maximum run-ahead depth in FRAMES
-// (`configured_dispatch_depth` in runtime/engine/src/scheduler/frame.rs,
+// (`configured_dispatch_depth` in crates/engine/src/scheduler/frame.rs,
 // from `[model.scheduler] frame_dispatch_depth`).
 // Venus: one frame carries up to `[model.scheduler] frame_size` steps, and
 // every step is

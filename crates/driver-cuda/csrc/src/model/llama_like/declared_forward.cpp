@@ -72,7 +72,7 @@ const DeviceTensor* bind_llama_like_weight(
         throw_unknown_weight(name);
     }
     const Qwen3LayerWeights& l = w.layers[static_cast<std::size_t>(nm.layer)];
-    // The vocabulary is the TRACE's (`forward/src/dsl.rs`'s `Layer`), which
+    // The vocabulary is the TRACE's (`crates/model-compiler/src/dsl.rs`'s `Layer`), which
     // is why this table is the family's whole contribution: `gate_up` is one
     // traced name whether or not the checkpoint bound a fused bank, and the
     // arm asks for the split halves by field when it did not.

@@ -28,7 +28,7 @@
 //!
 //! **Row order is the ENGINE's.** `lower` takes the rows as the
 //! scheduler's seriation already ordered them
-//! (`runtime/engine/src/scheduler/fire_plan.rs`) and does not choose a
+//! (`crates/engine/src/scheduler/fire_plan.rs`) and does not choose a
 //! permutation. Two independent permutation choosers would drift, and
 //! the engine's is the one coupled to admission, framing and wave
 //! discipline. What `lower` may do is REPORT what an order costs

@@ -86,7 +86,7 @@ pub fn generate_cuda_header() -> String {
     let implementation = render_cuda_functions(CudaProjection::Header);
     let source = cuda_device_functions();
     format!(
-        "// rng_contract.generated.h — GENERATED from compiler/ir/src/rng.rs.\n\
+        "// rng_contract.generated.h — GENERATED from crates/tensor-ir/src/rng.rs.\n\
 // DO NOT EDIT. Regenerate: PTIR_REGEN=1 cargo test -p pie-compiler-tests --test rng_contract\n\
 #pragma once\n\
 #include <stdint.h>\n\
@@ -112,7 +112,7 @@ inline constexpr char PTIR_RNG_CUDA_PREAMBLE[] = R\"PTIR_RNG_CUDA(\n\
 /// MSL, wrapped in an include guard.
 pub fn generate_msl_preamble() -> String {
     let mut out = String::from(
-        "// ptir_rng.generated.metal — GENERATED from compiler/ir/src/rng.rs.\n\
+        "// ptir_rng.generated.metal — GENERATED from crates/tensor-ir/src/rng.rs.\n\
 // DO NOT EDIT. Regenerate: PTIR_REGEN=1 cargo test -p pie-compiler-tests --test rng_contract\n\
 #ifndef PIE_PTIR_RNG_GENERATED_METAL\n\
 #define PIE_PTIR_RNG_GENERATED_METAL\n\

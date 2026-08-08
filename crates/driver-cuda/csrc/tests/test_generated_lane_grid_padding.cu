@@ -20,7 +20,7 @@
 // lane-gridded kernels (generated NVRTC region, nucleus family, topk,
 // envelope_dot, matmul) use the identical guard-first idiom —
 // `header->lane_count` read before any lane table — and the NVRTC template's
-// guard lives at compiler/codegen/runtime/cuda/fused_block1.cuh:18-19; they
+// guard lives at crates/tensor-compiler/runtime/cuda/fused_block1.cuh:18-19; they
 // are exercised end-to-end by the PTIR suites.
 
 #include <cstdint>

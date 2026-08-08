@@ -35,7 +35,7 @@
 namespace pie_cuda_driver::batch {
 
 // Predicate slots in the device word, by the trace's wire pred kinds
-// (forward/src/trace.rs GuardPred::wire): HasWriteDesc=0, TokensLE=1,
+// (crates/model-compiler/src/trace.rs GuardPred::wire): HasWriteDesc=0, TokensLE=1,
 // TokensGT=2, WantsAttnScore=3, HasCustomMask=4, (5 reserved),
 // HasLora=6. Slots 7+: the Peel endpoint bits (S4 note: a MIXED hooked
 // fire — 0 < fast_rows < N — cannot replay a baked window; eligibility

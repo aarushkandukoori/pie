@@ -1,4 +1,4 @@
-// ptir_abi.h — GENERATED from `compiler/ir/src/{op,registry}.rs`.
+// ptir_abi.h — GENERATED from `crates/tensor-ir/src/{op,registry}.rs`.
 // DO NOT EDIT. Regenerate: PTIR_REGEN=1 cargo test -p pie-compiler-tests --test ptir_header
 #pragma once
 #include <stdint.h>
@@ -280,4 +280,4 @@ enum PtirChannelClass : uint8_t { PTIR_CHAN_FULL_RING = 0, PTIR_CHAN_IN_PLACE = 
 // rank_le(k): #strictly-greater < k (ties may admit > k elements at the boundary).
 // cummass_le(p): inclusive nucleus (keep while exclusive prefix mass < p). prob_ge: >=.
 // rng_keyed(state=[key,ctr]): seed64 = splitmix64((key<<32)|ctr); u(j) = hash_uniform(seed64, j)
-//   with splitmix64/hash_uniform exactly as compiler/ir/src/rng.rs; gumbel = -log(-log(u)).
+//   with splitmix64/hash_uniform exactly as crates/tensor-ir/src/rng.rs; gumbel = -log(-log(u)).

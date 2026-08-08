@@ -3,7 +3,7 @@
 //! `$PIE_HOME/py-runtime/` so Python inferlets have something to
 //! link against.
 //!
-//! Mirrors `sdk/tools/bakery/src/bakery/py_runtime.py` (the canonical
+//! Mirrors `sdk/inferlet/tools/bakery/src/bakery/py_runtime.py` (the canonical
 //! installer used by the Python `pie config init` and `Server.__aenter__`
 //! paths). Both call paths land at the same on-disk layout, so a tarball
 //! pulled by either is reused by the other.

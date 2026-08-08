@@ -533,7 +533,7 @@ impl Drop for PlanArena {
 /// The arena is immutable once published, and every pointer it hands out is into
 /// storage it exclusively owns, so a plan can be read from any thread and freed
 /// from a thread other than the one that built it. Ranks load in parallel
-/// (`runtime/engine/src/driver/backend/cuda.rs:331-345`), so this is a
+/// (`crates/engine/src/driver/backend/cuda.rs:331-345`), so this is a
 /// requirement, not a convenience.
 unsafe impl Send for PlanArena {}
 unsafe impl Sync for PlanArena {}

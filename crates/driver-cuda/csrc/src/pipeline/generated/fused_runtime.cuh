@@ -1208,7 +1208,7 @@ inline bool generated_stage_is_compact_argmax(
 // grouped kernels (`k_grouped_stage_readiness`, `k_grouped_topk`, the
 // nucleus family in grouped_runtime.cuh), the driver-side region kernels in
 // this file, and the NVRTC-emitted region kernel
-// (compiler/codegen/runtime/cuda/fused_block1.cuh:18-19,
+// (crates/tensor-compiler/runtime/cuda/fused_block1.cuh:18-19,
 // `dispatch_lane >= header->lane_count`) all guard before touching any
 // lane-indexed table — so no emitter change and no golden re-bless is
 // needed, and an idle block costs one global read of the header.
@@ -3033,7 +3033,7 @@ inline GroupedLaunchResult launch_generated_stage(
                 // One block per PADDED lane. The NVRTC-emitted region
                 // kernel's first act is the guard
                 // (`dispatch_lane >= header->lane_count`,
-                // compiler/codegen/runtime/cuda/fused_block1.cuh:18-19),
+                // crates/tensor-compiler/runtime/cuda/fused_block1.cuh:18-19),
                 // so idle blocks exit before touching any lane table.
                 const CUresult launch_status = cuLaunchKernel(
                     region.region->function,

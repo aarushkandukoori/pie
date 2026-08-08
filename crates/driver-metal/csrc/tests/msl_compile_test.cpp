@@ -1,7 +1,7 @@
 // The host MSL emitter's output, through a real Metal compiler.
 //
 // Since the driver's own emitter was deleted, `register_program` fails outright
-// when the host does not supply MSL for a fused region: `compiler/codegen/src/
+// when the host does not supply MSL for a fused region: `tensor-compiler's codegen/src/
 // metal/` is now the only implementation, and every kernel this driver runs is
 // text that crate produced. Nothing checked that text is *valid MSL*.
 //
@@ -16,7 +16,7 @@
 // the emitter's own bytes: the Rust test pins Rust == golden, and this pins
 // golden == compilable. The dump elides the two shared prefixes, which is why
 // `grouped_preamble()` had to move out of a Rust string literal and into
-// `compiler/codegen/runtime/metal/ptir_m1_grouped.metal` — a literal in that
+// `crates/tensor-compiler/runtime/metal/ptir_m1_grouped.metal` — a literal in that
 // crate is reachable from nothing but that crate, and the golden header's
 // length + FNV field is what proves the move changed no byte.
 

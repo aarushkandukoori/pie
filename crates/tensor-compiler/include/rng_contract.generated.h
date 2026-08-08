@@ -1,4 +1,4 @@
-// rng_contract.generated.h — GENERATED from compiler/ir/src/rng.rs.
+// rng_contract.generated.h — GENERATED from crates/tensor-ir/src/rng.rs.
 // DO NOT EDIT. Regenerate: PTIR_REGEN=1 cargo test -p pie-compiler-tests --test rng_contract
 #pragma once
 #include <stdint.h>

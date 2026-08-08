@@ -39,7 +39,7 @@ const HEADER: &str = "\
 # right, then re-pin with `PTIR_REGEN=1 cargo test -p pie-compiler-tests`.
 #
 # Where a kernel is digested, `bytes` and the hash cover what the *compiler*
-# generated: the hand-written device text under `compiler/codegen/runtime/` is
+# generated: the hand-written device text under `crates/tensor-compiler/runtime/` is
 # dropped first, so tuning a kernel does not re-pin every case. That the
 # emitters still splice those blocks in whole is
 # `every_live_device_file_is_spliced_into_a_kernel_verbatim`.
@@ -75,7 +75,7 @@ fn device_text() -> Vec<String> {
     assert_eq!(
         texts.len(),
         8,
-        "compiler/codegen/runtime/ holds eight hand-written device files; if that \
+        "crates/tensor-compiler/runtime/ holds eight hand-written device files; if that \
          changed, this pin is eliding a different set than it was written for"
     );
     texts

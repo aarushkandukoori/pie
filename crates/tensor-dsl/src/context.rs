@@ -172,7 +172,7 @@ thread_local! {
     /// This map holds a strong [`ChannelRef`] and nothing drops it when the
     /// last user-visible handle goes away. That reads like a leak and is
     /// worth stating plainly that it is not: the SDK's `Channel`
-    /// (`sdk/rust/inferlet/src/ptir.rs`) is `Copy` and stores *only* a gid,
+    /// (`crates/inferlet/src/ptir.rs`) is `Copy` and stores *only* a gid,
     /// resolving through [`channel_state_by_gid`] on every operation. There
     /// is no handle whose drop could mean "nobody wants this channel" —
     /// a `Weak` here would free state that a live token still names, and

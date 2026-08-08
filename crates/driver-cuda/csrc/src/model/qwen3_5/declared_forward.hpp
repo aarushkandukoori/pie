@@ -6,7 +6,7 @@
 // TP=1 path, on the same workspace buffers, in the same order — the same
 // bit-identity argument as `llama_like/declared_forward.hpp`. Arc 2 covered
 // pure-decode fires; arc 3 added the PREFILL lowerings — the trace itself
-// is decode/prefill-agnostic (forward/src/trace.rs: CausalConv1d /
+// is decode/prefill-agnostic (crates/model-compiler/src/trace.rs: CausalConv1d /
 // GatedDelta / Attention are opaque ops whose lowering the emitter picks
 // per fire), so the same 16 arms now branch per fire exactly as the
 // hand-written bodies branch: conv decode-update vs prefill walk, the

@@ -314,7 +314,7 @@ use client::client::Client;
 /// (one cargo invocation) so a multi-capability harness pays the build once.
 pub fn build_inferlet(name: &str) -> (PathBuf, PathBuf) {
     let workspace =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/engine/tests/inferlets");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/engine/tests/inferlets");
     let ok = Command::new("cargo")
         .args([
             "build",

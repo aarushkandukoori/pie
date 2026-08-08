@@ -1,7 +1,7 @@
 //! The hand-written device text an emitted kernel is built around, as it stood
 //! when the C++ oracle was dumped.
 //!
-//! `compiler/codegen/runtime/{cuda,metal}/` is device source the kernel side
+//! `crates/tensor-compiler/runtime/{cuda,metal}/` is device source the kernel side
 //! owns. It is `include_str!`ed verbatim into every emitted kernel, and it
 //! moves for reasons the compiler has no say in: `3aeb4162a` shipped a decode
 //! parallelism fix that grew the CUDA prologue by 1,266 bytes and
@@ -143,7 +143,7 @@ impl OracleInputs {
     }
 }
 
-/// Every hand-written device file under `compiler/codegen/runtime/`, across
+/// Every hand-written device file under `crates/tensor-compiler/runtime/`, across
 /// backends, longest first.
 pub fn live_device_text(runtime_root: &Path) -> Vec<String> {
     let mut backends = read_dir_all(runtime_root);

@@ -548,7 +548,7 @@ async fn session_driver(
 
         // The runtime is fed HERE, in the driver loop, and not from the spawned
         // task. Chunked `AddProgram` uploads arrive as one turn per chunk, and
-        // `runtime/engine/src/server/data_transfer.rs` hard-rejects a chunk
+        // `crates/engine/src/server/data_transfer.rs` hard-rejects a chunk
         // that is not the one it expects next, tearing the upload down. Feeding
         // from the tasks would have made chunk order depend on `JoinSet::spawn`
         // first-poll order across worker threads, which tokio's LIFO slot and

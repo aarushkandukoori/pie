@@ -570,7 +570,7 @@ inline std::size_t canonical_rows(const launch::Shape& shape) {
     return rows;
 }
 
-// Canonical logical width-32 tree shared with compiler/eval's reference.
+// Canonical logical width-32 tree shared with tensor-compiler's eval's reference.
 // Physical launch dimensions must never affect this order.
 template <class T, class Combine>
 inline T canonical_reduce(

@@ -5,7 +5,7 @@
 //
 // This is what survived the in-driver emitter (`m1_codegen.{cpp,hpp}`, deleted
 // in the compiler/ consolidation). That file was a pure MSL string builder
-// and its output now comes from the host (`compiler/codegen`, shipped in
+// and its output now comes from the host (`tensor-compiler's codegen`, shipped in
 // `PieProgramDesc::emitted_kernels`); the constants, ABI structs and the
 // metadata walker below are NOT emission and are still called at bind and at
 // launch:
@@ -16,7 +16,7 @@
 //   * `M1OpMeta` — one entry per singleton region, populated once at bind
 //     and read at execute to fill the per-op `DeviceOpParams`. The walk is
 //     a deterministic function of the plan; the host runs the same walk in
-//     `compiler/codegen/src/metal/validate.rs` before it emits.
+//     `tensor-compiler's codegen/src/metal/validate.rs` before it emits.
 //   * `kMetalM1EmitterVersion` — pins this driver's compile cache identity
 //     to the host emitter it was verified against, so a stale mtl4archive
 //     never survives a host-side emitter bump.
@@ -59,7 +59,7 @@ struct M1OpMeta {
 
 // Walk the plan's singleton partition and populate `M1OpMeta` per op. This
 // is not validation: the host runs the equivalent check in
-// `compiler/codegen/src/metal/validate.rs` and signals a stage-level
+// `tensor-compiler's codegen/src/metal/validate.rs` and signals a stage-level
 // rejection through the KERNEL_SINGLETON slot at region 0. If that signal
 // arrives, the caller must reject before this walker ever runs; the walker
 // itself assumes the plan is well-formed and result bases are the running

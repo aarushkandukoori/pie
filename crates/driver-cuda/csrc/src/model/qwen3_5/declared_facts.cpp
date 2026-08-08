@@ -106,7 +106,7 @@ int reduce_full_attn_interval(const HfConfig& cfg, std::string& reason) {
 }
 
 // `is_full_attn`, verbatim from the Metal geometry (and
-// `Qwen35HybridFacts::is_full_attn` in forward/src/facts.rs).
+// `Qwen35HybridFacts::is_full_attn` in crates/model-compiler/src/facts.rs).
 bool is_full_attn_layer(int l, int interval) {
     return interval <= 1 || (l % interval) == (interval - 1);
 }

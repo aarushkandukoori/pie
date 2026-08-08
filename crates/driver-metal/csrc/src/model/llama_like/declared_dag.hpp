@@ -4,7 +4,7 @@
 ///
 /// This is emitter #2 over `pie_forward`'s traced form: it walks the plan the
 /// exact way `crates/driver-cuda/csrc/src/model/llama_like/declared_forward.cpp` walks it
-/// — same weight-name vocabulary (`forward/src/family.rs`'s), same
+/// — same weight-name vocabulary (`crates/model-compiler/src/family.rs`'s), same
 /// throw-on-drift discipline — but where the CUDA emitter launches kernels,
 /// this one only EMITS an ordered list of dispatch descriptors. What a
 /// descriptor commits to is the operation and its dataflow; dtype, PSO and
@@ -109,7 +109,7 @@ namespace detail {
 [[noreturn]] inline void throw_unknown_weight(std::string_view name) {
     throw std::runtime_error(
         "llama_like declared dag: unknown weight name '" + std::string(name) +
-        "' (trace vocabulary is forward/src/family.rs's)");
+        "' (trace vocabulary is crates/model-compiler/src/family.rs's)");
 }
 
 /// A plan weight name split into its layer index and field: "layer.3.q_proj"

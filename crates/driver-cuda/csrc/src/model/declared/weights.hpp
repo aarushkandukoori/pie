@@ -6,7 +6,7 @@
 // DEVICE TENSOR that name is, is the family's contract and nothing else.
 // This header holds the two halves of that sentence:
 //
-//   * the name GRAMMAR, which is `forward/src/family.rs`'s and identical
+//   * the name GRAMMAR, which is `crates/model-compiler/src/family.rs`'s and identical
 //     everywhere (it was copied byte-for-byte into each family executor);
 //   * the one indirection an interpreter arm may use — a BINDER the family
 //     supplies, answering name -> tensor.
@@ -38,7 +38,7 @@ struct ParsedWeightName {
 [[noreturn]] inline void throw_unknown_weight(std::string_view name) {
     throw std::runtime_error(
         "declared forward: unknown weight name '" + std::string(name) +
-        "' (trace vocabulary is forward/src/family.rs's)");
+        "' (trace vocabulary is crates/model-compiler/src/family.rs's)");
 }
 
 inline ParsedWeightName parse_weight_name(std::string_view name) {

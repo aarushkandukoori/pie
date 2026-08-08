@@ -6,7 +6,7 @@
 // This is what survived the in-driver emitters (`singleton_codegen.hpp` and
 // `fused_codegen.hpp`, deleted in the compiler/ consolidation). Those files
 // were pure string builders and their output now comes from the host
-// (`compiler/codegen`, shipped in `PieProgramDesc::emitted_kernels`); the
+// (`tensor-compiler's codegen`, shipped in `PieProgramDesc::emitted_kernels`); the
 // predicates and the packer analysis below are NOT emission and are still
 // called at bind and at launch:
 //
@@ -277,7 +277,7 @@ inline bool valid_identifier(const std::string& name) {
 // `second_party_region_supported` and `validate_generated_region`, and the
 // intrinsic side-table analysis `analyze_direct_argmax` -- are gone
 // (`ptir-refactor.md` §4.2, fields 4 and 5). They were a second
-// implementation of decisions `compiler/codegen` had already made to emit the
+// implementation of decisions `tensor-compiler's codegen` had already made to emit the
 // kernel that consumes them, and the two could disagree without failing to
 // compile: the kernel would read a side-table slot the packer never wrote.
 // The host now ships its answers as `PieProgramDesc::region_analysis` and the
