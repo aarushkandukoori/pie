@@ -848,3 +848,28 @@ fn the_glm5_decode_text_lowers() {
     );
     assert_eq!(out.coverage(), 1.0);
 }
+
+/// kimi's CUDA decode text lowers with nothing left over — the fused
+/// latent binding and the split one both, since which is bound is a fact
+/// and a fact that only lowers one way is a fact stated wrong.
+#[test]
+fn the_kimi_decode_text_lowers() {
+    use model::kimi::forward::facts::{KimiCudaFacts, KimiFacts};
+    let facts = KimiFacts::kimi_k2();
+    for fused in [true, false] {
+        let cuda = KimiCudaFacts {
+            q_kv_a_fused: fused,
+            ..KimiCudaFacts::kimi_k2_synthetic()
+        };
+        let plan = model::kimi::forward::kimi_cuda(&facts, &cuda, FireClass::Decode);
+        let out = lower(&plan, &sampled(1), Fire::default())
+            .unwrap_or_else(|e| panic!("kimi (fused={fused}) must lower: {e:?}"));
+        assert!(
+            out.residue.is_empty(),
+            "fused={fused}: {} statement(s) still owe a declaration: {:#?}",
+            out.residue.len(),
+            out.residue
+        );
+        assert_eq!(out.coverage(), 1.0);
+    }
+}
