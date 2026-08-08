@@ -39,6 +39,7 @@
 #include "kernels_manifest.hpp"
 #include "store/memory_planner.hpp"
 #include "device_buffer.hpp"
+#include "runahead.hpp"
 #include "batch/frame.hpp"
 #include "batch/fire_timing.hpp"
 #include "batch/forward.hpp"
@@ -1314,7 +1315,8 @@ int Context::Impl::load_model(
     {
         ScopedCudaArenaAllocator arena(*attention_allocator_);
         attn_ws_p = own_value(AttentionWorkspace::allocate(
-            mem_plan.attn_float_workspace_bytes, 8ull * 1024 * 1024));
+            mem_plan.attn_float_workspace_bytes, 8ull * 1024 * 1024,
+            kUploadStagingDepth));
     }
     auto& attn_ws = *attn_ws_p;
 

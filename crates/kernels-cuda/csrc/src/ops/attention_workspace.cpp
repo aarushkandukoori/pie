@@ -28,9 +28,13 @@ void AttentionWorkspace::ensure_plan_slot(PlanStaging& slot) {
 
 AttentionWorkspace AttentionWorkspace::allocate(
     std::size_t float_workspace_bytes,
-    std::size_t int_workspace_bytes)
+    std::size_t int_workspace_bytes,
+    std::size_t plan_staging_slots)
 {
     AttentionWorkspace ws;
+    // At least one: slot 0 is pinned below and `begin_plan_update` takes a
+    // modulus by this size.
+    ws.plan_staging_.resize(plan_staging_slots ? plan_staging_slots : 1);
     ws.float_buf_ = DeviceTensor::allocate(
         DType::UINT8, {static_cast<std::int64_t>(float_workspace_bytes)});
     ws.int_buf_ = DeviceTensor::allocate(
@@ -58,7 +62,7 @@ AttentionWorkspace::AttentionWorkspace(AttentionWorkspace&& other) noexcept
     : float_buf_(std::move(other.float_buf_)),
       int_buf_(std::move(other.int_buf_)),
       staging_bytes_(other.staging_bytes_),
-      plan_staging_(other.plan_staging_),
+      plan_staging_(std::move(other.plan_staging_)),
       active_plan_slot_(other.active_plan_slot_),
       next_plan_slot_(other.next_plan_slot_)
 {
@@ -84,7 +88,7 @@ AttentionWorkspace& AttentionWorkspace::operator=(AttentionWorkspace&& other) no
         float_buf_ = std::move(other.float_buf_);
         int_buf_ = std::move(other.int_buf_);
         staging_bytes_ = other.staging_bytes_;
-        plan_staging_ = other.plan_staging_;
+        plan_staging_ = std::move(other.plan_staging_);
         active_plan_slot_ = other.active_plan_slot_;
         next_plan_slot_ = other.next_plan_slot_;
         other.plan_staging_ = {};
@@ -114,8 +118,7 @@ AttentionWorkspace::~AttentionWorkspace() {
 
 void AttentionWorkspace::begin_plan_update() {
     active_plan_slot_ = next_plan_slot_;
-    next_plan_slot_ =
-        (next_plan_slot_ + 1) % kPlanStagingSlots;
+    next_plan_slot_ = (next_plan_slot_ + 1) % plan_staging_.size();
     auto& staging = plan_staging_[active_plan_slot_];
     const bool profile = plan_profile_enabled();
     const auto t0 = profile ? std::chrono::steady_clock::now()

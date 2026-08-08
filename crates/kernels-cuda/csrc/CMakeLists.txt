@@ -17,7 +17,13 @@
 #                        are expressed in. The shell reads it too, and reads
 #                        it from HERE, because a kernel signature cannot be
 #                        stated in a type the caller owns.
-#   runahead.hpp         the runahead slot count attention_workspace sizes by.
+#
+# What went BACK to the driver: `runahead.hpp`. It holds the scheduler's
+# run-ahead depth, which is shell policy, and it was here only because
+# `ops/attention_workspace.hpp` sized a `std::array` by it. That array is a
+# `std::vector` now and `allocate()` takes the depth as an argument, so the
+# driver states its own number and passes it down -- no shared header, and
+# the dependency is a call rather than an include.
 #   third_party/         FlashInfer's generated MoE launchers, marlin,
 #                        marlin_moe. Kernels, vendored.
 #

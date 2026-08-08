@@ -46,9 +46,22 @@ for h in HDRS:
         if "cudaStream_t" in p or "cublasHandle_t" in p:
             launchers[m.group(1)] = h.name
 
-# what the table declares (strip the C++ namespace the symbol may carry)
-tbl_src = (ROOT/"crates/kernels-cuda/src/lib.rs").read_text()
+# What the table declares (strip the C++ namespace the symbol may carry).
+#
+# Every `.rs` in the crate, not just `lib.rs`: the table is one module per
+# kernel family now (`attn.rs`, `moe.rs`, ...) and `lib.rs` holds only the
+# concatenation. Reading the one file silently produced an EMPTY declared set,
+# which made this audit report every launcher in the tree as undeclared.
+tbl_src = "".join(
+    p.read_text() for p in sorted((ROOT/"crates/kernels-cuda/src").glob("*.rs"))
+)
 declared = {s.split("::")[-1] for s in re.findall(r'"([a-z0-9_:]+)"', tbl_src)}
+if not declared:
+    raise SystemExit(
+        "no symbols found in crates/kernels-cuda/src/*.rs -- the table moved "
+        "again, and this audit reports nonsense rather than nothing when that "
+        "happens. Fix the glob above."
+    )
 
 # what the emitters produce from SEMANTIC ops -- never a `Launch` in a trace
 emitted = set()

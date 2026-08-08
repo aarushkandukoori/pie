@@ -28,8 +28,8 @@
 use anyhow::{Result, bail};
 use serde_json::Value;
 
-use crate::json::*;
-use crate::schema::*;
+use super::json::*;
+use super::schema::*;
 
 /// Model types whose query/key width is the sum of the two MLA halves.
 const MLA_HEAD_DIM_ARCHS: [&str; 5] = [

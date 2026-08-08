@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("usage: descriptor <config.json>"))?;
     let raw = std::fs::read_to_string(&path)?;
     let root: serde_json::Value = serde_json::from_str(&raw)?;
-    let descriptor = model_config::descriptor(&root, &path)?;
+    let descriptor = model::config::descriptor(&root, &path)?;
     println!("{}", serde_json::to_string_pretty(&descriptor)?);
     Ok(())
 }

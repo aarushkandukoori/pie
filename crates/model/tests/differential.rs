@@ -1,6 +1,6 @@
 //! The Rust normalizer against the C++ one it replaces, field for field.
 //!
-//! `pie.model/1` only works if this crate answers "what is this model made of"
+//! `pie.model/1` only works if [`model::config`] answers "what is this model made of"
 //! the same way `crates/driver-cuda/csrc/src/model/config.cpp` does. Not approximately —
 //! a single defaulting rule that differs breaks a model, and it breaks it
 //! *later*, once the C++ side is deleted and there is nothing left to disagree
@@ -18,6 +18,8 @@
 //! overwritten, so DeepSeek-V4 has no sinks. This test asserts the port
 //! reproduces that. Fixing it means editing the C++, regenerating the goldens
 //! and updating both sides together — never one side quietly diverging.
+
+#![cfg(feature = "config")]
 
 use std::path::{Path, PathBuf};
 
@@ -121,7 +123,7 @@ fn the_port_matches_the_normalizer_it_replaces() {
         // this must refuse too — a port that accepts what the original rejects
         // is as wrong as one that computes a different number.
         let cxx_refused = expected.get("error").is_some();
-        match model_config::normalize(&root, name) {
+        match model::config::normalize(&root, name) {
             Ok(_) if cxx_refused => {
                 failures.push(format!("{name}: accepted, but the C++ side refuses it"))
             }
@@ -259,7 +261,7 @@ fn the_dead_deepseek_v4_sinks_assignment_is_reproduced() {
 
     let raw =
         std::fs::read_to_string(oracle_dir().join("corpus/synthetic--deepseek-v4.json")).unwrap();
-    let cfg = model_config::normalize(&serde_json::from_str(&raw).unwrap(), "dsv4").unwrap();
+    let cfg = model::config::normalize(&serde_json::from_str(&raw).unwrap(), "dsv4").unwrap();
     assert!(
         !cfg.attention_has_sinks,
         "the port diverged from the C++ side by fixing the bug on its own"
@@ -303,7 +305,7 @@ fn qwen3_5_renormalizes_its_router_by_default_unlike_the_c_side() {
             text.get("norm_topk_prob").is_none() && j.get("norm_topk_prob").is_none(),
             "{name} states the key, so it is not evidence about the default"
         );
-        let cfg = model_config::normalize(&j, name).unwrap();
+        let cfg = model::config::normalize(&j, name).unwrap();
         assert!(
             cfg.norm_topk_prob,
             "{name} omits norm_topk_prob and its reference defaults it to true"
@@ -314,7 +316,7 @@ fn qwen3_5_renormalizes_its_router_by_default_unlike_the_c_side() {
     // family rule and not a flipped constant.
     let raw =
         std::fs::read_to_string(oracle_dir().join("corpus/dacorvo--Mixtral-tiny.json")).unwrap();
-    let cfg = model_config::normalize(&serde_json::from_str(&raw).unwrap(), "mixtral").unwrap();
+    let cfg = model::config::normalize(&serde_json::from_str(&raw).unwrap(), "mixtral").unwrap();
     assert!(
         !cfg.norm_topk_prob,
         "the default outside qwen3.5/3.6/next is still the C++ side's false"
@@ -350,7 +352,7 @@ fn the_mlx_spelling_of_quantization_is_read() {
         "rope_theta": 10000.0,
         "quantization": { "group_size": 64, "bits": 8 }
     }"#;
-    let cfg = model_config::normalize(&serde_json::from_str(raw).unwrap(), "mlx").unwrap();
+    let cfg = model::config::normalize(&serde_json::from_str(raw).unwrap(), "mlx").unwrap();
     assert_eq!(cfg.quant_bits, 8, "an 8-bit MLX checkpoint read as {}", cfg.quant_bits);
     assert_eq!(cfg.quant_group_size, 64);
 
@@ -361,7 +363,7 @@ fn the_mlx_spelling_of_quantization_is_read() {
         r#""quantization": { "group_size": 64, "bits": 8 },
            "quantization_config": { "quant_method": "awq", "group_size": 128, "bits": 4 }"#,
     );
-    let cfg = model_config::normalize(&serde_json::from_str(&both).unwrap(), "both").unwrap();
+    let cfg = model::config::normalize(&serde_json::from_str(&both).unwrap(), "both").unwrap();
     assert_eq!(cfg.quant_method, "awq");
     assert_eq!(cfg.quant_bits, 4);
     assert_eq!(cfg.quant_group_size, 128);

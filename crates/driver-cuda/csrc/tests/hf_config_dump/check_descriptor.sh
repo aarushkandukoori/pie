@@ -13,7 +13,7 @@
 #
 #   ./check_descriptor.sh
 #
-# Needs `cargo build -p pie-model-config --bin descriptor` (done automatically)
+# Needs `cargo build -p model --features config --bin descriptor` (done automatically)
 # and a C++ compiler; see build.sh for how nlohmann is found.
 set -euo pipefail
 
@@ -23,7 +23,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 "$here/build.sh" --descriptor "$work/dump_from_descriptor" >/dev/null
-(cd "$repo" && cargo build -q -p pie-model-config --bin descriptor)
+(cd "$repo" && cargo build -q -p model --features config --bin descriptor)
 descriptor="$repo/target/debug/descriptor"
 
 pass=0; fail=0

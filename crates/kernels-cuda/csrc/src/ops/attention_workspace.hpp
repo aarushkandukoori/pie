@@ -11,21 +11,29 @@
 // batch/workspace.hpp, the sizing-policy wrapper around this type) and
 // reused across all forward passes.
 
-#include <array>
 #include <cstddef>
+#include <vector>
 
 #include <cuda_runtime.h>
 
-#include "runahead.hpp"
 #include "tensor.hpp"
 
 namespace pie_cuda_driver {
 
 class AttentionWorkspace {
 public:
+    /// `plan_staging_slots` is the caller's run-ahead depth in STEPS, and it
+    /// is a parameter rather than a constant here because the number is the
+    /// scheduler's, not a kernel's: one slot is claimed per step
+    /// (`begin_plan_update`) and is reusable only after its upload event
+    /// retires, so a pool shallower than the in-flight step count blocks
+    /// every submit in `cudaEventSynchronize` for ~a full GPU step. The
+    /// driver derives it (`runahead.hpp`) and passes it down; this side only
+    /// has to honour it.
     static AttentionWorkspace allocate(
         std::size_t float_workspace_bytes = 80 * 1024 * 1024,  // 80 MiB
-        std::size_t int_workspace_bytes  =  8 * 1024 * 1024);  // 8  MiB
+        std::size_t int_workspace_bytes  =  8 * 1024 * 1024,   // 8  MiB
+        std::size_t plan_staging_slots   = 1);
 
     AttentionWorkspace() = default;
     AttentionWorkspace(const AttentionWorkspace&) = delete;
@@ -56,19 +64,15 @@ private:
 
     void ensure_plan_slot(PlanStaging& slot);
 
-    // Single-sourced from runahead.hpp: one slot is claimed per STEP
-    // (`begin_plan_update`), and a slot is reusable only after its recorded
-    // upload event retires, so a pool shallower than the in-flight STEP
-    // count blocks every submit in cudaEventSynchronize for ~a full GPU
-    // step. Slot 0 is pinned at allocate() (some ops read
-    // `page_locked_int()` without ever rotating); the rest pin lazily on
-    // first rotation so non-rotating workspaces don't hold 13 slots.
-    static constexpr std::size_t kPlanStagingSlots = kUploadStagingDepth;
 
     DeviceTensor float_buf_;       // device
     DeviceTensor int_buf_;         // device
     std::size_t staging_bytes_ = 0;
-    std::array<PlanStaging, kPlanStagingSlots> plan_staging_{};
+    // Sized by `allocate`'s `plan_staging_slots`. Slot 0 is pinned there
+    // (some ops read `page_locked_int()` without ever rotating); the rest
+    // pin lazily on first rotation, so a non-rotating workspace does not
+    // hold the full depth's worth of pinned host memory.
+    std::vector<PlanStaging> plan_staging_;
     std::size_t active_plan_slot_ = 0;
     std::size_t next_plan_slot_ = 0;
 };

@@ -10,10 +10,10 @@
 //! boundary this crate cannot see. It had already grown three times —
 //! `crates/driver-cuda/csrc/src/model/config.cpp` (855 lines, 25 `model_type`
 //! conditionals), `crates/driver-metal/csrc/src/model_facts.cpp`'s `read_model_facts`,
-//! and this crate — and the three agreed only by coincidence and a
+//! and `model::config` — and the three agreed only by coincidence and a
 //! differential test.
 //!
-//! So this is a source grep, in the idiom of `model/tests/registry_agreement.rs`
+//! So this is a source grep, in the idiom of `registry_agreement.rs` beside it
 //! and `loader/tests/standalone.rs`: the property is about what another
 //! language declares, and no amount of Rust-side assertion can reach it.
 //!
@@ -30,7 +30,7 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("crates/model-config has two ancestors")
+        .expect("crates/model has two ancestors")
         .to_path_buf()
 }
 
@@ -111,7 +111,7 @@ fn the_cuda_driver_has_no_config_json_parser() {
     assert!(
         found.is_empty(),
         "`parse_hf_config` is back in the CUDA driver. `config.json` is \
-         normalized once, in this crate, and the driver reads the \
+         normalized once, in `model::config`, and the driver reads the \
          `pie.model/1` descriptor (`crates/driver-cuda/csrc/src/model/descriptor.hpp`):\n{}",
         found.join("\n")
     );
@@ -151,6 +151,12 @@ fn the_metal_driver_boot_has_no_config_json_parser() {
 /// This is a Rust-side guard where a type could not be one: nothing stops a
 /// future reader from opening the file again, and `serde_json` is already in
 /// scope for the descriptor.
+///
+/// `crates/model/src` now holds the normalizer itself and is still walked
+/// unexcepted, which is the point: [`model::config::normalize`] takes a
+/// `&serde_json::Value` and a path it only ever quotes in errors. Reading the
+/// file is the *caller's*, so even the one module allowed to normalize is not
+/// allowed to open.
 #[test]
 fn the_runtime_does_not_read_config_json() {
     let root = repo_root();
@@ -183,8 +189,8 @@ fn the_runtime_does_not_read_config_json() {
     assert!(
         found.is_empty(),
         "the runtime reads `config.json` again. Model facts come from the \
-         `pie.model/1` descriptor the worker hands it — normalized by this \
-         crate for a snapshot, carried compiled by a `.zt`:\n{}",
+         `pie.model/1` descriptor the worker hands it — normalized by \
+         `model::config` for a snapshot, carried compiled by a `.zt`:\n{}",
         found.join("\n")
     );
 }
