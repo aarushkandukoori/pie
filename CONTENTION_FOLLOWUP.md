@@ -427,7 +427,7 @@ livelock.
 
 ## 7. Coverage gap
 
-Nothing in the suite reaches this shape. `runtime/engine/tests/contention.rs`
+Nothing in the suite reaches this shape. `crates/engine/tests/contention.rs`
 spawns a **fixed fleet of 8** lanes against a 4-page pool — every lane holds
 pages by construction, so the "victim holds nothing" case never arises. The
 livelock needs sustained oversubscription *and* at least one idle, zero-page
@@ -467,7 +467,7 @@ STAGE=<dir with Pie.toml + target/wasm32-wasip2/release/text_completion_bench.wa
 # livelocks within ~6 s; GPU drops to 0% and stays there
 CUDA_VISIBLE_DEVICES=0 PIE_BENCH_INFERLET_DIR=$STAGE PYTHONPATH=. \
   PIE_CONTENTION_TRACE_MS=500 \
-  uv --project ../sdk/python-server run python .../pie_bench_cap.py tput \
+  uv --project ../sdk/inferlet/python-server run python .../pie_bench_cap.py tput \
   --model Qwen/Qwen3-0.6B --num-requests 256 --concurrency 128 --max-tokens 512 \
   --warmup 2 --driver cuda_native --device cuda:0 \
   --total-pages 2151 --swap-pool-size 4096 --request-timeout 90
@@ -1508,7 +1508,7 @@ parked allocation loud. `PlannerError::Starved`'s `Display` hardcoded
 "under host swap exhaustion" for *both* of `check_starvation`'s callers,
 so it misattributed a policy wedge to a resource exhaustion.
 
-**Fixed** (`runtime/engine/src/planner.rs`): a `StarveCause`
+**Fixed** (`crates/engine/src/planner.rs`): a `StarveCause`
 (`NoSwapRoom` | `NoEligibleVictim`) is threaded from each caller into the
 error and the `tracing::warn!`. The same failure now reports:
 
@@ -1918,7 +1918,7 @@ only `planner.acquire` call site is `pipeline/fire.rs`, reachable only
 downstream of `ensure_execution_admitted`, so an unadmitted process
 provably holds zero device pages. New `admitted=` field in the trace.
 
-**Test.** `runtime/engine/tests/contention_admission_wedge.rs` — 5 lanes,
+**Test.** `crates/engine/tests/contention_admission_wedge.rs` — 5 lanes,
 admission cap 2, `cpu_pages = 0`. Hangs on the pre-fix tree, passes on the
 fixed one. Live: 150 s hang → 3.7-4.7 s with real progress, on all four
 probes.
@@ -2099,7 +2099,7 @@ during the hunt; all are bounded and all are kept:
 * **Never touch a Rust source while a soak is running.** `pie_bench.py`'s
   `embedded_engine_identity()` hard-fails when the embedded `.so` is older
   than *any* file under `driver/`, `interface/`, `runtime/`,
-  `sdk/python-server/src/` with a `.rs/.c/.cc/.cpp/.cu/.cuh/.h/.hpp`
+  `sdk/inferlet/python-server/src/` with a `.rs/.c/.cc/.cpp/.cu/.cuh/.h/.hpp`
   suffix. It does not care that the edit was a comment or a `rustfmt`
   reflow, and it does not care that `git stash push` / `stash pop` only
   restored the file — the mtime moved. This silently converted two 20-run
@@ -2719,7 +2719,7 @@ Two levers confirm the turn is the term that varies:
 * **Tokio worker count moves it.** conc 256, k=1, 4 trials each:
   `--worker-threads 8` -> 27100/27084/26664/23177; `32` ->
   18987/18677/19015/19079 (sigma = 179); 16 and the default 64 are multimodal.
-  (`default_worker_threads()` in `worker/src/config.rs` already caps at 64 for
+  (`default_worker_threads()` in `crates/worker/src/config.rs` already caps at 64 for
   exactly this class of variance on EPYC.)
 
 ### Status
@@ -4335,7 +4335,7 @@ regression was the CLUE: a thread that never frees stops replenishing its own
 allocator cache.
 
 ### ROOT CAUSE: `mimalloc` was a declared dependency that was NEVER REGISTERED
-`worker/Cargo.toml` has carried `mimalloc = "0.1"` since the disaggregated-
+`crates/worker/Cargo.toml` has carried `mimalloc = "0.1"` since the disaggregated-
 serving refactor (cc4e77a7d) with no `#[global_allocator]` anywhere in the
 workspace. The engine has been running on glibc malloc, whose per-arena lock
 is exactly the wrong shape for "one thread allocates 512 plans, then frees 512
@@ -4355,7 +4355,7 @@ thread on a 13.6-CPU box. **Reaper reverted; mimalloc landed.**
 
 ### LANDED
 `#[global_allocator] static GLOBAL_ALLOC: mimalloc::MiMalloc` in
-`worker/src/lib.rs` — the one crate the CLI, the standalone worker and the
+`crates/worker/src/lib.rs` — the one crate the CLI, the standalone worker and the
 pyo3 wheel all link, so a single declaration covers every entry point.
 Feature `local_dynamic_tls` is REQUIRED: the wheel is `dlopen()`ed and
 mimalloc's default initial-exec TLS model fails there with "cannot allocate
@@ -5556,7 +5556,7 @@ levers are even available.
   so a step of 511 x Nr=1 plus 1 x Nr=37 simply runs the general ragged-prefill
   kernel. Kernels read `Nr = qo_indptr[r+1] - qo_indptr[r]` per request, i.e. a
   varlen layout — nothing assumes uniform token counts.
-- `runtime/engine/src/scheduler/worker.rs:383-437` `LaunchGrouping::accepts`
+- `crates/engine/src/scheduler/worker.rs:383-437` `LaunchGrouping::accepts`
   rejects only on: same instance, same pipeline (ordering rule B3), solo
   submission, mask/device-geometry incompatibility, then capacity
   (`max_forward_requests` / `max_forward_tokens` / `max_page_refs`).
@@ -5662,7 +5662,7 @@ Swept every process-wide knob looking for a second mimalloc-class win.
 - **wasmtime** (`bootstrap.rs:608-636`): every perf-relevant default is already
   the fast one — Cranelift `Speed`, `memory_init_cow`, SIMD on, fuel and epoch
   interruption off, pooling allocator with all five `total_*` caps set.
-- **tokio** (`worker/src/engine.rs:339-345`): only `worker_threads` is set, and
+- **tokio** (`crates/worker/src/engine.rs:339-345`): only `worker_threads` is set, and
   **the scheduler loop is not on tokio at all** — it is a dedicated OS thread
   parking on a crossbeam `recv_timeout` (`worker.rs:2550-2553`), so
   `event_interval` / `global_queue_interval` / `disable_lifo_slot` cannot touch

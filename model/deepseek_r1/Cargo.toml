@@ -16,6 +16,6 @@ chat = ["pie-model-common/chat", "dep:pie-tokenizer", "dep:serde_json", "dep:any
 
 [dependencies]
 pie-model-common = { path = "../common", default-features = false }
-pie-tokenizer = { path = "../../runtime/tokenizer", optional = true }
+pie-tokenizer = { path = "../../crates/tokenizer", optional = true }
 serde_json = { version = "1.0", features = ["preserve_order"], optional = true }
 anyhow = { version = "1.0", optional = true }

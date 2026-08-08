@@ -17,7 +17,7 @@ path = "src/lib.rs"
 # Host-side only (the interpreter's extern channels are `std::sync::{Arc, Mutex}`),
 # so unlike `pie-ir` / `pie-plan` this crate has no `no_std` mode.
 [dependencies]
-pie-ir = { path = "../ir" }
+pie-ir = { path = "../../crates/tensor-ir" }
 
 # Tier-0 parity tests check the interpreter against planner-partitioned regions.
 # Dev-only, so the production edge stays `eval -> ir` and the two siblings above

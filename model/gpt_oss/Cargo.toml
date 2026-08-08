@@ -17,7 +17,7 @@ contract = ["pie-model-common/contract", "dep:pie-loader"]
 
 [dependencies]
 pie-model-common = { path = "../common", default-features = false }
-pie-tokenizer = { path = "../../runtime/tokenizer", optional = true }
+pie-tokenizer = { path = "../../crates/tokenizer", optional = true }
 serde_json = { version = "1.0", features = ["preserve_order"], optional = true }
 anyhow = { version = "1.0", optional = true }
-pie-loader = { path = "../../loader", default-features = false, optional = true }
+pie-loader = { path = "../../crates/model-loader", default-features = false, optional = true }

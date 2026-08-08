@@ -34,34 +34,34 @@ profile-fire = ["pie-worker/profile-fire"]
 [dependencies]
 # Shared process skeleton (imports as `startup`): CLI flags, paths, tracing,
 # signals, /metrics, banner.
-pie-env = { path = "../env" }
+pie-env = { path = "../../crates/bootstrap" }
 # The three role libs — bin/pie is the ONE crate that deps all three (Seam 4).
-pie-controller = { path = "../../controller" }
-pie-gateway = { path = "../../gateway" }
-pie-worker = { path = "../../worker", default-features = false }
-pie-engine = { path = "../../runtime/engine" }  # program/manifest types for `pie inferlet`
+pie-controller = { path = "../../crates/controller" }
+pie-gateway = { path = "../../crates/gateway" }
+pie-worker = { path = "../../crates/worker", default-features = false }
+pie-engine = { path = "../../crates/engine" }  # program/manifest types for `pie inferlet`
 # `pie model convert` — the host-side load-plan executor and checkpoint
 # writer. Pure Rust; needs no driver and no GPU.
-pie-loader = { path = "../../loader" }
+pie-loader = { path = "../../crates/model-loader" }
 # The tokenizer compiler — `pie model convert` runs it once at import and
 # serializes the result into the artifact (`pie.tokenizer/1`), so the runtime
 # never parses `tokenizer.json` again.
-pie-tokenizer = { path = "../../runtime/tokenizer" }
+pie-tokenizer = { path = "../../crates/tokenizer" }
 # The HF `config.json` normalizer — `pie model convert` runs it once and
 # writes the result as the `pie.model/1` descriptor, so the runtime and the
 # driver stop re-deriving it from HF quirks at every boot.
-pie-model-config = { path = "../../model/config" }
+pie-model-config = { path = "../../crates/model-config" }
 # Client edge for `pie config tune`: the sweep generates load through
 # the same websocket path a deployment is reached by, because measuring an
 # in-process shortcut would measure something nobody runs.
-pie-client = { path = "../../client/rust" }
+pie-client = { path = "../../crates/client" }
 pie-model = { path = "../../model", features = ["contract"] }
 pie-model-common = { path = "../../model/common", features = ["contract"] }
 # Wire vocabulary — compose.rs names control-plane types (RoutingTable, Ack,
 # GatewayInfo, WorkerInfo, Neighbors, WorkerStatus) from pie-controller-rpc and
 # the id atoms (WorkerId/GatewayId/NodeId) from pie-ids.
-pie-ids = { path = "../../interface/ids" }
-pie-controller-rpc = { path = "../../interface/controller" }
+pie-ids = { path = "../../crates/ids" }
+pie-controller-rpc = { path = "../../crates/controller-api" }
 
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
@@ -90,7 +90,7 @@ toml_edit = "0.25.13"
 tempfile = "3"
 # `boot_smoke` drives the one public composition seam (`run_standalone`) the
 # way a client does; that is the reason this crate has a `[lib]` at all.
-pie-client = { path = "../../client/rust" }
+pie-client = { path = "../../crates/client" }
 
 # SIGPIPE disposition — see `die_quietly_on_closed_pipe` in main.rs.
 [target.'cfg(unix)'.dependencies]

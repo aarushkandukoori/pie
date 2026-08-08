@@ -16,9 +16,9 @@ path = "src/main.rs"
 [dependencies]
 # Shared process skeleton (imports as `startup`): CLI flag skeleton, config
 # sourcing → String, tracing + /metrics, signals/panic/exit-code lifecycle.
-pie-env = { path = "../env" }
+pie-env = { path = "../../crates/bootstrap" }
 # The gateway role library: `Config::parse` + async `run` + `GatewayHandle::shutdown`.
-pie-gateway = { path = "../../gateway" }
+pie-gateway = { path = "../../crates/gateway" }
 anyhow = "1"
 clap = { version = "4.6", features = ["derive"] }
 # This bin owns the runtime (Model A — the skeleton is runtime-agnostic).

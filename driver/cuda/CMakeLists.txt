@@ -680,8 +680,12 @@ target_include_directories(pie_driver_cuda_lib
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/include ${CMAKE_CURRENT_SOURCE_DIR}/../../compiler/codegen/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    # tart: the declared-forward FFI headers (pie_forward/*.hpp)
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../forward/include
+    # tart: the declared-forward FFI headers (pie_forward/*.hpp). Taken from
+    # the variable `worker/build.rs` passes, not by walking out of the driver
+    # tree: the crate that publishes these headers is located by cargo (its
+    # `links = "pie_forward"` + cargo:include), so a relative path here is a
+    # second, silently-stale answer to a question cargo already answers.
+    ${PIE_FORWARD_INCLUDE_DIR}
     ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
     # Ahead of NCCL: its header is located with ${CUDAToolkit_INCLUDE_DIRS} as
     # the first HINT, so on hosts that ship nccl.h inside the CUDA tree

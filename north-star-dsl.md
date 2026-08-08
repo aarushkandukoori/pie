@@ -112,7 +112,7 @@ peepholes, eligibility predicates, thresholds.
 
 ## Migration (each rung parity-anchored, hand-written arms deleted last)
 
-1. **forward/**: `FireClass`, kernel-granular vocabulary (`Attention`
+1. **crates/model-compiler/**: `FireClass`, kernel-granular vocabulary (`Attention`
    kernel variant, `QkvDecodeFusedPost`), `CudaFacts`, and the lowered
    llama_like — one function, class param, arms as above. Per-class
    goldens (`qwen3_0_6b.decode.json` / `.prefill.json`).
@@ -2845,7 +2845,7 @@ CHANGE — tart's machinery belongs driver-side. Consequences:
 ## THE DEV MERGE LANDS (2026-08-04): WIT 0.3 era opens
 
 github/dev (395+ commits) is merged (f94e97c7e + 8eb4bcef1): engine/
-worker/tokenizer upstream wholesale with data-field regrafts; all 34
+crates/worker/tokenizer upstream wholesale with data-field regrafts; all 34
 driver conflict hunks resolved with the V2 machinery INTACT — forward
 goldens 23/23, region table / bands / spatial / seams compiled and
 runtime-live; engine tests 403/403; full driver-cuda build green; E2E

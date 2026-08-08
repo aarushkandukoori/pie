@@ -8,7 +8,7 @@ numbers and the staging are in `pie-application-plan.md`.
 
 ## The line
 
-> **`forward/` defines what a pass computes, `compiler/` builds a program,
+> **`crates/model-compiler/` defines what a pass computes, `compiler/` builds a program,
 > `runtime/` schedules it, `driver/` fires it.**
 
 One clause added to Pie's existing north star. Everything below follows from
@@ -214,7 +214,7 @@ for a planner, and it is not the case that "merging is fast".
 
 | phase | what | where | frequency |
 |---|---|---|---|
-| **plan** | classify sites, choose candidate lowerings, order rows | `runtime/engine/scheduler` | per program set, cached |
+| **plan** | classify sites, choose candidate lowerings, order rows | `crates/engine/scheduler` | per program set, cached |
 | **materialize** | fill lane tables, masks, pointer arrays | `IModel::prepare()` | per step |
 | **execute** | one pass | `IModel::body()` + capture | per step |
 
@@ -223,7 +223,7 @@ that it can be captured into a CUDA graph, and `prepare()` exists to hold the ho
 work that was hoisted out of it. **Polymorphic batching needs exactly the same
 split for exactly the same reason**, so it lands on a seam that is already there.
 
-The planner sits in `runtime/engine/scheduler` because planning a fire needs four
+The planner sits in `crates/engine/scheduler` because planning a fire needs four
 things and only the scheduler has all four: the model's divergence sites, the
 attached programs and what they require, the device cost model, and what was
 admitted. It belongs beside `LaunchGrouping::accepts` — *can these co-batch* — as
@@ -231,8 +231,8 @@ its natural continuation: *how do they co-batch*.
 
 ### What changes
 
-- **`forward/`** is new: the declaration eDSL, the traced form, and per-target
-  emission. Shaped like `loader/` — a Rust crate with a C ABI that the driver
+- **`crates/model-compiler/`** is new: the declaration eDSL, the traced form, and per-target
+  emission. Shaped like `crates/model-loader/` — a Rust crate with a C ABI that the driver
   calls at cold start.
 - **`driver/`** gains an `IModel` implementation that runs a declared forward, and
   its fast-path conditions take a row count where they used to take a boolean.

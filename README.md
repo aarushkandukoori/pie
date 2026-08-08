@@ -63,11 +63,11 @@ pie-client submit text-completion -- --prompt "The capital of France is"
 
 | Directory | Description |
 |---|---|
-| `worker/` | The `pie` CLI and standalone engine — the invariant entry point |
+| `crates/worker/` | The `pie` CLI and standalone engine — the invariant entry point |
 | `runtime/` | Inferlet runtime |
 | `compiler/` | Tensor-program toolchain: authoring eDSL → PTIR → planning → CUDA/Metal codegen (+ the reference interpreter) |
-| `controller/` | Cluster-coordination control plane (pairing · roles · health) |
-| `driver/transport/` | Worker↔worker P2P KV-tensor data plane |
+| `crates/controller/` | Cluster-coordination control plane (pairing · roles · health) |
+| `crates/transport/` | Worker↔worker P2P KV-tensor data plane |
 | `driver/` | Backend drivers (CUDA · Metal) + runtime↔driver IPC |
 | `interface/` | Boundary contract crates (`ids` · `driver` · `controller` · `worker` · `client` · `inferlet`) — the dependency floor |
 | `tests/inferlets/` | Curated inferlet E2E fixtures |
@@ -98,7 +98,7 @@ Questions and bug reports are welcome on
 
 ## Acknowledgements
 
-The constrained-decoding engine in `runtime/grammar` is a Rust rewrite derived
+The constrained-decoding engine in `crates/grammar` is a Rust rewrite derived
 in part from [XGrammar](https://github.com/mlc-ai/xgrammar), licensed under
 Apache License 2.0. See [NOTICE](NOTICE) for attribution.
 

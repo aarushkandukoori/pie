@@ -67,13 +67,13 @@ note() { printf '%s\n' "$*" >&2; }
 # editing it, and its presence says nothing about what the SDK actually binds.
 py_dotted=$(
   grep -rhoE 'wit_world\.imports\.[a-z0-9_]+' \
-    "$ROOT/sdk/python/src/inferlet" \
+    "$ROOT/sdk/inferlet/python/src/inferlet" \
     --exclude-dir=bindings 2>/dev/null \
     | sed -E 's/.*\.//' || true
 )
 py_listed=$(
   grep -rhoE 'wit_world\.imports import [a-z0-9_, ]+' \
-    "$ROOT/sdk/python/src/inferlet" \
+    "$ROOT/sdk/inferlet/python/src/inferlet" \
     --exclude-dir=bindings 2>/dev/null \
     | sed -E 's/.*imports import //' | tr ',' '\n' \
     | sed -E 's/ +as +.*//; s/^ +//; s/ +$//' | grep -v '^$' || true
@@ -86,7 +86,7 @@ py_refs=$(printf '%s\n%s\n' "$py_dotted" "$py_listed" | grep -v '^$' | sort -u |
 # reason as Python.
 pkg_ns=$(sed -nE 's/^package ([a-z0-9]+):([a-z0-9-]+).*/\1:\2/p' "$SRC/world.wit" | head -1)
 js_refs=$(
-  grep -rhoE "['\"]${pkg_ns}/[a-z0-9-]+" "$ROOT/sdk/javascript/src" \
+  grep -rhoE "['\"]${pkg_ns}/[a-z0-9-]+" "$ROOT/sdk/inferlet/javascript/src" \
     --include='*.ts' --exclude-dir=bindings 2>/dev/null \
     | sed -E "s|.*${pkg_ns}/||" | sort -u || true
 )
@@ -94,7 +94,7 @@ js_refs=$(
 # Anything spelled `pie:<something-else>/...` is a reference to a package that
 # does not exist -- the WIT namespace was consolidated into one package.
 js_foreign=$(
-  grep -rhoE "['\"]pie:[a-z0-9-]+/[a-z0-9-]+" "$ROOT/sdk/javascript/src" \
+  grep -rhoE "['\"]pie:[a-z0-9-]+/[a-z0-9-]+" "$ROOT/sdk/inferlet/javascript/src" \
     --include='*.ts' --exclude-dir=bindings 2>/dev/null \
     | sed -E "s|.*(pie:[a-z0-9-]+/[a-z0-9-]+)|\1|" | grep -v "^$pkg_ns/" | sort -u || true
 )
@@ -164,8 +164,8 @@ if [ "$fail" -ne 0 ]; then
   note ""
   note "The guest forward-pass surface is no longer a fixed host-side sampler."
   note "The guest traces a program and ships canonical PTIR container bytes."
-  note "The Rust SDK produces them with compiler/dsl (the tracing eDSL) and"
-  note "compiler/ir (the container encoder). Neither has a Python or JavaScript"
+  note "The Rust SDK produces them with crates/tensor-dsl (the tracing eDSL) and"
+  note "crates/tensor-ir (the container encoder). Neither has a Python or JavaScript"
   note "counterpart, and any port has to agree with the Rust encoder byte for"
   note "byte, so it is its own project -- see forward_refactor.md 10.4."
   note ""

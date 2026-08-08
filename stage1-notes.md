@@ -81,7 +81,7 @@ appears whose lowering the driver cannot derive locally.
 
 ## Stage 4 — cache_domain × adapters (why there is no digest fold yet)
 
-The concern: `cache_domain` (runtime/engine/src/store/kv/hash.rs:30) is
+The concern: `cache_domain` (crates/engine/src/store/kv/hash.rs:30) is
 per-STORE (boot nonce), adapters are per-INSTANCE, and KV produced under a
 LoRA correction is not the vanilla model's KV — so two instances with
 different adapters (or one with, one without) must never share prefix pages

@@ -7,8 +7,8 @@
 # wasi 0.3 packages the wasmtime host implements).
 #
 # Vendored copies (DO NOT hand-edit):
-#   - sdk/rust/inferlet/wit/
-#   - sdk/tools/bakery/src/bakery/wit/
+#   - crates/inferlet/wit/
+#   - sdk/inferlet/tools/bakery/src/bakery/wit/
 #
 # Each copy is a full mirror of the package: the interface *.wit files + world.wit
 # are copied directly, and deps/ (the vendored wasi 0.3 wit) is copied verbatim.
@@ -26,8 +26,8 @@ SRC="$ROOT/interface/inferlet"
 
 # Vendored copies: each entry is the `wit/` directory of a consumer.
 COPIES=(
-  "$ROOT/sdk/rust/inferlet/wit"
-  "$ROOT/sdk/tools/bakery/src/bakery/wit"
+  "$ROOT/crates/inferlet/wit"
+  "$ROOT/sdk/inferlet/tools/bakery/src/bakery/wit"
 )
 
 sync_one() {

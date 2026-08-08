@@ -87,7 +87,7 @@ PIE_BENCH_DEFAULT_DEVICE = "cuda:0"
 # Metal's driver takes these two unconditionally: its planner has no lattice
 # to collapse, so a value is always wanted. The CUDA driver documents the
 # opposite -- "Omit to let the memory planner choose ... A guess here is worse
-# than absence" (`worker/src/config.rs`) -- so cuda_native forwards them only
+# than absence" (`crates/worker/src/config.rs`) -- so cuda_native forwards them only
 # when the caller moved them off these defaults.
 PIE_MAX_FORWARD_TOKENS_DEFAULT = 10240
 PIE_MAX_FORWARD_REQUESTS_DEFAULT = 512
@@ -149,7 +149,7 @@ def embedded_engine_identity() -> dict[str, str]:
         raise RuntimeError(
             f"embedded engine {engine_path} is older than {newest_source}; "
             "rebuild with PIE_COMPILER_LAUNCHER=env CARGO_BUILD_JOBS=2 "
-            "CMAKE_BUILD_PARALLEL_LEVEL=2 uv --project sdk/python-server sync "
+            "CMAKE_BUILD_PARALLEL_LEVEL=2 uv --project sdk/inferlet/python-server sync "
             "--reinstall-package pie-server"
         )
     digest = hashlib.sha256()
@@ -251,12 +251,12 @@ def build_config(args: argparse.Namespace):
         # to 0, i.e. off). The knob is named `max_total_pages` here and
         # `total_pages` on Metal because they are not the same quantity: there
         # the value IS the pool, here it is a ceiling over a number derived
-        # from `gpu_mem_utilization` (worker/src/config.rs).
+        # from `gpu_mem_utilization` (crates/worker/src/config.rs).
         if getattr(args, "total_pages", 0):
             driver_options["max_total_pages"] = args.total_pages
         # Pin the forward layout only on explicit request: an unasked-for pin
         # collapses the planner's lattice to a guess. Needed when the planner
-        # reports "no viable forward/KV layout fits budget", which a large
+        # reports "no viable crates/model-compiler/KV layout fits budget", which a large
         # dense checkpoint can provoke by leaving too little room for the
         # prefill width the planner would otherwise pick.
         if args.max_forward_tokens != PIE_MAX_FORWARD_TOKENS_DEFAULT:

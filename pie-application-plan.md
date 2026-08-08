@@ -10,7 +10,7 @@ together:
 1. **`model/`** — a declarative toolchain for the forward pass, so a model is a
    declaration instead of 35.5k lines of hand-written C++ per driver.
 2. **Polymorphic fires** — let one fire hold requests that do not agree on what
-   to compute, planned in `runtime/engine`.
+   to compute, planned in `crates/engine`.
 
 The second is the interesting one. The first is what makes it affordable.
 
@@ -24,7 +24,7 @@ in two places, and Pie is the only engine that has named the principle:
 > *"A program is a closure whose effects are channel `put`/`take`s; `if`/`for`
 > resolve at trace time; a different branch is a different program
 > (**batch-by-program**)."*
-> — `compiler/dsl/src/lib.rs:4-6`
+> — `crates/tensor-dsl/src/lib.rs:4-6`
 
 - `ptir_program_hashes` is a `Slice`: **one fire holds N different PTIR
   programs**, each owning a disjoint row range
@@ -78,7 +78,7 @@ kernel limitation.
 ### 2.3 Multi-row programs cannot co-batch at all
 
 `preserves_inner_rows()` is `wire_row_count() > 1`, and that forces
-`requires_solo_submission` (`runtime/engine/src/scheduler/worker.rs:322-345`).
+`requires_solo_submission` (`crates/engine/src/scheduler/worker.rs:322-345`).
 The driver enforces a second rule: *"ptir: dense device mask in a multi-program
 batch requires solo retry"* (`driver/cuda/src/batch/frame.cpp:935-943`).
 
@@ -91,7 +91,7 @@ per-lane `attn_page_mask` — cannot share a fire with an ordinary request.
 - `IModel::body(ws, kv, attn_ws, cublas, in)` takes no per-request weight, rank
   or depth (`driver/cuda/src/model/imodel.hpp:79-83`)
 - LoRA does not exist. `("lora", SinkScope::PassWide)` is **reserved and
-  unimplemented** (`compiler/ir/src/registry.rs:152`); PEFT adapters are on the
+  unimplemented** (`crates/tensor-ir/src/registry.rs:152`); PEFT adapters are on the
   roadmap for v0.3.0.
 
 ### 2.5 PTIR is one axis, and it is the cheapest one
@@ -216,12 +216,12 @@ or conditionalized. Pie already pads `R` to a lattice for exactly this reason
 ## 4. Structure
 
 ```
-model/                    (new top level; absorbs the existing loader/)
+model/                    (new top level; absorbs the existing crates/model-loader/)
   schema/    weight names, shapes, dtypes, config facts       <- dependency floor
-  loader/    schema + checkpoint  -> device memory            (contracts stay in drivers)
-  forward/   schema + declaration -> executable forward pass  (specs stay in drivers)
+  crates/model-loader/    schema + checkpoint  -> device memory            (contracts stay in drivers)
+  crates/model-compiler/   schema + declaration -> executable forward pass  (specs stay in drivers)
 compiler/                 UNTOUCHED. PTIR only.
-runtime/engine/scheduler/ fire planning + row order
+crates/engine/scheduler/ fire planning + row order
 driver/cuda/              prepare() materializes, body() reads, capture
 ```
 
@@ -250,7 +250,7 @@ Precedent, stated explicitly in `driver/cuda/src/model/contract.hpp`:
 
 `model/forward` is the mechanism; `driver/cuda/src/model/qwen3_6/` holds the
 declaration, the contract, and the kernel selection. Same relationship
-`compiler/` has to inferlets and `loader/` has to contracts: **a toolchain is
+`compiler/` has to inferlets and `crates/model-loader/` has to contracts: **a toolchain is
 named for its activity, and its inputs live elsewhere.**
 
 One nuance worth keeping in view: layer order and layer types are facts about the
@@ -259,7 +259,7 @@ than *kernels*, the architecture half is driver-neutral and could be promoted
 later. Do not design for that reuse up front; promote it when a second backend
 asks.
 
-### 4.3 Why the planner lives in `runtime/engine`
+### 4.3 Why the planner lives in `crates/engine`
 
 Planning a fire needs four things, and only the scheduler has all four:
 
@@ -268,13 +268,13 @@ Planning a fire needs four things, and only the scheduler has all four:
 3. the device cost model → driver capabilities
 4. **what was admitted** → the scheduler itself
 
-There is precedent: `runtime/engine/src/pipeline/program.rs` already orchestrates
+There is precedent: `crates/engine/src/pipeline/program.rs` already orchestrates
 `pie_plan::compile_bound` and `pie_codegen::launch::build`. And
 `LaunchGrouping::accepts` — *"can these co-batch"* — already lives at
 `scheduler/worker.rs:382-431`. *"How do they co-batch"* belongs next to it.
 
 ```
-runtime/engine/src/scheduler/
+crates/engine/src/scheduler/
     worker.rs      accepts()   — today: force solo; after: admit when a plan exists
     fire_plan.rs   (new)       — per-site lowering, row order, region mask
 ```
@@ -507,7 +507,7 @@ prototype too, so expect it to be the hardest.
   from binding, store at max rank" is wrong and the DSL needs a way to express
   bucket structure.
 - **If `schema` does not end up shared between loader and forward**, do not nest
-  `model/`; keep `loader/` where it is and put `forward/` at top level.
+  `model/`; keep `crates/model-loader/` where it is and put `crates/model-compiler/` at top level.
 - **If a second backend never wants the declarations**, the case for
   `model/forward` shrinks to "112 predicates in one place", which is real but
   much smaller. Decide with the Metal roadmap in hand.

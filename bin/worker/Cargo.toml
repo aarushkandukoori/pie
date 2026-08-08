@@ -16,9 +16,9 @@ path = "src/main.rs"
 [dependencies]
 # Shared process skeleton (imports as `startup`): CLI flag skeleton, config
 # sourcing → String, tracing + /metrics, signals/panic/exit-code lifecycle.
-pie-env = { path = "../env" }
+pie-env = { path = "../../crates/bootstrap" }
 # The worker role library: `Config::parse` + async `run` + `WorkerHandle::shutdown`.
-pie-worker = { path = "../../worker" }
+pie-worker = { path = "../../crates/worker" }
 anyhow = "1"
 clap = { version = "4.6", features = ["derive"] }
 # This bin owns the runtime (Model A — the skeleton is runtime-agnostic).

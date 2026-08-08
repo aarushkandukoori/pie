@@ -21,6 +21,6 @@ pie-model-common = { path = "../common", default-features = false }
 # (a generation that implements a thing keeps it; the others name it), and a
 # crate boundary is what makes the edge visible instead of implicit.
 pie-model-qwen-3 = { path = "../qwen_3", default-features = false, optional = true }
-pie-tokenizer = { path = "../../runtime/tokenizer", optional = true }
+pie-tokenizer = { path = "../../crates/tokenizer", optional = true }
 serde_json = { version = "1.0", features = ["preserve_order"], optional = true }
 anyhow = { version = "1.0", optional = true }

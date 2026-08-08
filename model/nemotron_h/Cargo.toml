@@ -16,4 +16,4 @@ contract = ["pie-model-common/contract", "dep:pie-loader"]
 
 [dependencies]
 pie-model-common = { path = "../common", default-features = false }
-pie-loader = { path = "../../loader", default-features = false, optional = true }
+pie-loader = { path = "../../crates/model-loader", default-features = false, optional = true }

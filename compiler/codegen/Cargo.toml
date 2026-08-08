@@ -21,9 +21,9 @@ path = "src/lib.rs"
 # is built out of the same declarations the drivers read it with rather than a
 # second copy of them.
 [dependencies]
-pie-ir = { path = "../ir" }
+pie-ir = { path = "../../crates/tensor-ir" }
 pie-plan = { path = "../plan" }
-pie-driver-abi = { path = "../../interface/driver" }
+pie-driver-abi = { path = "../../crates/driver-abi" }
 
 # Shared ratchet from the root manifest. These six crates are gated with
 # `-D warnings` in CI; see `[workspace.lints]` in the workspace `Cargo.toml`.
