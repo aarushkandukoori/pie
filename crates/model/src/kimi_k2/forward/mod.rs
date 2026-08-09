@@ -24,7 +24,7 @@ pub mod facts;
 
 use self::facts::{KimiCudaFacts, KimiFacts};
 use model_compiler::dsl::{
-    WeightRepr,self, matmul, rmsnorm, MatW, NormW};
+    WeightRepr,self, matmul, MatW, NormW};
 use model_compiler::trace::{FireClass, ForwardPlan, NormVariant};
 
 struct KimiLayerW {
@@ -97,7 +97,7 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
 
         for l in 0..facts.layers {
             let w = KimiLayerW::new(l, facts);
-            let x = rmsnorm(&y, &w.attn_norm);
+            let x = dsl::cuda::rmsnorm(&y, &w.attn_norm);
 
             // The two latents, fused or not. The FUSED arm norms the
             // query half in place with a pitch, which is a different
@@ -113,7 +113,7 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
                 (q_a_n, qkv_a)
             } else {
                 let q_a = matmul(&x, &w.q_a_proj);
-                (rmsnorm(&q_a, &w.q_a_norm), matmul(&x, &w.kv_a_proj))
+                (dsl::cuda::rmsnorm(&q_a, &w.q_a_norm), matmul(&x, &w.kv_a_proj))
             };
             let q_b = matmul(&q_a_n, &w.q_b_proj);
 
@@ -135,7 +135,7 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
             dsl::seam(attn_v.trace(), &dsl::seam::ATTN_OUT, &[&attn_v], Some(l));
             y += matmul(&attn_v, &w.o_proj);
 
-            let m = rmsnorm(&y, &w.mlp_norm);
+            let m = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
             if !facts.is_moe_layer(l) {
                 let gate = matmul(&m, &w.dense_gate);
                 let _up = matmul(&m, &w.dense_up);
@@ -175,7 +175,7 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
             y = dsl::cuda::residual_add(&y, &moe_out, facts.hidden);
         }
 
-        let normed = rmsnorm(
+        let normed = dsl::cuda::rmsnorm(
             &y,
             &NormW {
                 name: "final_norm".to_string(),
