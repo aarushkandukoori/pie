@@ -123,6 +123,18 @@ impl Context {
         &self.residency
     }
 
+    /// The same residency set, as an owning handle.
+    ///
+    /// For the allocations that have to take themselves back out of it when
+    /// they die. Borrowing would tie their lifetime to this context, and the
+    /// point of holding it is precisely that they may outlive it: a residency
+    /// set released while it still names a live allocation is the one order
+    /// in which the removal cannot be done.
+    #[must_use]
+    pub fn residency_handle(&self) -> Retained<ProtocolObject<dyn MTLResidencySet>> {
+        self.residency.clone()
+    }
+
     /// A number that identifies the GPU a compiled binary is valid on.
     ///
     /// FNV-1a over the device name, then over the eight bytes of the registry

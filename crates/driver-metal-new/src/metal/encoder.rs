@@ -536,10 +536,17 @@ impl<'ctx> Stepper<'ctx> {
         pressure: Pressure,
         need: Need,
     ) -> Result<()> {
-        self.remap(|context, schedule| {
+        let through = self.remap(|context, schedule| {
             elastic::grow(context, buffer, bytes, pressure, need, schedule)
-        })
-        .map(|_| ())
+        })?;
+        // The growth itself is not waited for -- see `remap_shrink` for why
+        // only the unmap half has to be. What the buffer is told is where the
+        // mapping lands, so that its destructor can wait for it rather than
+        // freeing the heaps out from under it.
+        if let Some(through) = through {
+            buffer.fence_at(&self.event, through);
+        }
+        Ok(())
     }
 
     /// Attach memory to several buffers, or to none of them.
@@ -603,22 +610,28 @@ impl<'ctx> Stepper<'ctx> {
 
         let prior: Vec<u64> = targets.iter().map(|(b, _)| b.committed()).collect();
         for position in 0..targets.len() {
-            let (buffer, bytes) = &mut targets[position];
-            let bytes = *bytes;
-            let grown = self.remap(|context, schedule| {
-                elastic::grow(context, buffer, bytes, pressure, need, schedule)
-            });
-            if let Err(error) = grown {
-                // Only reachable when the allocator itself refuses -- the
-                // price above is exact, so a shortfall here means the machine
-                // could not produce a heap it had budget for. Put each
-                // earlier buffer back exactly where it was, in reverse, so
-                // heaps come off in the order they went on.
-                for earlier in (0..position).rev() {
-                    let (buffer, _) = &mut targets[earlier];
-                    let _ = self.remap_shrink(buffer, prior[earlier]);
+            let bytes = targets[position].1;
+            let grown = {
+                let (buffer, _) = &mut targets[position];
+                self.remap(|context, schedule| {
+                    elastic::grow(context, buffer, bytes, pressure, need, schedule)
+                })
+            };
+            match grown {
+                Ok(Some(through)) => targets[position].0.fence_at(&self.event, through),
+                Ok(None) => {}
+                Err(error) => {
+                    // Only reachable when the allocator itself refuses -- the
+                    // price above is exact, so a shortfall here means the
+                    // machine could not produce a heap it had budget for. Put
+                    // each earlier buffer back exactly where it was, in
+                    // reverse, so heaps come off in the order they went on.
+                    for earlier in (0..position).rev() {
+                        let (buffer, _) = &mut targets[earlier];
+                        let _ = self.remap_shrink(buffer, prior[earlier]);
+                    }
+                    return Err(error);
                 }
-                return Err(error);
             }
         }
         Ok(())
@@ -758,6 +771,7 @@ impl<'ctx> Stepper<'ctx> {
         // entitled to believe the bytes are gone when this returns.
         if let Some(through) = through {
             self.await_value(through)?;
+            buffer.fence_at(&self.event, through);
             if let Some(arena) = buffer.arena() {
                 arena.collect(self.event.signaledValue(), self.context.residency());
             }
