@@ -806,7 +806,7 @@ bool gemma4_forward_declared(
                     values.slot(plan.outputs(op)[0]),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
                     attn_ws.view(), stream,
-                    w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
+                    declared::stated_window_left(plan, op),
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
                 break;
             }
@@ -920,7 +920,7 @@ bool gemma4_forward_declared(
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
                     N, R, cfg.num_attention_heads, attn_ws.view(), stream,
-                    w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
+                    declared::stated_window_left(plan, op),
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
                 break;
             }
@@ -936,7 +936,7 @@ bool gemma4_forward_declared(
                     kv_last_page_lens, N, R,
                     static_cast<int>(kv_page_indptr_h[R]),
                     cfg.num_attention_heads, stream,
-                    w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
+                    declared::stated_window_left(plan, op),
                     /*sm_scale=*/1.0f, /*logits_soft_cap=*/0.f,
                     /*lse_out=*/nullptr);
                 break;

@@ -23,17 +23,39 @@ Read off `*_model.cpp`'s `declared_eligible` and the executors' own
 | gemma-4 | a custom mask, a stage hook, **any multimodal input (images, clips, precomputed embeddings)**, a lora adapter, a row-decode-shaped fire, `tp_size > 1`, or a deployment whose PLE buffers / cache format do not match |
 | gpt-oss | a custom mask, a stage hook, `tp_size > 1`, or `routes > max_routes` (the fused MXFP4 leg's admission bound) |
 | qwen3.5 | a fire with no class (legacy slot-less harness fires, live-fact mismatches), and the MoE arc unless `PIE_DECLARED_MOE` |
-| llama_like | nine named `DeclineReason`s: `NoPlan` (TP, **quantized projections**, non-standard rope), `WriteDescMissing`, `SlidingWindow`, `PaddedHeadNarrowing`, `UnionPrefill`, `TruncatedAxisUnstated`, `FusedQkvUnstaged`, `BandedPlanMissing` |
+| llama_like | nine named `DeclineReason`s: `NoPlan` (non-standard rope, a binding that disagrees with the facts, a rank claiming shards with no communicator), `WriteDescMissing`, `SlidingWindow`, `PaddedHeadNarrowing`, `UnionPrefill`, `TruncatedAxisUnstated`, `FusedQkvUnstaged`, `BandedPlanMissing` |
 
-Several of those are not fire properties that could be closed one at a
-time. `NoPlan` is a DSL vocabulary question — a deployment the text
-never traced. Multimodal gemma-4 has no declared statement at all.
+`NoPlan` used to be a DSL VOCABULARY question and mostly is not any
+more. Two of its three terms closed when the vocabulary grew:
+
+* **Tensor parallelism** (3). The text states its own shard widths and
+  the two collectives that recombine them, so the refusal narrowed to a
+  rank that claims shards and bound no communicator — a binding fault
+  rather than an unstated kernel. `mistral_7b_v03.cuda.tp2.decode` is
+  the golden.
+* **Quantized projections** (1b). `MatW::repr` names the launcher and
+  the scale tensors, so `make_weight_view` and `gemm::act_x_w`'s
+  internal routing have nothing left to decide. What replaced the
+  refusal is `MixedProjectionRepr`: the declaration carries ONE storage
+  per deployment, and a checkpoint with two is refused rather than
+  half-stated.
+
+What is left under `NoPlan` is not vocabulary: a rope this family never
+traced, a layer count that disagrees with the config, a bias config
+whose tensors did not bind. Those are deployments the facts describe
+wrongly, and the right answer to each is a refusal.
+
+Multimodal gemma-4 still has no declared statement at all.
 
 ## What deleting the hand pass would remove
 
 Every fire in the table above would have nothing to run. In particular
-gemma-4's vision and audio paths, every `tp_size > 1` deployment, and
-llama_like's quantized-projection deployments.
+gemma-4's vision and audio paths, and every fire the seven UNDRIVEN
+families serve — deepseek_v4, gemma3n, gemma-2, glm5, kimi_k2, kimi_k3
+and nemotron_h all have CUDA texts and no executor at all.
+
+`tp_size > 1` and llama_like's quantized-projection deployments used to
+be on this list. They are not any more.
 
 ## The other half: paths no gate reaches
 
@@ -44,7 +66,7 @@ exercised by no A/B here, so the hand pass is their only reference:
 |------|------------------------|
 | qwen3.5's MoE leg | 35B-A3B is ~67G of bf16 against a 46G card |
 | llama_like's post-norm branches | want olmo2; the gate runs qwen3-0.6b |
-| llama_like's semantic rope and per-head norm | the gate's model states the FUSED `qk_rmsnorm_rope` instead |
+| llama_like's per-head norm | the gate's model states the FUSED `qk_rmsnorm_rope` instead |
 | llama_like's hook sites and lora correction | the harness attaches neither — `hooked=0`, `lora=0` on all 52 fires |
 
 `which_op_kinds_each_family_states` prints the first three from the
@@ -52,15 +74,28 @@ text; the fourth comes from `PIE_DECLARED_FORWARD_TRACE`.
 
 ## What D3 can actually be
 
-Three things, in order, none of which is "delete the file":
+Four things, in order, none of which is "delete the file":
 
 1. **Close the declines that are closeable.** Each one names a piece of
    work — a statement the text does not carry, a prepare-side plan that
    is not stamped. That is where the 17k lines actually go.
-2. **Give the unreachable paths a gate,** or record that they will not
+
+   Closed so far: TP and quantized projections (see above). Still open,
+   in rough order of cheapness: `SlidingWindow` (the text states no
+   windowed attention), `PaddedHeadNarrowing` (a row window addresses
+   at logical width while the padded staging is laid out at physical —
+   2c made the staging traced VALUES, which does not by itself move
+   this), and the three plan-side ones, which are the prepare's work
+   rather than the declaration's.
+
+2. **Give the seven undriven families an executor.** They are the
+   larger half of the deletion by line count, and none of them has a
+   declared drive to compare against — so for those the hand pass is
+   not the fallback, it is the ONLY implementation.
+3. **Give the unreachable paths a gate,** or record that they will not
    get one. A deployment nobody can load is not covered by a green run
    on a different one.
-3. **Then delete, per family, at a commit whose gate run is named in
+4. **Then delete, per family, at a commit whose gate run is named in
    the deletion commit** — because after it, the comparison cannot be
    made again.
 

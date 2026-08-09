@@ -90,6 +90,16 @@ pub struct NemotronHFacts {
     pub mamba: NemotronMambaFacts,
     pub attn: NemotronAttnFacts,
     pub moe: NemotronMoeFacts,
+    /// The SLIDING WINDOW each layer attends over, `-1` for none —
+    /// read through [`model_compiler::facts::window_left_at`], which is
+    /// where the shape of this list is documented.
+    ///
+    /// The dispatch statements carry it, so no executor reaches into
+    /// `fwd_cfg.per_layer_window_left` for it. Serde-defaulted, and
+    /// empty reads as "no window", which is what every fixture written
+    /// before this field meant.
+    #[serde(default)]
+    pub window_left: Vec<i32>,
 }
 
 impl NemotronHFacts {
@@ -103,6 +113,8 @@ impl NemotronHFacts {
     pub fn nemotron_h_synthetic() -> Self {
         use NemotronLayerKind::*;
         NemotronHFacts {
+            // Nemotron-H attends the whole context.
+            window_left: Vec::new(),
             vocab: 131072,
             hidden: 2048,
             layer_types: vec![Mamba, Mlp, Mamba, Attention, Mamba, Mlp],

@@ -60,6 +60,8 @@ fn committed_incs_are_regeneration_clean() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             "olmo2_1b",
         ),
@@ -79,6 +81,8 @@ fn committed_incs_are_regeneration_clean() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             "qwen2_5_1_5b",
         ),
@@ -98,6 +102,8 @@ fn committed_incs_are_regeneration_clean() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             "mistral_7b_v03",
         ),
@@ -117,6 +123,8 @@ fn committed_incs_are_regeneration_clean() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             "phi3_mini",
         ),
@@ -126,6 +134,8 @@ fn committed_incs_are_regeneration_clean() {
         &model::qwen_3_5::forward::emit::emit_qwen35_cuda_inc(
             &model::qwen_3_5::forward::facts::Qwen35HybridFacts::qwen3_5_0_8b(),
             &model::qwen_3_5::forward::facts::Qwen35CudaFacts {
+                // Attends the whole context.
+                window_left: Vec::new(),
                 state_bf16: true,
                 warp_tiled: false,
                 warp_tiled_max: 64,

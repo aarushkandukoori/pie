@@ -40,7 +40,7 @@ use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, OpKind, RopeKin
 /// the live parity gate is what holds them together.
 pub fn facts_digest(facts: &LlamaLikeFacts, cuda: &LlamaLikeCudaFacts) -> String {
     format!(
-        "llama_like/h{}/l{}/qh{}/kvh{}/hd{}/i{}/v{}/rope{}/nv{}/np{}/qk{}/fq{}/te{}/qb{}/xqa{}/dfp{}/rt{}/fpp{}/pad{}/pr{}/hdk{}/tp{}",
+        "llama_like/h{}/l{}/qh{}/kvh{}/hd{}/i{}/v{}/rope{}/nv{}/np{}/qk{}/fq{}/te{}/qb{}/xqa{}/dfp{}/rt{}/fpp{}/pad{}/pr{}/hdk{}/tp{}/wl{}",
         facts.hidden,
         facts.layers,
         facts.q_heads,
@@ -93,6 +93,16 @@ pub fn facts_digest(facts: &LlamaLikeFacts, cuda: &LlamaLikeCudaFacts) -> String
         // deployment padding to a different one is a different text.
         cuda.head_dim_kernel,
         cuda.tp_size,
+        // The SLIDING WINDOW list. It is a constant of the emitted text
+        // now -- `const int layer_window_left = <n>;` per dispatch --
+        // so a body emitted against one window must not serve another.
+        // Joined rather than hashed: the list is short and a digest a
+        // reader can compare by eye has caught three drifts already.
+        cuda.window_left
+            .iter()
+            .map(|w| w.to_string())
+            .collect::<Vec<_>>()
+            .join("."),
     )
 }
 
@@ -1240,6 +1250,10 @@ fn emit_launch(
     win: Option<Win>,
     depth_active: bool,
 ) {
+    // THIS STATEMENT's sliding window, `-1` for none. An attention
+    // dispatch carries it in its params; every other symbol carries
+    // none, and this is only read under one.
+    let window = params.first().map_or(-1, |&w| w as i32);
     // Padded head dim (Phi-3): the attention consumes the zero-padded
     // `dk` staging copies and the softmax keeps the real-dim scale —
     // all resolved AT EMISSION (the interpreter's `head_dim_padded`
@@ -1528,18 +1542,8 @@ fn emit_launch(
                     "    auto kv_view = cache.layer_view({layer});"
                 ));
                 b.stmt(&format!(
-                    "    const int layer_window_left ="
+                    "    const int layer_window_left = {window};"
                 ));
-                b.stmt(&format!(
-                    "        (!fwd_cfg.per_layer_window_left.empty() &&"
-                ));
-                b.stmt(&format!(
-                    "         {layer} < static_cast<int>(fwd_cfg.per_layer_window_left.size()))"
-                ));
-                b.stmt(&format!(
-                    "            ? fwd_cfg.per_layer_window_left[{layer}]"
-                ));
-                b.stmt("            : fwd_cfg.sliding_window;");
                 // A mask peel's prefix region: the plan-free launcher
                 // over the plain rows — pure decode, so tokens == rows
                 // == split, and every CSR's `[0, split]` head is the
@@ -1593,15 +1597,7 @@ fn emit_launch(
                 b.stmt("        const int mid_P = plan_state.mixed_mid_start;");
                 b.stmt("        const int mid_row =");
                 b.stmt("            static_cast<int>(qo_indptr_h[mid_P]);");
-                b.stmt("        const int mid_wl =");
-                b.stmt("            (!fwd_cfg.per_layer_window_left.empty() &&");
-                b.stmt(&format!(
-                    "             {layer} < static_cast<int>(fwd_cfg.per_layer_window_left.size()))"
-                ));
-                b.stmt(&format!(
-                    "                ? fwd_cfg.per_layer_window_left[{layer}]"
-                ));
-                b.stmt("                : fwd_cfg.sliding_window;");
+                b.stmt(&format!("        const int mid_wl = {window};"));
                 b.stmt("        kernels::attn::dispatch_attention_flashinfer_decode(");
                 b.stmt("            *plan_state.mixed_mid_decode_plan,");
                 b.stmt(&format!(
@@ -1642,18 +1638,8 @@ fn emit_launch(
                     "    auto kv_view = cache.layer_view({layer});"
                 ));
                 b.stmt(&format!(
-                    "    const int layer_window_left ="
+                    "    const int layer_window_left = {window};"
                 ));
-                b.stmt(&format!(
-                    "        (!fwd_cfg.per_layer_window_left.empty() &&"
-                ));
-                b.stmt(&format!(
-                    "         {layer} < static_cast<int>(fwd_cfg.per_layer_window_left.size()))"
-                ));
-                b.stmt(&format!(
-                    "            ? fwd_cfg.per_layer_window_left[{layer}]"
-                ));
-                b.stmt("            : fwd_cfg.sliding_window;");
                 b.stmt("    kernels::attn::dispatch_attention_flashinfer_decode(");
                 b.stmt("        *plan_state.decode_plan,");
                 b.stmt(&format!("        {q_buf}, kv_view, {out_buf},"));
@@ -1668,9 +1654,9 @@ fn emit_launch(
                 return;
             }
             emit_masked_pages_bracket(b, layer, /*takes_paged_decode=*/true);
-            // Per-layer window resolution is RUNTIME cfg reads
-            // (per_layer_window_left / sliding_window) — placement-
-            // independent, so post-norm deployments emit it unchanged.
+            // The window is a CONSTANT of this text now: the statement
+            // carries it, so the emitted body spells the number rather
+            // than re-reading `fwd_cfg.per_layer_window_left` per launch.
             if depth_active
                 && op.layer.is_some()
                 && model_compiler::kernels::sig(kernel).is_some_and(|k| k.depth_prefix_plan)
@@ -1700,18 +1686,8 @@ fn emit_launch(
                 "    auto kv_view = cache.layer_view({layer});"
             ));
             b.stmt(&format!(
-                "    const int layer_window_left ="
-            ));
-            b.stmt(&format!(
-                "        (!fwd_cfg.per_layer_window_left.empty() &&"
-            ));
-            b.stmt(&format!(
-                "         {layer} < static_cast<int>(fwd_cfg.per_layer_window_left.size()))"
-            ));
-            b.stmt(&format!(
-                "            ? fwd_cfg.per_layer_window_left[{layer}]"
-            ));
-            b.stmt("            : fwd_cfg.sliding_window;");
+                    "    const int layer_window_left = {window};"
+                ));
             if depth_active {
                 b.stmt("    kernels::attn::dispatch_attention_flashinfer_decode(");
                 b.stmt("        *depth_dp,");

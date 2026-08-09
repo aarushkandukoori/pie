@@ -191,6 +191,11 @@ pub fn gemma4_cuda(
         let mut normed = dsl::cuda::rmsnorm(&y, &Gemma4LayerW::new(0, facts).attn_norm);
 
         for l in 0..facts.layers {
+            // THIS LAYER's sliding window, `-1` for none — a
+            // load-time fact the dispatch statements carry, where four
+            // executors used to re-derive it per launch.
+            let window_left =
+                model_compiler::facts::window_left_at(&cuda.window_left, l);
             let w = Gemma4LayerW::new(l, facts);
             let full = facts.is_full_attn(l);
             let d = facts.head_dim_of(l);
@@ -270,12 +275,12 @@ pub fn gemma4_cuda(
             // lands.
             dsl::seam(attn_in.trace(), &dsl::seam::ATTN_Q, &[&attn_in], Some(l));
             let a = match class {
-                FireClass::Decode => dsl::cuda::attention_flashinfer_decode(&attn_in, &kv),
+                FireClass::Decode => dsl::cuda::attention_flashinfer_decode(&attn_in, &kv, window_left),
                 FireClass::Prefill if d == 512 => {
-                    dsl::cuda::attention_naive_paged(&attn_in, &kv)
+                    dsl::cuda::attention_naive_paged(&attn_in, &kv, window_left)
                 }
                 FireClass::Prefill => {
-                    dsl::cuda::attention_flashinfer_prefill_planless(&attn_in, &kv)
+                    dsl::cuda::attention_flashinfer_prefill_planless(&attn_in, &kv, window_left)
                 }
                 other => unreachable!("gemma4 refuses {other:?} at trace start"),
             }

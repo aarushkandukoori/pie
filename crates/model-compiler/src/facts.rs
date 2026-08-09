@@ -51,3 +51,26 @@ pub enum QkNorm {
     Global,
 }
 
+
+/// The SLIDING WINDOW layer `l` attends over, `-1` for none.
+///
+/// One reader for a fact every family's backend carries the same way,
+/// because the shape of the list is the same everywhere: empty is "no
+/// window", one element is a config's single `sliding_window` broadcast
+/// to every layer, and a longer list is the per-layer array an
+/// alternating architecture states (gemma-2, gemma-4, OLMo-3).
+///
+/// It lives here rather than on any one facts struct for the reason
+/// `NormPlacement` and `QkNorm` do: more than one family is written in
+/// these words. Eleven executor sites across four families derived this
+/// from `fwd_cfg.per_layer_window_left` -- an array no statement
+/// mentioned -- and the dispatch statements carry it now.
+///
+/// A list SHORTER than the layer count is not an error: the last entry
+/// covers the tail, which is what the drivers' fallback meant.
+pub fn window_left_at(list: &[i32], l: u32) -> i32 {
+    match list.len() {
+        0 => -1,
+        n => list[(l as usize).min(n - 1)],
+    }
+}

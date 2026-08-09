@@ -378,6 +378,25 @@ pub struct LlamaLikeCudaFacts {
     /// Serde-defaulted (append-only discipline); 0 reads as one rank.
     #[serde(default)]
     pub tp_size: u32,
+    /// The SLIDING WINDOW each layer attends over, `-1` for none.
+    ///
+    /// Empty means every layer is `-1` — a deployment with no window at
+    /// all — which is why the accessor and not the field is what texts
+    /// read ([`Self::window_left_at`]).
+    ///
+    /// A load-time fact: a config's `sliding_window`, or its per-layer
+    /// list where the architecture alternates (OLMo-3, Mistral). Eleven
+    /// executor sites across four families derived it by reaching into
+    /// `fwd_cfg.per_layer_window_left` — a per-layer array no statement
+    /// mentioned — and the dispatch statements carry it now.
+    ///
+    /// The per-FIRE override (`runtime_window_left`) is NOT this. That
+    /// is a runtime input and wants a guard predicate;
+    /// `DeclineReason::SlidingWindow` still names it.
+    ///
+    /// Serde-defaulted (append-only discipline).
+    #[serde(default)]
+    pub window_left: Vec<i32>,
 }
 
 /// The METAL backend's load-time facts — what the Metal deployment
@@ -422,6 +441,16 @@ impl LlamaLikeMetalFacts {
 }
 
 impl LlamaLikeCudaFacts {
+    /// The window layer `l` attends over, `-1` for none.
+    ///
+    /// A short list is not an error: a deployment whose config carries
+    /// ONE `sliding_window` states a one-element list and every layer
+    /// reads it, which is what the drivers' `per_layer_window_left`
+    /// fallback meant.
+    pub fn window_left_at(&self, l: u32) -> i32 {
+        model_compiler::facts::window_left_at(&self.window_left, l)
+    }
+
     /// Qwen3-0.6B on L40S, default env — MEASURED 2026-08-02 against the
     /// driver's own derivation via the rung-3 digest print
     /// (`PIE_DECLARED_FORWARD_TRACE=1` + `..._GENERATED=1`; the live
@@ -459,6 +488,8 @@ impl LlamaLikeCudaFacts {
             proj_repr: WeightRepr::Bf16,
             // One rank: the L40S fixture is a single GPU.
             tp_size: 1,
+            // qwen3-0.6B attends over the whole prefix.
+            window_left: Vec::new(),
         }
     }
 }

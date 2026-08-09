@@ -94,6 +94,11 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
         let mut y = dsl::embed_with(t, "embed", facts.hidden);
 
         for l in 0..facts.layers() {
+            // THIS LAYER's sliding window, `-1` for none — a
+            // load-time fact the dispatch statements carry, where four
+            // executors used to re-derive it per launch.
+            let window_left =
+                model_compiler::facts::window_left_at(&facts.window_left, l);
             let w = NhLayerW::new(l, facts);
             let x = rmsnorm(&y, &w.norm);
 
@@ -152,7 +157,7 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
                     let kv = dsl::Kv::at(t, l);
                     dsl::cuda::write_kv_to_pages(&k, &v, &kv);
                     dsl::seam(q.trace(), &dsl::seam::ATTN_Q, &[&q], Some(l));
-                    let o = dsl::cuda::attention_flashinfer_decode(&q, &kv)
+                    let o = dsl::cuda::attention_flashinfer_decode(&q, &kv, window_left)
                         .expect("a plain attention statement produces its value");
                     dsl::seam(o.trace(), &dsl::seam::ATTN_OUT, &[&o], Some(l));
                     y += matmul(&o, &w.o_proj);

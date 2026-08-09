@@ -79,6 +79,8 @@ fn main() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             "olmo2_1b",
         ),
@@ -109,6 +111,8 @@ fn main() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             "qwen2_5_1_5b",
         ),
@@ -139,6 +143,8 @@ fn main() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             "mistral_7b_v03",
         ),
@@ -169,6 +175,8 @@ fn main() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             "phi3_mini",
         ),
@@ -184,6 +192,8 @@ fn main() {
         &emit_qwen35_cuda_inc(
             &Qwen35HybridFacts::qwen3_5_0_8b(),
             &Qwen35CudaFacts {
+                // Attends the whole context.
+                window_left: Vec::new(),
                 // LIVE-anchored (digest-corrected on first boot — the
                 // mechanism's fourth catch: the synthetic fixture said
                 // wt1/cm4096, the live env defaults say wt0/cm0):
