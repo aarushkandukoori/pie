@@ -1089,7 +1089,7 @@ pub fn qwen3_5_hybrid(facts: &Qwen35HybridFacts) -> ForwardPlan {
             };
         }
 
-        hybrid_epilogue(t, facts, &y);
+        hybrid_epilogue(t, facts, &y, /*stated=*/false);
     })
 }
 
@@ -1159,7 +1159,7 @@ pub fn qwen3_5_hybrid_cuda(
         if class == FireClass::StateOnly {
             return;
         }
-        hybrid_epilogue(t, facts, &y);
+        hybrid_epilogue(t, facts, &y, /*stated=*/true);
     })
 }
 
@@ -1184,7 +1184,11 @@ fn hybrid_hidden(facts: &Qwen35HybridFacts) -> u32 {
 /// Final norm → lm_head, resolving the tied-embedding fact. No kernel
 /// choice lives here (both ops are 1:1), so both texts state it the same
 /// way and it is written once.
-fn hybrid_epilogue(t: &Trace, facts: &Qwen35HybridFacts, y: &Val) {
+/// `stated`: this epilogue is being traced for a BACKEND, so its final
+/// norm names its kernel. The semantic caller passes false, because a
+/// backend-independent trace has no kernel to name — the same split
+/// `dsl::rmsnorm` and `dsl::cuda::rmsnorm` are.
+fn hybrid_epilogue(t: &Trace, facts: &Qwen35HybridFacts, y: &Val, stated: bool) {
     let final_norm = NormW {
         name: "final_norm".to_string(),
         variant: facts.norm_variant,
@@ -1192,7 +1196,12 @@ fn hybrid_epilogue(t: &Trace, facts: &Qwen35HybridFacts, y: &Val) {
         layer: None,
     };
     let lm_head = if facts.tied_embeddings { "embed" } else { "lm_head" };
-    let logits = dsl::lm_head_at(t, &rmsnorm(y, &final_norm), lm_head, facts.vocab);
+    let normed = if stated {
+        dsl::cuda::rmsnorm(y, &final_norm)
+    } else {
+        rmsnorm(y, &final_norm)
+    };
+    let logits = dsl::lm_head_at(t, &normed, lm_head, facts.vocab);
     dsl::seam(t, &dsl::seam::OUT, &[&logits], None);
 }
 

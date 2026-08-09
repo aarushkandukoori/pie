@@ -12110,9 +12110,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "final_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "final_norm"
+          ]
         }
       },
       "inputs": [
