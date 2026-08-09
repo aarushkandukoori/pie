@@ -2325,3 +2325,207 @@ fn the_llama_prefill_answers_in_one_paged_fire() {
         "mlx_lm continues this prompt with 12366 (' Paris')"
     );
 }
+
+/// The gemma4 assembly decodes mlx_lm's greedy continuation.
+///
+/// gemma-4-26B-A4B is the family's everything-at-once shape: the
+/// mixture BESIDE the dense MLP, full-attention layers whose V is the
+/// K projection (no v_proj exists), per-layer head widths and KV head
+/// counts, the PLE stream, the norm sandwich, the softcap — and an
+/// alt-quant router solved from the STAGED tensors, never the config.
+#[test]
+fn the_gemma4_assembly_decodes_the_reference_tokens() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_GEMMA4_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_GEMMA4_CHECKPOINT to a gemma-4 MLX snapshot");
+        return;
+    };
+    let snapshot = PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json"))
+        .expect("the snapshot has a config.json");
+    let root: serde_json::Value = serde_json::from_str(&config).expect("config.json parses");
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().expect("utf8 path"))
+        .expect("the config converts to a descriptor");
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json)
+        .expect("the driver's facts read the descriptor");
+    let mut geometry =
+        driver_metal_new::batch::gemma4_geometry_from_facts(&facts).expect("a gemma4 shape");
+    eprintln!(
+        "gemma4 geometry: {} layers ({} owning, {} full), moe {} ({}x{}), keqv {}",
+        geometry.n_layers,
+        geometry.n_kv_owning(),
+        geometry.n_full_attn(),
+        geometry.is_moe(),
+        geometry.n_experts,
+        geometry.experts_per_token,
+        geometry.attention_k_eq_v,
+    );
+    eprintln!(
+        "  global kv heads {} interval {} hd {}/{}",
+        geometry.n_global_kv_heads,
+        geometry.full_attn_interval,
+        geometry.head_dim,
+        geometry.global_head_dim
+    );
+
+    let target = metal_storage_target();
+    let (plan, _moe) = compile_load_plan(&snapshot, &target, &descriptor_json)
+        .expect("the plan compiles and its files exist");
+    let context = Context::new().expect("a Metal device answers");
+    let tuning = Tuning::default();
+    let max_ctx = 4096u32;
+    let shared_view = driver_metal_new::batch::gemma4_decode_geometry(&geometry);
+    let slot_bytes = scratch_slot_elems(&shared_view, &tuning, 1) * 4;
+    let mut storage = stage_decode_storage(
+        &context,
+        &plan,
+        &snapshot,
+        &shared_view,
+        max_ctx,
+        slot_bytes,
+    )
+    .expect("every region allocates and every tensor stages");
+    driver_metal_new::metal::stage_gemma4_kv(&context, &mut storage, &geometry, max_ctx)
+        .expect("the per-layer KV region allocates");
+
+    // The alt format, solved from the STAGED extents (bits = w/(4·s) at
+    // group 64), exactly as gpt-oss's trio: the config records only the
+    // model-wide choice and mlx_lm's predicate singles out tensors by
+    // name.
+    let bits_of = |name: &str| -> Option<u32> {
+        let w = storage
+            .weights
+            .get(&format!("{name}.weight"))
+            .map(driver_metal_new::region::Region::len)?;
+        let s = storage
+            .weights
+            .get(&format!("{name}.scales"))
+            .map(driver_metal_new::region::Region::len)?;
+        driver_metal_new::batch::bits_from_extents(w, s)
+    };
+    let ffn = bits_of("layers.0.mlp.down_proj");
+    let router = bits_of("layers.0.router.proj");
+    if let Some(bits) = ffn.filter(|&b| b != geometry.quant.bits) {
+        geometry.alt_quant_ffn = true;
+        geometry.ffn_quant = AffineFormat { bits, group: 64 };
+    }
+    if let Some(bits) = router.filter(|&b| b != geometry.quant.bits) {
+        geometry.alt_quant_router = true;
+        geometry.ffn_quant = AffineFormat { bits, group: 64 };
+    }
+    eprintln!(
+        "solved: ffn {ffn:?} router {router:?} -> alt_ffn {} alt_router {} at {:?}",
+        geometry.alt_quant_ffn, geometry.alt_quant_router, geometry.ffn_quant
+    );
+
+    let dag = driver_metal_new::batch::build_gemma4_dag(&geometry, true);
+    let schedule = build_scratch_schedule(&dag, false).expect("the DAG schedules hazard-free");
+    let pso_plan = driver_metal_new::batch::gemma4_step_plan(&geometry);
+    let compiler = Compiler::new(&context).expect("the shader compiler starts");
+    let psos = load_step_psos(&compiler, &context, &kernels_dir(), &pso_plan)
+        .expect("every planned entrypoint compiles");
+    let step = driver_metal_new::metal::Gemma4Step::prepare(
+        &context, &storage, &geometry, &tuning, &schedule, psos, max_ctx,
+    )
+    .expect("the step binds whole");
+
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().expect("io slot");
+    let read_next = || {
+        // SAFETY: called only after the step retired.
+        let raw = unsafe {
+            std::slice::from_raw_parts(io(IoSlot::NextToken).contents().cast::<u8>().as_ptr(), 4)
+        };
+        u32::from_le_bytes(raw.try_into().unwrap())
+    };
+    let mut stepper = Stepper::new(&context).expect("a stepper");
+    let mut fire_at = |token: u32, position: u32| {
+        // SAFETY: the previous fire retired before we rewrite the inputs.
+        unsafe {
+            io(IoSlot::TokenId).write(0, &token.to_le_bytes()).unwrap();
+            io(IoSlot::Position)
+                .write(0, &position.to_le_bytes())
+                .unwrap();
+            io(IoSlot::SeqLen)
+                .write(0, &(position + 1).to_le_bytes())
+                .unwrap();
+        }
+        step.fire(&mut stepper).expect("the command buffer retires");
+        read_next()
+    };
+
+    // The chat-template prompt, not a raw completion: the instruct
+    // model's raw continuations sit in a degenerate low-margin regime
+    // where bf16-vs-mlx evaluation-order jitter can flip an argmax
+    // (observed at token six of a completion prompt, first five exact).
+    // Under its template the margins are wide — 26 logits at the first
+    // answer token — and the comparison is honest.
+    let prompt: Vec<u32> = std::env::var("PIE_METAL_SMOKE_GEMMA4_PROMPT_IDS")
+        .ok()
+        .map(|csv| {
+            csv.split(',')
+                .map(|t| t.trim().parse().expect("token ids"))
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            vec![
+                2, 105, 9731, 107, 98, 107, 106, 107, 105, 2364, 107, 3689, 563, 506, 5279, 529,
+                7001, 236881, 25685, 528, 886, 3658, 236761, 106, 107, 105, 4368, 107,
+            ]
+        });
+    let mut position = 0u32;
+    let mut next = 0u32;
+    for &token in &prompt {
+        next = fire_at(token, position);
+        position += 1;
+    }
+    {
+        let logits = io(IoSlot::Logits);
+        let vocab = geometry.vocab as usize;
+        // SAFETY: the step retired.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(logits.contents().cast::<u8>().as_ptr(), vocab * 2)
+        };
+        let mut finite = 0usize;
+        let mut best = (0usize, f32::NEG_INFINITY);
+        for (i, pair) in bytes.chunks_exact(2).enumerate() {
+            let value = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+            if value.is_finite() {
+                finite += 1;
+                if value > best.1 {
+                    best = (i, value);
+                }
+            }
+        }
+        eprintln!(
+            "prompt fed: {finite}/{vocab} finite, host argmax {} ({:.3}), device {next}",
+            best.0, best.1
+        );
+        assert_eq!(
+            finite, vocab,
+            "a NaN in the logits is a wrong kernel upstream"
+        );
+        assert_eq!(next as usize, best.0, "device and host argmax disagree");
+    }
+    let n_continue: usize = std::env::var("PIE_METAL_SMOKE_GEMMA4_TOKENS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
+    let mut produced = Vec::new();
+    produced.push(next);
+    while produced.len() < n_continue {
+        next = fire_at(next, position);
+        position += 1;
+        produced.push(next);
+    }
+    eprintln!("produced {produced:?}");
+    let reference: Vec<u32> = std::env::var("PIE_METAL_SMOKE_GEMMA4_REFERENCE")
+        .ok()
+        .map(|csv| csv.split(',').map(|t| t.trim().parse().unwrap()).collect())
+        .unwrap_or_else(|| vec![100, 45518, 107, 236829, 139, 14977, 236787, 623]);
+    if produced.len() == reference.len() {
+        assert_eq!(
+            produced, reference,
+            "the greedy continuation drifted from mlx_lm's (26b-a4b, chat template)"
+        );
+    }
+}
