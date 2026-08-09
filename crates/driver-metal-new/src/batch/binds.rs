@@ -129,7 +129,11 @@ pub fn weight_binds(
         // Tied: one table serves both ends of the model.
         Kernel::EmbedGather | Kernel::QmvLmHead => push_quant(&mut out, "shared_embedding"),
         Kernel::FinalRms => bind(&mut out, slot::RMS_W, "final_norm.weight".into()),
-        Kernel::Rms => bind(&mut out, slot::RMS_W, format!("{prefix}input_layernorm.weight")),
+        Kernel::Rms => bind(
+            &mut out,
+            slot::RMS_W,
+            format!("{prefix}input_layernorm.weight"),
+        ),
         Kernel::FfnRms => bind(
             &mut out,
             slot::RMS_W,
@@ -173,7 +177,11 @@ pub fn weight_binds(
             format!("{prefix}post_feedforward_layernorm.weight"),
         ),
         Kernel::G4LayerScalar => {
-            bind(&mut out, slot::LAYER_SCALAR, format!("{prefix}layer_scalar"));
+            bind(
+                &mut out,
+                slot::LAYER_SCALAR,
+                format!("{prefix}layer_scalar"),
+            );
         }
         Kernel::G4PleNorm => bind(
             &mut out,
@@ -459,7 +467,10 @@ mod tests {
         let binds = weight_binds(Kernel::LlExpertGate, Some(0), &g, false);
         assert_eq!(binds.len(), 2, "block exponents, no zero point");
         g.mxfp4_experts = false;
-        assert_eq!(weight_binds(Kernel::LlExpertGate, Some(0), &g, false).len(), 3);
+        assert_eq!(
+            weight_binds(Kernel::LlExpertGate, Some(0), &g, false).len(),
+            3
+        );
     }
 
     #[test]
@@ -482,7 +493,11 @@ mod tests {
         let fused = weight_binds(Kernel::GdnCore, Some(1), &g, false);
         assert_eq!(fused.len(), 3, "conv weight + A_log + dt_bias");
         let split = weight_binds(Kernel::GdnCore, Some(1), &g, true);
-        assert_eq!(split.len(), 1, "the slimmed core keeps only the conv weight");
+        assert_eq!(
+            split.len(),
+            1,
+            "the slimmed core keeps only the conv weight"
+        );
         let prep = weight_binds(Kernel::GdnPrep, Some(1), &g, true);
         assert_eq!(prep.len(), 3);
     }
@@ -501,7 +516,10 @@ mod tests {
             Kernel::LlMoeCombine,
             Kernel::LlSharedCombine,
         ] {
-            assert!(weight_binds(kind, Some(0), &g, false).is_empty(), "{kind:?}");
+            assert!(
+                weight_binds(kind, Some(0), &g, false).is_empty(),
+                "{kind:?}"
+            );
         }
     }
 }
