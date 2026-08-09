@@ -16,6 +16,7 @@ mod admit;
 mod binds;
 mod color;
 mod consts;
+mod dataflow;
 mod dispatch;
 mod geometry;
 mod golden;
@@ -43,6 +44,7 @@ pub use consts::{
     ExpertCombineParams, GatedRmsParams, GdnCoreParams, KN, MoeRouteParams, RmsParams,
     RouterParams, gdn_core_params, is_qmv, is_routed, qmv_kn,
 };
+pub use dataflow::{build_scratch_schedule, build_scratch_uses};
 pub use dispatch::{
     DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
 };
