@@ -37,6 +37,7 @@ mod op;
 mod plan;
 mod registry;
 mod resolve;
+mod scratch;
 mod step;
 mod value;
 
@@ -55,6 +56,9 @@ pub use registry::{
     Program, Registry, channel_dtype,
 };
 pub use resolve::{Geometry as FireGeometry, Resolution, last_page_len, resolve};
+pub use scratch::{
+    ALIGN as SCRATCH_ALIGN, DUMMY_BYTES, Layout, MAX_BYTES as MAX_SCRATCH_BYTES, TooLarge, layout,
+};
 pub use step::{PassInputs, StepOutcome, step};
 pub use value::{Value, concrete_dtype, decode_wire, encode_wire, value_matches, wire_cell_bytes};
 
