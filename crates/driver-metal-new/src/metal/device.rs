@@ -110,9 +110,14 @@ fn query_gpu_core_count() -> u32 {
     };
     // The lookup CONSUMES a reference, which is why the binding takes the
     // dictionary by value rather than by reference. `IOServiceMatching` hands
-    // back a mutable dictionary and the lookup wants an immutable one; that
-    // conversion is the toll-free bridge CoreFoundation guarantees.
-    let matching: CFRetained<CFDictionary> = matching.into();
+    // back a mutable dictionary and the lookup wants an immutable one.
+    //
+    // SAFETY: this is the CF class hierarchy, not a reinterpretation --
+    // `CFMutableDictionary` declares `CFDictionary` as its superclass, so
+    // every mutable dictionary IS a dictionary and the pointer is unchanged.
+    // There is no safe `Into` for the widening because CF's superclass
+    // relation is expressed through `Deref` on the borrowed form only.
+    let matching: CFRetained<CFDictionary> = unsafe { CFRetained::cast_unchecked(matching) };
 
     let mut iter: io_iterator_t = 0;
     // SAFETY: `iter` is a live, correctly typed out-parameter, and `matching`
@@ -171,5 +176,39 @@ mod tests {
     #[test]
     fn unknown_device_info_maps_to_the_default_tuning_device() {
         assert_eq!(Device::from(DeviceInfo::default()), Device::default());
+    }
+
+    /// The query runs, and answers with something a real machine could have.
+    ///
+    /// Asserts a RANGE rather than this box's numbers, because the crate is
+    /// built on more than one Mac and pinning `(7, 24)` would fail on the
+    /// next one. What it is really guarding is that the two calls return at
+    /// all: both cross into C with a hand-written ownership contract, and the
+    /// IOKit walk in particular consumes a reference the compiler cannot
+    /// check. A double release there is a crash, not a wrong number, so a
+    /// test that merely REACHES the assert has already proven the thing worth
+    /// proving.
+    ///
+    /// Skipped when no device answers -- a headless CI runner has no GPU, and
+    /// 0 is the documented answer there rather than a failure.
+    #[test]
+    fn the_device_query_answers() {
+        let info = DeviceInfo::get();
+        if info.apple_family == 0 {
+            return;
+        }
+        assert!(
+            (5..=99).contains(&info.apple_family),
+            "implausible family {}",
+            info.apple_family
+        );
+        assert!(
+            info.gpu_core_count <= 1024,
+            "implausible core count {}",
+            info.gpu_core_count
+        );
+        // Cached: the second call must be the first one's answer, not a
+        // second walk of the registry.
+        assert_eq!(DeviceInfo::get(), info);
     }
 }
