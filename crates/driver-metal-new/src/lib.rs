@@ -14,7 +14,7 @@
 //! GPU and is only in C++ because it was written next to the part that does.
 //! So the split here is by that line rather than by subsystem:
 //!
-//! * [`bump`], [`shader`] and [`tuning`] are portable. They compile and test on any
+//! * [`bump`], [`region`], [`shader`] and [`tuning`] are portable. They compile and test on any
 //!   host, including the Linux boxes the rest of the workspace is developed
 //!   on, because their inputs are text and integers.
 //! * [`metal`] is Apple-only and is where every `unsafe` message send lives.
@@ -39,10 +39,12 @@
 
 mod error;
 pub mod bump;
+pub mod region;
 pub mod shader;
 pub mod tuning;
 
 pub use error::{Error, Result};
+pub use region::Region;
 
 #[cfg(target_vendor = "apple")]
 pub mod metal;

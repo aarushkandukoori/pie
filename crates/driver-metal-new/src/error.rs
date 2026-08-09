@@ -86,6 +86,23 @@ pub enum Error {
         capacity: u64,
     },
 
+    /// A byte span left the buffer it was meant to stay inside.
+    ///
+    /// Not a Metal failure -- Metal would not have reported one. Shared
+    /// storage rounds every allocation up, so the bytes just past a slot are
+    /// mapped and writable and belong to whatever was placed next. This is
+    /// the only thing between the two.
+    OutOfRange {
+        /// Which span was short (`"source"`, `"destination"`, `"region"`).
+        what: &'static str,
+        /// Where the span started.
+        offset: u64,
+        /// How long it was.
+        bytes: u64,
+        /// How long the region is.
+        len: u64,
+    },
+
     /// A model or allocation is larger than the device will hold resident.
     ///
     /// Worth its own variant because Metal does not report it: every buffer
@@ -129,6 +146,15 @@ impl fmt::Display for Error {
             } => write!(
                 f,
                 "heap exhausted: {requested} bytes requested, {available} of {capacity} free"
+            ),
+            Self::OutOfRange {
+                what,
+                offset,
+                bytes,
+                len,
+            } => write!(
+                f,
+                "{what} span of {bytes} bytes at offset {offset} leaves a region of {len} bytes"
             ),
             Self::WorkingSetExceeded {
                 requested,

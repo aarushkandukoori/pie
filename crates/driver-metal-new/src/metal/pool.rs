@@ -462,6 +462,21 @@ impl std::fmt::Debug for Pool {
     }
 }
 
+// SAFETY: `contents` is the buffer's shared-storage pointer, and the loan
+// holds the buffer alive until it is dropped. `size` is what the borrower
+// asked for, which is never more than the class that was allocated. Only one
+// `Transient` can name a given buffer at a time -- that is what the pool's
+// ownership is for.
+unsafe impl crate::Region for Transient {
+    fn contents(&self) -> NonNull<c_void> {
+        self.contents
+    }
+
+    fn len(&self) -> u64 {
+        self.size
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{SMALLEST_CLASS, cache_depth, size_class};

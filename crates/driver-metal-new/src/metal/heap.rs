@@ -275,6 +275,19 @@ impl std::fmt::Debug for Heap {
     }
 }
 
+// SAFETY: `contents` is the buffer's shared-storage pointer, valid for the
+// heap's lifetime, and `size` is the length placement reserved for this slot
+// alone. The bump allocator never overlaps two placements.
+unsafe impl crate::Region for Slot<'_> {
+    fn contents(&self) -> NonNull<c_void> {
+        self.contents
+    }
+
+    fn len(&self) -> u64 {
+        self.size
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
