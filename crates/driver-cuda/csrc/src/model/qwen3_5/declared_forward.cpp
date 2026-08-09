@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
@@ -489,6 +490,25 @@ bool forward_declared_tmpl(
     }
     }  // if constexpr (dense): the generated bodies
     const pie_forward::ForwardPlan& plan = *class_plan;
+    // Say ONCE, unconditionally, that this drive took a fire.
+    //
+    // Every other declared executor does; this one only said so under
+    // `PIE_DECLARED_FORWARD_TRACE`, which is not good enough for the
+    // reason `cuda_declared_family_parity` states out loud: a declared
+    // side that silently DECLINES produces a record identical to the
+    // hand-written side by construction, so the gate passes while
+    // proving nothing. That harness refuses a run it cannot hear, and
+    // it could not hear this family at all.
+    {
+        static std::atomic<bool> said[2] = {{false}, {false}};
+        if (!said[is_pure_decode ? 0 : 1].exchange(true)) {
+            std::fprintf(stderr,
+                         "[declared-qwen35] first %s fire: N=%d R=%d "
+                         "ops=%zu\n",
+                         is_pure_decode ? "DECODE" : "PREFILL",
+                         total_tokens, num_requests, plan.op_count());
+        }
+    }
     if (qwen35_declared_exec_trace_enabled()) {
         std::fprintf(stderr,
                      "[declared-qwen35-exec] N=%d R=%d decode=%d ops=%zu "
