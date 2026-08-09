@@ -17,6 +17,9 @@
 #include <string>
 #include <vector>
 
+#include "gemm/gemm.hpp"
+#include "mlp/swiglu.hpp"
+#include "norm/residual_add.hpp"
 #include "norm/rmsnorm.hpp"
 #include "model/gemma4/gemma4_naive_kernels.cuh"
 
@@ -94,6 +97,7 @@ void run_gemma4_vision(const VisRawWeights& w,
     const float EPS=w.eps, THETA=w.theta;
     if(Hd!=768||NH!=12) throw std::runtime_error("gemma4_vision: unexpected dims (expected hidden=768, heads=12)");
 
+    kernels::gemm::CublasHandle cublas(S);
     DeviceScratch scratch;
     auto MAL=[&](long n){return scratch.alloc<bf>(n);};
     bf *h=MAL((long)N*Hd),*hn=MAL((long)N*Hd),*xc=MAL((long)N*IM),*q=MAL((long)N*Hd),*k=MAL((long)N*Hd),*v=MAL((long)N*Hd),
@@ -101,11 +105,11 @@ void run_gemma4_vision(const VisRawWeights& w,
     float* scr=scratch.alloc<float>((long)N*N);
     auto clin=[&](const bf* x,bf* out,const VisClipRaw& c,int Kin,int Out){
         k_clamp<<<((long)N*Kin+255)/256,256,0,S>>>(x,xc,c.imin,c.imax,(long)N*Kin);
-        k_matmul<<<G2(Out,N),B2,0,S>>>(xc,c.w,out,N,Kin,Out);
+        kernels::gemm::act_x_wt_bf16(cublas.handle(),xc,c.w,out,N,Out,Kin);
         k_clamp<<<((long)N*Out+255)/256,256,0,S>>>(out,out,c.omin,c.omax,(long)N*Out);};
 
     k_scale<<<((long)N*Hd+255)/256,256,0,S>>>(pixel,hn,(long)N*Hd);
-    k_matmul<<<G2(Hd,N),B2,0,S>>>(hn,w.patch_w,h,N,Hd,Hd);
+    kernels::gemm::act_x_wt_bf16(cublas.handle(),hn,w.patch_w,h,N,Hd,Hd);
     k_addpos_grid2d<<<G2(Hd,N),B2,0,S>>>(h,w.pos_table,pos,N,Hd,PT);
     int li=0;
     for(const auto& L:w.layers){
@@ -116,13 +120,13 @@ void run_gemma4_vision(const VisRawWeights& w,
         for(int hh=0;hh<NH;hh++){k_qk<<<G2(N,N),B2,0,S>>>(q,k,scr,N,NH,hh,1.0f);k_softmax<<<N,256,0,S>>>(scr,N);k_av<<<G2(64,N),B2,0,S>>>(scr,v,attn,N,NH,hh);}
         clin(attn,tmp,L.o,Hd,Hd);
         kernels::norm::rmsnorm_bf16(tmp,L.post_attn_ln,tmp,N,Hd,EPS,S);
-        k_add<<<((long)N*Hd+255)/256,256,0,S>>>(h,tmp,(long)N*Hd);
+        kernels::norm::residual_add_bf16(h,tmp,(long)N*Hd,S);
         kernels::norm::rmsnorm_bf16(h,L.pre_ff_ln,hn,N,Hd,EPS,S);
         clin(hn,gate,L.gate,Hd,IM);clin(hn,up,L.up,Hd,IM);
-        k_gelu_mul<<<((long)N*IM+255)/256,256,0,S>>>(gate,up,act,(long)N*IM);
+        kernels::mlp::geglu_tanh_bf16(gate,up,act,(long)N*IM,S);
         clin(act,tmp,L.down,IM,Hd);
         kernels::norm::rmsnorm_bf16(tmp,L.post_ff_ln,tmp,N,Hd,EPS,S);
-        k_add<<<((long)N*Hd+255)/256,256,0,S>>>(h,tmp,(long)N*Hd);
+        kernels::norm::residual_add_bf16(h,tmp,(long)N*Hd,S);
         if(li++==0) tap("layer0",h,(long)N*Hd);
     }
     tap("layer_last",h,(long)N*Hd);
@@ -131,7 +135,7 @@ void run_gemma4_vision(const VisRawWeights& w,
     bf* pooled=MAL((long)OUTL*Hd);k_pool_finish<<<((long)OUTL*Hd+255)/256,256,0,S>>>(pf,pooled,sqrtf((float)Hd),(long)OUTL*Hd);
     tap("pooled_last_hidden",pooled,(long)OUTL*Hd);
     bf* pn=MAL((long)OUTL*Hd);kernels::norm::rmsnorm_no_scale_bf16(pooled,pn,OUTL,Hd,EPS,S);
-    k_matmul<<<G2(TXT,OUTL),B2,0,S>>>(pn,w.embed_proj,out_proj,OUTL,Hd,TXT);
+    kernels::gemm::act_x_wt_bf16(cublas.handle(),pn,w.embed_proj,out_proj,OUTL,TXT,Hd);
     VCK(cudaStreamSynchronize(S));
 }
 

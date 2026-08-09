@@ -827,7 +827,38 @@ else()
     "`cargo rustc -p pie-loader-capi --lib --crate-type staticlib`)")
 endif()
 
-# ---- One target that builds every harness ----------------------------------
+# ---- The bench tree, which was in no build at all ---------------------------
+#
+# Seven .cu under bench/ and three under tests/ were sources of no target: they
+# compiled only when someone typed nvcc by hand, so nothing noticed when an API
+# moved under them. `gemv_bench` had been calling `gemv_splitk_tuned` without
+# the `unroll` argument it gained in 674d4dbc2, AND sweeping a warps=32 that is
+# not instantiated -- printing the empty interval as a bandwidth number.
+#
+# NO_CTEST throughout: these are manual harnesses that want a GPU and a shape
+# argument, not pass/fail tests. Being BUILT is the point.
+pie_add_cuda_target(bench_gemv SOURCES bench/gemv_bench.cu LIBS CUDA::cudart NO_CTEST)
+pie_add_cuda_target(bench_mla SOURCES bench/mla_bench.cu LIBS CUDA::cudart NO_CTEST)
+pie_add_cuda_target(bench_smallop SOURCES bench/smallop_bench.cu LIBS CUDA::cudart NO_CTEST)
+pie_add_cuda_target(bench_mxfp4_roof SOURCES bench/mxfp4_roof_bench.cu LIBS CUDA::cudart NO_CTEST)
+pie_add_cuda_target(test_peel_window SOURCES tests/test_peel_window.cu LIBS CUDA::cudart NO_CTEST)
+pie_add_cuda_target(test_supergraph
+  SOURCES tests/test_supergraph.cu src/batch/supergraph.cu
+  LIBS CUDA::cudart NO_CTEST)
+pie_add_cuda_target(test_generated_lane_grid_padding
+  SOURCES tests/test_generated_lane_grid_padding.cu
+  INCLUDE_DIRS ${PIE_DRIVER_INCLUDE_DIR} ${PIE_PTIR_INCLUDE_DIR}
+               ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
+  LIBS CUDA::cudart NO_CTEST)
+
+# Still unwired, and deliberately: bench/moe_bench.cu, bench/mxfp4_cutlass_bench.cu
+# and bench/marlin_moe_verify.cu include cutlass/ or marlin_moe_wrapper.hpp,
+# which are FlashInfer's fetched tree and the Marlin toggle -- both live in the
+# kernels crate's build directory and neither is on any path this crate is
+# given. Wiring them needs those paths published, which is a change to the
+# kernels crate's cargo:: metadata, not to this file.
+
+# ---- One target that builds every harness (KEEP LAST) ----------------------------------
 #
 # `cargo build -p driver-cuda` asks CMake for `pie_driver_cuda_lib` and stops.
 # The 67 test and bench executables configured above were therefore never
@@ -840,6 +871,9 @@ endif()
 # differently.
 #
 # Depend on the library too, so this single target is the whole build.
+# Must stay at the END of this file: `get_property` reads the registry as it
+# stands right here, so any target added below would silently not be built --
+# which is precisely what happened when the bench targets were appended.
 get_property(_pie_check_targets GLOBAL PROPERTY PIE_DRIVER_CUDA_CHECK_TARGETS)
 add_custom_target(pie_driver_cuda_checks)
 add_dependencies(pie_driver_cuda_checks pie_driver_cuda_lib ${_pie_check_targets})
@@ -860,3 +894,4 @@ message(STATUS "pie_driver_cuda_checks: ${_pie_check_count} harness targets")
 # `gemv_splitk_tuned` gained an `unroll` parameter it never passed. Adding
 # them needs their vendor gates (cutlass, marlin) decided first, which is a
 # separate change from making the existing targets build.
+
