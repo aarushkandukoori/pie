@@ -49,6 +49,29 @@ the C ABI; this port calls `model` (author registry) and `model-loader`
 | `plan.verify_model(request)` | file stat loop | dropped in part, with a reason: the verifier existed to hold the MARSHALLED plan to a re-authored contract — marshalling and author determinism both in scope. In-process there is no marshalling, and a same-process re-author is a restatement, not a second opinion. What still checks something real survives: every file the plan declares is stat'ed against the snapshot |
 | exceptions | `LoadPlanError` (5 named variants) | ported |
 
+## The expert slab — `src/loader/slab.rs` (+ `model-loader/src/group_slot.rs`)
+
+`loader/expert_slab.hpp` (197) and its dependency
+`pie_loader/group_slot_index.hpp` (163), which had no Rust counterpart.
+
+| C++ | Rust | |
+|---|---|---|
+| `pie_loader::GroupSlotIndex` | `model_loader::group_slot::GroupSlotIndex` | ported — into the LOADER crate, per the header's own argument: two backends deciding residency by two eviction rules is two ways for the same checkpoint to thrash |
+| `kAbsent` sentinel / `int32_t` slot | `Option<u32>` | ported |
+| all-slots-pinned `runtime_error` | `AllSlotsPinned` (typed) | ported |
+| `SlabTensor` (suffix, band, layer pointers) | `SlabTensor<'a>` (byte slices) | ported |
+| `ExpertSlab` ctor's thrown strings | `SlabError` (9 named variants) | ported |
+| null-pointer layer check | `ShortBank` length check | ported, stronger: a slice carries its length, so the real precondition (`experts * band_bytes` per bank, `slots * band_bytes` per slab) is checked instead of just non-null |
+| `ensure_resident` / `end_batch` / stats | same; `ensure_resident` is `unsafe fn` | ported — the GPU-quiescence contract the C++ carried in prose is a `# Safety` section, and out-of-grid (layer, expert) is a typed error because the expert id is the ROUTER's readback: data fails the fire, it does not crash the process |
+| `slot_data` pointer accessor | `slab(t)` + `slot_offset(t, slot)` | ported: binding needs the region and the offset separately |
+
+The module keeps the two arguments that justify the design: residency has
+to be a wired region whose contents change (`requestResidency` wires every
+page — 18.4 GB for a streamed Qwen3-30B-A3B against 1.5 GB at rest, and an
+Apple GPU aborts rather than faults on a non-resident touch), and a slot is
+every tensor of one expert or nothing (one `expert_ids` buffer indexes every
+routed projection, so per-tensor slot numbers cannot exist).
+
 ## Not yet started
 
 | C++ | lines | blocker |
@@ -56,4 +79,3 @@ the C ABI; this port calls `model` (author registry) and `model-loader`
 | `heap_bind.cpp` | 2044 | Metal-side: heap alloc + argument tables; needs `src/metal` runtime surface |
 | `transcode.hpp` | 354 | tensor staging/transcode; portable, next candidate |
 | `heap_bind_metal.hpp` | 209 | Metal-side companion of `heap_bind.cpp` |
-| `expert_slab.hpp` | 197 | MoE expert paging slab; `expert_paging.hpp` (batch) waits on it |
