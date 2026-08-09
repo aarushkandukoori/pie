@@ -1140,6 +1140,36 @@ void llama_like_forward_declared(
         // by argument, zero launches, zero sideband setup.
         if (stage_hooks == nullptr) return;
         const int L = static_cast<int>(op.param1);
+        // What the site observes, and how wide a row of it is. Both the
+        // statement's: `attn.q` names the peel's query, and the width it
+        // used to spell as `Hq` is that value's.
+        //
+        // UNEXERCISED BY THE GATE. The parity harness runs
+        // naive-baseline, which attaches no attention-stage programs --
+        // `hooked=0` on all 52 fires of a run -- so `stage_hooks` is
+        // null and this lambda never executes. The 168 HookSite ops in
+        // the text are passed through by argument. A green gate says
+        // nothing about these two lines; the fallbacks below are what
+        // keeps them honest if a value is ever missing.
+        const auto hook_src = [&]() -> const void* {
+            const auto ins = plan.inputs(op);
+            if (ins.size == 0) return ws.q.data();
+            return values.slot(ins[0], plan.value(ins[0]));
+        };
+        const auto hook_width = [&]() {
+            const auto ins = plan.inputs(op);
+            if (ins.size == 0) return Hq;
+            const auto& val = plan.value(ins[0]);
+            std::uint32_t out = 1;
+            for (std::uint32_t k = 1; k < val.rank; ++k) {
+                if (val.dims[k].kind !=
+                    pie_forward::PieForwardDimKind::Const) {
+                    return Hq;
+                }
+                out *= val.dims[k].value;
+            }
+            return static_cast<int>(out);
+        };
         if (op.param0 == 0) {
             // OnAttnProj: reset the layer's page view, re-seed the
             // mask ("keep everything" unless this layer's program
@@ -1161,11 +1191,14 @@ void llama_like_forward_declared(
                     plan_state.prefill_score_window,
                     /*capturable=*/true, stream);
             }
+            // ISLAND (value arena). The observed buffer is the seam's
+            // own value -- the PEEL's query, which the pin pass binds --
+            // so the site stops naming `ws.q`.
             invoke_stage_hook(
                 stage_hooks, StageHookPoint::OnAttnProj,
-                ws.q.data(),
+                hook_src(),
                 static_cast<std::uint32_t>(N),
-                static_cast<std::uint32_t>(Hq),
+                static_cast<std::uint32_t>(hook_width()),
                 static_cast<std::uint32_t>(L),
                 stream, /*query_is_f32=*/false,
                 {.mask_sink = page_mask.sink()});
@@ -1173,9 +1206,9 @@ void llama_like_forward_declared(
             // OnAttn: the programs read what the attention published.
             invoke_stage_hook(
                 stage_hooks, StageHookPoint::OnAttn,
-                ws.q.data(),
+                hook_src(),
                 static_cast<std::uint32_t>(N),
-                static_cast<std::uint32_t>(Hq),
+                static_cast<std::uint32_t>(hook_width()),
                 static_cast<std::uint32_t>(L),
                 stream, /*query_is_f32=*/false,
                 {.scores = score_capture && score_capture->scores()
