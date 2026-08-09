@@ -562,9 +562,8 @@ bool gpt_oss_forward_declared(
             const auto outs = plan.outputs(op);
             need(ins, 1, "rmsnorm inputs");
             need(outs, 1, "rmsnorm outputs");
-            kernels::norm::rmsnorm_bf16(
-                values.slot(ins[0]), require(w, name).data(),
-                values.slot(outs[0]), N, row_width(ins[0]), eps, stream);
+            declared::arm_rmsnorm(plan, op, values, require(w, name).data(),
+                                  N, eps, stream);
             break;
         }
         case PieForwardOpKind::Matmul: {

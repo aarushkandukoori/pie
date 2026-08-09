@@ -1399,12 +1399,9 @@ void llama_like_forward_declared(
             const ParsedWeightName nm = parse_weight_name(name);
             if (nm.field == "attn_norm") {
                 const auto& layer = layer_of(w, nm, name);
-                // ISLAND (pinned value): the normed activation is a traced
-                // VALUE whose buffer the pin pass states, because LoRA
-                // reaches it by name outside the walk.
-                void* const attn_norm_out =
-                    values.slot(plan.outputs(op)[0],
-                                plan.value(plan.outputs(op)[0]));
+                // The normed activation is a traced VALUE whose buffer
+                // the pin pass states, because LoRA reaches it by name
+                // outside the walk — the shared arm asks for it by id.
                 // Post-norm norms the o_proj OUTPUT (the pinned
                 // scratch), pre-norm the residual stream.
                 // The OPERAND is the statement's on the pre-norm path
@@ -1416,9 +1413,9 @@ void llama_like_forward_declared(
                 // scratch. Either way it is the statement's operand, so
                 // the branch that picked between two workspace fields
                 // goes away and the width comes off the value.
-                norm(values.slot(plan.inputs(op)[0],
-                                 plan.value(plan.inputs(op)[0])),
-                     wb.require(name).data(), attn_norm_out, N, in_w(0));
+                declared::arm_rmsnorm(plan, op, values,
+                                      wb.require(name).data(), N, eps,
+                                      stream);
             } else if (nm.field == "mlp_norm") {
                 const auto& layer = layer_of(w, nm, name);
                 // ISLAND (value arena), both placements. The normed
@@ -1427,12 +1424,9 @@ void llama_like_forward_declared(
                 // the same role `ws.norm_x`. Post-norm the operand is
                 // the down_proj scratch instead of the stream, which is
                 // a different VALUE and not a different buffer rule.
-                norm(values.slot(plan.inputs(op)[0],
-                                 plan.value(plan.inputs(op)[0])),
-                     wb.require(name).data(),
-                     values.slot(plan.outputs(op)[0],
-                                 plan.value(plan.outputs(op)[0])),
-                     N, in_w(0));
+                declared::arm_rmsnorm(plan, op, values,
+                                      wb.require(name).data(), N, eps,
+                                      stream);
             } else if (nm.field == "q_norm") {
                 // Global qk-norm (olmo2): ONE row RMSNorm over the
                 // flattened [N, heads * head_dim] projection, in place —

@@ -24,6 +24,7 @@
 #include "attn/split_packed.hpp"
 #include "layout/embed.hpp"
 #include "norm/residual_add.hpp"
+#include "norm/rmsnorm.hpp"
 #include "mlp/swiglu.hpp"
 #include "model/declared/value_arena.hpp"
 #include "model/workspace.hpp"
@@ -162,6 +163,43 @@ inline void arm_residual_add(const pie_forward::ForwardPlan& plan,
         static_cast<std::size_t>(rows) *
             static_cast<std::size_t>(row_width(plan, outs[0])),
         stream);
+}
+
+// `Rmsnorm`: the row norm, with the WEIGHT FOLD chosen by the variant
+// the statement carries. Gemma folds `(1 + w)` instead of `w` — different
+// arithmetic, so a different kernel, but the same signature and the same
+// row space, and the variant rides on the wire (`op.param0`).
+//
+// That is what makes this arm family-blind rather than nearly so: the
+// fork is a fact of the STATEMENT, not of the executor, and three of the
+// four had hard-coded their deployment's answer to it.
+//
+// `eps` stays a parameter. It is a config number the trace does not
+// carry, which is the same reason the weight pointer is one.
+inline void arm_rmsnorm(const pie_forward::ForwardPlan& plan,
+                        const pie_forward::PieForwardOp& op,
+                        ValueArena& values,
+                        const void* weight,
+                        int rows,
+                        float eps,
+                        cudaStream_t stream) {
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 1, "rmsnorm inputs");
+    need(outs, 1, "rmsnorm outputs");
+    const int width = row_width(plan, ins[0]);
+    const bool gemma_fold =
+        op.param0 ==
+        static_cast<std::uint32_t>(pie_forward::PieForwardNormVariant::Gemma);
+    if (gemma_fold) {
+        kernels::norm::rmsnorm_gemma_bf16(values.slot(ins[0]), weight,
+                                          values.slot(outs[0]), rows, width,
+                                          eps, stream);
+    } else {
+        kernels::norm::rmsnorm_bf16(values.slot(ins[0]), weight,
+                                    values.slot(outs[0]), rows, width, eps,
+                                    stream);
+    }
 }
 
 }  // namespace pie_cuda_driver::model::declared
