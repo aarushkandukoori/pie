@@ -30,6 +30,7 @@
 //! pass-atomically, publishing channel effects only after every resulting ring
 //! is validated.
 
+mod cache;
 mod channel;
 mod extent;
 mod group;
@@ -44,6 +45,10 @@ mod scratch;
 mod step;
 mod value;
 
+pub use cache::{
+    Bounded, Failure, MAX_NEGATIVE_ENTRIES, MAX_PROGRAM_ENTRIES, MAX_STAGE_ENTRIES,
+    Stats as CacheStats,
+};
 pub use channel::{
     ChannelState, HostOp, InterpInstance, host_put, host_take, make_host_channel_state,
     make_host_instance, make_instance,
