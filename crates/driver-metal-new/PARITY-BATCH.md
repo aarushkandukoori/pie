@@ -140,11 +140,40 @@ derived-fill paths, both RS forms and the dual-indexing regression, mask
 shape and structured-mask refusals, malformed spans named, and the extents
 round-trip.
 
+## The activation colouring — `src/batch/color.rs`
+
+From `scratch_color.hpp` (111 lines): the linear-scan colouring of
+activation live ranges onto the ping-pong pool, extracted by the C++ "so a
+second model family does not arrive with a second copy that drifts".
+
+| C++ | Rust | |
+|---|---|---|
+| `Use` | `Use` | ported |
+| `Coloring` | `Coloring` | ported |
+| `color_live_ranges` | `color_live_ranges` | ported |
+| `Coloring::hazard_free` | `ColoringError::HazardDetected` | dropped |
+
+The algorithm survives byte for byte — first-use order, strictly-before
+reuse, the concurrency-run extension, inclusive overlap. What does not: an
+unused value took a fresh colour anyway (its `def = last = -1` never
+matched `free_at < def`), inflating the count the scratch region is sized
+by; it colours to `None` and costs nothing. An ordinal past the run table
+silently skipped the extension — the one case the barrier-free-run rule
+exists for — and is refused as malformed. And `hazard_free` was a
+self-check behind a bool the caller must remember to read; the check now
+runs unconditionally and a detected hazard is an `Err` that cannot be
+ignored.
+
+Seven portable tests: the ping-pong chain, same-dispatch write-after-read,
+the run extension separating what solo ordinals may share, `no_recycle`,
+unused values costing nothing, the refusals, and def-order robustness.
+
 ## Not yet started
 
 | C++ | lines | |
 |---|---|---|
 | `compose.cpp` rest: `LaunchMember`, `LaunchJobData`, tickets | ~90 | missing — the job container, with the worker port |
+| `scratch.hpp` / `scratch.cpp`: `build_scratch_schedule`, `bind_scratch`, the footprint helpers | ~540 | missing — coupled to `DecodeGeometry`/`Dispatch`, with the family port |
 | `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` | 650 | missing |
 | `batch_schedule.hpp` (done above) | — | — |
 | `decode_abi.hpp` | 650 | missing |
