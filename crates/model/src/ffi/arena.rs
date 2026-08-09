@@ -763,6 +763,8 @@ pub fn lower(
         value_offsets_len: arena.shadow_value_offsets.len(),
         value_owners: arena.shadow_value_owners.as_ptr(),
         value_owners_len: arena.shadow_value_owners.len(),
+        epilogue_gather: lowered.epilogue_gather,
+        epilogue_norm: lowered.epilogue_norm,
         uncovered: PieForwardUncovered::None,
     };
     // Kept so a debugger (and any later accessor) can reach the residue

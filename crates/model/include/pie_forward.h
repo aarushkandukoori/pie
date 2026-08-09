@@ -389,7 +389,7 @@ struct PieForwardIdRange {
 /// both rest at 0 on every trace that predates them, so a pre-qwen3.5
 /// consumer reading only param0 still reads what it always did. A partial
 /// `Rope` (param1 != 0) rotates only the first param1 channels of each
-/// head (`launch_rope_partial_bf16`'s `rotary_dim`).
+/// head (`kernels::rope::rope_partial_bf16`'s `rotary_dim`).
 ///
 /// `KvAppend`/`Attention` restate the layer their kind addresses even though
 /// `layer` carries the bracketing layer, because the trace states both
@@ -871,6 +871,11 @@ struct PieForwardLowered {
   /// and must be bound together.
   const uint32_t *value_owners;
   size_t value_owners_len;
+  /// The epilogue's two intermediates, as byte offsets into the
+  /// same arena — see `Buffers::epilogue_gather`. `SIZE_MAX` when
+  /// this fire needs neither.
+  size_t epilogue_gather;
+  size_t epilogue_norm;
   /// Non-zero when the fire could not be lowered; `launches` is then
   /// empty and the value says which rule refused.
   PieForwardUncovered uncovered;

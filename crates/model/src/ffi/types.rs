@@ -789,6 +789,11 @@ pub struct PieForwardLowered {
     /// and must be bound together.
     pub value_owners: *const u32,
     pub value_owners_len: usize,
+    /// The epilogue's two intermediates, as byte offsets into the
+    /// same arena — see `Buffers::epilogue_gather`. `SIZE_MAX` when
+    /// this fire needs neither.
+    pub epilogue_gather: usize,
+    pub epilogue_norm: usize,
     /// Non-zero when the fire could not be lowered; `launches` is then
     /// empty and the value says which rule refused.
     pub uncovered: PieForwardUncovered,
@@ -811,6 +816,8 @@ impl Default for PieForwardLowered {
             value_offsets_len: 0,
             value_owners: std::ptr::null(),
             value_owners_len: 0,
+            epilogue_gather: usize::MAX,
+            epilogue_norm: usize::MAX,
             uncovered: PieForwardUncovered::None,
         }
     }

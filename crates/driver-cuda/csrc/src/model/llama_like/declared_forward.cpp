@@ -1278,6 +1278,12 @@ void llama_like_forward_declared(
     //
     // A `Launch{rows, layers, peel}` rectangle carries every one of
     // them, which is what step 2 will pass instead of the walk's state.
+    // The epilogue's two intermediates, filled once the lowering exists
+    // (below) and read by the epilogue arm. Hoisted because this
+    // executor builds `flat` after the arms, not before.
+    void* epi_gather = nullptr;
+    void* epi_norm = nullptr;
+
     const auto execute_op = [&](const PieForwardOp& op,
                                 std::size_t at_op,
                                 int N,
@@ -2541,21 +2547,37 @@ void llama_like_forward_declared(
             const void* lm_head_input = nullptr;
             int lm_head_rows = N_fire;
             if (compact_logits) {
+                // The lowering owns these two, not the workspace — see
+                // `ValueArena::epilogue_gather`. `ws.norm_x`/`ws.norm_y`
+                // were what stood in while nothing named them.
+                void* const gathered = epi_gather;
+                void* const normed = epi_norm;
+                if (gathered == nullptr || normed == nullptr) {
+                    throw std::runtime_error(
+                        "declared forward: the epilogue compacts rows but "
+                        "the lowering reserved no scratch for it");
+                }
                 kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(stream_in),
                     logit_row_indices_d,
-                    static_cast<std::uint16_t*>(ws.norm_x.data()),
+                    static_cast<std::uint16_t*>(gathered),
                     num_logit_rows, hidden_w, stream);
                 kernels::norm::rmsnorm_bf16(
-                    ws.norm_x.data(), w.final_norm->data(),
-                    ws.norm_y.data(), num_logit_rows, hidden_w, eps, stream);
-                lm_head_input = ws.norm_y.data();
+                    gathered, w.final_norm->data(),
+                    normed, num_logit_rows, hidden_w, eps, stream);
+                lm_head_input = normed;
                 lm_head_rows = num_logit_rows;
             } else {
+                void* const normed = epi_norm;
+                if (normed == nullptr) {
+                    throw std::runtime_error(
+                        "declared forward: the epilogue norms every row but "
+                        "the lowering reserved no scratch for it");
+                }
                 kernels::norm::rmsnorm_bf16(
-                    stream_in, w.final_norm->data(), ws.norm_y.data(),
+                    stream_in, w.final_norm->data(), normed,
                     N_fire, hidden_w, eps, stream);
-                lm_head_input = ws.norm_y.data();
+                lm_head_input = normed;
             }
             kernels::gemm::act_x_w(cublas.handle(),
                 lm_head_input, WeightView(*lm_head),
@@ -2638,6 +2660,8 @@ void llama_like_forward_declared(
         // and they have not moved yet.
         values.bind_offsets(ws.declared_values.data(),
                             ws.declared_values.nbytes(), flat);
+        epi_gather = values.epilogue_gather(flat);
+        epi_norm = values.epilogue_norm(flat);
         // The band a row count names. `-1` for "the whole fire", which
         // is the walk's own degenerate rule.
         const auto band_of = [&](int live) {

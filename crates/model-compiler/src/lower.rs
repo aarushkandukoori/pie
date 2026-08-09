@@ -292,6 +292,10 @@ pub struct Lowered {
     /// this says which values must move together, and is what makes a
     /// per-chain question askable at all.
     pub value_owner: Vec<ValueId>,
+    /// The epilogue's two intermediates — see [`Buffers::epilogue_gather`].
+    /// `usize::MAX` when this fire needs neither.
+    pub epilogue_gather: usize,
+    pub epilogue_norm: usize,
     /// Every launch's operands, concatenated; [`Launch::args`] indexes
     /// it. Flat rather than per-launch so the whole frame is two arrays
     /// and a table — which is the shape a driver can walk without
@@ -361,6 +365,8 @@ pub fn lower(plan: &ForwardPlan, rows: &[Row], fire: Fire) -> Result<Lowered, Un
     };
     let arena_bytes = out.buffers.bytes;
     let value_offset = out.buffers.offset.clone();
+    let epilogue_gather = out.buffers.epilogue_gather;
+    let epilogue_norm = out.buffers.epilogue_norm;
     let value_owner = alias_owners(plan);
     out.region(0..plan.ops.len(), 0..n)?;
     Ok(Lowered {
@@ -370,6 +376,8 @@ pub fn lower(plan: &ForwardPlan, rows: &[Row], fire: Fire) -> Result<Lowered, Un
         arena_bytes,
         value_offset,
         value_owner,
+        epilogue_gather,
+        epilogue_norm,
         args: out.args,
         structural: out.structural,
         residue: out.residue,
@@ -1061,6 +1069,23 @@ pub struct Buffers {
     /// Value ids a seam statement exposes, which therefore may not be
     /// recycled under a name outside machinery cannot follow.
     pub pinned: Vec<ValueId>,
+    /// The epilogue's two intermediates, as byte offsets into the same
+    /// arena — [`Buffers::NAMED`] when this fire needs neither.
+    ///
+    /// These are the ONLY buffers here that belong to no traced value,
+    /// and the reason is that they belong to no traced STATEMENT either.
+    /// One `LmHead` lowers to a row gather, a norm and a GEMM, and
+    /// whether the gather runs at all is a fact about the FIRE's rows
+    /// (`Row::samples`), not about the text — so the text cannot name
+    /// what sits between them, and the lowering has to.
+    ///
+    /// Every CUDA executor reached for a workspace field here
+    /// (`ws.norm_y`, `ws.norm_x`), each with its own apologetic comment,
+    /// because the flat list handed all three rectangles the same
+    /// operand run: `(activation, logits)`, which is true of the GEMM
+    /// and of neither of the others.
+    pub epilogue_gather: usize,
+    pub epilogue_norm: usize,
 }
 
 impl Buffers {
@@ -1270,10 +1295,34 @@ impl Buffers {
                 live.push(v);
             }
         }
+        // The epilogue's scratch, sized from the statement it serves.
+        // Allocated LAST and never freed: it is live across the three
+        // rectangles that make up one statement, and nothing else in
+        // the fire runs between them.
+        let mut epilogue_gather = Self::NAMED;
+        let mut epilogue_norm = Self::NAMED;
+        for op in &plan.ops {
+            if !matches!(op.kind, OpKind::LmHead { .. }) {
+                continue;
+            }
+            let Some(&input) = op.inputs.first() else { continue };
+            let width = value_bytes(plan, input, 1, 1);
+            let sampled = rows.iter().filter(|r| r.samples).count().max(1);
+            let want = width * sampled;
+            if want == 0 {
+                continue;
+            }
+            epilogue_gather = take_block(&mut free, &mut used, want);
+            epilogue_norm = take_block(&mut free, &mut used, want);
+            break;
+        }
+
         Buffers {
             offset,
             bytes: used,
             pinned,
+            epilogue_gather,
+            epilogue_norm,
         }
     }
 }

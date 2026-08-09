@@ -631,12 +631,22 @@ bool gpt_oss_forward_declared(
                 // activation between them is a driver scratch with no
                 // traced id to ask for. `ws.norm_y` is that scratch
                 // until `Lowerer::epilogue` states the gather.
+                // The LOWERING owns this, not the workspace: the
+                // epilogue is one statement over several rectangles, so
+                // what sits between them belongs to no traced value and
+                // `ws.norm_y` was standing in.
+                void* const gathered = values.epilogue_gather(flat);
+                if (gathered == nullptr) {
+                    throw std::runtime_error(
+                        "declared forward: the epilogue compacts rows but "
+                        "the lowering reserved no scratch for it");
+                }
                 kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(input),
                     logit_row_indices_d,
-                    static_cast<std::uint16_t*>(ws.norm_y.data()),
+                    static_cast<std::uint16_t*>(gathered),
                     num_logit_rows, row_width(ins[0]), stream);
-                input = ws.norm_y.data();
+                input = gathered;
                 rows = num_logit_rows;
             }
             lm_head_rows = rows;

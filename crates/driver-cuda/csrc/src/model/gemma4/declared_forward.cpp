@@ -504,6 +504,11 @@ bool gemma4_forward_declared(
         return static_cast<int>(out);
     };
 
+    // The epilogue's gather destination, filled once the lowering
+    // exists. Hoisted because this executor builds `flat` after the
+    // arms.
+    void* epi_gather = nullptr;
+
     const auto execute_op = [&](const PieForwardOp& op) {
         enter(op.layer);
         switch (op.kind) {
@@ -639,12 +644,22 @@ bool gemma4_forward_declared(
                 // ask for. It becomes one when the epilogue states its
                 // gather, which is `Lowerer::epilogue`'s job and not an
                 // arm's.
+                // The LOWERING owns this, not the workspace: the
+                // epilogue is one statement over several rectangles, so
+                // what sits between them belongs to no traced value and
+                // `ws.norm_y` was standing in.
+                void* const gathered = epi_gather;
+                if (gathered == nullptr) {
+                    throw std::runtime_error(
+                        "declared forward: the epilogue compacts rows but "
+                        "the lowering reserved no scratch for it");
+                }
                 kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(input),
                     logit_row_indices_d,
-                    static_cast<std::uint16_t*>(ws.norm_y.data()),
+                    static_cast<std::uint16_t*>(gathered),
                     num_logit_rows, H, stream);
-                input = ws.norm_y.data();
+                input = gathered;
                 rows = num_logit_rows;
             }
             lm_head_rows = rows;
@@ -1005,6 +1020,7 @@ bool gemma4_forward_declared(
     values.reset_pins_only(plan.value_count());
     values.bind_offsets(ws.declared_values.data(),
                         ws.declared_values.nbytes(), flat);
+    epi_gather = values.epilogue_gather(flat);
     declared::trace_arena("gemma4", plan, flat,
                           ws.declared_values.nbytes(), N, R);
     if (arena_zero_enabled()) {
