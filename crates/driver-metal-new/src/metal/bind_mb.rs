@@ -286,7 +286,11 @@ pub fn bind_decode_dag_mb(
                     row_u32,
                 )?;
             }
-            Kernel::SdpaPaged => {
+            // The sink form shares the paged ABI's whole IO set; its one
+            // extra tensor (the learned sinks) arrives with the weight
+            // walk above, at the paged ABI's OWN index — see
+            // `slot::SDPA_PAGED_SINKS` for the collision the C++ remapped.
+            Kernel::SdpaPaged | Kernel::GoSdpaSinkPaged => {
                 let kv = kv(layer)?;
                 bind_at(
                     context,
@@ -369,6 +373,18 @@ pub fn bind_decode_dag_mb(
                     slot::ROPE_POSITION,
                     io(storage, IoSlot::Position)?,
                     row_u32,
+                )?;
+            }
+            // The compaction reads which body rows the fire samples; the
+            // list is whole-fire, so no per-token offset applies.
+            Kernel::G4RowGather => {
+                bind_at(
+                    context,
+                    tables,
+                    ord,
+                    slot::ROW_GATHER_ROWS,
+                    io(storage, IoSlot::SampleRows)?,
+                    0,
                 )?;
             }
             Kernel::QmvLmHead | Kernel::LmHeadUntied => {

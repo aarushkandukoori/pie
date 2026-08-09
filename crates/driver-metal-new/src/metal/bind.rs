@@ -86,6 +86,9 @@ pub mod slot {
     pub const SDPA_PAGED_N_KV_HEADS: u8 = 10;
     pub const SDPA_PAGED_SCALE: u8 = 11;
     pub const SDPA_PAGED_WINDOW: u8 = 15;
+    pub const SDPA_PAGED_ROWS: u8 = 17;
+    pub const ROW_GATHER_ROWS: u8 = 2;
+    pub const ROW_GATHER_PARAMS: u8 = 3;
     pub const SDPA_K_SEQ_STRIDE: u8 = 7;
     pub const SDPA_V_HEAD_STRIDE: u8 = 8;
     pub const SDPA_V_SEQ_STRIDE: u8 = 9;

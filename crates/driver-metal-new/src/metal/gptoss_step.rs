@@ -12,6 +12,7 @@
 use crate::batch::{
     Dispatch, GptOssGeometry, ScratchSchedule, build_gptoss_dag, gptoss_decode_geometry,
 };
+use crate::tuning::Tuning;
 use crate::{Error, Result};
 
 use super::bind::{ConstSlots, StepPsos, bind_decode_dag, bind_scratch, encode_decode_step};
@@ -54,6 +55,7 @@ impl GptOssStep {
         context: &Context,
         storage: &DecodeStorage,
         g: &GptOssGeometry,
+        tuning: &Tuning,
         schedule: &ScratchSchedule,
         psos: StepPsos,
         max_ctx: u32,
@@ -74,7 +76,17 @@ impl GptOssStep {
         let mut consts = ConstSlots::new();
         bind_decode_dag(context, &mut tables, storage, &dag, &shared, false)?;
         bind_scratch(context, &mut tables, storage, schedule)?;
-        let freqs = bind_gptoss_consts(context, &mut tables, &mut consts, &dag, g, max_ctx)?;
+        let freqs = bind_gptoss_consts(
+            context,
+            &mut tables,
+            &mut consts,
+            &dag,
+            g,
+            tuning,
+            max_ctx,
+            1,
+            0,
+        )?;
         Ok(GptOssStep {
             dag,
             tables,

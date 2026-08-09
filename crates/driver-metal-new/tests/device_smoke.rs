@@ -1657,7 +1657,13 @@ fn the_gptoss_assembly_decodes_the_reference_tokens() {
         .expect("every planned entrypoint compiles");
 
     let mut step = driver_metal_new::metal::GptOssStep::prepare(
-        &context, &storage, &geometry, &schedule, psos, max_ctx,
+        &context,
+        &storage,
+        &geometry,
+        &Tuning::default(),
+        &schedule,
+        psos,
+        max_ctx,
     )
     .expect("the step binds whole");
     step.force_barriers = taps;

@@ -56,6 +56,12 @@ pub mod slot {
     pub const GO_QMV_BIAS: u8 = 7;
     /// `bind::SdpaSink::Sinks` — gpt-oss's learned per-head scalar.
     pub const SDPA_SINK_SINKS: u8 = 14;
+    /// `bind::SdpaPaged::Sinks` — the SAME tensor, a DIFFERENT slot: on
+    /// the paged ABI index 14 is `AttnMaskEnabled`, and the C++ (one Kind,
+    /// two ABIs) patched the collision with a bind-time remap — "a weight
+    /// read as a mask, and a mask read as a weight." Two kinds, two
+    /// constants; there is nothing to remap.
+    pub const SDPA_PAGED_SINKS: u8 = 16;
     /// One past `bind::GoRouterTopK::Params`, which is what
     /// `router_topk_scaled` declares for gemma4's per-expert gain.
     pub const ROUTER_TOPK_SCALE: u8 = 4;
@@ -310,11 +316,17 @@ pub fn weight_binds(
                 format!("{prefix}self_attn.o_proj.bias"),
             );
         }
-        // The paged form reads the SAME learned sinks — what changes with
-        // paging is where the keys live, not what joins the softmax.
-        Kernel::GoSdpaSink | Kernel::GoSdpaSinkPaged => bind(
+        // The paged form reads the SAME learned sinks at a DIFFERENT
+        // index — see the slot constants: sharing 14 here is the C++'s
+        // collision, verbatim.
+        Kernel::GoSdpaSink => bind(
             &mut out,
             slot::SDPA_SINK_SINKS,
+            format!("{prefix}self_attn.sinks"),
+        ),
+        Kernel::GoSdpaSinkPaged => bind(
+            &mut out,
+            slot::SDPA_PAGED_SINKS,
             format!("{prefix}self_attn.sinks"),
         ),
         Kernel::GoRouter => {
@@ -442,6 +454,21 @@ pub fn weight_binds(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sinks_ride_a_different_slot_on_each_attention_abi() {
+        // Index 14 is `SdpaSink::Sinks` on the ring ABI and
+        // `AttnMaskEnabled` on the paged one; the C++ served both walks
+        // from one Kind and patched the collision with a bind-time remap.
+        // Two kinds answer for themselves, so a shared index here would
+        // be the collision reintroduced — a weight read as a mask.
+        let g = DecodeGeometry::default();
+        let ring = weight_binds(Kernel::GoSdpaSink, Some(0), &g, false);
+        let paged = weight_binds(Kernel::GoSdpaSinkPaged, Some(0), &g, false);
+        assert_eq!(ring[0].tensor, paged[0].tensor, "the SAME learned tensor");
+        assert_eq!(ring[0].bind_index, 14);
+        assert_eq!(paged[0].bind_index, 16, "clear of AttnMaskEnabled at 14");
+    }
 
     #[test]
     fn a_kind_is_a_weight_name_and_the_layer_prefixes_it() {

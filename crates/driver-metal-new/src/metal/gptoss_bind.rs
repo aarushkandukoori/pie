@@ -12,9 +12,11 @@
 use crate::Result;
 use crate::batch::{
     Dispatch, ExpertCombineParams, GptOssGeometry, Kernel, MoeRouteParams, RmsParams, RouterParams,
-    SwiGluParams, gptoss_qmv_kn, sorted_rows, yarn_inv_freq, yarn_mscale,
+    RowGatherParams, SwiGluParams, gptoss_moe_sorted_rows, gptoss_qmv_kn, yarn_inv_freq,
+    yarn_mscale,
 };
 use crate::region::Region as _;
+use crate::tuning::Tuning;
 
 use super::bind::ConstSlots;
 use super::context::Context;
@@ -44,14 +46,25 @@ pub mod slot {
 
 /// Bind every gpt-oss constant, by ordinal. Returns the YaRN table's
 /// buffer, which must stay alive as long as the tables reference it.
-#[allow(clippy::too_many_lines)]
+///
+/// ONE walk for the ring and the paged fire both: the C++ took a `paged`
+/// bool and re-decided per arm, but here the DAG's kinds already say
+/// which ABI each dispatch is on, so the flag would be a second copy of
+/// what the dispatch list states. `rows` is the fire's token count and
+/// `head_rows` how many the sampler reads (0 = all); at `rows == 1` every
+/// row-dependent value collapses to the M=1 constants this walk always
+/// bound.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 pub fn bind_gptoss_consts(
     context: &Context,
     tables: &mut Tables,
     consts: &mut ConstSlots,
     dag: &[Dispatch],
     g: &GptOssGeometry,
+    tuning: &Tuning,
     max_ctx: u32,
+    rows: u32,
+    head_rows: u32,
 ) -> Result<Handle> {
     // The YaRN table: computed once, one buffer serving every rope
     // dispatch in the model.
@@ -66,8 +79,14 @@ pub fn bind_gptoss_consts(
     let seq_stride = u64::from(g.head_dim);
     let sdpa_scale = 1.0 / (g.head_dim as f32).sqrt();
     let k = g.experts_per_token;
-    // At decode the sort is a pure grouping: tile 1.
-    let sorted = u32::try_from(sorted_rows(k, g.n_experts, 1)).expect("a decode sort is small");
+    let r = rows.max(1);
+    let s = if head_rows == 0 { r } else { head_rows.min(r) };
+    // The SAME numbers the MB builder wrote into the launches: the pair
+    // count, the tile the sort pads to, the padded stack. At one row the
+    // tile is 1 and this is the pure grouping the decode always bound.
+    let pairs = r * k;
+    let tile = tuning.moe_tile_rows(pairs, g.n_experts);
+    let sorted = gptoss_moe_sorted_rows(g, tuning, r);
 
     for d in dag {
         let ord = d.ordinal;
@@ -185,6 +204,125 @@ pub fn bind_gptoss_consts(
                     &seq_stride,
                 )?;
             }
+            Kernel::KvAppendPaged => {
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_HEAD_DIM,
+                    &(g.head_dim as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_K_HEAD_STRIDE,
+                    &head_stride,
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_K_SEQ_STRIDE,
+                    &seq_stride,
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_PAGE_SIZE,
+                    &(g.kv_page_size as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_N_KV_HEADS,
+                    &(g.n_kv_heads as i32),
+                )?;
+                // Packed rows: the batched step lays k_new/v_new out as
+                // [N, n_kv_heads, head_dim]. Explicit because an ordinal
+                // the kernel DOES declare and nobody wrote is a source
+                // pitch read out of whatever the table held — the wrong
+                // rows appended, not a crash.
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_SRC_ROW_STRIDE,
+                    &0i32,
+                )?;
+            }
+            // The paged ABI puts different meanings at the ring's slots
+            // (`SdpaSink::N` is `SdpaPaged::PositionIds`, a length read as
+            // a pointer), so it is bound as its own thing, not a subset.
+            Kernel::GoSdpaSinkPaged => {
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_GQA_FACTOR,
+                    &(g.gqa_factor() as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_PAGE_SIZE,
+                    &(g.kv_page_size as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_N_KV_HEADS,
+                    &(g.n_kv_heads as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_SCALE,
+                    &sdpa_scale,
+                )?;
+                let window = if g.is_sliding(d.layer.unwrap_or(0)) {
+                    g.sliding_window as i32
+                } else {
+                    0
+                };
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_WINDOW,
+                    &window,
+                )?;
+                // N, for the tiled pipeline's partial last tile. Bound
+                // whether or not this fire tiles: the bind table is per
+                // kind and the pipeline choice is per row count. Unbound,
+                // the tiled kernel decides which rows exist from a stale
+                // ordinal — wrong attention, not a crash.
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_ROWS,
+                    &(r as i32),
+                )?;
+            }
+            Kernel::G4RowGather => {
+                let params = RowGatherParams {
+                    width: g.hidden,
+                    rows: s,
+                };
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::ROW_GATHER_PARAMS,
+                    &params,
+                )?;
+            }
             Kernel::GoSdpaSink => {
                 consts.bind(
                     context,
@@ -262,10 +400,10 @@ pub fn bind_gptoss_consts(
             }
             Kernel::LlMoeSort | Kernel::LlMoeGather => {
                 let params = MoeRouteParams {
-                    n: k,
+                    n: pairs,
                     n_experts: g.n_experts,
                     experts_per_token: k,
-                    tile_rows: 1,
+                    tile_rows: tile,
                     padded: sorted,
                     width: g.hidden,
                     x_pitch: 0,
