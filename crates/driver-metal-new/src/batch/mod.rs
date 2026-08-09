@@ -14,6 +14,7 @@
 mod abi;
 mod admit;
 mod color;
+mod dispatch;
 mod geometry;
 mod golden;
 mod mask;
@@ -34,6 +35,9 @@ pub use admit::{Refused, admit_recurrent};
 pub use color::{
     Coloring, ColoringError, ScheduleError, ScratchBind, ScratchSchedule, Use, color_live_ranges,
     schedule_scratch,
+};
+pub use dispatch::{
+    DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
 };
 pub use geometry::{AffineFormat, DecodeGeometry};
 pub use golden::{
