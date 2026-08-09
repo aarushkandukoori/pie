@@ -2325,34 +2325,12 @@ case PieForwardOpKind::Launch: {
             const auto louts = plan.outputs(op);
             need(lins, 1, "lm_head inputs");
             need(louts, 1, "lm_head outputs");
-            const void* head_in = values.slot(lins[0]);
+            // SHARED ARM (D1): the compaction is identical in three
+            // executors; only the head weight's resolution is not.
             int head_rows = N;
-            if (logit_row_indices_d != nullptr &&
-                num_logit_rows > 0 &&
-                num_logit_rows < N) {
-                // The gather's DESTINATION stays named, for the reason
-                // gemma-4's and gpt-oss's do: the epilogue is one
-                // statement lowering to several rectangles, so the
-                // row-gathered activation between them is a driver
-                // scratch with no traced id to ask for.
-                // The LOWERING owns this, not the workspace: the
-                // epilogue is one statement over several rectangles, so
-                // what sits between them belongs to no traced value and
-                // `ws.norm_y` was standing in.
-                void* const gathered = values.epilogue_gather(flat);
-                if (gathered == nullptr) {
-                    throw std::runtime_error(
-                        "declared forward: the epilogue compacts rows but "
-                        "the lowering reserved no scratch for it");
-                }
-                kernels::layout::gather_bf16_rows(
-                    static_cast<const std::uint16_t*>(head_in),
-                    logit_row_indices_d,
-                    static_cast<std::uint16_t*>(gathered),
-                    num_logit_rows, row_width(lins[0]), stream);
-                head_in = gathered;
-                head_rows = num_logit_rows;
-            }
+            const void* const head_in = declared::arm_epilogue_gather(
+                plan, op, values, values.epilogue_gather(flat), logit_row_indices_d,
+                num_logit_rows, &head_rows, stream);
             kernels::gemm::act_x_w(cublas.handle(), head_in, *lm_head,
                                    values.slot(louts[0]), head_rows,
                                    row_width(louts[0]), row_width(lins[0]));

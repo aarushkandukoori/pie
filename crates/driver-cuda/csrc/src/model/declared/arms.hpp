@@ -23,6 +23,7 @@
 
 #include "attn/split_packed.hpp"
 #include "layout/embed.hpp"
+#include "layout/gather_rows.hpp"
 #include "norm/residual_add.hpp"
 #include "norm/rmsnorm.hpp"
 #include "mlp/swiglu.hpp"
@@ -200,6 +201,49 @@ inline void arm_rmsnorm(const pie_forward::ForwardPlan& plan,
                                     values.slot(outs[0]), rows, width, eps,
                                     stream);
     }
+}
+
+// The EPILOGUE's compaction, which is the half of `LmHead` every
+// executor spells the same way.
+//
+// A fire whose sampled rows are a strict subset gathers them before the
+// projection; anything else multiplies every row. The gather's
+// destination belongs to the LOWERING, not to a workspace and not to a
+// traced value — see `ValueArena::epilogue_gather` — and the caller
+// passes it because only the caller knows whether its executor built
+// `flat` before the arms or after.
+//
+// Returns the activation the projection should read and writes the row
+// count through `rows`. The GEMM itself stays with the caller: three of
+// the four resolve their head weight differently enough (a name, a
+// bound tensor, a quantized view) that passing the result back is
+// clearer than passing the resolver in.
+inline const void* arm_epilogue_gather(const pie_forward::ForwardPlan& plan,
+                                       const pie_forward::PieForwardOp& op,
+                                       ValueArena& values,
+                                       void* gathered,
+                                       const std::int32_t* logit_row_indices,
+                                       int num_logit_rows,
+                                       int* rows,
+                                       cudaStream_t stream) {
+    const auto ins = plan.inputs(op);
+    need(ins, 1, "lm_head inputs");
+    const void* input = values.slot(ins[0]);
+    if (logit_row_indices == nullptr || num_logit_rows <= 0 ||
+        num_logit_rows >= *rows) {
+        return input;
+    }
+    if (gathered == nullptr) {
+        throw std::runtime_error(
+            "declared arm: the epilogue compacts rows but the lowering "
+            "reserved no scratch for it");
+    }
+    kernels::layout::gather_bf16_rows(
+        static_cast<const std::uint16_t*>(input), logit_row_indices,
+        static_cast<std::uint16_t*>(gathered), num_logit_rows,
+        row_width(plan, ins[0]), stream);
+    *rows = num_logit_rows;
+    return gathered;
 }
 
 }  // namespace pie_cuda_driver::model::declared
