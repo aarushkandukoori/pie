@@ -547,3 +547,19 @@ piece of new arithmetic.
 | the MB assembly + paged smoke | `metal/llama_step.rs::LlamaMbStep` / `llama_mb_pso` + `psos_llama.rs::llama_mb_plan` + `tests/device_smoke.rs::the_llama_prefill_answers_in_one_paged_fire` | verified EXACT on the first fire: one packed 17-row paged prefill (padded to a whole 32-row GEMM block) answers 12366 (' Paris'), mlx_lm's continuation — the unbiased dense GEMM at the unsplit widths, the `_p32` paged attention, the paged append with the SrcRowStride fix live, the MB freq-table rope, the RowGather compaction. This family owns NO slot table: its GEMMs are entirely the shared lattice |
 | split-K; fp16 staging; tiled paged sdpa; the `_sg8` paged rung | — | deferred with the shared family's, same reasons; `_sg8` additionally needs its 256-thread launch moved with the pipeline choice |
 | device smoke | — | missing; local checkpoints: Qwen3.6-35B-A3B-4bit (routed), gemma-4 pair for the sibling family |
+
+## The gemma4 family — `csrc/src/model/gemma4/`
+
+The family where the DAG carries the most schedule: per-layer head
+widths and rope bases, the KV-shared tail, the double-wide MLP over
+exactly that range, the PLE chain, the norm sandwich, and — on the 26B —
+a mixture BESIDE the dense MLP and full-attention layers whose V is the
+K projection. The G4* kinds were already in the shared enum; this arc
+gives them a geometry and a DAG.
+
+| C++ | Rust | |
+|---|---|---|
+| `geometry.hpp` | `batch/gemma4.rs` | ported; the full predicate set (`kv_source` resolves each sharer to an earlier owner of its own attention type or the geometry refuses), the per-layer KN table, the two mixture refusals, the irregular `layer_types` refusal |
+| `decode_step.hpp`: the DAG | `batch/dispatch_gemma4.rs::build_gemma4_dag` | ported; which dispatches EXIST moves per layer (a sharer drops six, a k-eq-v layer swaps its v projection for `G4VNormFromK` ordered BEFORE KNorm — it reads the projection KNorm overwrites), sliding/full attention as two kinds, E2B 694 dispatches pinned |
+| `Kernel::G4VNormFromK` | appended at 99, nothing renumbered | the one kind the shared enum lacked: a flag on `G4VNorm` could not carry the ordering constraint |
+| `kernels.cpp` / `decode_consts.cpp` / `bind.cpp` / `encode.cpp` / scratch dataflow arms / device smoke | — | missing — the rest of the arc: PSO plan, consts (per-layer strides, softcap, PLE params, `norm_plus_one=false`), dataflow arms for the G4* kinds, then the smoke vs the cached gemma-4 checkpoints |

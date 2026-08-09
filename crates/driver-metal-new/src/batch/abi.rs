@@ -404,6 +404,12 @@ kernels! {
         G4BranchAdd = "g4_branch_add",
         /// gpt-oss paged decode attention with the per-head sink (M>1).
         GoSdpaSinkPaged = "go_sdpa_sink_paged",
+        /// gemma4's weightless V norm READING THE K PROJECTION — the
+        /// k-eq-v layers project no V of their own. A kind rather than a
+        /// flag on `G4VNorm`, because it must run BEFORE `KNorm`: the
+        /// two diverge at the shared projection, and a V-norm scheduled
+        /// where the dense one sits would norm an already-normed K.
+        G4VNormFromK = "g4_v_norm_from_k",
     }
 }
 
@@ -491,7 +497,8 @@ mod tests {
             98,
             "appended, nothing renumbered"
         );
-        assert_eq!(Kernel::COUNT, 99);
+        assert_eq!(Kernel::G4VNormFromK.index(), 99);
+        assert_eq!(Kernel::COUNT, 100);
         // The bug the count fix answers: the short spelling reached 54 of
         // 98, and psos[LmHeadUntied] at 58 indexed past it.
         assert!(Kernel::LmHeadUntied.index() > Kernel::G4PleResidual.index() + 1);

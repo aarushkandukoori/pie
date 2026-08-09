@@ -18,9 +18,11 @@ mod color;
 mod consts;
 mod dataflow;
 mod dispatch;
+mod dispatch_gemma4;
 mod dispatch_gptoss;
 mod dispatch_llama;
 mod dispatch_mb;
+mod gemma4;
 mod geometry;
 mod geometry_facts;
 mod golden;
@@ -58,6 +60,7 @@ pub use dataflow::{build_scratch_schedule, build_scratch_uses};
 pub use dispatch::{
     DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
 };
+pub use dispatch_gemma4::{Gemma4DagStats, build_gemma4_dag, gemma4_dag_stats};
 pub use dispatch_gptoss::{
     GptOssDagStats, build_gptoss_dag, build_gptoss_dag_mb, gptoss_dag_stats, gptoss_is_dense_proj,
     gptoss_mb_kind, gptoss_moe_qmm_bn, gptoss_moe_sorted_rows, gptoss_qmm_bn, gptoss_qmm_min_batch,
@@ -74,6 +77,7 @@ pub use dispatch_mb::{
     mb_kind, qmm_bm, qmm_bm_slot, qmm_bn, qmm_bn_unsplit, qmm_mb_rows, qmm_t, qmv_mb, qmv_out_size,
     rms_mb, uses_alt_quant,
 };
+pub use gemma4::{Gemma4Geometry, gemma4_geometry_from_facts, gemma4_qmv_kn};
 pub use geometry::{AffineFormat, DecodeGeometry};
 pub use geometry_facts::{
     GeometryRefused, ROUTER_MAX_EXPERTS, ROUTER_MAX_TOP_K, geometry_from_facts,
