@@ -75,6 +75,19 @@ mod bi {
     pub const ROUTER_WEIGHTS: u8 = 2;
     pub const ROW_GATHER_IN: u8 = 0;
     pub const ROW_GATHER_OUT: u8 = 1;
+    // gemma4: the fused norm+residual keeps bind::Rms's prefix and
+    // appends the residual; the weightless V norm and the layer scalar
+    // are tiny ABIs of their own; the PLE combine is `(proj+token)/√2`.
+    pub const RR_X: u8 = 0;
+    pub const RR_OUT: u8 = 2;
+    pub const RR_RESID: u8 = 4;
+    pub const VNORM_X: u8 = 0;
+    pub const VNORM_OUT: u8 = 1;
+    pub const SCALAR_X: u8 = 0;
+    pub const SCALAR_OUT: u8 = 2;
+    pub const PLE_PROJ: u8 = 0;
+    pub const PLE_TOKEN: u8 = 1;
+    pub const PLE_OUT: u8 = 2;
     pub const SORT_IDS: u8 = 0;
     pub const SORT_PERM: u8 = 1;
     pub const SORT_ROW_EXPERT: u8 = 2;
@@ -132,6 +145,16 @@ struct Live {
     inv: Option<u32>,
     sorted_x: Option<u32>,
     sorted_out: Option<u32>,
+    // gemma4's second stream and its sandwich temporaries.
+    ple_tok: Option<u32>,
+    ple_proj: Option<u32>,
+    ple: Option<u32>,
+    ple_gate: Option<u32>,
+    ple_act: Option<u32>,
+    ple_back: Option<u32>,
+    dense_br: Option<u32>,
+    router_normed: Option<u32>,
+    moe_normed: Option<u32>,
 }
 
 fn have(value: Option<u32>, kind: Kernel, what: &str) -> u32 {
@@ -179,7 +202,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 wr(&mut uses, bi::EMBED_OUT, v);
                 live.resid = Some(v);
             }
-            Kernel::Rms | Kernel::FfnRms | Kernel::FinalRms => {
+            Kernel::Rms | Kernel::FfnRms | Kernel::FinalRms | Kernel::G4FfnPreNorm => {
                 let v = fresh();
                 rd(
                     &mut uses,
@@ -352,7 +375,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 rd(&mut uses, bi::KV_APPEND_K, have(live.kk, k, "the key"));
                 rd(&mut uses, bi::KV_APPEND_V, have(live.vv, k, "the value"));
             }
-            Kernel::Sdpa | Kernel::SdpaPaged => {
+            Kernel::Sdpa | Kernel::SdpaPaged | Kernel::G4SdpaSliding => {
                 let v = fresh();
                 rd(&mut uses, bi::SDPA_Q, have(live.q, k, "the query"));
                 wr(&mut uses, bi::SDPA_OUT, v);
@@ -416,7 +439,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 wr(&mut uses, bi::QMV_OUT, v);
                 live.up = Some(v);
             }
-            Kernel::SiluMul | Kernel::LlExpertSiluMul => {
+            Kernel::SiluMul | Kernel::LlExpertSiluMul | Kernel::G4Geglu | Kernel::G4ExpertGeglu => {
                 let v = fresh();
                 rd(
                     &mut uses,
@@ -469,7 +492,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 wr(&mut uses, bi::QMV_OUT, v);
                 live.router_logits = Some(v);
             }
-            Kernel::GoRouterTopK => {
+            Kernel::GoRouterTopK | Kernel::G4RouterTopK => {
                 // Both outputs outlive the three matvecs that follow: the
                 // ids name each pair's expert; the weights are what the
                 // combine finally sums with.
@@ -484,7 +507,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 live.expert_ids = Some(ids);
                 live.expert_weights = Some(weights);
             }
-            Kernel::LlMoeSort => {
+            Kernel::LlMoeSort | Kernel::G4MoeSort => {
                 let (perm, row_expert, tile_expert, inv) = (fresh(), fresh(), fresh(), fresh());
                 rd(
                     &mut uses,
@@ -511,7 +534,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 );
                 live.sorted_x = Some(v);
             }
-            Kernel::LlExpertGate => {
+            Kernel::LlExpertGate | Kernel::G4ExpertGate => {
                 let v = fresh();
                 rd(
                     &mut uses,
@@ -531,7 +554,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 wr(&mut uses, bi::QMV_OUT, v);
                 live.gp = Some(v);
             }
-            Kernel::LlExpertUp => {
+            Kernel::LlExpertUp | Kernel::G4ExpertUp => {
                 let v = fresh();
                 rd(
                     &mut uses,
@@ -551,7 +574,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 wr(&mut uses, bi::QMV_OUT, v);
                 live.up = Some(v);
             }
-            Kernel::LlExpertDown => {
+            Kernel::LlExpertDown | Kernel::G4ExpertDown => {
                 // Still sorted: the k results per token come back together
                 // only at the combine, through the sort's inverse.
                 let v = fresh();
@@ -569,7 +592,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 wr(&mut uses, bi::QMV_OUT, v);
                 live.sorted_out = Some(v);
             }
-            Kernel::LlMoeCombine => {
+            Kernel::LlMoeCombine | Kernel::G4ExpertCombine => {
                 // The mixture's output takes the place a dense down_proj
                 // would have written, so the residual add below needs no
                 // case of its own.
@@ -780,6 +803,226 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 live.dn = Some(v);
             }
 
+            // ── gemma4: the PLE stream, the sandwich, the weightless
+            // V norms, and the mixture that sits BESIDE the dense MLP. ──
+            Kernel::G4PleTokenGather => {
+                let v = fresh();
+                wr(&mut uses, bi::EMBED_OUT, v);
+                live.ple_tok = Some(v);
+            }
+            Kernel::G4PleProjGemv => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::QMV_X,
+                    have(live.resid, k, "the residual stream"),
+                );
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.ple_proj = Some(v);
+            }
+            Kernel::G4PleProjNorm => {
+                let v = have(live.ple_proj, k, "the PLE projection");
+                rd(&mut uses, bi::RMS_X, v);
+                wr(&mut uses, bi::RMS_OUT, v);
+            }
+            Kernel::G4PleCombine => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::PLE_PROJ,
+                    have(live.ple_proj, k, "the PLE projection"),
+                );
+                rd(
+                    &mut uses,
+                    bi::PLE_TOKEN,
+                    have(live.ple_tok, k, "the PLE table"),
+                );
+                wr(&mut uses, bi::PLE_OUT, v);
+                live.ple = Some(v);
+            }
+            // Weightless, in place: V normalised on its way to the cache.
+            Kernel::G4VNorm => {
+                let v = have(live.vv, k, "the value");
+                rd(&mut uses, bi::VNORM_X, v);
+                wr(&mut uses, bi::VNORM_OUT, v);
+            }
+            // The layer projected no V: it reads the K PROJECTION —
+            // before KNorm rewrites it — and writes a V of its own.
+            Kernel::G4VNormFromK => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::VNORM_X,
+                    have(live.kk, k, "the key projection"),
+                );
+                wr(&mut uses, bi::VNORM_OUT, v);
+                live.vv = Some(v);
+            }
+            // The sandwich's second half and the add it always precedes:
+            // normalise the BLOCK's output, then rejoin the stream.
+            Kernel::G4AttnPostResidual => {
+                let next = fresh();
+                rd(
+                    &mut uses,
+                    bi::RR_X,
+                    have(live.out, k, "the attention block"),
+                );
+                rd(
+                    &mut uses,
+                    bi::RR_RESID,
+                    have(live.resid, k, "the residual stream"),
+                );
+                wr(&mut uses, bi::RR_OUT, next);
+                live.resid = Some(next);
+            }
+            Kernel::G4FfnPostResidual => {
+                let next = fresh();
+                rd(&mut uses, bi::RR_X, have(live.dn, k, "the FFN block"));
+                rd(
+                    &mut uses,
+                    bi::RR_RESID,
+                    have(live.resid, k, "the residual stream"),
+                );
+                wr(&mut uses, bi::RR_OUT, next);
+                live.resid = Some(next);
+            }
+            // The mixture's four norms and the router, all reading the
+            // POST-ATTENTION residual — the branches are siblings, not a
+            // chain; `dn` carries the dense branch through to the add.
+            Kernel::G4DenseBranchNorm => {
+                let v = fresh();
+                rd(&mut uses, bi::RMS_X, have(live.dn, k, "the dense branch"));
+                wr(&mut uses, bi::RMS_OUT, v);
+                live.dense_br = Some(v);
+            }
+            Kernel::G4RouterNorm => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::RMS_X,
+                    have(live.resid, k, "the residual stream"),
+                );
+                wr(&mut uses, bi::RMS_OUT, v);
+                live.router_normed = Some(v);
+            }
+            Kernel::G4Router => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::QMV_X,
+                    have(live.router_normed, k, "the router norm"),
+                );
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.router_logits = Some(v);
+            }
+            Kernel::G4MoeNorm => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::RMS_X,
+                    have(live.resid, k, "the residual stream"),
+                );
+                wr(&mut uses, bi::RMS_OUT, v);
+                live.moe_normed = Some(v);
+            }
+            // Like the shared gather, but off the mixture's OWN entry
+            // norm rather than the dense branch's.
+            Kernel::G4MoeGather => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::ROWS_IN,
+                    have(live.moe_normed, k, "the mixture norm"),
+                );
+                wr(&mut uses, bi::ROWS_OUT, v);
+                rd(
+                    &mut uses,
+                    bi::ROWS_PERM,
+                    have(live.perm, k, "the sort's permutation"),
+                );
+                live.sorted_x = Some(v);
+            }
+            Kernel::G4MoeBranchNorm => {
+                let v = fresh();
+                rd(&mut uses, bi::RMS_X, have(live.dn, k, "the mixture output"));
+                wr(&mut uses, bi::RMS_OUT, v);
+                live.dn = Some(v);
+            }
+            // The two branches meet; `dn` from here is what the
+            // sandwich's second half normalises, exactly as on a dense
+            // layer — which is why G4FfnPostResidual needs no mixture
+            // case.
+            Kernel::G4BranchAdd => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::RESID_X,
+                    have(live.dense_br, k, "the dense branch"),
+                );
+                rd(
+                    &mut uses,
+                    bi::RESID_R,
+                    have(live.dn, k, "the mixture branch"),
+                );
+                wr(&mut uses, bi::RESID_OUT, v);
+                live.dn = Some(v);
+            }
+            // ── the per-layer embedding residual ──
+            Kernel::G4PleGateGemv => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::QMV_X,
+                    have(live.resid, k, "the residual stream"),
+                );
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.ple_gate = Some(v);
+            }
+            // Gated by the stream, valued by this layer's slice of the
+            // table.
+            Kernel::G4PleGeglu => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::SILU_GATE,
+                    have(live.ple_gate, k, "the PLE gate"),
+                );
+                rd(&mut uses, bi::SILU_UP, have(live.ple, k, "the PLE stream"));
+                wr(&mut uses, bi::SILU_OUT, v);
+                live.ple_act = Some(v);
+            }
+            Kernel::G4PleProjLayerGemv => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::QMV_X,
+                    have(live.ple_act, k, "the PLE activation"),
+                );
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.ple_back = Some(v);
+            }
+            Kernel::G4PleResidualScaled => {
+                let next = fresh();
+                rd(&mut uses, bi::RR_X, have(live.ple_back, k, "the PLE block"));
+                rd(
+                    &mut uses,
+                    bi::RR_RESID,
+                    have(live.resid, k, "the residual stream"),
+                );
+                wr(&mut uses, bi::RR_OUT, next);
+                live.resid = Some(next);
+            }
+            Kernel::G4LayerScalar => {
+                let next = fresh();
+                rd(
+                    &mut uses,
+                    bi::SCALAR_X,
+                    have(live.resid, k, "the residual stream"),
+                );
+                wr(&mut uses, bi::SCALAR_OUT, next);
+                live.resid = Some(next);
+            }
+
             // The sampled rows, compacted: everything after this is [S, *].
             // A value of its own rather than in place — the input is
             // [N, hidden] and the output is [S, hidden], and aliasing them
@@ -800,7 +1043,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
             Kernel::QmvLmHead | Kernel::LmHeadUntied => {
                 rd(&mut uses, bi::QMV_X, have(live.normed, k, "the final norm"));
             }
-            Kernel::Argmax => {}
+            Kernel::Argmax | Kernel::G4Softcap => {}
             other => panic!("the dataflow walk does not know {other:?}"),
         }
     }

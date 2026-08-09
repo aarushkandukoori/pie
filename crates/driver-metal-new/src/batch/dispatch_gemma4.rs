@@ -394,5 +394,6 @@ mod tests {
             base.len() + 35 * 14 - full_owning,
             "the mixture adds 14; each owning full layer loses its v projection"
         );
+        crate::batch::build_scratch_schedule(&dag, false).expect("the 26B DAG colours");
     }
 }
