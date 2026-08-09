@@ -1793,9 +1793,16 @@ void llama_like_forward_declared(
                         "declared forward: trace states the rope table "
                         "build but the workspace carries no table");
                 }
+                // ISLAND (value arena), BOTH ENDS. The table is a
+                // traced value -- this launch declares it and the fused
+                // decode-QKV below takes it as a second operand -- so
+                // producer and consumer move together, which is the only
+                // way either may move.
                 kernels::rope::rope_standard_table(
                     positions,
-                    static_cast<float*>(ws.rope_table.data()),
+                    static_cast<float*>(
+                        values.slot(plan.outputs(op)[0],
+                                    plan.value(plan.outputs(op)[0]))),
                     N, d, cfg.rope_theta, stream);
                 break;
             }
@@ -1816,7 +1823,9 @@ void llama_like_forward_declared(
                 const auto& layer = layer_of(w, q_nm, q_name);
                 const float* table =
                     plan.inputs(op).size >= 2 && !ws.rope_table.empty()
-                        ? static_cast<const float*>(ws.rope_table.data())
+                        ? static_cast<const float*>(
+                              values.slot(plan.inputs(op)[1],
+                                          plan.value(plan.inputs(op)[1])))
                         : nullptr;
                 if (peel_window_d != nullptr) {
                     // Device-window capture: the prefix form — the word's
