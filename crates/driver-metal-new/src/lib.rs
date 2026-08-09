@@ -47,4 +47,4 @@ pub use error::{Error, Result};
 pub mod metal;
 
 #[cfg(target_vendor = "apple")]
-pub use metal::DeviceInfo;
+pub use metal::{Context, DeviceInfo};

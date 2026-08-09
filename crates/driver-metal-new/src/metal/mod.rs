@@ -18,12 +18,12 @@
 //!
 //! The device query is first because it is self-contained: it depends on no
 //! other Metal object and it feeds [`crate::tuning`], which is already
-//! complete and tested. The MTL4 context (queue, allocators, argument table,
-//! residency set), the placement heap and the pipeline compiler follow, and
-//! they follow on a machine that can compile them -- this module cannot be
-//! type-checked on the Linux hosts the rest of the workspace builds on, so
-//! writing it ahead of a build is writing it blind.
+//! complete and tested. [`context`] follows it -- the queue, the allocator
+//! pair and the residency set, which every later object is created against.
+//! The placement heap and the pipeline compiler come next.
 
+mod context;
 mod device;
 
+pub use context::{ALLOCATOR_COUNT, Context};
 pub use device::DeviceInfo;
