@@ -27,7 +27,9 @@
 
 use crate::facts::ModelFacts;
 
-use super::geometry::AffineFormat;
+use super::abi::Kernel;
+use super::consts::KN;
+use super::geometry::{AffineFormat, DecodeGeometry};
 use super::geometry_facts::{GeometryRefused, ROUTER_MAX_EXPERTS, ROUTER_MAX_TOP_K};
 
 /// The family's shape. Defaults are `meta-llama/Meta-Llama-3-8B`'s.
@@ -172,6 +174,72 @@ impl LlamaGeometry {
     #[must_use]
     pub const fn kv_width(&self) -> u32 {
         self.n_kv_heads * self.head_dim
+    }
+}
+
+/// The shared-machinery view of a llama shape: every layer full
+/// attention, no GDN, no shared expert. What the shared weight walk,
+/// the staging and the scratch sizing read.
+#[must_use]
+pub fn llama_decode_geometry(g: &LlamaGeometry) -> DecodeGeometry {
+    DecodeGeometry {
+        hidden: g.hidden,
+        n_layers: g.n_layers,
+        vocab: g.vocab,
+        eps: g.eps,
+        tied_embeddings: g.tied_embeddings,
+        n_q_heads: g.n_q_heads,
+        n_kv_heads: g.n_kv_heads,
+        head_dim: g.head_dim,
+        quant: g.quant,
+        rotary_dims: g.rotary_dims(),
+        rope_theta: g.rope_theta,
+        gdn_k_heads: 0,
+        gdn_v_heads: 0,
+        gdn_k_dim: 0,
+        gdn_v_dim: 0,
+        gdn_conv_k: 0,
+        gdn_conv_dim: 0,
+        gdn_v_total: 0,
+        intermediate: g.intermediate,
+        n_experts: g.n_experts,
+        experts_per_token: g.experts_per_token,
+        moe_intermediate: g.moe_intermediate,
+        mxfp4_experts: false,
+        shared_intermediate: 0,
+        max_tokens: g.max_tokens,
+        max_requests: g.max_requests,
+        max_slots: g.max_slots,
+        kv_page_size: g.kv_page_size,
+        total_pages: g.total_pages,
+        paged_kv_enabled: g.paged_kv_enabled,
+        full_attn_interval: 1,
+        ..DecodeGeometry::default()
+    }
+}
+
+/// This family's K and N per matvec kind — its OWN table, not the shared
+/// one: `qmv_kn` answers for qwen3.5, whose `QmvQ` is the 2×-wide
+/// `[query | gate]` projection. The same `Kernel::QmvQ` here is llama's
+/// plain query, and reading the shared table would run every q matvec at
+/// twice its width — off the end of the weight, not a crash. The routed
+/// three carry the same K and N as their dense counterparts: the expert
+/// axis is a stride into the weight stack, not a wider matrix.
+#[must_use]
+pub fn llama_qmv_kn(kind: Kernel, g: &LlamaGeometry) -> KN {
+    let h = g.hidden;
+    let kn = |k, n| KN { k, n };
+    match kind {
+        Kernel::QmvQ => kn(h, g.q_width()),
+        Kernel::QmvK | Kernel::QmvV => kn(h, g.kv_width()),
+        Kernel::QmvO => kn(g.q_width(), h),
+        Kernel::QmvGate | Kernel::QmvUp => kn(h, g.intermediate),
+        Kernel::QmvDown => kn(g.intermediate, h),
+        Kernel::LlRouter => kn(h, g.n_experts),
+        Kernel::LlExpertGate | Kernel::LlExpertUp => kn(h, g.moe_intermediate),
+        Kernel::LlExpertDown => kn(g.moe_intermediate, h),
+        Kernel::QmvLmHead | Kernel::LmHeadUntied => kn(h, g.vocab),
+        _ => kn(0, 0),
     }
 }
 
@@ -349,6 +417,30 @@ mod tests {
         assert_eq!(g.head_dim, 128);
         assert!(!g.is_moe());
         assert_eq!(g.ffn_width(), 14_336);
+    }
+
+    #[test]
+    fn the_family_kn_table_is_not_the_shared_one() {
+        let g = LlamaGeometry::default();
+        // The shared table answers for qwen3.5, whose QmvQ is the
+        // 2x-wide [query | gate]; llama's is plain. Same Kernel, half
+        // the width — which is the whole reason this table exists.
+        assert_eq!(llama_qmv_kn(Kernel::QmvQ, &g).n, g.q_width());
+        assert_eq!(llama_qmv_kn(Kernel::QmvO, &g).k, g.q_width());
+        assert_eq!(llama_qmv_kn(Kernel::LmHeadUntied, &g).n, g.vocab);
+        let moe = LlamaGeometry {
+            n_experts: 128,
+            experts_per_token: 8,
+            moe_intermediate: 768,
+            ..LlamaGeometry::default()
+        };
+        assert_eq!(llama_qmv_kn(Kernel::LlExpertGate, &moe).n, 768);
+        assert_eq!(llama_qmv_kn(Kernel::LlExpertDown, &moe).k, 768);
+        assert_eq!(llama_qmv_kn(Kernel::Rms, &g).n, 0, "not a matvec");
+        // And the shared view keeps every layer on the attention path.
+        let view = llama_decode_geometry(&g);
+        assert!((0..32).all(|l| view.is_full_attn(l)));
+        assert_eq!(view.moe_intermediate, 0);
     }
 
     #[test]
