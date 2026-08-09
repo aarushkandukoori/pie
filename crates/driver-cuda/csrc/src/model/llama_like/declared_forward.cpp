@@ -2190,35 +2190,6 @@ void llama_like_forward_declared(
                     attn_ws.view(), stream);
                 break;
             }
-            case declared::Kernel::WriteKvExplicit: {
-                auto kv_view = cache.layer_view(L);
-                // 2c: the pad staging that used to sit here is a
-                // STATEMENT (`cuda::pad_head_dim`), so k and v arrive
-                // already padded and this arm names its operands and
-                // nothing else. It also used to pad Q here -- a query
-                // this statement does not name -- because the
-                // convention gave it nowhere else to happen.
-                // Windowed (A3): the tail rows' cells only, from their
-                // slice of the descriptors — the hand-written tail
-                // write; offset 0 + full length is the plain form.
-                if (peel_window_d != nullptr &&
-                    win_region == WinRegion::Tail) {
-                    kernels::attn::write_kv_explicit_bf16_devwin(
-                        kv_view, kv_src(0, nullptr), kv_src(1, nullptr),
-                        w_page_d, w_off_d,
-                        peel_window_d, N, stream, row_valid_d);
-                    break;
-                }
-                kernels::attn::write_kv_explicit_bf16(
-                    kv_view,
-                    bf16_row(kv_src(0, nullptr), win_start, in_w(0)),
-                    bf16_row(kv_src(1, nullptr), win_start, in_w(1)),
-                    w_page_d + win_start, w_off_d + win_start,
-                    win_len, stream,
-                    row_valid_d != nullptr ? row_valid_d + win_start
-                                           : nullptr);
-                break;
-            }
             case declared::Kernel::LoraQkvCorrection: {
                 // The pseudo-symbol: one operation, many calls — the
                 // hand-written apply, argument for argument (qkv_in is
@@ -2262,29 +2233,6 @@ void llama_like_forward_declared(
                            values.slot(lins[0], plan.value(lins[0])),
                            values.slot(lins[1], plan.value(lins[1])),
                            ws.gate.data());
-                break;
-            }
-            case declared::Kernel::WriteKvToPages: {
-                auto kv_view = cache.layer_view(L);
-                // Windowed (A3): base pointers stay; `first_token` skips
-                // the fused-prefix rows the peel's other region already
-                // wrote — the hand-written tail call verbatim (0 is the
-                // plain form's default).
-                if (peel_window_d != nullptr &&
-                    win_region == WinRegion::Tail) {
-                    kernels::attn::write_kv_to_pages_bf16_devwin(
-                        kv_view, kv_src(0, nullptr), kv_src(1, nullptr),
-                        qo_indptr, kv_page_indices, kv_page_indptr,
-                        kv_last_page_lens,
-                        peel_window_d, N, R, stream, row_valid_d);
-                    break;
-                }
-                kernels::attn::write_kv_to_pages(
-                    kv_view, kv_src(0, nullptr), kv_src(1, nullptr),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens,
-                    N, R, stream, row_valid_d,
-                    /*first_token=*/win_start);
                 break;
             }
             case declared::Kernel::AttnFlashinferPrefill: {
