@@ -28,6 +28,7 @@
 mod context;
 mod device;
 mod encoder;
+mod external;
 mod feedback;
 mod heap;
 mod pipeline;
@@ -37,6 +38,7 @@ mod tables;
 pub use context::{ALLOCATOR_COUNT, Context};
 pub use device::DeviceInfo;
 pub use encoder::{ArgumentTable, StepEncoder, Stepper, Visibility};
+pub use external::{External, Externals, Mapped, page_size};
 pub use feedback::{Feedback, Feedbacks};
 pub use heap::{Heap, Slot};
 pub use pipeline::Compiler;

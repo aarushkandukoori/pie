@@ -34,11 +34,16 @@
 
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![deny(missing_docs)]
-#![deny(clippy::todo, clippy::unimplemented, clippy::dbg_macro, clippy::mem_forget)]
+#![deny(
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::dbg_macro,
+    clippy::mem_forget
+)]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
-mod error;
 pub mod bump;
+mod error;
 pub mod region;
 pub mod shader;
 pub mod tuning;
@@ -51,6 +56,7 @@ pub mod metal;
 
 #[cfg(target_vendor = "apple")]
 pub use metal::{
-    ArgumentTable, Compiler, Context, DeviceInfo, Feedback, Feedbacks, Heap, MAX_BINDINGS, Pool,
-    PoolStats, Slot, StepEncoder, Stepper, Tables, Transient, Visibility,
+    ArgumentTable, Compiler, Context, DeviceInfo, External, Externals, Feedback, Feedbacks, Heap,
+    MAX_BINDINGS, Mapped, Pool, PoolStats, Slot, StepEncoder, Stepper, Tables, Transient,
+    Visibility,
 };

@@ -123,7 +123,11 @@ impl fmt::Display for Error {
         match self {
             Self::NoDevice => f.write_str("no Metal device available"),
             Self::ShaderRead { path, source } => {
-                write!(f, "cannot read shader source '{}': {source}", path.display())
+                write!(
+                    f,
+                    "cannot read shader source '{}': {source}",
+                    path.display()
+                )
             }
             Self::IncludeTooDeep { path, limit } => write!(
                 f,

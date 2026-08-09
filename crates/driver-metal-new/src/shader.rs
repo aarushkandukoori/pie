@@ -177,7 +177,10 @@ mod tests {
     fn splices_a_quoted_include() {
         let out = splice_with(
             "k/a.metal",
-            table(&[("k/a.metal", "pre\n#include \"b.h\"\npost\n"), ("k/b.h", "BODY")]),
+            table(&[
+                ("k/a.metal", "pre\n#include \"b.h\"\npost\n"),
+                ("k/b.h", "BODY"),
+            ]),
         )
         .expect("splices");
         assert_eq!(out, "pre\nBODY\npost\n");
@@ -335,8 +338,11 @@ mod tests {
 
     #[test]
     fn reports_a_missing_header_with_its_path() {
-        let err = splice_with("k/a.metal", table(&[("k/a.metal", "#include \"gone.h\"\n")]))
-            .expect_err("header does not exist");
+        let err = splice_with(
+            "k/a.metal",
+            table(&[("k/a.metal", "#include \"gone.h\"\n")]),
+        )
+        .expect_err("header does not exist");
         match err {
             Error::ShaderRead { path, .. } => assert_eq!(path, PathBuf::from("k/gone.h")),
             other => panic!("expected ShaderRead, got {other}"),
