@@ -45,12 +45,37 @@ and tested.
 Ten tests, portable, including the write-descriptor formula held exactly and
 both wrap refusals.
 
+## The wire mask — `src/batch/mask.rs`
+
+From `wire_mask.hpp` (142 lines): whether a wire attention mask says
+anything the kernel's own causal predicate does not already enforce.
+
+| C++ | Rust | |
+|---|---|---|
+| `row_is_prefix` | `row_prefix` (private) | ported |
+| `causal_prefix_lengths` | `causal_prefix_lengths` | ported |
+| `first_kv_len_disagreement` | `kv_len_disagreement` | ported |
+
+The semantics are kept exactly — a causal-prefix mask can be *dropped*, and
+the answer is bit-identical because the kernel's predicate and the mask's
+are then the same predicate; anything else refuses. What changes is the
+plumbing: the C++ restates the CSR KV-length formula for the third time and
+indexes `kv_page_indptr[r + 1]` / `kv_last_page_lens[r]` with no length
+check anywhere — a mask table describing more requests than the CSR carries
+is an out-of-bounds read. The Rust comparison takes the schedule's own
+`RequestSpan`s (checked at construction, one owner for the formula), and a
+mask describing more requests than the schedule is itself the first
+disagreement. The `int` + out-param answer becomes `Disagreement`, carrying
+the request and both numbers.
+
+Eight portable tests, including multi-word rows, the sink and window
+refusals, and the classic PAGE_T-16-vs-32 mismatch.
+
 ## Not yet started
 
 | C++ | lines | |
 |---|---|---|
 | `compose.cpp` / `compose.hpp` | 644 | missing — ticket composition; `readiness::Ticket` exists |
-| `wire_mask.hpp` | 142 | missing |
 | `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` | 650 | missing |
 | `batch_schedule.hpp` (done above) | — | — |
 | `decode_abi.hpp` | 650 | missing |

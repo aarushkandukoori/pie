@@ -8,10 +8,13 @@
 //!
 //! [`schedule`] is the batch shape: request spans, the token→request
 //! expansion, and the paged-geometry gate that runs before any pool cell can
-//! be addressed.
+//! be addressed. [`mask`] answers whether a wire attention mask says
+//! anything the kernel's own causal predicate does not already enforce.
 
+mod mask;
 mod schedule;
 
+pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use schedule::{
     BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,
     find_request, validate_capacity, validate_paged,
