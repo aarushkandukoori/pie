@@ -29,6 +29,7 @@
 //! of a buffer sub-range that the launch path stores and binds.
 
 mod archive;
+mod bind;
 mod context;
 mod device;
 mod elastic;
@@ -53,6 +54,10 @@ mod timestamp;
 mod timing;
 
 pub use archive::{Archives, CACHE_ENV, EXTENSION, MAX_AGE};
+pub use bind::{
+    ConstSlots, StepPsos, bind_decode_consts, bind_decode_dag, bind_scratch, bind_token_consts,
+    encode_decode_step,
+};
 pub use context::{ALLOCATOR_COUNT, Context};
 pub use device::DeviceInfo;
 pub use elastic::{

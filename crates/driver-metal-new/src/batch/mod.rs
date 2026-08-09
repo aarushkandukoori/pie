@@ -12,9 +12,10 @@
 //! anything the kernel's own causal predicate does not already enforce.
 
 mod abi;
-mod binds;
 mod admit;
+mod binds;
 mod color;
+mod consts;
 mod dispatch;
 mod geometry;
 mod golden;
@@ -37,6 +38,10 @@ pub use binds::{WeightBind, layer_prefix, weight_binds};
 pub use color::{
     Coloring, ColoringError, ScheduleError, ScratchBind, ScratchSchedule, Use, color_live_ranges,
     schedule_scratch,
+};
+pub use consts::{
+    ExpertCombineParams, GatedRmsParams, GdnCoreParams, KN, MoeRouteParams, RmsParams,
+    RouterParams, gdn_core_params, is_qmv, is_routed, qmv_kn,
 };
 pub use dispatch::{
     DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
