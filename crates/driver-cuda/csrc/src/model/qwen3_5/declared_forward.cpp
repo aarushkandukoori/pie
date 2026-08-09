@@ -1714,11 +1714,21 @@ case PieForwardOpKind::Launch: {
                 {plan, values, N, 0, stream},
                 wb, cache, attn_ws, cublas,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
-                kv_last_page_lens, row_valid_d, w_page_d, w_off_d, R,
+                kv_last_page_lens,
+                // NULL, deliberately: this family's KV write arms passed
+                // no row-valid mask, and the merge must not start
+                // skipping rows they wrote. Whether they SHOULD pass it
+                // is a question for the family, not for a refactor.
+                nullptr,
+                w_page_d, w_off_d, R,
                 nullptr, false,
                 eps, cfg.rope_theta,
                 num_q_heads, num_kv_heads, d, d,
-                SL,
+                // The CACHE SLOT, not the model layer: only this
+                // family's full-attention layers have one.
+                (SL >= 0 && SL < static_cast<int>(w.layers.size()))
+                    ? w.layers[static_cast<std::size_t>(SL)].kv_layer
+                    : -1,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
@@ -1971,28 +1981,6 @@ case PieForwardOpKind::Launch: {
                     attn_dst(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, attn_ws.view(), stream);
-                break;
-            }
-            case declared::Kernel::WriteKvExplicit: {
-                auto kv_view = kv_view_of(SL);
-                // ISLAND (value arena). The pages are the SINK and stay
-                // the cache's; k and v are the statement's operands.
-                const auto ins = plan.inputs(op);
-                need(ins, 2, "write_kv inputs");
-                kernels::attn::write_kv_explicit_bf16(
-                    kv_view, values.slot(ins[0]), values.slot(ins[1]),
-                    w_page_d, w_off_d, N, stream, row_valid_d);
-                break;
-            }
-            case declared::Kernel::WriteKvToPages: {
-                auto kv_view = kv_view_of(SL);
-                // ISLAND (value arena).
-                const auto ins = plan.inputs(op);
-                need(ins, 2, "write_kv inputs");
-                kernels::attn::write_kv_to_pages(
-                    kv_view, values.slot(ins[0]), values.slot(ins[1]),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, N, R, stream);
                 break;
             }
             // The PAIR form (2d): two operands, both traced, so the

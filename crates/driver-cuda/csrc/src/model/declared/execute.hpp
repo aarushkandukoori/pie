@@ -89,8 +89,18 @@ struct ExecCtx {
     // nothing pads.
     int head_dim_kernel = 0;
 
-    // The layer this launch names, from the statement's state mark.
-    int layer = 0;
+    // The CACHE SLOT this launch's KV write addresses — already
+    // resolved, not a model layer index.
+    //
+    // The two are not the same everywhere and assuming they were is a
+    // defect this merge shipped for one commit: qwen3.5 gives only its
+    // FULL-ATTENTION layers a cache slot, so its model layer 7 may be
+    // cache layer 1. The mapping is the family's (the trace does not
+    // state it), so the family resolves it and hands the answer over.
+    //
+    // Negative means this fire's layer has no cache slot, which is a
+    // drift if a KV write is stated over it.
+    int kv_layer = -1;
 };
 
 // Run `op`'s arm if this file owns its symbol.
@@ -211,9 +221,50 @@ inline bool execute_shared(const ExecCtx& c,
     // the fire: llama_like's hook-graph captures carry one and gemma-4's
     // fires do not, which is why one body serves both and the fork reads
     // the context rather than the family.
+    // The EXPLICIT write: the fire steered a graph replay, so it
+    // carries per-row page/offset descriptors instead of deriving them.
+    // Its device-window form is the peel's, exactly as the paged one's
+    // is.
+    case Kernel::WriteKvExplicit: {
+        need(ins, 2, "kv write inputs");
+        if (c.w_page_d == nullptr || c.w_off_d == nullptr) {
+            throw std::runtime_error(
+                "declared arm: an explicit KV write is stated but the fire "
+                "carries no descriptors");
+        }
+        if (c.kv_layer < 0) {
+            throw std::runtime_error(
+                "declared arm: a KV write is stated over a layer with no "
+                "cache slot");
+        }
+        auto kv_view = c.cache.layer_view(c.kv_layer);
+        if (c.peel_window_d != nullptr && c.peel_tail) {
+            kernels::attn::write_kv_explicit_bf16_devwin(
+                kv_view, values.slot(ins[0]), values.slot(ins[1]),
+                c.w_page_d, c.w_off_d, c.peel_window_d, N, stream,
+                c.row_valid);
+            return true;
+        }
+        const int lo = c.arm.win_start;
+        kernels::attn::write_kv_explicit_bf16(
+            kv_view,
+            static_cast<const std::uint16_t*>(values.slot(ins[0])) +
+                static_cast<std::size_t>(lo) * row_width(plan, ins[0]),
+            static_cast<const std::uint16_t*>(values.slot(ins[1])) +
+                static_cast<std::size_t>(lo) * row_width(plan, ins[1]),
+            c.w_page_d + lo, c.w_off_d + lo, N, stream,
+            c.row_valid != nullptr ? c.row_valid + lo : nullptr);
+        return true;
+    }
+
     case Kernel::WriteKvToPages: {
         need(ins, 2, "kv write inputs");
-        auto kv_view = c.cache.layer_view(c.layer);
+        if (c.kv_layer < 0) {
+            throw std::runtime_error(
+                "declared arm: a KV write is stated over a layer with no "
+                "cache slot");
+        }
+        auto kv_view = c.cache.layer_view(c.kv_layer);
         if (c.peel_window_d != nullptr && c.peel_tail) {
             kernels::attn::write_kv_to_pages_bf16_devwin(
                 kv_view, values.slot(ins[0]), values.slot(ins[1]),

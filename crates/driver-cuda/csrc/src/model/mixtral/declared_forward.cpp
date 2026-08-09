@@ -637,18 +637,6 @@ bool gpt_oss_forward_declared(
                     row_width(ins[0]), stream);
                 break;
             }
-            case declared::Kernel::WriteKvToPages: {
-                // ISLAND (value arena). k and v are the statement's two
-                // operands; the pages are the SINK and stay the cache's.
-                const auto ins = plan.inputs(op);
-                need(ins, 2, "write_kv inputs");
-                auto kv_view = cache.layer_view(cur_layer);
-                kernels::attn::write_kv_to_pages(
-                    kv_view, values.slot(ins[0]), values.slot(ins[1]),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, N, R, stream, row_valid_d);
-                break;
-            }
             case declared::Kernel::AttnFlashinferPrefillPlanless: {
                 auto kv_view = cache.layer_view(cur_layer);
                 // The plan-free wrapper, and it takes the LSE in the same
