@@ -1,0 +1,312 @@
+# `driver-metal-new` — handoff
+
+Date: 2026-08-09. Written for whoever picks this up next, human or agent.
+
+This file is the canonical copy and lives in the repository on purpose. The
+port's state has already survived one lost session and one machine reboot
+because `PARITY.md` and `PARITY-M1.md` were committed and the session record was
+not; this document is the third leg of that. A local `.wiki` mirror may exist on
+a given machine and is not authoritative.
+
+## What this is
+
+`crates/driver-metal-new` is **the Rust replacement for `crates/driver-metal`**,
+the C++/Objective-C++ Metal driver. It is not a binding layer, a helper crate,
+or an experiment. The intent is that it eventually *is* the Metal driver and
+`driver-metal` is deleted.
+
+It grows **beside** the C++ crate rather than inside it. That is the whole
+design of the migration and it is deliberate:
+
+- The C++ shell keeps running and keeps its tests. Nothing in the new crate is
+  on the serving path until it has an equivalent that passes them.
+- A rewrite that has to keep the old one working is a rewrite that **can be
+  abandoned halfway without a revert**. At every commit, `main` still serves.
+
+`crates/driver-cuda-new` is the same arrangement for CUDA and shares
+`driver-abi` and `tensor-ir` with this crate. Anything portable that lands here
+is a candidate for reuse there.
+
+### Why rewrite it at all
+
+Three reasons, in order of how much they cost today.
+
+**1. The `void*` boundary can express lifetime bugs that Rust cannot.** The C++
+shell hands out `void*` for every Metal object, because its headers are included
+by plain C++ translation units that cannot name an `id<>`. Every retain and
+release is therefore by hand and by convention. This is not theoretical: see
+[Kernel panics](#the-kernel-panics-2026-08-08) below. In the Rust crate a buffer
+is `Retained<ProtocolObject<dyn MTLBuffer>>` — the same pointer with the
+retain/release already correct — so that class of bug stops being
+*representable*.
+
+**2. 80% of the C++ was never about the GPU.** The C++ shell is ~66k lines
+across `csrc/`, of which 13 files and ~8.6k lines name a Metal or Objective-C
+type at all. The rest is scheduling, geometry, pool arithmetic and plan
+interpretation. It is in C++ only because it was written next to the part that
+needed to be.
+
+**3. That 80% had almost no tests, because it could not have them.** Nearly all
+of it lives in anonymous namespaces behind pimpls, reachable only through
+`*_for_test` hooks bolted on one at a time, or not at all. The port has been
+finding real, shipped bugs at a steady rate — roughly one per subject — and
+essentially all of them are bugs that a test would have caught if a test could
+have been written.
+
+## The shape of the crate
+
+The split is **by whether the code needs a GPU**, not by subsystem. This is the
+single most important structural decision in the crate and it should be
+preserved.
+
+```
+crates/driver-metal-new/
+  src/
+    lib.rs          crate docs; the module list; the lint policy
+    bump.rs         \
+    facts.rs         |  portable. Compiles and tests on ANY host,
+    region.rs        |  including the Linux boxes the rest of the
+    shader.rs        |  workspace is developed on. Inputs are text
+    tuning.rs        |  and integers.
+    pipeline/       /   plan interpretation — the largest portable part
+    metal/          Apple-only, #[cfg(target_vendor = "apple")].
+                    Every unsafe message send in the crate is here.
+  tests/
+    device_*.rs     require a real Metal device
+    real_kernels.rs
+  PARITY.md         ledger for csrc/src/mtl4_context.hpp  (the shell)
+  PARITY-M1.md      ledger for csrc/src/pipeline/m1_runtime.cpp
+```
+
+The portable half is not a convenience. It is the half that can be tested
+without a GPU, and keeping it importable from a Linux `cargo test` is what stops
+it from drifting back into the untestable half. **Do not put a Metal type in
+`src/pipeline/`.**
+
+### Lint policy
+
+`lib.rs` sets `#![deny(missing_docs)]` plus denies on `clippy::todo`,
+`clippy::unimplemented`, `clippy::dbg_macro`, `clippy::mem_forget`,
+`clippy::print_stdout` and `clippy::print_stderr`. Every public item needs a doc
+comment. This is not negotiable in review — the doc comments are where the
+argument for each design decision lives.
+
+## What has been done
+
+Thirty-nine commits on `origin/rewrite`, in two phases plus a crash fix.
+
+### Phase 1 — the shell (`mtl4_context.hpp`, 27 commits)
+
+`adee899ef` … `d3d26c2a1`. The Metal shell: device, queue, allocators, residency
+set, placement heaps, the runtime compiler and its archive cache, dispatch and
+fences, argument tables, transient buffer pool, timestamps and timing, elastic
+buffers, keepalive, feedback.
+
+`PARITY.md` is the ledger: 61 entries, 51 ported, 6 dropped with a stated
+reason, 4 missing and all four the same standalone-buffer hole.
+
+### The kernel panics (2026-08-08)
+
+`2d67fe5a9`, and earlier `437241fec`. Worth knowing about because it is the
+crate's reason for existing, demonstrated.
+
+The Mac Studio was taking repeated **kernel panics** — `Kernel data abort ...
+far: 0x0` inside `IOGPUFamily`/`AGXG13X`. Root cause: `Drop for Elastic`
+released placement heaps while an `updateBufferMappings` naming them was still
+in flight on the GPU. The driver freed memory the GPU was about to write
+through, and the fault surfaced in the kernel rather than the process.
+
+Proven empirically (32/32 drops raced a live mapping), then fixed with a fence
+plus residency removal before release, in `elastic.rs` and the same class of fix
+in `keepalive.rs`.
+
+This is exactly the bug the `void*` boundary makes easy to write and Rust
+ownership makes hard.
+
+### Phase 2 — the pipeline, portable half (`m1_runtime.cpp`, 12 commits)
+
+`d2d3f7e3c` … `968001fee`. `csrc/src/pipeline/m1_runtime.cpp` is 3411 lines and
+is the launch path: it turns a decoded plan plus a fire's runtime numbers into
+dispatches. Its portable half — everything that is a function of the plan rather
+than of the device — **is done**, at 122 GPU-free tests.
+
+Each commit is one coherent subject, and each commit title is an *argued claim*
+about a specific defect rather than a description of the change. In order:
+
+| commit | module | the defect it argues |
+|---|---|---|
+| `d2d3f7e3c` | `pipeline/extent.rs` | `symbolic_extent`'s `default: return 1` made an unknown extent role a one-element axis. `min(dims.size(), 4)` silently dropped a rank *factor*, under-sizing every allocation derived from it. `value_bytes` computed `len * 4` in 32 bits, so 2^30 f32 lanes reported **zero** bytes. |
+| `b83e9814a` | `pipeline/identity.rs` | `kMetalM1EmitterVersion = 23` was hardcoded in the driver while the host emitter was at **36** — the compile-cache key had already drifted. The version is now a parameter, taken from `ProgramRegistration::emitter_version`. |
+| `fe7ab88da` | `pipeline/scratch.rs` | The scratch total accumulated unchecked and the bound was tested only afterwards, so a wrapped total passes a check the real one fails. |
+| `56ba538f3` | `pipeline/params.rs` | `DeviceOpParams` was filled twice, in two 600-line loops, agreeing by inspection. |
+| `fc31da426` | `pipeline/readiness.rs` | Readiness outcomes were encoded as `std::to_string(0x300 + channel)` *inside strings*. Nothing parsed them back, so the distinction was lost the moment it was made. |
+| `051b11c5f` | `pipeline/group.rs` | The M3 group key was a `reinterpret_cast` of a `uint64_t` into a `std::string`; "no key" was `""`, which is itself a valid map key, arrived at from three different causes. `m3_used_channel_slots` was unbounded while the *declared* channel count was bounded — the check was in the wrong place. |
+| `bc2be4617` | `pipeline/cache.rs` | **The compile cache never evicted.** The 65th distinct program was refused forever, and classed *retryable*, so the caller retried against the one condition retrying cannot change. The negative cache used `erase(begin())` — neither LRU nor FIFO. |
+| `8b2caa681` | `pipeline/meta.rs` | The result-base prefix sum was written out **four times** (once as a function, three times inline). It accumulated in an unchecked `uint32_t`, and a wrapped base is not a large index that fails a bounds check but a small one that passes and aliases another op's results. |
+| `d830a68f4` | `pipeline/status.rs` | Three copies of the status decode, all treating "not 4 and not 2" as an op fault — swallowing *never dispatched* and *never finished*. M1 printed the fault in **decimal** and discarded the guard site; M3 printed hex and decoded it. Same kernel, same fault, two incomparable reports. |
+| `8bcdd280d` | `pipeline/stage_cache.rs` | A detected signature-hash collision returned `reject_deterministic` — the class the negative cache **remembers** — permanently blacklisting a blameless program for whichever *other* program happened to hold the slot. |
+| `497e811ae` | `pipeline/emitted.rs` | `unordered_map::emplace` silently keeps the *first* of two kernels claiming one slot, so array order chose between two kernels. The `error`-before-`source` rule lived in a comment nowhere near its call sites. |
+| `968001fee` | `PARITY-M1.md` | Ledger closed out for the portable half. |
+
+## What is left
+
+### Immediate: the GPU half of `m1_runtime.cpp`
+
+All of it lands under `src/metal/` and needs a device to test. `PARITY-M1.md`
+has the line ranges.
+
+| C++ | lines | notes |
+|---|---|---|
+| `M1RegionExecutable` … `M3GroupCommand` | 388–546 | the struct zoo the three paths share |
+| `bind_m2_*` / `bind_m3_*` | 654–735 | |
+| `PsoCompileTransaction` | ~700 | |
+| `compile_program` | 736–1454 | the biggest single function; already has `cache.rs`, `stage_cache.rs`, `emitted.rs`, `identity.rs` and `meta.rs` under it |
+| `prepare` / `execute` (M1 singleton) | 1455–1981 | |
+| M2 fused placement | 1982–2411 | |
+| M3 grouped lanes | 2412–3350 | |
+| `subhandle` / `external_handle` | 194–215 | small; `SlotHandle` arithmetic |
+
+Note that the portable slices were built to be *called* by these. `compile_program`
+in particular should come out substantially shorter than 718 lines, because the
+identity, the caches, the emitted-kernel index and the metadata walk are all
+already written and tested.
+
+### After that
+
+| subsystem | C++ | lines |
+|---|---|---|
+| `batch/` | scheduling, fires, tickets, channel composition | ~11.6k |
+| `loader/` | model loading | ~3.2k |
+| `pipeline/interp.hpp` | the CPU reference interpreter | 1.7k |
+| `pipeline/descriptor_resolve.hpp` | | 400 |
+| `pipeline/registry.cpp` | | 452 |
+| `store/`, `model/` | small | ~375 |
+
+`batch/` is the largest remaining piece and is mostly portable — it is
+scheduling logic, not GPU code — so it should follow the same pattern: portable
+half first, into `src/`, with tests that run anywhere.
+
+### Also outstanding
+
+- **Two pre-existing test failures**, unrelated to any of this work and present
+  before it: `device_kernels::every_shipped_kernel_compiles_on_this_device` and
+  `real_kernels::every_shipped_shader_splices`. Both come from missing `.metal`
+  assets under `crates/kernels-metal/kernels`. Verified pre-existing by
+  `git stash`. Someone should either restore the assets or mark the tests
+  `#[ignore]` with a reason, because two permanently-red tests train everyone to
+  ignore red.
+- `device_timing::encoding_and_execution_are_measured_separately` is **flaky
+  under load** and passes on rerun.
+- The 4 `missing` entries in `PARITY.md` are all the same standalone-buffer
+  hole, assigned to `context-cpp`.
+- Nothing here is wired into `crates/driver` or the worker yet. The cutover plan
+  — how `driver-metal-new` actually *replaces* `driver-metal` on the serving
+  path, and what test gate authorises that — has not been written and should be
+  before the port finishes.
+
+## How to work on this
+
+### The method, per slice
+
+This has been consistent for 39 commits and is worth keeping.
+
+1. **Read the C++.** Not to translate it — to find what it got *wrong* or
+   expressed poorly. If a slice produces no argument, it is probably too small
+   or you have not read it closely enough.
+2. **Check `crates/tensor-ir` and `crates/driver-abi` first.** The Rust type
+   very often already exists. Never re-port `fnv1a64`, the op table, the dtypes,
+   the intrinsic ids, or anything in `LaunchPackage`.
+3. **Write the module**, portable if at all possible. Doc comments carry the
+   argument, not just the description.
+4. **Wire it into `src/pipeline/mod.rs`**: a `mod` line and a `pub use` line,
+   both in alphabetical order in their blocks.
+5. **Name tests as full sentences stating the property.**
+   `a_collision_evicts_the_incumbent_so_the_next_try_is_an_ordinary_miss`, not
+   `test_collision`. The test name is the specification.
+6. **Update the parity ledger** in the same commit. Every C++ function is
+   `ported`, `dropped` (with a reason that says why the C++ needed it and the
+   Rust does not), or `missing` (with what blocks it). Never "ported" because a
+   similarly-named function exists.
+7. **Commit with an argued title**, one coherent subject per commit, and push.
+
+### Commands
+
+```sh
+cargo test -p driver-metal-new --lib <module>       # the slice
+cargo clippy -p driver-metal-new --all-targets      # must be clean for src/
+cargo test -p driver-metal-new --no-fail-fast       # expect the 2 known failures
+```
+
+`cargo fmt -p driver-metal-new` **reformats unrelated pre-existing files.** Run
+it, then revert the churn:
+
+```sh
+cargo fmt -p driver-metal-new
+git checkout -- crates/driver-metal-new/src/lib.rs \
+                crates/driver-metal-new/src/metal/ \
+                crates/driver-metal-new/src/shader.rs \
+                crates/driver-metal-new/tests/
+```
+
+**Always `git fetch origin rewrite && git rebase origin/rewrite` before
+pushing** — other agents push to this branch.
+
+### Commit message style
+
+Title is an argued claim, not a description:
+
+> Keep "the fire is early" distinct from "the fire is broken"
+> A bounded cache evicts; refusing to accept anything more is not a bound
+> The fault codes have names; print the name
+
+Body opens `The Nth slice of \`pipeline/m1_runtime.cpp\`: …`, states the
+subject, then names each specific C++ defect and why the Rust differs. Ends with
+a one-line note on test count and portability, then the `Co-authored-by` trailer.
+
+## Facts worth not rediscovering
+
+**Where things already live.** `driver_abi::local::PIE_EXTENT_STATIC = 0xff`;
+extent roles are 0..=6. `driver_abi::plan::LaunchPlanValue` has `extents` and
+`dims` as two parallel arrays, so they can disagree in length. `LaunchOp::channel`
+uses `u32::MAX` for "no channel". `tensor_ir::fnv1a64`; `tensor_ir::types::MAX_RANK = 4`;
+`tensor_ir::DType` wire tags match `PTIR_DT_*` (F32=0, I32=1, U32=2, Bool=3), and
+`PTIR_DT_ACT = 4` maps to F32 via `pipeline::value::concrete_dtype`.
+`pipeline::value::wire_cell_bytes` and `pipeline::channel::ChannelState` already
+exist.
+
+**The version constants** (`COMPILER_VERSION`, `REGION_PLAN_VERSION`,
+`LANE_TABLE_ABI_VERSION`) live in `tensor_compiler::plan`, but
+**`driver-metal-new` deliberately does not depend on `tensor-compiler` at build
+time.** That is why `identity::Versions` is a parameter. The one exception is a
+*dev*-dependency, added so `pipeline/status.rs` can check its mirror of the
+fault-code table against `tensor_compiler::codegen::fault::CLASSES` — a
+hand-copied table that nothing checks drifts.
+
+**The fault-code space** is fully declared in
+`crates/tensor-compiler/src/codegen/fault.rs`, including which classes are
+per-channel and which two alias op tags. `pipeline::status::describe_fault` reads
+it. Note `FUSED_GEOMETRY_MISMATCH` is `0xA0`, which is also `intrinsic_val`'s op
+tag, and one emitted kernel writes both — this is a *recorded, accepted*
+ambiguity, so a decoder must say "or the op tag of the same value" rather than
+answer confidently.
+
+**Constants from `region_support.hpp`:** `kMetalM1MaxChannels = 29`,
+`kMetalM2MaxFusedChannels = 12`, `kMetalM1EmitterVersion = 23` (stale — see
+`identity.rs`).
+
+**Machine:** Mac13,1 / M1 Max, macOS 27.0, GPU driver `AGXG13X`.
+
+## A note on sessions
+
+The session that did phase 1 was lost when the machine rebooted — it had been
+running in an ephemeral VM at `/root/.patissier/work/tart-alpha`, so the session
+record did not survive even though the commits did. Everything of value was on
+`origin/rewrite`.
+
+The lesson is the one this document is: **push every slice, and keep the ledger
+in the repo.** `PARITY.md` and `PARITY-M1.md` reconstructed the entire state of
+the port from nothing. Session state did not.
+
+Note that `pie-project/pie` has no GitHub wiki, so a document that lives only in
+a local `.wiki` is a document that exists on exactly one machine. That is why
+this one is here.
