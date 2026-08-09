@@ -42,6 +42,8 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
     "NSError",
     "NSString",
     "NSArray",
+    # `resolveCounterRange:` answers with an `NSData` of packed ticks.
+    "NSData",
     "NSObject",
     "NSRange",
     "NSURL",

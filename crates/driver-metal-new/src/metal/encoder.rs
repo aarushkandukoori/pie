@@ -54,6 +54,7 @@ use super::context::{Context, describe};
 use super::feedback::Feedbacks;
 use super::heap::Slot;
 use super::tables::Tables;
+use super::timestamp::{Granularity, Timestamps};
 use crate::error::{Error, Result};
 
 /// How long one probe of the completion wait lasts.
@@ -245,6 +246,47 @@ impl StepEncoder<'_> {
                 MTLStages::Dispatch,
                 visibility.into(),
             );
+    }
+
+    /// Write a GPU timestamp into `timestamps` at `index`.
+    ///
+    /// Takes `&self` because a mark changes nothing the encoder tracks: it
+    /// neither sets state a later dispatch reads nor orders anything, so it
+    /// can sit between two `&mut self` calls without being one.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] if `index` is not below `timestamps.count()`.
+    /// Metal's own behaviour past the end of a counter heap is undefined and
+    /// unreported, and the C++ shell cannot check this at all -- its heap is
+    /// a `void*`, so the bound is not available at the call site. Here it
+    /// travels with the heap.
+    pub fn mark_timestamp(
+        &self,
+        timestamps: &Timestamps,
+        index: u32,
+        granularity: Granularity,
+    ) -> Result<()> {
+        if index >= timestamps.count() {
+            return Err(Error::OutOfRange {
+                what: "timestamp index",
+                offset: u64::from(index),
+                bytes: 1,
+                len: u64::from(timestamps.count()),
+            });
+        }
+        // SAFETY: the write is `unsafe` because Metal does not bounds-check
+        // `index`. The check above is that bound, against the count the heap
+        // was created with, and `timestamps` is borrowed for the call so the
+        // heap cannot be released while Metal is encoding against it.
+        unsafe {
+            self.encoder.writeTimestampWithGranularity_intoHeap_atIndex(
+                granularity.into(),
+                timestamps.heap(),
+                index as usize,
+            );
+        }
+        Ok(())
     }
 }
 
