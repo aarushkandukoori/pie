@@ -17,6 +17,7 @@ mod color;
 mod mask;
 mod member;
 mod schedule;
+mod timing;
 
 pub use abi::{
     ArgmaxParams, ForwardGraphKey, IO_SLOT_COUNT, IoSlot, Kernel, PAGE_BUCKET_GRAN, Region,
@@ -29,4 +30,7 @@ pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
 pub use schedule::{
     BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,
     find_request, validate_capacity, validate_paged,
+};
+pub use timing::{
+    Ablation, BoundaryMismatch, DispatchAttribution, DispatchInfo, StepAttribution, attribute_step,
 };

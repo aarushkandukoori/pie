@@ -151,7 +151,7 @@ const _: () = assert!(size_of::<ArgmaxParams>() == 40);
 /// no second spelling of the enum's end to fall behind.
 macro_rules! kernels {
     ($(#[$enum_meta:meta])* $vis:vis enum $name:ident {
-        $($(#[$meta:meta])* $variant:ident),+ $(,)?
+        $($(#[$meta:meta])* $variant:ident = $kname:literal),+ $(,)?
     }) => {
         $(#[$enum_meta])*
         $vis enum $name {
@@ -169,6 +169,24 @@ macro_rules! kernels {
             $vis const fn index(self) -> usize {
                 self as usize
             }
+            /// The kind's name: the ablation token, the dump tag, and the
+            /// attribution row label.
+            ///
+            /// Total by construction — the macro will not accept a variant
+            /// without one. The C++ named kinds in a hand-kept `switch`
+            /// with a `default: return "unknown"`, and for a while 50 of
+            /// its 99 kinds fell through it: the attribution report was
+            /// blind to half the enum and the ablation knob could not name
+            /// any of them.
+            #[must_use]
+            $vis const fn name(self) -> &'static str {
+                match self { $($name::$variant => $kname),+ }
+            }
+            /// The kind a name denotes, if any.
+            #[must_use]
+            $vis fn from_name(name: &str) -> Option<$name> {
+                Self::ALL.into_iter().find(|kind| kind.name() == name)
+            }
         }
     };
 }
@@ -185,205 +203,205 @@ kernels! {
     #[repr(u8)]
     pub enum Kernel {
         /// Embedding gather off the tied 4-bit head bundle.
-        EmbedGather,
+        EmbedGather = "embed_gather",
         /// Pre-attention RMS norm.
-        Rms,
+        Rms = "rms",
         /// GDN in-projection, 4-bit qkv.
-        QmvIn,
+        QmvIn = "qmv_in",
         /// GDN in-projection, 4-bit z gate.
-        QmvInZ,
+        QmvInZ = "qmv_in_z",
         /// GDN `a` projection, dense bf16.
-        GdnInA,
+        GdnInA = "gdn_in_a",
         /// GDN `b` projection, dense bf16.
-        GdnInB,
+        GdnInB = "gdn_in_b",
         /// The hoisted GDN q/k prologue (one dispatch per head).
-        GdnPrep,
+        GdnPrep = "gdn_prep",
         /// The fused GDN core: conv+silu, norms, gating, recurrent step.
-        GdnCore,
+        GdnCore = "gdn_core",
         /// The gated RMS norm closing the GDN block.
-        GatedRms,
+        GatedRms = "gated_rms",
         /// GDN out-projection.
-        QmvOut,
+        QmvOut = "qmv_out",
         /// Residual add.
-        Residual,
+        Residual = "residual",
         /// Attention q projection.
-        QmvQ,
+        QmvQ = "qmv_q",
         /// Deinterleave of the 2x-wide gated-q projection.
-        QSplit,
+        QSplit = "q_split",
         /// Attention k projection.
-        QmvK,
+        QmvK = "qmv_k",
         /// Attention v projection.
-        QmvV,
+        QmvV = "qmv_v",
         /// Per-head q norm.
-        QNorm,
+        QNorm = "q_norm",
         /// Per-head k norm.
-        KNorm,
+        KNorm = "k_norm",
         /// Rope on q.
-        Rope,
+        Rope = "rope",
         /// Rope on k.
-        RopeK,
+        RopeK = "rope_k",
         /// The M=1 contiguous-ring KV append.
-        KvAppend,
+        KvAppend = "kv_append",
         /// The M=1 single-pass decode attention.
-        Sdpa,
+        Sdpa = "sdpa",
         /// `attn *= sigmoid(gate)` before the o projection.
-        AttnGate,
+        AttnGate = "gate",
         /// Attention o projection.
-        QmvO,
+        QmvO = "qmv_o",
         /// Pre-FFN RMS norm.
-        FfnRms,
+        FfnRms = "ffn_rms",
         /// FFN gate projection.
-        QmvGate,
+        QmvGate = "qmv_gate",
         /// FFN up projection.
-        QmvUp,
+        QmvUp = "qmv_up",
         /// SwiGLU.
-        SiluMul,
+        SiluMul = "silu_mul",
         /// FFN down projection.
-        QmvDown,
+        QmvDown = "qmv_down",
         /// The layer's closing residual add.
-        LayerOut,
+        LayerOut = "layer_out",
         /// The final RMS norm.
-        FinalRms,
+        FinalRms = "final_rms",
         /// The tied LM head matvec.
-        QmvLmHead,
+        QmvLmHead = "qmv_lm_head",
         /// The optional device argmax (I3 substrate).
-        Argmax,
+        Argmax = "argmax",
         /// The paged KV scatter (M>1).
-        KvAppendPaged,
+        KvAppendPaged = "kv_append_paged",
         /// The paged-attention read (M>1).
-        SdpaPaged,
+        SdpaPaged = "sdpa_paged",
         /// The slot-indexed GDN core (S>1).
-        GdnCoreSlotted,
+        GdnCoreSlotted = "gdn_core_slotted",
         /// The slot-indexed GDN prologue (S>1).
-        GdnPrepSlotted,
+        GdnPrepSlotted = "gdn_prep_slotted",
         /// gemma4 `post_attention_layernorm`.
-        G4AttnPostNorm,
+        G4AttnPostNorm = "g4_attn_post_norm",
         /// gemma4 `pre_feedforward_layernorm`.
-        G4FfnPreNorm,
+        G4FfnPreNorm = "g4_ffn_pre_norm",
         /// gemma4 `post_feedforward_layernorm`.
-        G4FfnPostNorm,
+        G4FfnPostNorm = "g4_ffn_post_norm",
         /// gemma4's weightless RMS on v before the KV write.
-        G4VNorm,
+        G4VNorm = "g4_v_norm",
         /// gemma4 `gelu_tanh(gate) * up`.
-        G4Geglu,
+        G4Geglu = "g4_geglu",
         /// gemma4's learned per-layer gain.
-        G4LayerScalar,
+        G4LayerScalar = "g4_layer_scalar",
         /// gemma4 `cap * tanh(logits / cap)`.
-        G4Softcap,
+        G4Softcap = "g4_softcap",
         /// gemma4's sampled-row compaction before the tail.
-        G4RowGather,
+        G4RowGather = "g4_row_gather",
         /// gemma4 sliding-window decode attention.
-        G4SdpaSliding,
+        G4SdpaSliding = "g4_sdpa_sliding",
         /// gemma4 `embed_tokens_per_layer` gather.
-        G4PleTokenGather,
+        G4PleTokenGather = "g4_ple_token_gather",
         /// gemma4 `per_layer_model_projection` matvec.
-        G4PleProjGemv,
+        G4PleProjGemv = "g4_ple_proj_gemv",
         /// gemma4 `per_layer_projection_norm`.
-        G4PleProjNorm,
+        G4PleProjNorm = "g4_ple_proj_norm",
         /// gemma4 `(proj + token) * 1/sqrt(2)`.
-        G4PleCombine,
+        G4PleCombine = "g4_ple_combine",
         /// gemma4 `per_layer_input_gate` matvec.
-        G4PleGateGemv,
+        G4PleGateGemv = "g4_ple_gate_gemv",
         /// gemma4 `gelu_tanh(gate) * ple`.
-        G4PleGeglu,
+        G4PleGeglu = "g4_ple_geglu",
         /// gemma4 `per_layer_projection` matvec.
-        G4PleProjLayerGemv,
+        G4PleProjLayerGemv = "g4_ple_proj_layer_gemv",
         /// gemma4 `post_per_layer_input_norm`.
-        G4PleNorm,
+        G4PleNorm = "g4_ple_norm",
         /// gemma4 `hidden += ple`. The variant the wrong count once ended
         /// at, forty-four kinds early.
-        G4PleResidual,
+        G4PleResidual = "g4_ple_residual",
         /// gemma4's fused post-attention norm + residual.
-        G4AttnPostResidual,
+        G4AttnPostResidual = "g4_attn_post_residual",
         /// gemma4's fused post-FFN norm + residual.
-        G4FfnPostResidual,
+        G4FfnPostResidual = "g4_ffn_post_residual",
         /// gemma4's fused PLE norm + residual, scaled.
-        G4PleResidualScaled,
+        G4PleResidualScaled = "g4_ple_residual_scaled",
         /// An untied quantized embedding (`model.embed_tokens`).
-        EmbedUntied,
+        EmbedUntied = "embed_untied",
         /// An untied quantized LM head. The kind whose dispatch once ran
         /// the wrong pipeline off the short table.
-        LmHeadUntied,
+        LmHeadUntied = "lm_head_untied",
         /// gpt-oss biased q projection.
-        GoQmvQ,
+        GoQmvQ = "go_qmv_q",
         /// gpt-oss biased k projection.
-        GoQmvK,
+        GoQmvK = "go_qmv_k",
         /// gpt-oss biased v projection.
-        GoQmvV,
+        GoQmvV = "go_qmv_v",
         /// gpt-oss biased o projection.
-        GoQmvO,
+        GoQmvO = "go_qmv_o",
         /// gpt-oss decode attention with the learned per-head sink.
-        GoSdpaSink,
+        GoSdpaSink = "go_sdpa_sink",
         /// gpt-oss router (8-bit affine, biased).
-        GoRouter,
+        GoRouter = "go_router",
         /// gpt-oss routed expert gate projection.
-        GoExpertGate,
+        GoExpertGate = "go_expert_gate",
         /// gpt-oss routed expert up projection.
-        GoExpertUp,
+        GoExpertUp = "go_expert_up",
         /// gpt-oss routed expert down projection.
-        GoExpertDown,
+        GoExpertDown = "go_expert_down",
         /// Top-k + softmax over the router's logits.
-        GoRouterTopK,
+        GoRouterTopK = "go_router_top_k",
         /// gpt-oss's clamped SwiGLU variant.
-        GoSwiGlu,
+        GoSwiGlu = "go_swi_glu",
         /// The weighted sum of the k experts' outputs.
-        GoExpertCombine,
+        GoExpertCombine = "go_expert_combine",
         /// Qwen-MoE router (`mlp.gate`, no bias).
-        LlRouter,
+        LlRouter = "ll_router",
         /// Qwen-MoE stacked expert gate projections.
-        LlExpertGate,
+        LlExpertGate = "ll_expert_gate",
         /// Qwen-MoE stacked expert up projections.
-        LlExpertUp,
+        LlExpertUp = "ll_expert_up",
         /// Qwen-MoE stacked expert down projections.
-        LlExpertDown,
+        LlExpertDown = "ll_expert_down",
         /// The batched mixture's expert-major sort.
-        LlMoeSort,
+        LlMoeSort = "ll_moe_sort",
         /// The sorted-row gather.
-        LlMoeGather,
+        LlMoeGather = "ll_moe_gather",
         /// The sorted-results combine, through the sort's inverse.
-        LlMoeCombine,
+        LlMoeCombine = "ll_moe_combine",
         /// Shared expert gate projection (`mlp.shared_expert.gate_proj`).
-        LlSharedGate,
+        LlSharedGate = "ll_shared_gate",
         /// Shared expert up projection.
-        LlSharedUp,
+        LlSharedUp = "ll_shared_up",
         /// Shared expert down projection.
-        LlSharedDown,
+        LlSharedDown = "ll_shared_down",
         /// `mlp.shared_expert_gate` — hidden to one logit a token.
-        LlSharedGateProj,
+        LlSharedGateProj = "ll_shared_gate_proj",
         /// `routed + sigmoid(gate) * shared`.
-        LlSharedCombine,
+        LlSharedCombine = "ll_shared_combine",
         /// The mixture's SwiGLU over the sorted stack — split from
         /// [`SiluMul`](Kernel::SiluMul) because a routed layer runs both at
         /// different extents.
-        LlExpertSiluMul,
+        LlExpertSiluMul = "ll_expert_silu_mul",
         /// gemma4 MoE router (`router.proj` + per-expert scale).
-        G4Router,
+        G4Router = "g4_router",
         /// gemma4 router norm (`router.scale`, folded at load).
-        G4RouterNorm,
+        G4RouterNorm = "g4_router_norm",
         /// gemma4 top-k + softmax + gain.
-        G4RouterTopK,
+        G4RouterTopK = "g4_router_top_k",
         /// gemma4 `pre_feedforward_layernorm_2`.
-        G4MoeNorm,
+        G4MoeNorm = "g4_moe_norm",
         /// gemma4 `post_feedforward_layernorm_1`.
-        G4DenseBranchNorm,
+        G4DenseBranchNorm = "g4_dense_branch_norm",
         /// gemma4 `post_feedforward_layernorm_2`.
-        G4MoeBranchNorm,
+        G4MoeBranchNorm = "g4_moe_branch_norm",
         /// gemma4 stacked expert gate projections.
-        G4ExpertGate,
+        G4ExpertGate = "g4_expert_gate",
         /// gemma4 stacked expert up projections.
-        G4ExpertUp,
+        G4ExpertUp = "g4_expert_up",
         /// gemma4 stacked expert down projections.
-        G4ExpertDown,
+        G4ExpertDown = "g4_expert_down",
         /// GeGLU over the sorted stack — gemma's activation.
-        G4ExpertGeglu,
+        G4ExpertGeglu = "g4_expert_geglu",
         /// gemma4's expert-major sort.
-        G4MoeSort,
+        G4MoeSort = "g4_moe_sort",
         /// gemma4's sorted-row gather.
-        G4MoeGather,
+        G4MoeGather = "g4_moe_gather",
         /// gemma4's expert combine.
-        G4ExpertCombine,
+        G4ExpertCombine = "g4_expert_combine",
         /// The dense and mixture branches meeting.
-        G4BranchAdd,
+        G4BranchAdd = "g4_branch_add",
     }
 }
 
@@ -475,6 +493,25 @@ mod tests {
         assert_eq!(IoSlot::SampleRows as usize, 18);
         assert_eq!(IO_SLOT_COUNT, 19);
         assert_eq!(Region::KvPagePool as usize, 6);
+    }
+
+    /// Every kind has a name and every name is one kind: the C++'s
+    /// hand-kept switch left 50 of 99 kinds answering "unknown", which
+    /// blinded the attribution report and the ablation knob to half the
+    /// enum at once.
+    #[test]
+    fn every_kind_has_a_unique_name_and_round_trips() {
+        let mut seen = std::collections::HashSet::new();
+        for kind in Kernel::ALL {
+            let name = kind.name();
+            assert!(!name.is_empty());
+            assert_ne!(name, "unknown", "the fall-through answer is not a name");
+            assert!(seen.insert(name), "duplicate kind name {name}");
+            assert_eq!(Kernel::from_name(name), Some(kind));
+        }
+        // The one legacy exception, pinned: AttnGate's golden tag is `gate`.
+        assert_eq!(Kernel::AttnGate.name(), "gate");
+        assert_eq!(Kernel::from_name("no_such_kind"), None);
     }
 
     #[test]

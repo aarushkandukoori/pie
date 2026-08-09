@@ -223,7 +223,42 @@ insertion upstream of one fails loudly instead of renumbering silently.
 |---|---|---|
 | `compose.cpp` rest: `LaunchMember`, `LaunchJobData`, tickets | ~90 | missing — the job container, with the worker port |
 | `scratch.hpp` / `scratch.cpp`: `build_scratch_schedule`, `bind_scratch`, the footprint helpers | ~540 | missing — coupled to `DecodeGeometry`/`Dispatch`, with the family port |
-| `decode_timing.cpp` / `.hpp` | 365 | missing — consumes `Kernel`/`Dispatch` |
+| — | — | — (`decode_timing` ported below) |
+
+## The attribution — `src/batch/timing.rs`
+
+From `decode_timing.cpp/.hpp` (365 lines), plus the kind names moved to
+where the kinds live.
+
+| C++ | Rust | |
+|---|---|---|
+| `attribute_step` | `attribute_step` | ported |
+| `StepAttribution` / `DispatchAttribution` | same names | ported |
+| `StepAttribution::valid` | `Result` + `BoundaryMismatch` | dropped |
+| `kernel_name` | `Kernel::name`, macro-total | ported |
+| `kernel_ablated` | `Ablation::parse` / `from_env` / `ablated` | ported |
+| `print_attribution` | `StepAttribution::report` | ported |
+| the `Dispatch` subset it reads | `DispatchInfo` | ported |
+
+`kernel_name` was a hand-kept switch with `default: return "unknown"`, and
+for a while 50 of the 99 kinds fell through it — the attribution report was
+blind to gemma4's mixture and PLE, all of gpt-oss and both untied kinds at
+once, and the ablation knob could not name any of them. The name is now an
+argument of the `kernels!` macro: a variant without one does not compile,
+and `from_name` is its exact inverse (tested unique and total). The one
+legacy exception, `AttnGate = "gate"`, is pinned.
+
+The ablation spec parser keeps its hard-won lesson — a typo'd token
+"ablates NOTHING and this run reports the baseline while looking armed" —
+but returns the unmatched tokens instead of printing them (`parse` is
+env-free and testable; `from_env` is the one place the environment is
+read). The substring-with-boundary-checks walk becomes an exact per-token
+lookup. `valid = false` becomes an `Err` carrying both counts, and the
+`FILE*` report becomes a returned `String`, because this crate denies
+stdout/stderr by policy.
+
+Five timing tests plus the abi name test; the monotonic guard (a clock
+wrap attributes zero, not a negative share) is kept and tested.
 | `expert_paging.hpp` | 195 | missing — `fire` needs `ExpertSlab` (loader) |
 | `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` | 650 | missing |
 | `batch_schedule.hpp` (done above) | — | — |
