@@ -6,6 +6,30 @@
 //! CMake is gated off by default for exactly that reason. Handing
 //! `newLibraryWithSource:` a string is the path that is always available.
 //!
+//! # Compilation is serialised, and not by choice
+//!
+//! Two threads compiling at once corrupt the process heap. This is not a
+//! race in this crate: the trap lands inside `libsystem_malloc`, reached
+//! from `_MTLCreateComputePipelineScriptFromDescriptor` by way of
+//! `-[NSTaggedPointerString UTF8String]`, on a libdispatch queue owned by
+//! `AGXG13XFamilyCompiler`. Nothing of ours is on that stack.
+//!
+//! It was found by bisection and is reproducible on demand. Eight threads
+//! each compiling one trivial kernel and then doing nothing but host-side
+//! `malloc` traffic abort in three runs out of six; the same eight threads
+//! with the compile behind a mutex abort in none. The malloc traffic is the
+//! part that misleads -- the corruption happens during the compile, but a
+//! process that exits promptly afterwards never touches the damaged freelist
+//! and looks healthy. That is why a test binary crashes in whichever test
+//! happens to allocate next rather than in the one that compiled, and why
+//! `--test-threads=1` "fixes" it.
+//!
+//! So [`GATE`] holds every pipeline creation to one at a time, process-wide
+//! -- one lock for all compilers, because the damaged heap is the process's,
+//! not any one compiler's. The cost is throughput at load time only: the
+//! serving path compiles nothing. If a future OS makes this safe, the
+//! evidence to re-test with is above.
+//!
 //! # The language version is a property of the driver
 //!
 //! `MTLCompileOptions` defaults to an older MSL standard. Under that default
@@ -33,6 +57,15 @@ use crate::error::{Error, Result};
 /// See the module docs: this is not a default, and a kernel compiled without
 /// it fails in a way that does not mention the dialect.
 const LANGUAGE_VERSION: MTLLanguageVersion = MTLLanguageVersion::Version4_0;
+
+/// Held across every compilation in the process. See the module docs.
+///
+/// A plain `Mutex<()>`, and deliberately not a `OnceLock`-guarded compiler
+/// singleton: the thing that must not overlap is the compilation, not the
+/// ownership of a compiler. Poisoning is ignored, because a panic while
+/// compiling leaves Metal's heap no worse than it already is and refusing
+/// every later compile would turn one failure into a dead process.
+static GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The runtime shader compiler.
 ///
@@ -72,6 +105,11 @@ impl Compiler {
         source: &str,
         function: &str,
     ) -> Result<Retained<ProtocolObject<dyn MTLComputePipelineState>>> {
+        // Held for the whole function, not just the pipeline call. The
+        // library build is part of the same compilation and there is no
+        // evidence separating the two, so the gate covers both.
+        let _gate = GATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
         let options = MTLCompileOptions::new();
         options.setLanguageVersion(LANGUAGE_VERSION);
 
