@@ -823,25 +823,53 @@ fn the_paged_prefill_matches_the_sequential_decode() {
             slots.step(0).unwrap();
         }
     } else {
-        let mut prefill = driver_metal_new::metal::MbStep::prepare(
-            &context,
-            &storage,
-            &geometry,
-            &tuning,
-            options,
-            &schedule_n,
-            base,
-            mb,
-            n,
-            max_ctx,
-        )
-        .unwrap();
+        // The prefill stream: the GDN recurrence is sequential over tokens,
+        // so a single-request prompt runs one single-token DAG per row —
+        // each bound at ITS row of the shared IO — never one flat N-token
+        // fire, which would read every token against the same initial
+        // state. (The flat fire is the FLEET's shape: n requests, one
+        // token each, disjoint slots.)
+        let _ = (&schedule_n, base, mb);
+        let vocab_bytes = geometry.vocab as usize * 2;
         feed_positions(0, &prompt);
-        prefill
-            .set_gdn_parity(&context, &storage, slots.parity(0).unwrap())
+        for (row, _) in prompt.iter().enumerate() {
+            let base_t = load_step_psos(
+                &compiler,
+                &context,
+                &kernels_dir(),
+                &plan_decode_psos(&EntryNames::bf16_g64_b4(), features),
+            )
             .unwrap();
-        prefill.fire(&mut stepper).expect("the prefill retires");
-        slots.step(0).unwrap();
+            let mb_t = driver_metal_new::metal::load_mb_psos(
+                &compiler,
+                &context,
+                &kernels_dir(),
+                &mb_plan,
+            )
+            .unwrap();
+            let mut one = driver_metal_new::metal::MbStep::prepare_at(
+                &context,
+                &storage,
+                &geometry,
+                &tuning,
+                options,
+                &schedule_1,
+                base_t,
+                mb_t,
+                1,
+                max_ctx,
+                driver_metal_new::metal::MbBindOffsets {
+                    token_row: row as u64,
+                    logits_bytes: (row * vocab_bytes) as u64,
+                },
+            )
+            .unwrap();
+            write_u32s(IoSlot::QoIndptr, &[0, n]);
+            one.set_gdn_parity(&context, &storage, slots.parity(0).unwrap())
+                .unwrap();
+            one.fire(&mut stepper).expect("the prefill row retires");
+            slots.step(0).unwrap();
+        }
     }
 
     let vocab = geometry.vocab as usize;
@@ -867,6 +895,11 @@ fn the_paged_prefill_matches_the_sequential_decode() {
     // no-recycle pool and hold the chain heads to the host, exactly as the
     // M=1 bisect does — the first divergence names the paged kernel.
     if std::env::var_os("PIE_SMOKE_PAGED_TAPS").is_some() {
+        // Per-fire tap dumps across the whole sequential run, then two host
+        // checks at the diverging step: (a) every KV append landed — the
+        // pool's row for position p equals that step's rope_k tap — and
+        // (b) sdpa equals a host softmax over the pool. Between them they
+        // separate "the history is wrong" from "the read of it is wrong".
         let sched_taps = {
             let (uses, values) = driver_metal_new::batch::build_scratch_uses(&dag_1);
             let ends = driver_metal_new::batch::concurrent_run_ends(&dag_1);
@@ -902,12 +935,8 @@ fn the_paged_prefill_matches_the_sequential_decode() {
             max_ctx,
         )
         .unwrap();
-        write_u32s(IoSlot::QoIndptr, &[0, 1]);
-        feed_positions(0, &[248044]);
-        one.fire(&mut stepper).unwrap();
-        let dir = std::env::temp_dir().join("pie-paged-bisect");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let mut slots = driver_metal_new::store::LinearStateSlots::new(1);
+        let mut stepper = Stepper::new(&context).unwrap();
         let sites: Vec<_> = dag_1
             .iter()
             .map(|d| driver_metal_new::batch::TapSite {
@@ -915,56 +944,132 @@ fn the_paged_prefill_matches_the_sequential_decode() {
                 layer: d.layer,
             })
             .collect();
-        unsafe {
-            driver_metal_new::batch::dump_taps(
-                &dir,
-                &sites,
-                &sched_taps,
-                &storage.scratch,
-                &geometry,
-                1,
-                0,
-            )
-        }
-        .unwrap();
-        let staged = |name: &str| {
-            let h = storage.weights.get(name).unwrap();
+        let root_dir = std::env::temp_dir().join("pie-paged-steps");
+        let _ = std::fs::remove_dir_all(&root_dir);
+        let mut feed: Vec<u32> = prompt.clone();
+        let mut token = 0u32;
+        for step_index in 0..8usize {
+            let input = if step_index < feed.len() {
+                feed[step_index]
+            } else {
+                token
+            };
+            write_u32s(IoSlot::QoIndptr, &[0, 1]);
+            feed_positions(step_index as u32, &[input]);
+            one.set_gdn_parity(&context, &storage, slots.parity(0).unwrap())
+                .unwrap();
+            one.fire(&mut stepper).unwrap();
+            slots.step(0).unwrap();
+            let dir = root_dir.join(format!("step{step_index}"));
+            std::fs::create_dir_all(&dir).unwrap();
             unsafe {
-                std::slice::from_raw_parts(h.contents().cast::<u8>().as_ptr(), h.len() as usize)
+                driver_metal_new::batch::dump_taps(
+                    &dir,
+                    &sites,
+                    &sched_taps,
+                    &storage.scratch,
+                    &geometry,
+                    1,
+                    0,
+                )
             }
-        };
-        let hidden = geometry.hidden as usize;
-        let embed = dequant_row(
-            staged("embed_tokens.weight"),
-            staged("embed_tokens.scales"),
-            staged("embed_tokens.biases"),
-            248044,
-            hidden,
-        );
-        let tap = read_npy(&dir.join("embed.npy"));
-        eprintln!("paged embed cosine {:.6}", cosine(&embed, &tap));
-        let core = read_npy(&dir.join("0.gdn_core.npy"));
-        eprintln!(
-            "paged 0.gdn_core magnitude {:.6}",
-            core.iter().map(|v| v * v).sum::<f32>().sqrt()
-        );
-        let out_tap = read_npy(&dir.join("0.gdn_out.npy"));
-        eprintln!(
-            "paged 0.gdn_out magnitude {:.6}",
-            out_tap.iter().map(|v| v * v).sum::<f32>().sqrt()
-        );
+            .unwrap();
+            token = argmax_row(0);
+            eprintln!("step {step_index}: fed {input}, answered {token}");
+        }
+        let _ = &mut feed;
+
+        // Check (a): the pool holds each step's rope_k for the first
+        // full-attention layer.
         let full = (0..geometry.n_layers)
             .find(|&l| geometry.is_full_attn(l))
             .unwrap();
-        let gated = read_npy(&dir.join(format!("{full}.gated.npy")));
-        eprintln!(
-            "paged {full}.gated magnitude {:.6}",
-            gated.iter().map(|v| v * v).sum::<f32>().sqrt()
+        let kv = storage.kv[full as usize].as_ref().unwrap();
+        let head = geometry.head_dim as usize;
+        let kv_row = geometry.n_kv_heads as usize * head;
+        let pool_row = |pages: &driver_metal_new::metal::Handle, position: usize| -> Vec<f32> {
+            // NHD page-major: [page, row, n_kv_heads, head_dim] bf16.
+            let page = position / geometry.kv_page_size as usize;
+            let row = position % geometry.kv_page_size as usize;
+            let at = (page * geometry.kv_page_size as usize + row) * kv_row * 2;
+            let bytes = unsafe {
+                std::slice::from_raw_parts(
+                    pages.contents().cast::<u8>().as_ptr().add(at),
+                    kv_row * 2,
+                )
+            };
+            bytes
+                .chunks_exact(2)
+                .map(|c| f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16))
+                .collect()
+        };
+        for position in 0..8usize {
+            let tap = read_npy(
+                &root_dir
+                    .join(format!("step{position}"))
+                    .join(format!("{full}.rope_k.npy")),
+            );
+            let pool = pool_row(&kv.k_pages, position);
+            eprintln!("append pos {position}: k cosine {:.6}", cosine(&tap, &pool));
+        }
+        // Check (b): sdpa at the last dumped step against a host softmax
+        // over the pool.
+        let last = 7usize;
+        let q_tap = read_npy(
+            &root_dir
+                .join(format!("step{last}"))
+                .join(format!("{full}.rope_q.npy")),
         );
-        let final_tap = read_npy(&dir.join("final_norm.npy"));
+        let gqa = (geometry.n_q_heads / geometry.n_kv_heads) as usize;
+        let scale = 1.0 / (head as f32).sqrt();
+        let mut host_attn = vec![0.0f32; q_tap.len()];
+        for h in 0..geometry.n_q_heads as usize {
+            let kvh = h / gqa;
+            let q = &q_tap[h * head..(h + 1) * head];
+            let mut scores = Vec::new();
+            for position in 0..=last {
+                let k = pool_row(&kv.k_pages, position);
+                let s: f32 = q
+                    .iter()
+                    .zip(&k[kvh * head..(kvh + 1) * head])
+                    .map(|(a, b)| a * b)
+                    .sum();
+                scores.push(s * scale);
+            }
+            let max = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let exps: Vec<f32> = scores.iter().map(|s| (s - max).exp()).collect();
+            let denom: f32 = exps.iter().sum();
+            for (position, w) in exps.iter().enumerate() {
+                let v = pool_row(&kv.v_pages, position);
+                for d in 0..head {
+                    host_attn[h * head + d] += w / denom * v[kvh * head + d];
+                }
+            }
+        }
+        // The sdpa tap is suppressed by AttnGate's in-place write, so read
+        // the gated tap and un-gate is impossible — instead compare the
+        // gated tap against sigmoid(gate) * host_attn using the q_proj
+        // split's gate half.
+        let qg_tap = read_npy(
+            &root_dir
+                .join(format!("step{last}"))
+                .join(format!("{full}.q_proj.npy")),
+        );
+        let q_dim = (geometry.n_q_heads * geometry.head_dim) as usize;
+        let gated_host: Vec<f32> = (0..q_dim)
+            .map(|i| {
+                let gate = qg_tap[(i / head) * 2 * head + head + i % head];
+                host_attn[i] / (1.0 + (-gate).exp())
+            })
+            .collect();
+        let gated_tap = read_npy(
+            &root_dir
+                .join(format!("step{last}"))
+                .join(format!("{full}.gated.npy")),
+        );
         eprintln!(
-            "paged final_norm magnitude {:.6}",
-            final_tap.iter().map(|v| v * v).sum::<f32>().sqrt()
+            "sdpa host-vs-device (via gated) at step {last}: cosine {:.6}",
+            cosine(&gated_host, &gated_tap)
         );
         return;
     }

@@ -147,6 +147,37 @@ impl MbStep {
         n_tokens: u32,
         max_ctx: u32,
     ) -> Result<Self> {
+        Self::prepare_at(
+            context,
+            storage,
+            g,
+            tuning,
+            options,
+            schedule,
+            base,
+            mb,
+            n_tokens,
+            max_ctx,
+            MbBindOffsets::default(),
+        )
+    }
+
+    /// [`prepare`](Self::prepare) with this step's IO offsets — a prefill
+    /// stream prepares one step per prompt row, each bound at its own row.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_at(
+        context: &Context,
+        storage: &DecodeStorage,
+        g: &DecodeGeometry,
+        tuning: &Tuning,
+        options: DagOptions,
+        schedule: &ScratchSchedule,
+        base: StepPsos,
+        mb: MbPsos,
+        n_tokens: u32,
+        max_ctx: u32,
+        offsets: MbBindOffsets,
+    ) -> Result<Self> {
         let dag = build_decode_dag_mb(g, tuning, n_tokens, 0, options);
         if schedule.per_dispatch.len() != dag.len() {
             return Err(Error::Create {
@@ -167,7 +198,7 @@ impl MbStep {
             &dag,
             g,
             options.gdn_prep,
-            MbBindOffsets::default(),
+            offsets,
         )?;
         bind_scratch(context, &mut tables, storage, schedule)?;
         bind_decode_consts(
