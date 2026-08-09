@@ -7,10 +7,10 @@
 // three-way parity gate. One TU per deployment; the `phi3_mini` suffix
 // keeps the symbols apart and the digest constant names the pair.
 //
-// Emitted from: llama_like/h3072/l32/qh32/kvh32/hd96/i8192/v32064/rope0/nv0/np0/qk0/fq0/te0/qb0/xqa0/dfp0/rt1/fpp0/pad1/pr0/hdk128
+// Emitted from: llama_like/h3072/l32/qh32/kvh32/hd96/i8192/v32064/rope0/nv0/np0/qk0/fq0/te0/qb0/xqa0/dfp0/rt1/fpp0/pad1/pr0/hdk128/tp1
 
 constexpr const char* kGeneratedDigest_phi3_mini =
-    "llama_like/h3072/l32/qh32/kvh32/hd96/i8192/v32064/rope0/nv0/np0/qk0/fq0/te0/qb0/xqa0/dfp0/rt1/fpp0/pad1/pr0/hdk128";
+    "llama_like/h3072/l32/qh32/kvh32/hd96/i8192/v32064/rope0/nv0/np0/qk0/fq0/te0/qb0/xqa0/dfp0/rt1/fpp0/pad1/pr0/hdk128/tp1";
 
 inline void generated_llama_like_decode_phi3_mini(
 const Qwen3Weights& w,

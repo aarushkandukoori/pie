@@ -27,6 +27,12 @@ pub static KERNELS: &[KernelSig] = &[
     // for through `tp->` from inside a hand-written pass.
     kernel!(all_reduce "dist::all_reduce_bf16", whole = true,
         in_place = &[(0, 0)]),
+    // The OUT-OF-PLACE sum. Same collective, a separate destination --
+    // which the two-step landing needs, because its residual add reads
+    // the summed partial and writes somewhere else again. No alias
+    // pair, and that absence is the whole difference from the row
+    // above.
+    kernel!(all_reduce_out "dist::all_reduce_bf16_out", whole = true),
     kernel!(all_gather "dist::all_gather_bf16", whole = true),
     // The FUSED landing: sum, add the residual, norm. Two results — the
     // residual stream updated in place (operand 1) and the normed

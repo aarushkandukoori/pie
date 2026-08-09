@@ -144,29 +144,18 @@ fn the_metal_table_admits_its_rows_and_refuses_the_rest() {
 /// Sorted, because it is compared against a sorted difference.
 /// SORTED, because the assertion compares against a sorted remainder.
 const UNSTATED_ROWS: &[&str] = &[
-    // ── the TP collectives ─────────────────────────────────────────
+    // The collectives came OUT (3). `dist::` and `comm::` joined the
+    // prefix scan above, which is what this test measures: a symbol a
+    // `dsl::cuda` wrapper RECORDS. Whether a model text calls one is a
+    // different question, and the goldens are where it is answered --
+    // `mistral_7b_v03.cuda.tp2.decode` is llama_like's sharded trace,
+    // and it fires both all-reduce spellings 32 times each.
     //
-    // `dsl::cuda::all_reduce`, `all_gather` and
-    // `all_reduce_residual_rmsnorm` exist and record these, so the
-    // containment direction above is satisfied; what is missing is a
-    // model TEXT that calls them, because no family has been given a
-    // sharded trace yet.
-    //
-    // Pinned rather than deleted because the hand-written passes
-    // already run exactly these kernels through `tp->` — the fused one
-    // is `llama_like.cpp`'s post-attention landing at T > 1 — so the
-    // work they describe is live today and only its DECLARATION is
-    // missing. The entries come out when the first family states
-    // `tp_size > 1`, which is what closes `DeclineReason::NoPlan`'s TP
-    // term.
-    "comm::all_reduce_residual_rmsnorm_bf16",
-    "dist::all_gather_bf16",
-    "dist::all_reduce_bf16",
-    // Nothing calls this one — not a declaration, not a driver body, not a
-    // test. It is in the table because `rope.hpp` declares it and the header
-    // rule admits no exceptions, which makes it the one row here that would
-    // be better DELETED than pinned: the launcher and its definition in
-    // `rope.cu` are dead too.
+    // Two remain recorded-but-uncalled, and neither has an entry here
+    // because the scan cannot tell: `comm::all_reduce_residual_rmsnorm_bf16`
+    // (the fused landing, waiting on a guard whose arms produce a PAIR)
+    // and `dist::all_gather_bf16` (no text gathers; column-parallel
+    // outputs here are consumed shard-local).
     "rope::rope_partial_bf16_position_delta",
 ];
 
@@ -243,6 +232,13 @@ fn the_table_covers_the_dsl_surface() {
                 "ssm::",
                 "mlp::",
                 "sample::",
+                // The COLLECTIVES' namespaces. Their absence here was a
+                // hole in the coverage rule rather than a fact about
+                // them: `dsl::cuda::all_reduce` and friends record
+                // these symbols like any other, and without the prefix
+                // the scan simply could not see them.
+                "dist::",
+                "comm::",
             ]
                 .iter()
                 .any(|p| s.starts_with(p))

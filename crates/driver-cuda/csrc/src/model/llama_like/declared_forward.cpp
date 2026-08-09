@@ -332,6 +332,13 @@ enum class LaunchKernel {
     // workspace fields nothing named.
     PadHeadDim,
     StripHeadDim,
+    // The COLLECTIVES. Statements, because they are real device work
+    // with operands and a result -- and synchronisation points the
+    // capture rules have to know about, which is why they are stated
+    // rather than reached for through `tp->` from inside a pass.
+    AllReduce,
+    AllReduceOut,
+    ResidualAddRmsnorm,
     RopeStandardTable,
     QkvDecodeQkNormRopeWriteKv,
     QkRmsnormRope,
@@ -367,6 +374,10 @@ LaunchKernel resolve_launch_kernel(std::string_view kernel) {
     if (kernel == "mlp::swiglu_bf16") {
         return LaunchKernel::Swiglu;
     }
+    if (kernel == "dist::all_reduce_bf16") return LaunchKernel::AllReduce;
+    if (kernel == "dist::all_reduce_bf16_out") return LaunchKernel::AllReduceOut;
+    if (kernel == "norm::residual_add_rmsnorm_bf16")
+        return LaunchKernel::ResidualAddRmsnorm;
     if (kernel == "attn::pad_head_dim_bf16") return LaunchKernel::PadHeadDim;
     if (kernel == "attn::strip_head_dim_bf16") return LaunchKernel::StripHeadDim;
     if (kernel == "rope::rope_bf16") return LaunchKernel::RopeFull;
@@ -482,7 +493,7 @@ namespace {
 enum class NoPlanReason {
     None,
     RopeNotStandard,      // YaRN / M-RoPE
-    TensorParallel,       // all-reduces the trace does not state
+    TensorParallel,       // shards claimed, no communicator bound
     LayerBinding,         // no layers, or a count that disagrees with the config
     QuantizedProjection,  // QuantMeta WeightViews the trace does not describe
     MixedProjectionRepr,  // two storage kinds where the facts carry one
@@ -555,8 +566,16 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
     // before norms/rope, the executor launches the hand-written
     // `maybe_add_bias` kernels. Guarded below on the tensors actually
     // being bound.
-    if (fwd_cfg.tp_size > 1) {
-        return refuse(NoPlanReason::TensorParallel);   // all-reduces
+    // TENSOR PARALLELISM is admitted (3). The trace states its own
+    // shard widths and the two landings that recombine them, so what
+    // used to be `NoPlanReason::TensorParallel` -- "all-reduces the
+    // trace does not state" -- is a thing the trace states.
+    //
+    // What the deployment still owes is the communicator: a rank that
+    // says it shards and bound none has no way to run the collectives,
+    // and that is a binding fault rather than an unstated kernel.
+    if (fwd_cfg.tp_size > 1 && fwd_cfg.tp_comm == nullptr) {
+        return refuse(NoPlanReason::TensorParallel);
     }
     // Padded head_dim (Phi-3-mini, 96 → 128) is admitted: the pad/strip
     // launches around KV-write/attention are emitter knowledge (the trace
@@ -707,6 +726,8 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
     // The WIDTH the pads and the strip state (2c). Zero when the
     // attention runs at the logical head dim, which is what makes
     // `head_dim_padded` exactly `head_dim_kernel != 0`.
+    cuda.tp_size = static_cast<std::uint32_t>(
+        fwd_cfg.tp_size > 0 ? fwd_cfg.tp_size : 1);
     cuda.head_dim_kernel =
         cuda.head_dim_padded
             ? static_cast<std::uint32_t>(cfg.head_dim_kernel)
@@ -792,7 +813,10 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
         // The WEIGHT REPRESENTATION -- see the Rust printer for why the
         // payload beside it is deliberately not in here.
         "/pr" + std::to_string(cuda.proj_repr) +
-        "/hdk" + std::to_string(cuda.head_dim_kernel);
+        "/hdk" + std::to_string(cuda.head_dim_kernel) +
+        // The shard count: a rank's text states ITS widths, so a trace
+        // taken at one tp_size is a different body at another.
+        "/tp" + std::to_string(cuda.tp_size);
     return out;
 }
 
@@ -1877,6 +1901,55 @@ void llama_like_forward_declared(
                     wb.require(plan.name(aux[0])).data(), eps,
                     resolve_launch_kernel(plan.weight_name(op)) ==
                         LaunchKernel::RmsnormRowGemma);
+                break;
+            }
+            case LaunchKernel::AllReduce:
+            case LaunchKernel::AllReduceOut: {
+                // BINDING. Which collective is the SYMBOL; whether the
+                // result is the operand's own bytes is the `kernel!`
+                // row's alias pair, which the host already honoured
+                // when it assigned addresses -- so both spellings are
+                // one call and the two slots are simply equal or not.
+                if (fwd_cfg.tp_comm == nullptr) {
+                    throw std::runtime_error(
+                        "declared forward: the trace states a collective "
+                        "but this deployment bound no communicator "
+                        "(tp_size and tp_comm disagree)");
+                }
+                const auto ci = plan.inputs(op);
+                const auto co = plan.outputs(op);
+                declared::need(ci, 1, "all-reduce inputs");
+                declared::need(co, 1, "all-reduce outputs");
+                fwd_cfg.tp_comm->all_reduce_bf16_out(
+                    values.slot(ci[0], plan.value(ci[0])),
+                    values.slot(co[0], plan.value(co[0])),
+                    static_cast<std::size_t>(N) *
+                        static_cast<std::size_t>(out_w(0)),
+                    ncclSum, stream);
+                break;
+            }
+            case LaunchKernel::ResidualAddRmsnorm: {
+                // The two-step landing's second half: `y += summed` and
+                // the norm of the sum, one launch. Operand 0 is the
+                // residual stream (updated in place), operand 1 the
+                // summed partial, and the result is the normed
+                // activation the MLP reads.
+                const auto ri = plan.inputs(op);
+                const auto ro = plan.outputs(op);
+                const auto raux = plan.aux_names(op);
+                declared::need(ri, 2, "residual-add-rmsnorm inputs");
+                declared::need(ro, 1, "residual-add-rmsnorm outputs");
+                if (raux.size != 1) {
+                    throw std::runtime_error(
+                        "declared forward: a fused residual norm names " +
+                        std::to_string(raux.size) + " weights, wants 1");
+                }
+                kernels::norm::residual_add_rmsnorm_bf16(
+                    values.slot(ri[0], plan.value(ri[0])),
+                    values.slot(ri[1], plan.value(ri[1])),
+                    wb.require(plan.name(raux[0])).data(),
+                    values.slot(ro[0], plan.value(ro[0])),
+                    N, out_w(0), eps, stream);
                 break;
             }
             case LaunchKernel::PadHeadDim:

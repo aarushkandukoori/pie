@@ -118,6 +118,18 @@ pub fn llama_like(facts: &LlamaLikeFacts) -> ForwardPlan {
 
 /// The LOWERED llama_like: the SAME text as [`llama_like`], traced with
 /// the CUDA backend facts and a fire class in hand, so the class arms run
+/// Whether this deployment's heads and intermediate divide by `tp`.
+///
+/// The engine checks the same thing at load; the text checks it because
+/// a shard width that does not divide is a trace whose every projection
+/// is quietly wrong, and a `ForwardPlan` has no later place to notice.
+fn shard_divides(f: &LlamaLikeFacts, tp: u32) -> bool {
+    tp > 0
+        && f.q_heads % tp == 0
+        && f.kv_heads % tp == 0
+        && f.intermediate % tp == 0
+}
+
 /// The MLP's projection-and-activation pair, in the spelling this
 /// deployment's BINDING fires (2d).
 ///
@@ -317,13 +329,34 @@ fn llama_like_cuda_text(
     // carry no backend; the CUDA facts do, and every handle `m.layer(l)`
     // hands out is built from this one answer -- which is why no
     // projection below spells a repr and none can spell a different one.
+    //
+    // And with its SHARD widths. Sharding needs no vocabulary: a rank's
+    // trace states ITS widths, so this text divides by `tp_size` the
+    // way it divides by anything else, and every projection below reads
+    // as it did. `hidden` does NOT divide -- the residual stream is
+    // replicated, which is why the landings are collectives.
+    let tp = cuda.tp_size.max(1);
+    assert!(
+        shard_divides(facts, tp),
+        "llama_like states a shard per rank; this deployment's heads or \
+         intermediate do not divide by tp_size"
+    );
     let shape = dsl::ModelShape {
         proj_repr: cuda.proj_repr,
+        q_width: facts.q_width() / tp,
+        kv_width: facts.kv_width() / tp,
+        intermediate: facts.intermediate / tp,
         ..facts.shape()
     };
     dsl::trace_cuda("llama_like", &shape, class, |m| {
         dsl::seam(m.trace(), &dsl::seam::IN, &[], None);
-        let f = facts.clone();
+        // THIS RANK's facts: the widths the shard actually computes.
+        // Everything below reads them as if the model were that size,
+        // which is the whole of what sharding costs a text.
+        let mut f = facts.clone();
+        f.q_heads /= tp;
+        f.kv_heads /= tp;
+        f.intermediate /= tp;
         let q_w = f.q_width();
         let kv_w = f.kv_width();
         let post_norm = f.norm_placement == NormPlacement::Post;
@@ -792,7 +825,18 @@ fn llama_like_cuda_text(
                 // Post-norm: o_proj to scratch, norm the OUTPUT, then the
                 // separate residual landing (`+=` of a non-matmul records
                 // the explicit ResidualAdd launch).
-                y += dsl::cuda::rmsnorm(&matmul(&a, &w.o_proj), &w.attn_norm);
+                //
+                // Under TP the projection is ROW-PARALLEL: each rank's
+                // GEMM produces a partial `[N, hidden]`, so the sum
+                // across ranks has to happen before the norm reads it.
+                // In place, because nothing else reads the partial.
+                let o = matmul(&a, &w.o_proj);
+                let o = if tp > 1 {
+                    cuda::all_reduce(&o, f.hidden)
+                } else {
+                    o
+                };
+                y += dsl::cuda::rmsnorm(&o, &w.attn_norm);
                 // ② The MLP's two spellings, and the binding picks
                 // which the text STATES -- not which the executor
                 // reads. A packed bank is one matmul into the chunked
@@ -801,7 +845,48 @@ fn llama_like_cuda_text(
                 // one-statement lie the executor repaired by firing two
                 // GEMMs into workspace buffers no value described.
                 let act = mlp(&y, &w, f.intermediate, cuda.gate_up_fused);
-                y += dsl::cuda::rmsnorm(&matmul(&act, &w.down), &w.mlp_norm);
+                // The MLP's landing, same shape as the attention's
+                // above: `down` is row-parallel, so its output is a
+                // partial and the sum precedes the norm.
+                let d_out = matmul(&act, &w.down);
+                let d_out = if tp > 1 {
+                    cuda::all_reduce(&d_out, f.hidden)
+                } else {
+                    d_out
+                };
+                y += dsl::cuda::rmsnorm(&d_out, &w.mlp_norm);
+            } else if tp > 1 {
+                // Pre-norm under TP. `+=` cannot fold here: the beta=1
+                // GEMM would add a PARTIAL into the residual, and the
+                // sum across ranks has to happen first. So the
+                // projection writes fresh, the collective sums it, and
+                // the residual add and the next norm are a statement of
+                // their own -- which is the pair the hand-written pass
+                // fires as `all_reduce_bf16_out` + `residual_add_rmsnorm`.
+                //
+                // The FUSED landing (`comm::all_reduce_residual_rmsnorm_bf16`,
+                // one launch for all three) is what the hand pass takes
+                // when `can_fuse_residual_rmsnorm(N, H, stream)` holds.
+                // Not stated here, and the reason is a vocabulary gap
+                // rather than a preference: that kernel has TWO effects
+                // -- the stream updated in place and the normed
+                // activation -- while the two-step form's SSA shape is
+                // one value, and `guarded_value` carries one value per
+                // chain. A guard whose arms produce a PAIR is what the
+                // fused arm needs, and until it exists stating the
+                // fused form would mean an arm the else could not
+                // match.
+                let partial = matmul(&a, &w.o_proj);
+                let summed = cuda::all_reduce_out(&partial, f.hidden);
+                let x = cuda::residual_add_rmsnorm(
+                    &y, &summed, &w.mlp_norm.name, f.hidden,
+                );
+                let act = mlp(&x, &w, f.intermediate, cuda.gate_up_fused);
+                // The MLP is COLUMN-parallel through `gate_up` and
+                // row-parallel through `down`, so its output is a
+                // partial too and lands the same way.
+                let mlp_out = matmul(&act, &w.down);
+                y += cuda::all_reduce(&mlp_out, f.hidden);
             } else {
                 // Pre-norm: `+=` of a fresh matmul IS the beta=1 fold.
                 y += matmul(&a, &w.o_proj);

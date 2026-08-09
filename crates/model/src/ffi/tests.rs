@@ -1111,6 +1111,7 @@ fn lowered_trace_round_trips_through_the_arena() {
         proj_zero_point: 0,
         proj_group: 0,
         proj_axis: 0,
+        tp_size: 1,
     };
     let mut out = PieForwardPlan::default();
     assert_eq!(
@@ -1276,6 +1277,7 @@ fn traced_cuda_decode() -> PieForwardPlan {
         proj_zero_point: 0,
         proj_group: 0,
         proj_axis: 0,
+        tp_size: 1,
     };
     let mut out = PieForwardPlan::default();
     assert_eq!(
