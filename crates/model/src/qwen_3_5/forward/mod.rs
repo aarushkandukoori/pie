@@ -93,7 +93,13 @@ struct MoeLayerW {
 }
 
 impl MoeLayerW {
-    fn new(l: u32, f: &Qwen35MoeMlpFacts) -> Self {
+    /// `repr` reaches ONE handle — the shared expert's `down`, which is
+    /// the only projection in this block the driver ever carried a quant
+    /// descriptor for (`shared_down_proj_quant`). The router is a tiny
+    /// dense GEMM, the expert BANKS are addressed through pointer arrays
+    /// by their own kernels, and the shared `gate_up` is a packed join.
+    /// The semantic text passes `Bf16`.
+    fn new(l: u32, f: &Qwen35MoeMlpFacts, repr: WeightRepr) -> Self {
         let w = |name: &str| format!("layer.{l}.{name}");
         let mat = |name: &str, width: u32| MatW {
             name: w(name),
@@ -112,7 +118,7 @@ impl MoeLayerW {
             expert_gate_up: mat("expert.{e}.gate_up", 2 * f.moe_intermediate),
             expert_down: mat("expert.{e}.down", f.hidden),
             shared_gate_up: mat("shared_expert.gate_up", 2 * f.shared_expert_intermediate),
-            shared_down: mat("shared_expert.down", f.hidden),
+            shared_down: mat("shared_expert.down", f.hidden).with_repr(repr),
             shared_gate: mat("shared_expert_gate", 1),
         }
     }
@@ -144,8 +150,13 @@ impl MoeLayerW {
 /// so the text states it: a deployment that folds the residual takes the
 /// token-batched aligned form, one that does not takes the per-expert
 /// scatter-add.
-fn moe_mlp_body_aligned_cuda(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val {
-    let w = MoeLayerW::new(l, facts);
+fn moe_mlp_body_aligned_cuda(
+    l: u32,
+    facts: &Qwen35MoeMlpFacts,
+    y: &Val,
+    repr: WeightRepr,
+) -> Val {
+    let w = MoeLayerW::new(l, facts, repr);
     let y = y.clone();
     let m = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
 
@@ -219,7 +230,8 @@ fn moe_mlp_body_aligned_cuda(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val 
 }
 
 fn moe_mlp_body(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val {
-    let w = MoeLayerW::new(l, facts);
+    // Semantic: no backend, so no scaled kernel to name.
+    let w = MoeLayerW::new(l, facts, WeightRepr::Bf16);
     let mut y = y.clone();
 
     let m = rmsnorm(&y, &w.mlp_norm);
@@ -316,10 +328,10 @@ fn moe_mlp_body_cuda(
         || !cuda.moe_residual_fold
         || (facts.shared_expert_intermediate > 0 && !cuda.moe_shared_gate_dot)
     {
-        return moe_mlp_body_aligned_cuda(l, facts, y);
+        return moe_mlp_body_aligned_cuda(l, facts, y, cuda.proj_repr);
     }
 
-    let w = MoeLayerW::new(l, facts);
+    let w = MoeLayerW::new(l, facts, cuda.proj_repr);
     // Semantic: the lowering reads the variant and names the fold's
     // kernel, so there is nothing here for a CUDA reading to add.
     let m = dsl::cuda::rmsnorm(y, &w.mlp_norm);
@@ -751,7 +763,16 @@ struct FullAttnLayerW {
 }
 
 impl FullAttnLayerW {
-    fn new(t: &Trace, l: u32, f: &Qwen35FullAttnFacts) -> Self {
+    /// `repr` is how the deployment STORES the four attention
+    /// projections ([`Qwen35CudaFacts::proj_repr`]). The semantic text
+    /// passes `Bf16` — a trace with no backend cannot name the kernel a
+    /// scaled weight needs.
+    ///
+    /// It reaches q/k/v/o and NOT `qgkv`: the fused bank is the loader's
+    /// dense join, and that contract declines quantized groups, so a
+    /// quantized deployment binds the three separately. `mat` therefore
+    /// stays the dense builder and the four say so.
+    fn new(t: &Trace, l: u32, f: &Qwen35FullAttnFacts, repr: WeightRepr) -> Self {
         let q2_w = 2 * f.q_width();
         let kv_w = f.kv_width();
         let w = |name: &str| format!("layer.{l}.{name}");
@@ -761,6 +782,7 @@ impl FullAttnLayerW {
             layer: Some(l),
             repr: WeightRepr::Bf16,
         };
+        let proj = |name: &str, width: u32| mat(name, width).with_repr(repr);
         // Per-head convention throughout this family — the weight knows,
         // so `rmsnorm(q, &w.q_norm)` needs no variant arguments.
         let qk_norm = |name: &str| NormW {
@@ -777,12 +799,12 @@ impl FullAttnLayerW {
                 layer: Some(l),
             },
             qgkv: mat("qgkv", q2_w + 2 * kv_w),
-            q_proj: mat("q_proj", q2_w),
-            k_proj: mat("k_proj", kv_w),
-            v_proj: mat("v_proj", kv_w),
+            q_proj: proj("q_proj", q2_w),
+            k_proj: proj("k_proj", kv_w),
+            v_proj: proj("v_proj", kv_w),
             q_norm: qk_norm("q_norm"),
             k_norm: qk_norm("k_norm"),
-            o_proj: mat("o_proj", f.hidden),
+            o_proj: proj("o_proj", f.hidden),
             kv: Kv::at(t, l),
         }
     }
@@ -809,7 +831,7 @@ impl FullAttnLayerW {
 /// sigmoid output gate, the o_proj fold — is a 1:1-kernel semantic op
 /// and stays semantic in every form.
 fn full_attn_body(t: &Trace, l: u32, facts: &Qwen35FullAttnFacts, y: &Val) -> Val {
-    let w = FullAttnLayerW::new(t, l, facts);
+    let w = FullAttnLayerW::new(t, l, facts, WeightRepr::Bf16);
     let mut y = y.clone();
 
     let x = rmsnorm(&y, &w.attn_norm);
@@ -863,7 +885,7 @@ fn full_attn_body_cuda(
     y: &Val,
     class: FireClass,
 ) -> Val {
-    let w = FullAttnLayerW::new(t, l, facts);
+    let w = FullAttnLayerW::new(t, l, facts, c.proj_repr);
     let mut y = y.clone();
 
     let x = dsl::cuda::rmsnorm(&y, &w.attn_norm);
@@ -1010,6 +1032,7 @@ fn dense_mlp_body_cuda(
     variant: NormVariant,
     y: &Val,
     packed: bool,
+    repr: WeightRepr,
 ) -> Val {
     let w = |name: &str| format!("layer.{l}.{name}");
     let mlp_norm = NormW {
@@ -1018,6 +1041,14 @@ fn dense_mlp_body_cuda(
         per_head: None,
         layer: Some(l),
     };
+    // `gate_up` is DENSE whatever the deployment stores, and that is a
+    // claim about this statement rather than about the checkpoint: the
+    // trace declares ONE packed matmul, which is the packed bank the
+    // loader's dense join built — and that join declines quantized
+    // groups. A quantized deployment binds gate and up separately, so
+    // the truthful statement is TWO scaled matmuls, which is 2d. Until
+    // it lands, such a deployment meets the executor's `dense` refusal
+    // by name rather than a silently-routed GEMM.
     let gate_up = MatW {
         name: w("gate_up"),
         width: 2 * intermediate,
@@ -1028,7 +1059,7 @@ fn dense_mlp_body_cuda(
         name: w("down"),
         width: hidden,
         layer: Some(l),
-        repr: WeightRepr::Bf16,
+        repr,
     };
     let mut y = y.clone();
     let m = dsl::cuda::rmsnorm(&y, &mlp_norm);
@@ -1147,6 +1178,7 @@ pub fn qwen3_5_hybrid_cuda(
                     facts.norm_variant,
                     &y_attn,
                     cuda.gate_up_fused,
+                    cuda.proj_repr,
                 ),
                 Qwen35MlpKind::Moe(moe) => moe_mlp_body_cuda(l, moe, cuda, &y_attn, class),
             };

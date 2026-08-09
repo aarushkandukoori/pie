@@ -71,9 +71,10 @@ pub struct Val {
 ///
 /// The scales and zero-points are WEIGHTS, so a quantized statement
 /// names more of them. A `Launch` already carries a list.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WeightRepr {
     /// Dense, read directly. The implicit `WeightView(const DeviceTensor&)`.
+    #[default]
     Bf16,
     /// Scaled storage — the weight's own dtype says int4/int8/fp8, and
     /// these say where the scales live (`QuantMeta`'s three layouts).
@@ -93,7 +94,7 @@ pub enum WeightRepr {
 }
 
 /// Where a scaled weight's scales apply.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ScaleLayout {
     PerTensor,
     PerChannel,
@@ -306,6 +307,15 @@ pub struct ModelShape {
     pub norm_variant: NormVariant,
     /// The readout reads the embedding table rather than its own weight.
     pub tied_embeddings: bool,
+    /// How this deployment STORES its linear projections.
+    ///
+    /// The namespace's field rather than each text's, because it is the
+    /// same answer for every handle [`M::layer`] hands out — a
+    /// checkpoint quantizes uniformly — and because a text that had to
+    /// repeat it per projection would be a text that could get one
+    /// wrong. `Bf16` is the reading every family had before the axis
+    /// existed.
+    pub proj_repr: WeightRepr,
 }
 
 /// The model context a declaration runs against: the shape and the tape.
@@ -368,7 +378,7 @@ impl M {
             name: w(name),
             width,
             layer: Some(l),
-            repr: WeightRepr::Bf16,
+            repr: f.proj_repr,
         };
         let row_norm = |name: &str| NormW {
             name: w(name),

@@ -189,6 +189,23 @@ const auto& layer_of(
     return w.layers[nm.layer];
 }
 
+// The DENSE view, and a refusal where `make_weight_view` used to be.
+// llama_like's `dense` verbatim, and for its reason: a semantic
+// `Matmul` means a weight read directly, so a layer that carries a
+// quant descriptor while the statement records one is facts drift.
+WeightView dense(const DeviceTensor& t,
+                 const std::optional<QuantMeta>& meta,
+                 std::string_view name) {
+    if (meta.has_value()) {
+        throw std::runtime_error(
+            "declared forward: '" + std::string(name) +
+            "' is stored quantized but the trace records a dense Matmul "
+            "over it -- the facts this class was traced with say the "
+            "deployment is bf16 (MatW::repr)");
+    }
+    return WeightView(t);
+}
+
 const DeviceTensor* require(const DeviceTensor* t, std::string_view name) {
     if (t == nullptr) {
         throw std::runtime_error(
@@ -216,6 +233,14 @@ enum class Q35Kernel {
     // and this family's is a deployment fact (`facts.norm_variant`).
     RmsnormRow,
     RmsnormRowGemma,
+    // The WEIGHT REPRESENTATION axis, one entry per storage. This
+    // family had EIGHT of the eighteen `make_weight_view` sites; the
+    // statement names the symbol now (`MatW::gemm_symbol`) and the arm
+    // below binds the scale tensors it also names.
+    MatmulTensorScaled,
+    MatmulChannelScaled,
+    MatmulGroupedScaled,
+    MatmulMxfp4Marlin,
     ConvUpdateBatched,
     ConvPrefillBatched,
     StepBatched,
@@ -253,6 +278,10 @@ enum class Q35Kernel {
 Q35Kernel resolve_q35_kernel(std::string_view k) {
     if (k == "norm::rmsnorm_bf16") return Q35Kernel::RmsnormRow;
     if (k == "norm::rmsnorm_gemma_bf16") return Q35Kernel::RmsnormRowGemma;
+    if (k == "gemm::act_x_wt_tensor_scaled") return Q35Kernel::MatmulTensorScaled;
+    if (k == "gemm::act_x_wt_channel_scaled") return Q35Kernel::MatmulChannelScaled;
+    if (k == "gemm::act_x_wt_grouped_scaled") return Q35Kernel::MatmulGroupedScaled;
+    if (k == "gemm::act_x_wt_mxfp4_marlin") return Q35Kernel::MatmulMxfp4Marlin;
     if (k == "ssm::causal_conv1d_update_batched_bf16") return Q35Kernel::ConvUpdateBatched;
     if (k == "ssm::causal_conv1d_prefill_batched_bf16") return Q35Kernel::ConvPrefillBatched;
     if (k == "ssm::recurrent_gated_delta_step_batched") return Q35Kernel::StepBatched;
@@ -1460,15 +1489,13 @@ bool forward_declared_tmpl(
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),
                         values.slot(ins[0]),
-                        make_weight_view(
-                            &wb.require_field(nm.layer, "gate_proj", name),
-                            layer.gate_proj_quant),
+                        dense(wb.require_field(nm.layer, "gate_proj", name),
+                              layer.gate_proj_quant, name),
                         ws.gate.data(), M, cols / 2, depth);
                     kernels::gemm::act_x_w(cublas.handle(),
                         values.slot(ins[0]),
-                        make_weight_view(
-                            &wb.require_field(nm.layer, "up_proj", name),
-                            layer.up_proj_quant),
+                        dense(wb.require_field(nm.layer, "up_proj", name),
+                              layer.up_proj_quant, name),
                         ws.up.data(), M, cols / 2, depth);
                 }
                 } else { throw_unknown_weight(name); }
@@ -1479,14 +1506,14 @@ bool forward_declared_tmpl(
             // quant descriptor rides with the weight.
             const WeightView wv = [&]() -> WeightView {
                 if (nm.field == "q_proj")
-                    return make_weight_view(&wb.require(name),
-                                            layer.fa_q_proj_quant);
+                    return dense(wb.require(name), layer.fa_q_proj_quant,
+                                 name);
                 if (nm.field == "k_proj")
-                    return make_weight_view(&wb.require(name),
-                                            layer.fa_k_proj_quant);
+                    return dense(wb.require(name), layer.fa_k_proj_quant,
+                                 name);
                 if (nm.field == "v_proj")
-                    return make_weight_view(&wb.require(name),
-                                            layer.fa_v_proj_quant);
+                    return dense(wb.require(name), layer.fa_v_proj_quant,
+                                 name);
                 if (nm.field == "o_proj") {
                     // A linear-attention layer's o_proj is never
                     // quantized in this family; a full-attention one may
@@ -1495,8 +1522,8 @@ bool forward_declared_tmpl(
                     // buffer.
                     return layer.kind == LayerW::Kind::LinearAttn
                                ? WeightView(wb.require(name))
-                               : make_weight_view(&wb.require(name),
-                                                  layer.fa_o_proj_quant);
+                               : dense(wb.require(name),
+                                       layer.fa_o_proj_quant, name);
                 }
                 // The two layer structs carry DIFFERENT quant fields --
                 // `down_proj_quant` is the dense MLP's, and only a MoE
@@ -1504,12 +1531,12 @@ bool forward_declared_tmpl(
                 // reached under the fence that makes it exist.
                 if constexpr (kIsDense) {
                     if (nm.field == "down")
-                        return make_weight_view(&wb.require(name),
-                                                layer.down_proj_quant);
+                        return dense(wb.require(name),
+                                     layer.down_proj_quant, name);
                 } else {
                     if (nm.field == "shared_expert.down")
-                        return make_weight_view(
-                            &wb.require(name), layer.shared_down_proj_quant);
+                        return dense(wb.require(name),
+                                     layer.shared_down_proj_quant, name);
                 }
                 if (nm.field == "in_proj_qkv" || nm.field == "in_proj_z" ||
                     nm.field == "in_proj_a" || nm.field == "in_proj_b" ||
@@ -1802,6 +1829,38 @@ case PieForwardOpKind::Launch: {
                     wb.require(plan.name(nrm[0])).data(), eps,
                     resolve_q35_kernel(plan.weight_name(op)) ==
                         Q35Kernel::RmsnormRowGemma);
+                break;
+            }
+            case Q35Kernel::MatmulTensorScaled:
+            case Q35Kernel::MatmulChannelScaled:
+            case Q35Kernel::MatmulGroupedScaled:
+            case Q35Kernel::MatmulMxfp4Marlin: {
+                // BINDING, not routing -- llama_like's arm verbatim.
+                // The statement's weight list is `[W, scales]`, plus
+                // `zeros` where the checkpoint carries them.
+                const auto qa = plan.aux_names(op);
+                if (qa.size < 2 || qa.size > 3) {
+                    throw_drift("a scaled projection names " +
+                                std::to_string(qa.size) +
+                                " weights, wants 2 or 3");
+                }
+                const auto matched = resolve_q35_kernel(plan.weight_name(op));
+                const declared::ScaledRepr repr =
+                    matched == Q35Kernel::MatmulTensorScaled
+                        ? declared::ScaledRepr::PerTensor
+                    : matched == Q35Kernel::MatmulChannelScaled
+                        ? declared::ScaledRepr::PerChannel
+                    : matched == Q35Kernel::MatmulGroupedScaled
+                        ? declared::ScaledRepr::PerGroup
+                        : declared::ScaledRepr::Mxfp4Marlin;
+                declared::arm_scaled_matmul(
+                    {plan, values, N, 0, stream}, op, repr, cublas.handle(),
+                    wb.require(plan.name(qa[0])),
+                    wb.require(plan.name(qa[1])),
+                    qa.size == 3 ? &wb.require(plan.name(qa[2])) : nullptr,
+                    // `try_fold_residual` refuses a `Launch`, so a
+                    // quantized projection's landing is a stated add.
+                    0.f);
                 break;
             }
             case Q35Kernel::ConvUpdateBatched: {

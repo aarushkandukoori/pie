@@ -281,7 +281,16 @@ fn llama_like_cuda_text(
     cuda: &LlamaLikeCudaFacts,
     class: FireClass,
 ) -> ForwardPlan {
-    dsl::trace_cuda("llama_like", &facts.shape(), class, |m| {
+    // The namespace, with the deployment's WEIGHT REPRESENTATION on it
+    // (1b). `facts.shape()` answers `Bf16` because the semantic facts
+    // carry no backend; the CUDA facts do, and every handle `m.layer(l)`
+    // hands out is built from this one answer -- which is why no
+    // projection below spells a repr and none can spell a different one.
+    let shape = dsl::ModelShape {
+        proj_repr: cuda.proj_repr,
+        ..facts.shape()
+    };
+    dsl::trace_cuda("llama_like", &shape, class, |m| {
         dsl::seam(m.trace(), &dsl::seam::IN, &[], None);
         let f = facts.clone();
         let q_w = f.q_width();

@@ -2,6 +2,7 @@
 //! layer schedule and the CUDA deployment's bindings.
 
 use serde::{Deserialize, Serialize};
+use model_compiler::dsl::WeightRepr;
 use model_compiler::trace::NormVariant;
 
 /// Facts for one qwen3_5_moe-family MoE MLP block — a traced FRAGMENT, not
@@ -420,6 +421,15 @@ pub struct Qwen35CudaFacts {
     /// form outright.
     #[serde(default)]
     pub gate_up_fused: bool,
+    /// How this deployment STORES its linear projections — the weight
+    /// representation axis ([`model_compiler::dsl::WeightRepr`]).
+    ///
+    /// [`LlamaLikeCudaFacts::proj_repr`]'s reasoning applies verbatim,
+    /// and this family had EIGHT of the eighteen `make_weight_view`
+    /// sites the axis removes. Serde-defaulted to dense (append-only
+    /// discipline).
+    #[serde(default)]
+    pub proj_repr: WeightRepr,
 }
 
 impl Qwen35CudaFacts {
@@ -467,6 +477,9 @@ impl Qwen35CudaFacts {
             // same `dense_fused_projection_joins` contract llama_like's
             // does), so the chunked form is the golden's shape.
             gate_up_fused: true,
+            // Dense, and for the same contract reason: a group the join
+            // packs is a BF16 one.
+            proj_repr: WeightRepr::Bf16,
         }
     }
 }

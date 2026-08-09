@@ -29,6 +29,7 @@
 
 use super::facts::{LlamaLikeCudaFacts, LlamaLikeFacts, NormPlacement, QkNorm};
 use super::llama_like_cuda;
+use model_compiler::dsl::{ScaleLayout, WeightRepr};
 use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, OpKind, RopeKind};
 
 /// The digest naming what a generated TU was emitted FROM. The driver
@@ -39,7 +40,7 @@ use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, OpKind, RopeKin
 /// the live parity gate is what holds them together.
 pub fn facts_digest(facts: &LlamaLikeFacts, cuda: &LlamaLikeCudaFacts) -> String {
     format!(
-        "llama_like/h{}/l{}/qh{}/kvh{}/hd{}/i{}/v{}/rope{}/nv{}/np{}/qk{}/fq{}/te{}/qb{}/xqa{}/dfp{}/rt{}/fpp{}/pad{}",
+        "llama_like/h{}/l{}/qh{}/kvh{}/hd{}/i{}/v{}/rope{}/nv{}/np{}/qk{}/fq{}/te{}/qb{}/xqa{}/dfp{}/rt{}/fpp{}/pad{}/pr{}",
         facts.hidden,
         facts.layers,
         facts.q_heads,
@@ -72,6 +73,21 @@ pub fn facts_digest(facts: &LlamaLikeFacts, cuda: &LlamaLikeCudaFacts) -> String
         u8::from(cuda.rope_table),
         u8::from(cuda.force_prefill_path),
         u8::from(cuda.head_dim_padded),
+        // The WEIGHT REPRESENTATION, so a generated TU emitted against a
+        // BF16 deployment cannot run on a quantized one -- the body is
+        // different (a scaled projection states a launcher and names
+        // scale tensors), so the digest has to say so.
+        //
+        // The PAYLOAD is not in the digest and does not need to be: the
+        // group size and the axis are arguments the arm reads off the
+        // bound tensors, not shapes the emitted body is written around.
+        match cuda.proj_repr {
+            WeightRepr::Bf16 => 0,
+            WeightRepr::Scaled { layout: ScaleLayout::PerTensor, .. } => 1,
+            WeightRepr::Scaled { layout: ScaleLayout::PerChannel, .. } => 2,
+            WeightRepr::Scaled { layout: ScaleLayout::PerGroup, .. } => 3,
+            WeightRepr::Mxfp4Marlin => 4,
+        },
     )
 }
 
@@ -885,7 +901,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.attn_out.data(),");
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].o_proj, \"{weight}\"), w.layers[{layer}].o_proj_quant),"
+                        "    dense(*require(w.layers[{layer}].o_proj, \"{weight}\"), w.layers[{layer}].o_proj_quant, \"{weight}\"),"
                     ));
                     b.stmt("    ws.y.data(), N, H, Hq, 1.f);");
                 }
@@ -917,13 +933,13 @@ fn emit_op(
                         b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                         b.stmt(&format!("    {mlp_in},"));
                         b.stmt(&format!(
-                            "    make_weight_view(require(w.layers[{layer}].gate_proj, \"{weight}\"), w.layers[{layer}].gate_proj_quant),"
+                            "    dense(*require(w.layers[{layer}].gate_proj, \"{weight}\"), w.layers[{layer}].gate_proj_quant, \"{weight}\"),"
                         ));
                         b.stmt("    ws.gate.data(), N, I, H);");
                         b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                         b.stmt(&format!("    {mlp_in},"));
                         b.stmt(&format!(
-                            "    make_weight_view(require(w.layers[{layer}].up_proj, \"{weight}\"), w.layers[{layer}].up_proj_quant),"
+                            "    dense(*require(w.layers[{layer}].up_proj, \"{weight}\"), w.layers[{layer}].up_proj_quant, \"{weight}\"),"
                         ));
                         b.stmt("    ws.up.data(), N, I, H);");
                     }
@@ -932,7 +948,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.gate.data(),");
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].down_proj, \"{weight}\"), w.layers[{layer}].down_proj_quant),"
+                        "    dense(*require(w.layers[{layer}].down_proj, \"{weight}\"), w.layers[{layer}].down_proj_quant, \"{weight}\"),"
                     ));
                     b.stmt("    ws.y.data(), N, H, I, 1.f);");
                 }
@@ -951,7 +967,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt(&format!("    {input},"));
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].{member}, \"{weight}\"), w.layers[{layer}].{quant}),"
+                        "    dense(*require(w.layers[{layer}].{member}, \"{weight}\"), w.layers[{layer}].{quant}, \"{weight}\"),"
                     ));
                     b.stmt(&format!("    {out}, N, {width}, H);"));
                 }
@@ -962,7 +978,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.attn_out.data(),");
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].o_proj, \"{weight}\"), w.layers[{layer}].o_proj_quant),"
+                        "    dense(*require(w.layers[{layer}].o_proj, \"{weight}\"), w.layers[{layer}].o_proj_quant, \"{weight}\"),"
                     ));
                     b.stmt("    ws.norm_x.data(), N, H, Hq, 0.f);");
                 }
@@ -970,7 +986,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.gate.data(),");
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].down_proj, \"{weight}\"), w.layers[{layer}].down_proj_quant),"
+                        "    dense(*require(w.layers[{layer}].down_proj, \"{weight}\"), w.layers[{layer}].down_proj_quant, \"{weight}\"),"
                     ));
                     b.stmt("    ws.norm_x.data(), N, H, I, 0.f);");
                 }
@@ -1906,6 +1922,28 @@ fn emit_launch(
                 .expect("a stated row norm names its weight");
             emit_row_norm(b, facts, weight);
         }
+        // The WEIGHT REPRESENTATION axis. The interpreter binds these
+        // through `declared::arm_scaled_matmul`, which reads its
+        // operands off the plan; the GENERATED form spells kernel calls
+        // against `w.layers[l].<field>` and would need a per-field map
+        // from the projection to its quant member and its two workspace
+        // buffers — the same table the semantic `Matmul` arms above
+        // spell by hand, written a second time.
+        //
+        // No emission target is quantized (every fixture in
+        // `bin/emit-cuda.rs` is a BF16 checkpoint) and none can become
+        // one silently: `proj_repr` is in the digest, so a quantized
+        // deployment matches no generated TU and takes the interpreter,
+        // which does state these. So this is a gap in RUNG 3 only, and
+        // it is named rather than left to the catch-all below.
+        "gemm::act_x_wt_tensor_scaled"
+        | "gemm::act_x_wt_channel_scaled"
+        | "gemm::act_x_wt_grouped_scaled"
+        | "gemm::act_x_wt_mxfp4_marlin" => panic!(
+            "emitter: {kernel} — the static form has no scaled-projection \
+             spelling yet; this deployment's digest carries its repr, so \
+             it runs on the interpreter"
+        ),
         other => panic!("emitter: stated kernel {other} out of scope"),
     }
 }

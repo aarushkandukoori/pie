@@ -23,7 +23,7 @@ pub fn facts_digest(facts: &Qwen35HybridFacts, cuda: &Qwen35CudaFacts) -> String
     };
     format!(
         "qwen3_5/l{}/int{}/v{}/te{}/nv{}/ah{}/aqh{}/akvh{}/ahd{}/arot{}/afq{}\
-         /gkh{}/gvh{}/gkd{}/gvd{}/gck{}/gfi{}/moe{}/di{}/sb{}/wt{}/wtm{}/cm{}/vs{}/pd{}",
+         /gkh{}/gvh{}/gkd{}/gvd{}/gck{}/gfi{}/moe{}/di{}/sb{}/wt{}/wtm{}/cm{}/vs{}/pd{}/pr{}",
         facts.layers,
         facts.full_attn_interval,
         facts.vocab,
@@ -52,10 +52,21 @@ pub fn facts_digest(facts: &Qwen35HybridFacts, cuda: &Qwen35CudaFacts) -> String
         // attention op, so a body emitted with it on must not be
         // served to a deployment that turned it off.
         u8::from(cuda.prefill_decode),
+        // The WEIGHT REPRESENTATION: a scaled projection states a
+        // launcher and names scale tensors, so the emitted body differs
+        // and the digest has to say which it was emitted from.
+        match cuda.proj_repr {
+            WeightRepr::Bf16 => 0,
+            WeightRepr::Scaled { layout: ScaleLayout::PerTensor, .. } => 1,
+            WeightRepr::Scaled { layout: ScaleLayout::PerChannel, .. } => 2,
+            WeightRepr::Scaled { layout: ScaleLayout::PerGroup, .. } => 3,
+            WeightRepr::Mxfp4Marlin => 4,
+        },
     )
 }
 
 use super::qwen3_5_hybrid_cuda;
+use model_compiler::dsl::{ScaleLayout, WeightRepr};
 use model_compiler::trace::{FireClass, ForwardPlan, OpKind};
 
 /// The parameter list shared with `qwen3_5_forward_declared`, minus the
