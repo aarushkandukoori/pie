@@ -2013,3 +2013,156 @@ fn the_gptoss_prefill_answers_in_one_paged_fire() {
         "mlx_lm continues this prompt with 5542 (' known')"
     );
 }
+
+/// The llama assembly decodes mlx_lm's greedy continuation, token-exact.
+///
+/// Llama-3.2-1B-Instruct is the family's sharpest M=1 exercise in the
+/// smallest package: TIED embeddings (both ends read
+/// `shared_embedding`), 64-wide heads (the attention entry is `_d_64`,
+/// where the old literal `_d128` would stride past every head), and the
+/// llama3 frequency TABLE on device — factor 32, so a wrong table is
+/// not a subtle drift, it is a rope running 32× off on the slow
+/// dimensions.
+#[test]
+fn the_llama_assembly_decodes_the_reference_tokens() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_LLAMA_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_LLAMA_CHECKPOINT to a llama-family MLX snapshot");
+        return;
+    };
+    let snapshot = PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json"))
+        .expect("the snapshot has a config.json");
+    let root: serde_json::Value = serde_json::from_str(&config).expect("config.json parses");
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().expect("utf8 path"))
+        .expect("the config converts to a descriptor");
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json)
+        .expect("the driver's facts read the descriptor");
+    let geometry =
+        driver_metal_new::batch::llama_geometry_from_facts(&facts).expect("a llama shape");
+    eprintln!(
+        "llama geometry: {} layers, {}x{} heads d{}, tied {}, freq table {}",
+        geometry.n_layers,
+        geometry.n_q_heads,
+        geometry.n_kv_heads,
+        geometry.head_dim,
+        geometry.tied_embeddings,
+        geometry.rope_freq_table
+    );
+
+    let target = metal_storage_target();
+    let (plan, _moe) = compile_load_plan(&snapshot, &target, &descriptor_json)
+        .expect("the plan compiles and its files exist");
+    let context = Context::new().expect("a Metal device answers");
+    let tuning = Tuning::default();
+    let max_ctx = 4096u32;
+    let shared_view = driver_metal_new::batch::llama_decode_geometry(&geometry);
+    let slot_bytes = scratch_slot_elems(&shared_view, &tuning, 1) * 4;
+    let storage = stage_decode_storage(
+        &context,
+        &plan,
+        &snapshot,
+        &shared_view,
+        max_ctx,
+        slot_bytes,
+    )
+    .expect("every region allocates and every tensor stages");
+
+    let dag = driver_metal_new::batch::build_llama_dag(&geometry, &tuning, true);
+    let schedule = build_scratch_schedule(&dag, false).expect("the DAG schedules hazard-free");
+    let pso_plan = driver_metal_new::batch::llama_step_plan(&geometry);
+    let compiler = Compiler::new(&context).expect("the shader compiler starts");
+    let psos = load_step_psos(&compiler, &context, &kernels_dir(), &pso_plan)
+        .expect("every planned entrypoint compiles");
+    let step = driver_metal_new::metal::LlamaStep::prepare(
+        &context, &storage, &geometry, &tuning, &schedule, psos, max_ctx,
+    )
+    .expect("the step binds whole");
+
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().expect("io slot");
+    let read_next = || {
+        // SAFETY: called only after the step retired.
+        let raw = unsafe {
+            std::slice::from_raw_parts(io(IoSlot::NextToken).contents().cast::<u8>().as_ptr(), 4)
+        };
+        u32::from_le_bytes(raw.try_into().unwrap())
+    };
+    let mut stepper = Stepper::new(&context).expect("a stepper");
+    let mut fire_at = |token: u32, position: u32| {
+        // SAFETY: the previous fire retired before we rewrite the inputs.
+        unsafe {
+            io(IoSlot::TokenId).write(0, &token.to_le_bytes()).unwrap();
+            io(IoSlot::Position)
+                .write(0, &position.to_le_bytes())
+                .unwrap();
+            io(IoSlot::SeqLen)
+                .write(0, &(position + 1).to_le_bytes())
+                .unwrap();
+        }
+        step.fire(&mut stepper).expect("the command buffer retires");
+        read_next()
+    };
+
+    // "The capital of France is", with llama's BOS — this family HAS
+    // one, unlike gpt-oss.
+    let prompt: Vec<u32> = std::env::var("PIE_METAL_SMOKE_LLAMA_PROMPT_IDS")
+        .ok()
+        .map(|csv| {
+            csv.split(',')
+                .map(|t| t.trim().parse().expect("token ids"))
+                .collect()
+        })
+        .unwrap_or_else(|| vec![128000, 791, 6864, 315, 9822, 374]);
+    let reference: &[u32] = &[12366, 627, 791, 6864, 315, 9822, 374, 12366];
+    let check_reference = prompt == [128000, 791, 6864, 315, 9822, 374];
+
+    let mut position = 0u32;
+    let mut next = 0u32;
+    for &token in &prompt {
+        next = fire_at(token, position);
+        position += 1;
+    }
+    {
+        let logits = io(IoSlot::Logits);
+        let vocab = geometry.vocab as usize;
+        // SAFETY: the step retired.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(logits.contents().cast::<u8>().as_ptr(), vocab * 2)
+        };
+        let mut finite = 0usize;
+        let mut best = (0usize, f32::NEG_INFINITY);
+        for (i, pair) in bytes.chunks_exact(2).enumerate() {
+            let value = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+            if value.is_finite() {
+                finite += 1;
+                if value > best.1 {
+                    best = (i, value);
+                }
+            }
+        }
+        eprintln!(
+            "prompt fed: {finite}/{vocab} finite, host argmax {} ({:.3}), device {next}",
+            best.0, best.1
+        );
+        assert_eq!(
+            finite, vocab,
+            "a NaN in the logits is a wrong kernel upstream"
+        );
+        assert_eq!(next as usize, best.0, "device and host argmax disagree");
+    }
+
+    let mut produced = Vec::new();
+    produced.push(next);
+    while produced.len() < reference.len() {
+        next = fire_at(next, position);
+        position += 1;
+        produced.push(next);
+    }
+    eprintln!("produced {produced:?}");
+    if check_reference {
+        assert_eq!(
+            produced, reference,
+            "the greedy continuation drifted from mlx_lm's"
+        );
+    }
+}
