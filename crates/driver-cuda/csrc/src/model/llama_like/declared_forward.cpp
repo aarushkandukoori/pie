@@ -1653,12 +1653,11 @@ void llama_like_forward_declared(
                     peel_window_d, N, out_w(0), out_w(1), stream);
                 break;
             }
-            kernels::attn::split_qkv_bf16(
-                bf16_row(packed, win_start, in_w(0)),
-                bf16_row(q_out, win_start, out_w(0)),
-                bf16_row(k_out, win_start, out_w(1)),
-                bf16_row(v_out, win_start, out_w(2)),
-                win_len, out_w(0), out_w(1), stream);
+            // SHARED ARM (D1). llama_like's is gemma-4's plus the row
+            // WINDOW, which belongs to the rectangle and so is a
+            // parameter rather than a second arm.
+            declared::arm_split_qkv(plan, op, values, win_len, win_start,
+                                    stream);
             break;
         }
         case PieForwardOpKind::RmsnormPerHead: {

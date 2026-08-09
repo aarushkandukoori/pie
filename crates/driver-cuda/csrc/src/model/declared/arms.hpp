@@ -18,8 +18,12 @@
 // family convention) replaces the routing conventions.
 
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 
+#include "attn/split_packed.hpp"
 #include "mlp/swiglu.hpp"
+#include "model/declared/value_arena.hpp"
 #include "model/workspace.hpp"
 
 namespace pie_cuda_driver::model::declared {
@@ -45,6 +49,76 @@ inline void arm_swiglu(Workspace& ws,
         kernels::mlp::swiglu_bf16(
             ws.gate.data(), ws.up.data(), dst, n * intermediate, stream);
     }
+}
+
+// ── the arms that read their operands off the plan ─────────────────
+//
+// D1's shape, one arm at a time. An arm lands here the moment its body
+// stops mentioning a workspace field: what is left is the statement's
+// operands, its widths, and the fire's row count, none of which is a
+// family's to know.
+//
+// The two guards below travel with them, because both were written per
+// executor and both catch real defects. `need` refuses a short operand
+// span -- indexing past one does not fault, it reads the NEXT
+// statement's operands and hands the arm a plausible pointer to the
+// wrong buffer. `row_width` is a value's trailing dims, which is what
+// `Hq`, `Hk`, `I`, `H` and the rest were spelling.
+
+inline void need(const pie_forward::ForwardPlan::IdSpan& span,
+                 std::size_t n, const char* what) {
+    if (span.size < n) {
+        throw std::runtime_error(
+            std::string("declared arm: ") + what + " states " +
+            std::to_string(span.size) + " operands, needs " +
+            std::to_string(n));
+    }
+}
+
+inline int row_width(const pie_forward::ForwardPlan& plan,
+                     std::uint32_t id) {
+    const auto& val = plan.value(id);
+    std::uint32_t out = 1;
+    for (std::uint32_t d = 1; d < val.rank; ++d) {
+        if (val.dims[d].kind != pie_forward::PieForwardDimKind::Const) {
+            return 0;
+        }
+        out *= val.dims[d].value;
+    }
+    return static_cast<int>(out);
+}
+
+// `SplitQkv`: one packed bank into three. Identical in gemma-4 and
+// qwen3.5 once both read their operands off the plan; llama_like's is
+// this plus a row WINDOW, which is the rectangle's and so stays a
+// parameter rather than a second arm.
+//
+// `win_start` offsets each operand by whole rows -- the peel's tail
+// splits the hook-visible rows at their absolute offsets, so the
+// full-N consumers see one contiguous buffer. Zero is the plain form.
+inline void arm_split_qkv(const pie_forward::ForwardPlan& plan,
+                          const pie_forward::PieForwardOp& op,
+                          ValueArena& values,
+                          int rows,
+                          int win_start,
+                          cudaStream_t stream) {
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 1, "split_qkv inputs");
+    need(outs, 3, "split_qkv outputs");
+    const int q_w = row_width(plan, outs[0]);
+    const int kv_w = row_width(plan, outs[1]);
+    const auto row = [&](void* base, int width) -> void* {
+        return static_cast<std::uint16_t*>(base) +
+               static_cast<std::size_t>(win_start) *
+                   static_cast<std::size_t>(width);
+    };
+    kernels::attn::split_qkv_bf16(
+        row(values.slot(ins[0]), row_width(plan, ins[0])),
+        row(values.slot(outs[0]), q_w),
+        row(values.slot(outs[1]), kv_w),
+        row(values.slot(outs[2]), kv_w),
+        rows, q_w, kv_w, stream);
 }
 
 }  // namespace pie_cuda_driver::model::declared

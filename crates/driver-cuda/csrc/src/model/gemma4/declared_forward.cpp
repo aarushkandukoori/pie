@@ -23,6 +23,7 @@
 #include "attn/attention_flashinfer.hpp"
 #include "attn/attention_naive_paged.hpp"
 #include "gemm/gemm.hpp"
+#include "model/declared/arms.hpp"
 #include "model/declared/value_arena.hpp"
 #include <string>
 #include <string_view>
@@ -598,14 +599,10 @@ bool gemma4_forward_declared(
             break;
         }
         case PieForwardOpKind::SplitQkv: {
-            const auto ins = plan.inputs(op);
-            const auto outs = plan.outputs(op);
-            need(ins, 1, "split_qkv inputs");
-            need(outs, 3, "split_qkv outputs");
-            kernels::attn::split_qkv_bf16(
-                values.slot(ins[0]), values.slot(outs[0]),
-                values.slot(outs[1]), values.slot(outs[2]),
-                N, row_width(outs[0]), row_width(outs[1]), stream);
+            // SHARED ARM (D1). Identical here and in qwen3.5 once both
+            // read their operands off the plan, so it exists once.
+            declared::arm_split_qkv(plan, op, values, N, /*win_start=*/0,
+                                    stream);
             break;
         }
         case PieForwardOpKind::Rope: {

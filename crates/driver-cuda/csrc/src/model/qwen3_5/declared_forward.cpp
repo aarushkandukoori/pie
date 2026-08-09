@@ -1541,14 +1541,9 @@ bool forward_declared_tmpl(
             // body: kernels::attn::split_qkv_bf16(packed, qg, k, v, N, 2*Hq, Hk)).
             // ISLAND (value arena). `2 * Hq` and `Hk` are the two
             // result widths, which the results state.
-            const auto ins = plan.inputs(op);
-            const auto outs = plan.outputs(op);
-            need(ins, 1, "split_qkv inputs");
-            need(outs, 3, "split_qkv outputs");
-            kernels::attn::split_qkv_bf16(
-                values.slot(ins[0]), values.slot(outs[0]),
-                values.slot(outs[1]), values.slot(outs[2]),
-                N, row_width(outs[0]), row_width(outs[1]), stream);
+            // SHARED ARM (D1) -- see gemma-4's call site.
+            declared::arm_split_qkv(plan, op, values, N, /*win_start=*/0,
+                                    stream);
             break;
         }
         case PieForwardOpKind::SplitGdn: {
