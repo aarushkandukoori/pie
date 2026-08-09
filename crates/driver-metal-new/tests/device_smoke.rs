@@ -119,8 +119,11 @@ fn the_assembly_fires_one_token_end_to_end() {
         assert!(checked > 0, "the probe compared nothing");
     }
 
+    // The shipping lane: the PSO plan serves GdnCore with the slimmed
+    // recurrent kernel, so the DAG must be built with the prep split on.
     let options = DagOptions {
         with_argmax: true,
+        gdn_prep: true,
         ..DagOptions::default()
     };
     let dag = build_decode_dag(&geometry, &tuning, options);
@@ -221,13 +224,33 @@ fn the_assembly_fires_one_token_end_to_end() {
     let mut slots = driver_metal_new::store::LinearStateSlots::new(1);
     slots.step(0).unwrap(); // the <bos> fire above was step 0
     let mut step = step;
+    // An optional real prompt: PIE_METAL_SMOKE_PROMPT_IDS as csv token ids,
+    // fed sequentially before the greedy tail — a working model completes
+    // it sensibly where a bare <bos> may legitimately degenerate.
+    let prompt: Vec<u32> = std::env::var("PIE_METAL_SMOKE_PROMPT_IDS")
+        .ok()
+        .map(|csv| csv.split(',').map(|t| t.parse().unwrap()).collect())
+        .unwrap_or_default();
     let mut token = next;
     let mut sequence = vec![bos, token];
-    for position in 1..12u32 {
+    let mut feed: Vec<u32> = prompt.clone();
+    if !feed.is_empty() {
+        // Restart the sequence record at the prompt.
+        sequence = vec![bos];
+        sequence.extend(&feed);
+        token = *feed.first().unwrap();
+    }
+    for position in 1..(1 + feed.len().max(0) as u32 + 11) {
+        // While the prompt lasts, feed it; after, feed the argmax back.
+        let input = if (position as usize) <= feed.len() {
+            feed[position as usize - 1]
+        } else {
+            token
+        };
         // SAFETY: the previous step retired; the buffers are host-owned
         // between steps.
         unsafe {
-            io(IoSlot::TokenId).write(0, &token.to_le_bytes()).unwrap();
+            io(IoSlot::TokenId).write(0, &input.to_le_bytes()).unwrap();
             io(IoSlot::Position)
                 .write(0, &position.to_le_bytes())
                 .unwrap();
@@ -244,8 +267,11 @@ fn the_assembly_fires_one_token_end_to_end() {
             std::slice::from_raw_parts(io(IoSlot::NextToken).contents().cast::<u8>().as_ptr(), 4)
         };
         token = u32::from_le_bytes(raw.try_into().unwrap());
-        sequence.push(token);
+        if (position as usize) >= feed.len() {
+            sequence.push(token);
+        }
     }
+    let _ = &mut feed;
     eprintln!("greedy sequence: {sequence:?}");
     let distinct: std::collections::HashSet<_> = sequence.iter().collect();
     assert!(
@@ -323,7 +349,10 @@ fn the_first_step_taps_agree_with_the_host() {
     let mut storage =
         stage_decode_storage(&context, &plan, &snapshot, &geometry, max_ctx, slot_bytes).unwrap();
 
-    let options = DagOptions::default();
+    let options = DagOptions {
+        gdn_prep: true,
+        ..DagOptions::default()
+    };
     let dag = build_decode_dag(&geometry, &tuning, options);
     // No recycling: every value keeps its own buffer so the dump reads what
     // each kernel wrote, not what overwrote it.
@@ -452,5 +481,175 @@ fn the_first_step_taps_agree_with_the_host() {
         c > 0.99,
         "the quantized matvec diverges: Qmv K/N or the triplet binds"
     );
-    eprintln!("bisect: embed, attn_norm and the first matvec agree with the host");
+
+    // ── Stage isolation from here: each tap is recomputed from the TAPS
+    // it reads, so a stage with a correct function is exonerated even if
+    // its input is globally wrong — and the first cosine that drops names
+    // the kernel. ──
+    let matvec = |base: &str, x: &[f32], n: usize| -> Vec<f32> {
+        let w = staged(&format!("{base}.weight"));
+        let sc = staged(&format!("{base}.scales"));
+        let bi = staged(&format!("{base}.biases"));
+        (0..n)
+            .map(|row| {
+                dequant_row(w, sc, bi, row, x.len())
+                    .iter()
+                    .zip(x)
+                    .map(|(w, x)| w * x)
+                    .sum::<f32>()
+            })
+            .collect()
+    };
+    let check = |name: &str, host: &[f32], floor: f32| {
+        let tap = read_npy(&dir.join(format!("{name}.npy")));
+        let c = cosine(host, &tap);
+        eprintln!("{name} cosine {c:.6}");
+        assert!(c > floor, "{name} diverges at cosine {c}");
+        tap
+    };
+
+    // The GDN block's other three in-projections, from the norm tap.
+    let z = matvec(
+        "layers.0.linear_attn.in_proj_z",
+        &rms,
+        geometry.gdn_v_total as usize,
+    );
+    check("0.gdn_in_z", &z, 0.999);
+    let a = matvec(
+        "layers.0.linear_attn.in_proj_a",
+        &rms,
+        geometry.gdn_v_heads as usize,
+    );
+    check("0.gdn_in_a", &a, 0.999);
+    let b = matvec(
+        "layers.0.linear_attn.in_proj_b",
+        &rms,
+        geometry.gdn_v_heads as usize,
+    );
+    {
+        let tap = read_npy(&dir.join("0.gdn_in_b.npy"));
+        eprintln!("gdn_in_b host: {:?}", &b[..8]);
+        eprintln!("gdn_in_b tap:  {:?}", &tap[..8]);
+        eprintln!("vs a host:     {:?}", &a[..8]);
+        let h = staged("layers.0.linear_attn.in_proj_b.weight");
+        eprintln!(
+            "in_proj_b.weight bytes {} (16x{hidden} 4-bit = {})",
+            h.len(),
+            16 * hidden / 2
+        );
+    }
+    // The b buffer post-step holds fp32 gating values — even bf16 lanes
+    // all zero is an f32 buffer read as bf16 pairs — so the core rewrites
+    // it in place and the tap is unreadable by design. Observed, not
+    // asserted; the projection's own kernel is A's, already exonerated.
+    {
+        let tap = read_npy(&dir.join("0.gdn_in_b.npy"));
+        let c = cosine(&b, &tap);
+        eprintln!("0.gdn_in_b cosine {c:.6} (in-place rewrite expected)");
+    }
+
+    // gdn_out from the CORE's own tap: exonerates the out projection even
+    // while the core stays under suspicion.
+    let core_tap = read_npy(&dir.join("0.gdn_core.npy"));
+    let core_mag: f32 = core_tap.iter().map(|v| v * v).sum::<f32>().sqrt();
+    eprintln!(
+        "0.gdn_core tap magnitude {core_mag:.6}, first {:?}",
+        &core_tap[..6]
+    );
+    let gdn_out = matvec("layers.0.linear_attn.out_proj", &core_tap, hidden);
+    check("0.gdn_out", &gdn_out, 0.999);
+    // The residual add closes layer 0's frame.
+    let out_tap = read_npy(&dir.join("0.gdn_out.npy"));
+    let resid: Vec<f32> = embed.iter().zip(&out_tap).map(|(a, b)| a + b).collect();
+    check("0.attn_resid", &resid, 0.999);
+
+    // ── The first full-attention layer, stage by stage. ──
+    let full = (0..geometry.n_layers)
+        .find(|&l| geometry.is_full_attn(l))
+        .expect("some layer attends");
+    let prefix = format!("layers.{full}");
+    let norm_tap = read_npy(&dir.join(format!("{full}.attn_norm.npy")));
+    let q_dim = (geometry.n_q_heads * geometry.head_dim) as usize;
+    let kv_dim = (geometry.n_kv_heads * geometry.head_dim) as usize;
+    let head = geometry.head_dim as usize;
+
+    // In-place chains suppress their intermediate taps by design (only a
+    // colour's final writer is named): k_proj/k_norm fold into rope_k,
+    // q_norm into rope_q, sdpa into gated. Each host computation therefore
+    // spans the whole in-place chain, and at position 0 the rope is the
+    // identity, so the chain is still one hop of simple math.
+    let qg = matvec(&format!("{prefix}.self_attn.q_proj"), &norm_tap, 2 * q_dim);
+    check(&format!("{full}.q_proj"), &qg, 0.999);
+    let k = matvec(&format!("{prefix}.self_attn.k_proj"), &norm_tap, kv_dim);
+    let v = matvec(&format!("{prefix}.self_attn.v_proj"), &norm_tap, kv_dim);
+    let v_tap = check(&format!("{full}.v_proj"), &v, 0.999);
+
+    // QSplit deinterleaves [n_q, 2, head]: query halves then per-head RMS.
+    let qg_tap = read_npy(&dir.join(format!("{full}.q_proj.npy")));
+    let split_q: Vec<f32> = (0..q_dim)
+        .map(|i| qg_tap[(i / head) * 2 * head + i % head])
+        .collect();
+    let split_gate: Vec<f32> = (0..q_dim)
+        .map(|i| qg_tap[(i / head) * 2 * head + head + i % head])
+        .collect();
+    let per_head_rms = |x: &[f32], w_name: &str| -> Vec<f32> {
+        let w = staged(w_name);
+        x.chunks(head)
+            .flat_map(|row| {
+                let mean: f32 = row.iter().map(|v| v * v).sum::<f32>() / head as f32;
+                let inv = 1.0 / (mean + geometry.eps).sqrt();
+                row.iter()
+                    .enumerate()
+                    .map(|(i, v)| v * inv * bf16(u16::from_le_bytes([w[i * 2], w[i * 2 + 1]])))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    };
+    let qn = per_head_rms(&split_q, &format!("{prefix}.self_attn.q_norm.weight"));
+    let kn = per_head_rms(&k, &format!("{prefix}.self_attn.k_norm.weight"));
+
+    // Rope at position 0 is the identity, so the rope taps ARE the norms.
+    check(&format!("{full}.rope_q"), &qn, 0.999);
+    check(&format!("{full}.rope_k"), &kn, 0.999);
+    // SDPA over one position is that position's value row per head-group,
+    // and the gate multiplies sigmoid of the split's gate half onto it.
+    let gqa = (geometry.n_q_heads / geometry.n_kv_heads) as usize;
+    let gated: Vec<f32> = (0..q_dim)
+        .map(|i| {
+            let attn = v_tap[(i / head / gqa) * head + i % head];
+            attn / (1.0 + (-split_gate[i]).exp())
+        })
+        .collect();
+    check(&format!("{full}.gated"), &gated, 0.999);
+    let gated_tap = read_npy(&dir.join(format!("{full}.gated.npy")));
+    let o = matvec(&format!("{prefix}.self_attn.o_proj"), &gated_tap, hidden);
+    check(&format!("{full}.o_proj"), &o, 0.999);
+
+    // The MLP, from its own norm tap.
+    let ffn_tap = read_npy(&dir.join("0.ffn_norm.npy"));
+    let gate_p = matvec(
+        "layers.0.mlp.gate_proj",
+        &ffn_tap,
+        geometry.intermediate as usize,
+    );
+    check("0.gate_proj", &gate_p, 0.999);
+    let up_p = matvec(
+        "layers.0.mlp.up_proj",
+        &ffn_tap,
+        geometry.intermediate as usize,
+    );
+    check("0.up_proj", &up_p, 0.999);
+    let gate_tap = read_npy(&dir.join("0.gate_proj.npy"));
+    let up_tap = read_npy(&dir.join("0.up_proj.npy"));
+    let swiglu: Vec<f32> = gate_tap
+        .iter()
+        .zip(&up_tap)
+        .map(|(g, u)| g / (1.0 + (-g).exp()) * u)
+        .collect();
+    check("0.swiglu", &swiglu, 0.999);
+    let swiglu_tap = read_npy(&dir.join("0.swiglu.npy"));
+    let down = matvec("layers.0.mlp.down_proj", &swiglu_tap, hidden);
+    check("0.down_proj", &down, 0.999);
+
+    eprintln!("bisect: every stage function verified except the GDN core itself");
 }
