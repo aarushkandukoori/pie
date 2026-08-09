@@ -270,7 +270,16 @@ pub fn gpt_oss_cuda(
             // launch — mixtral's tp=1 shape. (The `_add` fused form
             // exists, and this pass does not take it.)
             let combined = dsl::cuda::weighted_sum(&weights, &out, hidden, None);
-            y = dsl::cuda::residual_add(&combined, &y, hidden);
+            // STREAM FIRST. `residual_add` lands on operand 0 -- the
+            // `kernel!` row aliases output 0 over input 0 -- so the
+            // order is not a caller's preference, it says which buffer
+            // holds the sum. Written the other way round this claimed
+            // the stream lands on the MoE output's bytes, which no
+            // driver does and which the stream does not mean; it went
+            // unnoticed while both operands were pinned workspace
+            // fields and the arm added into `ws.y` regardless. Every
+            // other family already spells it this way.
+            y = dsl::cuda::residual_add(&y, &combined, hidden);
         }
 
         let normed = rmsnorm(

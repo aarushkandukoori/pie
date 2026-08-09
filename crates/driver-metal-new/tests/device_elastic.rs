@@ -408,3 +408,45 @@ fn a_batch_across_two_arenas_is_refused_rather_than_priced_against_one() {
         .ensure(&mut second, 2 * 1024 * 1024, Pressure::Normal, Need::Step)
         .expect("its own arena has room");
 }
+
+/// A buffer destroyed while its growth is still queued.
+///
+/// This asserts nothing, and that is not an oversight. The failure it exists
+/// for is not a wrong value: `ensure` deliberately does not wait for the map
+/// it issues, so at the moment the buffer goes out of scope an
+/// `updateBufferMappings` naming its placement heaps can still be queued. A
+/// destructor that released those heaps there handed the GPU a mapping into
+/// memory that had gone back to the system -- a page fault raised inside
+/// AGX, which panics the kernel. The whole machine goes down, so there is no
+/// process left to fail an assertion in.
+///
+/// Three kernel panics on an M1 Max came from exactly this shape, in this
+/// file, before the destructor waited. Every step of the loop grows and drops
+/// without a step in between, because a step is what would have waited by
+/// accident and hidden it.
+#[test]
+fn a_buffer_dropped_with_its_growth_in_flight_does_not_take_the_gpu_with_it() {
+    let Some(context) = context() else {
+        println!("no Metal device; skipped");
+        return;
+    };
+    let arena = Arena::new(64 * 1024 * 1024, 0);
+
+    for _ in 0..32 {
+        let mut stepper = Stepper::new(&context).expect("stepper");
+        let mut buffer = create_elastic(&context, &arena, VIRTUAL).expect("sparse buffer");
+        stepper
+            .ensure(&mut buffer, 4 * 1024 * 1024, Pressure::Normal, Need::Step)
+            .expect("grow");
+        // No step, no trim, no wait: straight out of scope with the mapping
+        // still on the queue.
+        drop(buffer);
+    }
+
+    assert_eq!(
+        arena.budget().reserved,
+        0,
+        "every buffer was dropped, so the arena is still counting bytes that \
+         belong to nothing and will refuse the next model that fits"
+    );
+}

@@ -46,6 +46,13 @@
 //! behind its back. A heap is handed back only after the GPU has been
 //! observed past the unmap that emptied it; until then it sits in
 //! [`Arena::pending`].
+//!
+//! Destroying a buffer is the same rule wearing different clothes. A growth
+//! is issued and not waited for, so an [`Elastic`] can reach its destructor
+//! with an `updateBufferMappings` still queued against heaps it is about to
+//! release. Dropping them there is a GPU page fault, not a leak -- so the
+//! destructor waits for the mapping timeline first, and leaks rather than
+//! frees if that wait runs out. See [`Fence`].
 
 use std::sync::{Arc, Mutex, Weak};
 
@@ -53,7 +60,8 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{
     MTL4CommandQueue, MTLBuffer, MTLDevice, MTLHazardTrackingMode, MTLHeap, MTLHeapDescriptor,
-    MTLHeapType, MTLResidencySet, MTLResourceOptions, MTLSparsePageSize, MTLStorageMode,
+    MTLHeapType, MTLResidencySet, MTLResourceOptions, MTLSharedEvent, MTLSparsePageSize,
+    MTLStorageMode,
 };
 
 use super::context::Context;
@@ -281,6 +289,46 @@ struct Pending {
     chunk: Chunk,
 }
 
+/// The last mapping operation issued over a buffer, and where it lands.
+///
+/// Recorded because a growth is deliberately not waited for -- see
+/// [`Stepper::ensure`](super::Stepper::ensure) -- which leaves an
+/// `updateBufferMappings` in flight that names heaps this buffer owns.
+/// Nothing that only reads the buffer needs to care, and that is why the
+/// growth may go unwaited. Destruction is not a read: releasing those heaps
+/// while the operation that names them is still queued hands the GPU a
+/// mapping into memory that has gone back to the system, which faults inside
+/// the GPU driver rather than in this process.
+struct Fence {
+    event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
+    /// The timeline value the last mapping over this buffer lands at.
+    through: u64,
+}
+
+// SAFETY: a `Retained` of a shared event is refcounted thread-safely and
+// Metal objects have no thread affinity; the same argument as `Chunk`.
+unsafe impl Send for Fence {}
+
+/// How long each probe of the teardown wait blocks for.
+///
+/// Probed rather than waited for in one call for the same reason
+/// [`Stepper`](super::Stepper) probes: an unbounded wait in a destructor is a
+/// hang with no message attached to it.
+const TEARDOWN_PROBE_MS: u64 = 5_000;
+
+/// How many probes before a destructor gives up and leaks instead.
+const TEARDOWN_PROBES: u32 = 12;
+
+/// Hand a Metal object's last reference to nobody, on purpose.
+///
+/// The one situation this is reached from is a teardown the GPU has not been
+/// proven past -- see [`Elastic::drop`]. Releasing there is not the safe
+/// choice and leaking is, so the leak is spelled out rather than left as an
+/// omission a later reader would take for a bug.
+fn leak<T: ?Sized + objc2::Message>(object: Retained<T>) {
+    let _ = Retained::into_raw(object);
+}
+
 /// The arena's shared state: budget plus heaps waiting to be given back.
 #[derive(Default)]
 struct State {
@@ -404,6 +452,14 @@ pub struct Elastic {
     mandatory: u64,
     chunks: Vec<Chunk>,
     owner: Weak<Mutex<State>>,
+    /// The residency set this buffer and its heaps were added to.
+    ///
+    /// Held as an owning handle rather than borrowed from the context so that
+    /// the set cannot be released while this buffer is still named in it, and
+    /// so that [`Drop`] has something to take the names back out of.
+    residency: Retained<ProtocolObject<dyn MTLResidencySet>>,
+    /// The last mapping issued over this buffer, if any. See [`Fence`].
+    fence: Option<Fence>,
 }
 
 impl Elastic {
@@ -449,16 +505,87 @@ impl Elastic {
     pub fn arena(&self) -> Option<Arena> {
         self.owner.upgrade().map(|state| Arena { state })
     }
+
+    /// Record that a mapping over this buffer lands at `through` on `event`.
+    ///
+    /// Called by [`Stepper`](super::Stepper) after every remap, because the
+    /// stepper owns the timeline and this buffer owns the heaps the mapping
+    /// names -- and the only moment both are known is here. Monotonic: the
+    /// timeline only advances, and a lower value would let teardown stop
+    /// waiting before the newest operation.
+    pub(crate) fn fence_at(
+        &mut self,
+        event: &Retained<ProtocolObject<dyn MTLSharedEvent>>,
+        through: u64,
+    ) {
+        match &mut self.fence {
+            Some(fence) => fence.through = fence.through.max(through),
+            None => {
+                self.fence = Some(Fence {
+                    event: event.clone(),
+                    through,
+                });
+            }
+        }
+    }
+
+    /// Block until every mapping issued over this buffer has landed.
+    ///
+    /// `true` when the GPU is known to be past all of them, which is the only
+    /// condition under which this buffer's heaps may be released.
+    fn drained(&self) -> bool {
+        let Some(fence) = &self.fence else {
+            return true;
+        };
+        if fence.event.signaledValue() >= fence.through {
+            return true;
+        }
+        (0..TEARDOWN_PROBES).any(|_| {
+            fence
+                .event
+                .waitUntilSignaledValue_timeoutMS(fence.through, TEARDOWN_PROBE_MS)
+        })
+    }
 }
 
 impl Drop for Elastic {
     fn drop(&mut self) {
-        // The mappings are NOT torn down here, and that is deliberate. An
-        // unmap is a GPU operation needing a timeline, and a Drop has none;
-        // releasing the buffer releases its address space, and the heaps go
-        // when their `Chunk`s do. What must be given back is the accounting,
-        // because an arena that keeps counting a freed buffer refuses the
-        // next one.
+        // The mappings are not torn down here: an unmap is a GPU operation
+        // needing a timeline, and releasing the sparse buffer releases the
+        // address space they lived in, so there is nothing left to unmap
+        // from. What CANNOT be skipped is the wait. A growth is issued and
+        // deliberately not waited for, so at this moment an
+        // `updateBufferMappings` naming these heaps may still be queued; the
+        // heaps go when their `Chunk`s do, a few lines below. Freeing them
+        // under a live mapping operation is not a leak and not a wrong
+        // answer -- it is a GPU page fault, raised inside the Metal driver,
+        // which takes the machine down rather than this process.
+        //
+        // This was three kernel panics before it was a comment.
+        if self.drained() {
+            self.residency
+                .removeAllocation(ProtocolObject::from_ref(&*self.buffer));
+            for chunk in &self.chunks {
+                self.residency
+                    .removeAllocation(ProtocolObject::from_ref(&*chunk.heap));
+            }
+            self.residency.commit();
+        } else {
+            // The timeline stopped moving, so nothing will ever prove the
+            // mapping landed. Leak the buffer and every heap rather than
+            // free them: a leak costs this process memory it was already
+            // holding, and the alternative costs the machine. Same trade as
+            // `State::collect` makes, for the same reason.
+            leak(self.buffer.clone());
+            for chunk in self.chunks.drain(..) {
+                let Chunk { heap, _alias, .. } = chunk;
+                leak(heap);
+                leak(_alias);
+            }
+        }
+
+        // The accounting is given back either way, because an arena that
+        // keeps counting a freed buffer refuses the next one.
         let Some(state) = self.owner.upgrade() else {
             return;
         };
@@ -582,6 +709,8 @@ pub fn create(context: &Context, arena: &Arena, len: u64) -> Result<Elastic> {
         mandatory: 0,
         chunks: Vec::new(),
         owner: Arc::downgrade(&arena.state),
+        residency: context.residency_handle(),
+        fence: None,
     })
 }
 

@@ -341,7 +341,18 @@ impl Keepalive {
             .spawn({
                 let running = Arc::clone(&running);
                 let committed = Arc::clone(&committed);
-                move || spin(&owned, threadgroups, depth, &running, &committed)
+                move || {
+                    // A drain that timed out leaves command buffers running
+                    // against every object in `owned`. Releasing them here
+                    // is not a leak and not a stall -- it is the
+                    // use-after-free the join exists to prevent, arriving
+                    // through the timeout that bounds the join. Leaking is
+                    // the safe half: it costs this process two buffers and a
+                    // queue, and the alternative costs the machine.
+                    if !spin(&owned, threadgroups, depth, &running, &committed) {
+                        let _: &'static mut Owned = Box::leak(Box::new(owned));
+                    }
+                }
             })
             .map_err(|e| Error::Create {
                 what: "keepalive thread",
@@ -476,7 +487,13 @@ fn new_word_buffer(
 /// `committed`, which is what keeps `depth - 1` command buffers executing
 /// while this one is encoded. Waiting for `committed` would drain the queue
 /// every iteration and measure the idle window instead of removing it.
-fn spin(owned: &Owned, threadgroups: u32, depth: u32, running: &AtomicBool, committed: &AtomicU64) {
+fn spin(
+    owned: &Owned,
+    threadgroups: u32,
+    depth: u32,
+    running: &AtomicBool,
+    committed: &AtomicU64,
+) -> bool {
     // Widened before multiplying, and saturating: a caller is free to ask for
     // a grid that does not fit, and a debug-build overflow panic on the
     // keepalive thread would take the process down over a tuning parameter.
@@ -550,10 +567,12 @@ fn spin(owned: &Owned, threadgroups: u32, depth: u32, running: &AtomicBool, comm
     // into `Keepalive::drop`'s join, which releases everything here -- so
     // returning with command buffers still executing is the use-after-free
     // the join was supposed to prevent. Bounded, because a wedged GPU must
-    // not turn a drop into a hang.
+    // not turn a drop into a hang -- and the answer is reported rather than
+    // discarded, because the bound is exactly the case where releasing is
+    // the wrong thing to do. See the spawn site.
     owned
         .event
-        .waitUntilSignaledValue_timeoutMS(count, WAIT_TIMEOUT_MS);
+        .waitUntilSignaledValue_timeoutMS(count, WAIT_TIMEOUT_MS)
 }
 
 #[cfg(test)]

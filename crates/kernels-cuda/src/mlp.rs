@@ -32,7 +32,9 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(chunked_geglu_tanh "mlp::chunked_geglu_tanh_bf16"),
     // SwiGLU with a clamp. `swiglu_limit` is a config constant, so this
     // is a different kernel and not a different argument.
-    kernel!(gpt_oss_glu "mlp::gpt_oss_glu_bf16"),
+    // `gate = glu(gate, up)` -- the gate half is the destination, which
+    // is why the driver passes its pointer twice.
+    kernel!(gpt_oss_glu "mlp::gpt_oss_glu_bf16", in_place = &[(0, 0)]),
     kernel!(sigmoid_scalar_gate_add "mlp::sigmoid_scalar_gate_add_bf16"),
     kernel!(sigmoid_scalar_gate_strided_add "mlp::sigmoid_scalar_gate_strided_add_bf16"),
     kernel!(moe_shared_gate_dot "mlp::sigmoid_dot_scalar_gate_add_bf16"),
