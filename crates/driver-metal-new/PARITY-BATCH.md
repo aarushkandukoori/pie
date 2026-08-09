@@ -188,9 +188,32 @@ shared vocabulary. The porting order that follows from the includes:
    geometry live under `model/<family>/` and land with the family port.
    (`DecodeGeometry` itself has since landed — see the geometry section.)
 3. `expert_paging.hpp` (195): ported -- see "Expert paging" below.
-4. `decode_psos` (582), `worker.hpp` (171),
-   `simple_family` (2176), then `forward.cpp/.hpp` (5393) over everything.
-   (`golden_tap` has since landed — see "The golden taps" below.)
+4. `worker.hpp` (171) — ported (`worker.rs`); `simple_family` (2176),
+   then `forward.cpp/.hpp` (5393) over everything. (`golden_tap` and
+   `decode_psos`' multibatch half have since landed — see below.)
+
+## The multibatch PSO plan — `src/batch/psos_mb.rs`
+
+The portable half of `load_multibatch_psos` (`decode_psos.cpp`, the M>1
+side of the 582): feature gating and the name grammar, emitted as
+`MbRequest { slot, file, entry }` for the device half to batch-compile.
+
+| C++ | Rust | |
+|---|---|---|
+| `MultiBatchPsoFeatures` (10 flags) | `MbFeatures` | ported, each flag's absence documented |
+| `MultiBatchPsos` field table | `MbSlot` (39 variants, rung indices as payload) | ported: the C++ routes by pointer into a struct; the plan names the slot instead |
+| `pie::kernels::entrypoint()` grammar | grammar inline + dev test | ported: names are products; existence is pinned against `kernels_metal::entrypoints()` on any host, as for the M=1 plan |
+| `kQmmBMs` static_assert | `QMM_BMS` + rung-indexed slots | ported |
+| batch-compile-per-file argument | module doc + `file` on each request | ported as a fact about the list |
+| `compile_psos_from_files` + fill loop | — | device half; lands with the Metal PSO table |
+
+Arguments preserved: `quant` has no default (half-supplied formats
+compiled, bound, dispatched, and answered wrongly); the routed GEMM's
+FP16 form is a NAME choice decided by tuning, identical in contract, and
+llama — whose routed top-k moved under FP16 — never reaches this table;
+the wide matvec follows the CHECKPOINT's format rather than the fp16
+gate, because tying it to `fp16_strided` left an alt-quant kind with no
+batched shape at all (pinned by test: g64/b8 still gets one).
 
 ## The golden taps — `src/batch/golden.rs`
 
