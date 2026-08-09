@@ -45,6 +45,7 @@
 pub mod bump;
 mod error;
 pub mod facts;
+pub mod pipeline;
 pub mod region;
 pub mod shader;
 pub mod tuning;
