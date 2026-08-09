@@ -44,13 +44,15 @@
 
 pub mod bump;
 mod error;
+pub mod facts;
 pub mod region;
 pub mod shader;
 pub mod tuning;
 
 pub use error::{Error, Result};
-pub use shader::{Batch, Request};
+pub use facts::{ModelFacts, ModelFamily};
 pub use region::Region;
+pub use shader::{Batch, Request};
 
 #[cfg(target_vendor = "apple")]
 pub mod metal;

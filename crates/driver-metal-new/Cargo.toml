@@ -25,6 +25,11 @@ path = "src/lib.rs"
 [features]
 default = []
 
+# Portable, so it goes in the plain dependency table rather than the Apple one:
+# `facts.rs` reads a descriptor document and needs no GPU to do it.
+[dependencies]
+serde_json = "1.0"
+
 # Apple-only. Everything that names a Metal type lives under `src/metal/` and
 # is gated on this cfg, so the crate still builds -- and its portable half
 # still tests -- on the Linux boxes the rest of the workspace is developed on.
