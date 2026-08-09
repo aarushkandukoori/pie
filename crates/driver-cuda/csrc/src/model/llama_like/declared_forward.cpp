@@ -1229,6 +1229,18 @@ void llama_like_forward_declared(
         const auto out_w = [&](std::size_t i) {
             return row_width(plan.outputs(op)[i]);
         };
+        // The KV write's two operands. Where the head dim is PADDED
+        // they are the pad-staging buffers, which are driver scratch --
+        // `pad_head_dim` has no traced destination -- so the statement's
+        // values feed the pad and the staging feeds the write. Unpadded,
+        // the staging IS `ws.k`/`ws.v` and the write reads the values
+        // directly. qwen3-0.6b is unpadded, so the gate checks that leg
+        // and not this one.
+        const auto kv_src = [&](std::size_t i, void* staged) -> const void* {
+            if (head_dim_padded) return staged;
+            return values.slot(plan.inputs(op)[i],
+                               plan.value(plan.inputs(op)[i]));
+        };
         switch (op.kind) {
         case PieForwardOpKind::Embed: {
             const std::string_view name = plan.weight_name(op);
@@ -2085,9 +2097,13 @@ void llama_like_forward_declared(
                     kernels::attn::pad_head_dim_bf16(
                         ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
                     kernels::attn::pad_head_dim_bf16(
-                        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+                        values.slot(plan.inputs(op)[0],
+                                    plan.value(plan.inputs(op)[0])),
+                        attn_k, N, num_kv_heads, d, dk, stream);
                     kernels::attn::pad_head_dim_bf16(
-                        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
+                        values.slot(plan.inputs(op)[1],
+                                    plan.value(plan.inputs(op)[1])),
+                        attn_v, N, num_kv_heads, d, dk, stream);
                 }
                 // Windowed (A3): the tail rows' cells only, from their
                 // slice of the descriptors — the hand-written tail
@@ -2095,15 +2111,15 @@ void llama_like_forward_declared(
                 if (peel_window_d != nullptr &&
                     win_region == WinRegion::Tail) {
                     kernels::attn::write_kv_explicit_bf16_devwin(
-                        kv_view, attn_k, attn_v,
+                        kv_view, kv_src(0, attn_k), kv_src(1, attn_v),
                         w_page_d, w_off_d,
                         peel_window_d, N, stream, row_valid_d);
                     break;
                 }
                 kernels::attn::write_kv_explicit_bf16(
                     kv_view,
-                    bf16_row(attn_k, win_start, Hk),
-                    bf16_row(attn_v, win_start, Hk),
+                    bf16_row(kv_src(0, attn_k), win_start, in_w(0)),
+                    bf16_row(kv_src(1, attn_v), win_start, in_w(1)),
                     w_page_d + win_start, w_off_d + win_start,
                     win_len, stream,
                     row_valid_d != nullptr ? row_valid_d + win_start
@@ -2144,9 +2160,13 @@ void llama_like_forward_declared(
                     kernels::attn::pad_head_dim_bf16(
                         ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
                     kernels::attn::pad_head_dim_bf16(
-                        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+                        values.slot(plan.inputs(op)[0],
+                                    plan.value(plan.inputs(op)[0])),
+                        attn_k, N, num_kv_heads, d, dk, stream);
                     kernels::attn::pad_head_dim_bf16(
-                        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
+                        values.slot(plan.inputs(op)[1],
+                                    plan.value(plan.inputs(op)[1])),
+                        attn_v, N, num_kv_heads, d, dk, stream);
                 }
                 // Windowed (A3): base pointers stay; `first_token` skips
                 // the fused-prefix rows the peel's other region already
@@ -2155,14 +2175,14 @@ void llama_like_forward_declared(
                 if (peel_window_d != nullptr &&
                     win_region == WinRegion::Tail) {
                     kernels::attn::write_kv_to_pages_bf16_devwin(
-                        kv_view, attn_k, attn_v,
+                        kv_view, kv_src(0, attn_k), kv_src(1, attn_v),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         peel_window_d, N, R, stream, row_valid_d);
                     break;
                 }
                 kernels::attn::write_kv_to_pages(
-                    kv_view, attn_k, attn_v,
+                    kv_view, kv_src(0, attn_k), kv_src(1, attn_v),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
                     N, R, stream, row_valid_d,
