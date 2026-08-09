@@ -50,6 +50,7 @@ pub mod loader;
 pub mod pipeline;
 pub mod region;
 pub mod shader;
+pub mod store;
 pub mod tuning;
 
 pub use error::{Error, Result};
