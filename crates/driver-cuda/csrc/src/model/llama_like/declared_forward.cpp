@@ -270,6 +270,32 @@ const DeviceTensor* require(const DeviceTensor* t, std::string_view name) {
     return t;
 }
 
+// The DENSE view, and a refusal where `make_weight_view` used to be.
+//
+// A semantic `Matmul` means one arithmetic over a weight read directly;
+// that is the whole of what the kind says, and it fans to exactly one
+// kernel. When a checkpoint's weight is stored some other way, the
+// DECLARATION says so — `MatW::repr` picks the symbol and names the
+// scale tensors, and the Launch arm binds them.
+//
+// So a layer that carries a quant descriptor while the statement records
+// a plain `Matmul` is FACTS DRIFT: the trace was built against a dense
+// deployment and this one is not. `make_weight_view` used to absorb that
+// silently by routing on the descriptor, which is exactly the shape this
+// arc is removing. It throws instead.
+WeightView dense(const DeviceTensor& t,
+                 const std::optional<QuantMeta>& meta,
+                 std::string_view name) {
+    if (meta.has_value()) {
+        throw std::runtime_error(
+            "declared forward: '" + std::string(name) +
+            "' is stored quantized but the trace records a dense Matmul "
+            "over it -- the facts this class was traced with say the "
+            "deployment is bf16 (MatW::repr)");
+    }
+    return WeightView(t);
+}
+
 // The launcher registry's vocabulary: every kernel a class trace may
 // STATE as a `Launch` op (dsl::cuda's raw signatures), one enum value per
 // launcher symbol. `resolve_launch_kernel` is the registry lookup; the
@@ -284,6 +310,14 @@ enum class LaunchKernel {
     // choosing here is what this replaces.
     RmsnormRow,
     RmsnormRowGemma,
+    // The WEIGHT REPRESENTATION axis. One entry per storage, because the
+    // statement names which -- `MatW::gemm_symbol` -- where the Matmul
+    // arm below used to build a `WeightView` out of a per-layer
+    // descriptor and let `gemm::act_x_w` route on it.
+    MatmulTensorScaled,
+    MatmulChannelScaled,
+    MatmulGroupedScaled,
+    MatmulMxfp4Marlin,
     RopeStandardTable,
     QkvDecodeQkNormRopeWriteKv,
     QkRmsnormRope,
@@ -305,6 +339,14 @@ LaunchKernel resolve_launch_kernel(std::string_view kernel) {
     if (kernel == "norm::rmsnorm_bf16") return LaunchKernel::RmsnormRow;
     if (kernel == "norm::rmsnorm_gemma_bf16")
         return LaunchKernel::RmsnormRowGemma;
+    if (kernel == "gemm::act_x_wt_tensor_scaled")
+        return LaunchKernel::MatmulTensorScaled;
+    if (kernel == "gemm::act_x_wt_channel_scaled")
+        return LaunchKernel::MatmulChannelScaled;
+    if (kernel == "gemm::act_x_wt_grouped_scaled")
+        return LaunchKernel::MatmulGroupedScaled;
+    if (kernel == "gemm::act_x_wt_mxfp4_marlin")
+        return LaunchKernel::MatmulMxfp4Marlin;
     if (kernel == "mlp::chunked_swiglu_bf16") {
         return LaunchKernel::ChunkedSwiglu;
     }
@@ -381,7 +423,7 @@ inline const void* bf16_row(const void* base, int row, int width) {
 
 // Rung 3 (north-star-dsl.md): the static C++ form of the class traces,
 // emitted by `cargo run -p pie-forward --bin emit-cuda` and committed.
-// Uses the helpers above (require, make_weight_view); the digest constant
+// Uses the helpers above (require, dense); the digest constant
 // it defines names the deployment it was emitted from, and the dispatch
 // in `llama_like_forward_declared` runs it only on exact match.
 #include "model/llama_like/generated/qwen3_0_6b.inc"
@@ -425,6 +467,7 @@ enum class NoPlanReason {
     TensorParallel,       // all-reduces the trace does not state
     LayerBinding,         // no layers, or a count that disagrees with the config
     QuantizedProjection,  // QuantMeta WeightViews the trace does not describe
+    MixedProjectionRepr,  // two storage kinds where the facts carry one
     MixedFusedQkv,        // a per-layer split that makes the fused_qkv fact a lie
     QkvBiasUnbound,       // the config says bias, the tensors did not arrive
     QkNormConvention,     // a q/k-norm weight shape that names no convention
@@ -437,6 +480,7 @@ const char* no_plan_name(NoPlanReason r) {
     case NoPlanReason::TensorParallel:      return "tensor-parallel";
     case NoPlanReason::LayerBinding:        return "layer-binding";
     case NoPlanReason::QuantizedProjection: return "quantized-projection";
+    case NoPlanReason::MixedProjectionRepr: return "mixed-projection-repr";
     case NoPlanReason::MixedFusedQkv:       return "mixed-fused-qkv";
     case NoPlanReason::QkvBiasUnbound:      return "qkv-bias-unbound";
     case NoPlanReason::QkNormConvention:    return "qk-norm-convention";
@@ -505,14 +549,38 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
         return refuse(NoPlanReason::LayerBinding);
     }
     const bool fused_qkv = w.layers[0].qkv_proj_fused != nullptr;
+    // The deployment's WEIGHT REPRESENTATION, read once off layer 0's
+    // binding. This is the whole of what `make_weight_view` used to ask
+    // per call site, asked once and handed to the DECLARATION instead
+    // (`LlamaLikeCudaFacts::proj_repr`), which then states a symbol per
+    // projection and names the scale tensors it needs.
+    //
+    // Read off `o_proj` because it is the one projection every
+    // configuration binds separately -- a fused-QKV deployment has no
+    // `q_proj` and a packed-gate_up one no `gate_proj`, so either would
+    // read as dense on a checkpoint that is not.
+    const std::optional<QuantMeta>& repr_meta = w.layers[0].o_proj_quant;
     for (const auto& layer : w.layers) {
-        // Quantized projections route through QuantMeta WeightViews the
-        // trace does not describe; and a mixed fused/unfused binding would
-        // make the single `fused_qkv` fact a lie.
-        if (layer.q_proj_quant || layer.k_proj_quant || layer.v_proj_quant ||
-            layer.o_proj_quant || layer.gate_proj_quant ||
-            layer.up_proj_quant || layer.down_proj_quant) {
-            return refuse(NoPlanReason::QuantizedProjection);
+        // A mixed fused/unfused binding would make the single
+        // `fused_qkv` fact a lie -- and so would a mixed
+        // representation make `proj_repr` one. The declaration carries
+        // ONE answer per deployment, so a deployment with two is
+        // refused by name rather than half-stated.
+        const auto same_repr = [&](const std::optional<QuantMeta>& m) {
+            if (m.has_value() != repr_meta.has_value()) return false;
+            if (!m.has_value()) return true;
+            return m->kind == repr_meta->kind &&
+                   m->group_size == repr_meta->group_size &&
+                   m->channel_axis == repr_meta->channel_axis &&
+                   (m->zero_point != nullptr) ==
+                       (repr_meta->zero_point != nullptr);
+        };
+        if (!same_repr(layer.q_proj_quant) || !same_repr(layer.k_proj_quant) ||
+            !same_repr(layer.v_proj_quant) || !same_repr(layer.o_proj_quant) ||
+            !same_repr(layer.gate_proj_quant) ||
+            !same_repr(layer.up_proj_quant) ||
+            !same_repr(layer.down_proj_quant)) {
+            return refuse(NoPlanReason::MixedProjectionRepr);
         }
         if ((layer.qkv_proj_fused != nullptr) != fused_qkv) {
             return refuse(NoPlanReason::MixedFusedQkv);
@@ -631,6 +699,37 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
     // disagrees, rather than trusting this line.
     cuda.gate_up_fused =
         (!w.layers.empty() && w.layers[0].gate_up_proj_fused != nullptr) ? 1 : 0;
+    // The WEIGHT REPRESENTATION, from the binding read above. This is
+    // the line that replaced `NoPlanReason::QuantizedProjection`: the
+    // deployment used to be refused here because the trace could not
+    // describe its weights, and now it describes them.
+    //
+    // The payload rides beside the tag rather than in a union, matching
+    // the wire (`PieForwardWeightRepr`). `group_size` and `channel_axis`
+    // are the checkpoint's own numbers -- the loader read them out of
+    // the quantization config -- so nothing here derives anything.
+    if (!repr_meta.has_value()) {
+        cuda.proj_repr =
+            static_cast<std::uint32_t>(pie_forward::PieForwardWeightRepr::Bf16);
+    } else {
+        switch (repr_meta->kind) {
+        case QuantMeta::Kind::PerTensor:
+            cuda.proj_repr = static_cast<std::uint32_t>(
+                pie_forward::PieForwardWeightRepr::ScaledPerTensor);
+            break;
+        case QuantMeta::Kind::PerChannel:
+            cuda.proj_repr = static_cast<std::uint32_t>(
+                pie_forward::PieForwardWeightRepr::ScaledPerChannel);
+            break;
+        case QuantMeta::Kind::PerGroup:
+            cuda.proj_repr = static_cast<std::uint32_t>(
+                pie_forward::PieForwardWeightRepr::ScaledPerGroup);
+            break;
+        }
+        cuda.proj_zero_point = repr_meta->zero_point != nullptr ? 1 : 0;
+        cuda.proj_group = static_cast<std::uint32_t>(repr_meta->group_size);
+        cuda.proj_axis = static_cast<std::uint32_t>(repr_meta->channel_axis);
+    }
 
     out.decode = pie_forward::ForwardPlan::trace_llama_like_cuda(
         facts, cuda, pie_forward::PieForwardFireClass::Decode);
@@ -664,7 +763,10 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
         "/dfp" + std::to_string(cuda.decode_fused_post) +
         "/rt" + std::to_string(cuda.rope_table) +
         "/fpp" + std::to_string(cuda.force_prefill_path) +
-        "/pad" + std::to_string(cuda.head_dim_padded);
+        "/pad" + std::to_string(cuda.head_dim_padded) +
+        // The WEIGHT REPRESENTATION -- see the Rust printer for why the
+        // payload beside it is deliberately not in here.
+        "/pr" + std::to_string(cuda.proj_repr);
     return out;
 }
 
@@ -1471,20 +1573,17 @@ void llama_like_forward_declared(
             } else if (nm.field == "q_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
-                    make_weight_view(&wb.require(name),
-                                     layer.q_proj_quant),
+                    dense(wb.require(name), layer.q_proj_quant, name),
                     out_slot(0), N, out_w(0), in_w(0));
             } else if (nm.field == "k_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
-                    make_weight_view(&wb.require(name),
-                                     layer.k_proj_quant),
+                    dense(wb.require(name), layer.k_proj_quant, name),
                     out_slot(0), N, out_w(0), in_w(0));
             } else if (nm.field == "v_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
-                    make_weight_view(&wb.require(name),
-                                     layer.v_proj_quant),
+                    dense(wb.require(name), layer.v_proj_quant, name),
                     out_slot(0), N, out_w(0), in_w(0));
             } else if (nm.field == "o_proj") {
                 if (post_norm) {
@@ -1499,8 +1598,7 @@ void llama_like_forward_declared(
                         // inputs[0] is the activation on both forms.
                         values.slot(plan.inputs(op)[0],
                                     plan.value(plan.inputs(op)[0])),
-                        make_weight_view(&wb.require(name),
-                                         layer.o_proj_quant),
+                        dense(wb.require(name), layer.o_proj_quant, name),
                         out_slot(0), N, out_w(0), in_w(0), beta);
                 } else {
                     // Residual accumulate folded into the GEMM (beta from
@@ -1513,8 +1611,7 @@ void llama_like_forward_declared(
                         // inputs[0] is the activation on both forms.
                         values.slot(plan.inputs(op)[0],
                                     plan.value(plan.inputs(op)[0])),
-                        make_weight_view(&wb.require(name),
-                                         layer.o_proj_quant),
+                        dense(wb.require(name), layer.o_proj_quant, name),
                         out_slot(0), N, out_w(0), in_w(0), beta);
                 }
             } else if (nm.field == "gate_up") {
@@ -1541,15 +1638,13 @@ void llama_like_forward_declared(
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
-                        make_weight_view(
-                            &wb.require_field(nm.layer, "gate_proj", name),
-                            layer.gate_proj_quant),
+                        dense(wb.require_field(nm.layer, "gate_proj", name),
+                              layer.gate_proj_quant, name),
                         ws.gate.data(), N, I, H);
                     kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
-                        make_weight_view(
-                            &wb.require_field(nm.layer, "up_proj", name),
-                            layer.up_proj_quant),
+                        dense(wb.require_field(nm.layer, "up_proj", name),
+                              layer.up_proj_quant, name),
                         ws.up.data(), N, I, H);
                 }
             } else if (nm.field == "down") {
@@ -1562,14 +1657,12 @@ void llama_like_forward_declared(
                     // Rmsnorm(mlp_norm) + ResidualAdd — as o_proj above.
                     kernels::gemm::act_x_w(cublas.handle(),
                         down_in,
-                        make_weight_view(&wb.require(name),
-                                         layer.down_proj_quant),
+                        dense(wb.require(name), layer.down_proj_quant, name),
                         out_slot(0), N, out_w(0), in_w(0), beta);
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),
                         down_in,
-                        make_weight_view(&wb.require(name),
-                                         layer.down_proj_quant),
+                        dense(wb.require(name), layer.down_proj_quant, name),
                         out_slot(0), N, out_w(0), in_w(0), beta);
                 }
             } else {
@@ -1790,6 +1883,42 @@ void llama_like_forward_declared(
                         ws.gate.data(), ws.up.data(), dst,
                         N * out_w(0), stream);
                 }
+                break;
+            }
+            case LaunchKernel::MatmulTensorScaled:
+            case LaunchKernel::MatmulChannelScaled:
+            case LaunchKernel::MatmulGroupedScaled:
+            case LaunchKernel::MatmulMxfp4Marlin: {
+                // BINDING, not routing. The symbol the registry matched
+                // says which storage; the statement's weight list says
+                // which tensors — `[W, scales]`, plus `zeros` when the
+                // checkpoint carries them. Nothing here reads a
+                // descriptor, which is the whole of what 1b buys.
+                const auto aux = plan.aux_names(op);
+                if (aux.size < 2 || aux.size > 3) {
+                    throw std::runtime_error(
+                        "declared forward: a scaled projection names " +
+                        std::to_string(aux.size) +
+                        " weights, wants 2 (W, scales) or 3 (+ zeros)");
+                }
+                const auto matched = resolve_launch_kernel(plan.weight_name(op));
+                const declared::ScaledRepr repr =
+                    matched == LaunchKernel::MatmulTensorScaled
+                        ? declared::ScaledRepr::PerTensor
+                    : matched == LaunchKernel::MatmulChannelScaled
+                        ? declared::ScaledRepr::PerChannel
+                    : matched == LaunchKernel::MatmulGroupedScaled
+                        ? declared::ScaledRepr::PerGroup
+                        : declared::ScaledRepr::Mxfp4Marlin;
+                declared::arm_scaled_matmul(
+                    {plan, values, N, 0, stream}, op, repr, cublas.handle(),
+                    wb.require(plan.name(aux[0])),
+                    wb.require(plan.name(aux[1])),
+                    aux.size == 3 ? &wb.require(plan.name(aux[2])) : nullptr,
+                    // A quantized projection never folds its residual:
+                    // `try_fold_residual` refuses a `Launch`, so the
+                    // landing is a stated `residual_add` of its own.
+                    0.f);
                 break;
             }
             case LaunchKernel::RmsnormRow:

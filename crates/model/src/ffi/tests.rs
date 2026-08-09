@@ -869,6 +869,11 @@ fn c_cuda_facts_synthetic() -> PieForwardQwen35CudaFacts {
         moe_streamed_experts: 0,
         moe_force_general: 0,
         gate_up_fused: 1,
+        // Dense, which is what a zero-initialized C caller means too.
+        proj_repr: 0,
+        proj_zero_point: 0,
+        proj_group: 0,
+        proj_axis: 0,
     }
 }
 
@@ -1100,6 +1105,11 @@ fn lowered_trace_round_trips_through_the_arena() {
         force_prefill_path: 0,
         head_dim_padded: 0,
         gate_up_fused: 1,
+        // Dense, which is what a zero-initialized C caller means too.
+        proj_repr: 0,
+        proj_zero_point: 0,
+        proj_group: 0,
+        proj_axis: 0,
     };
     let mut out = PieForwardPlan::default();
     assert_eq!(
@@ -1259,6 +1269,11 @@ fn traced_cuda_decode() -> PieForwardPlan {
         force_prefill_path: 0,
         head_dim_padded: 0,
         gate_up_fused: 1,
+        // Dense, which is what a zero-initialized C caller means too.
+        proj_repr: 0,
+        proj_zero_point: 0,
+        proj_group: 0,
+        proj_axis: 0,
     };
     let mut out = PieForwardPlan::default();
     assert_eq!(

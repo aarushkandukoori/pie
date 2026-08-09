@@ -276,6 +276,21 @@ enum class PieForwardGuardPred : uint32_t {
   HasLora = 6,
 };
 
+/// Mirrors [`model_compiler::dsl::WeightRepr`]'s discriminants, flattened
+/// to the wire the way every enum here crosses: appended-only, and 0 is
+/// the reading a zero-initialized caller already meant.
+///
+/// The variant's PAYLOAD rides beside it (`proj_group`, `proj_axis`,
+/// `proj_zero_point`) rather than in a union, because C's tagged unions
+/// and this ABI's zero-init rule do not mix.
+enum class PieForwardWeightRepr : uint32_t {
+  Bf16 = 0,
+  ScaledPerTensor = 1,
+  ScaledPerChannel = 2,
+  ScaledPerGroup = 3,
+  Mxfp4Marlin = 4,
+};
+
 /// The llama_like facts, as C states them. Mirrors
 /// [`crate::families::llama_like::forward::facts::LlamaLikeFacts`] field for field.
 ///
@@ -516,6 +531,19 @@ struct PieForwardLlamaLikeCudaFacts {
   /// default is the UNFUSED form, which is the conservative one: it
   /// reads the two narrow buffers a decliner writes.
   uint8_t gate_up_fused;
+  /// How the linear projections are STORED
+  /// ([`PieForwardWeightRepr`]). Appended, and the zero-init rule is
+  /// what makes it safe: 0 is `Bf16`, the dense reading every caller
+  /// written before this field already meant.
+  uint32_t proj_repr;
+  /// The checkpoint carries zero-points beside the scales; non-zero is
+  /// true. Ignored unless `proj_repr` is one of the `Scaled` kinds.
+  uint8_t proj_zero_point;
+  /// Elements per scale under `PerGroup`; zero otherwise.
+  uint32_t proj_group;
+  /// Which axis `PerChannel` runs along. Zero — the output rows — for
+  /// every row-major `[N, K]` checkpoint this driver reads.
+  uint32_t proj_axis;
 };
 
 /// The qwen3_5_moe MLP-block facts, as C states them. Mirrors
@@ -745,6 +773,13 @@ struct PieForwardQwen35CudaFacts {
   uint8_t moe_force_general;
   /// The dense MLP bound a packed gate_up bank.
   uint8_t gate_up_fused;
+  /// How the linear projections are STORED ([`PieForwardWeightRepr`]),
+  /// with the payload that rides beside it. Same wire shape and same
+  /// zero-init rule as [`PieForwardLlamaLikeCudaFacts`]'s four.
+  uint32_t proj_repr;
+  uint8_t proj_zero_point;
+  uint32_t proj_group;
+  uint32_t proj_axis;
 };
 
 /// One row of a fire as the engine's seriation ordered them — the input

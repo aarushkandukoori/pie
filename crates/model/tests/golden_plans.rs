@@ -35,6 +35,7 @@ use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeF
 use model::gemma_4::forward::facts::{Gemma4CudaFacts, Gemma4Facts};
 use model::gpt_oss::forward::facts::{GptOssCudaFacts, GptOssFacts};
 use model::qwen_3_5::forward::facts::{Qwen35CudaFacts, Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MoeMlpFacts};
+use model_compiler::dsl::WeightRepr;
 use model_compiler::{FireClass, ForwardPlan, HookStage, OpKind};
 
 fn golden_path(name: &str) -> PathBuf {
@@ -144,6 +145,7 @@ fn qwen2_5_1_5b_cuda_decode() {
                 force_prefill_path: true,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             FireClass::Decode,
         ),
@@ -163,6 +165,7 @@ fn qwen2_5_1_5b_cuda_prefill() {
                 force_prefill_path: true,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             FireClass::Prefill,
         ),
@@ -186,6 +189,7 @@ fn phi3_mini_cuda_decode() {
                 force_prefill_path: false,
                 head_dim_padded: true,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             FireClass::Decode,
         ),
@@ -205,6 +209,7 @@ fn phi3_mini_cuda_prefill() {
                 force_prefill_path: false,
                 head_dim_padded: true,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             FireClass::Prefill,
         ),
@@ -562,6 +567,7 @@ fn mistral_7b_v03_cuda_decode() {
                 force_prefill_path: false,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             FireClass::Decode,
         ),
@@ -581,6 +587,7 @@ fn mistral_7b_v03_cuda_prefill() {
                 force_prefill_path: false,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             FireClass::Prefill,
         ),

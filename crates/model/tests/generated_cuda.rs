@@ -4,6 +4,7 @@
 //! happen quietly. Regenerate with `cargo run -p pie-forward --bin
 //! emit-cuda` and review the diff; then re-run the three-way parity gate.
 
+use model_compiler::dsl::WeightRepr;
 use model::families::llama_like::forward::emit::emit_llama_like_cuda_inc;
 use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeFacts};
 
@@ -55,6 +56,7 @@ fn committed_incs_are_regeneration_clean() {
                 force_prefill_path: false,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             "olmo2_1b",
         ),
@@ -70,6 +72,7 @@ fn committed_incs_are_regeneration_clean() {
                 force_prefill_path: true,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             "qwen2_5_1_5b",
         ),
@@ -85,6 +88,7 @@ fn committed_incs_are_regeneration_clean() {
                 force_prefill_path: false,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             "mistral_7b_v03",
         ),
@@ -100,6 +104,7 @@ fn committed_incs_are_regeneration_clean() {
                 force_prefill_path: false,
                 head_dim_padded: true,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             "phi3_mini",
         ),
@@ -124,6 +129,7 @@ fn committed_incs_are_regeneration_clean() {
                 moe_streamed_experts: false,
                 moe_force_general: false,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
             },
             "qwen3_5_0_8b",
         ),

@@ -15,6 +15,7 @@
 use model::families::llama_like::forward::emit::emit_llama_like_cuda_inc;
 use model::qwen_3_5::forward::emit::emit_qwen35_cuda_inc;
 use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeFacts};
+use model_compiler::dsl::WeightRepr;
 use model::qwen_3_5::forward::facts::{Qwen35CudaFacts, Qwen35HybridFacts};
 
 fn write_inc_at(family: &str, name: &str, contents: &str) {
@@ -72,6 +73,9 @@ fn main() {
                 force_prefill_path: false,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                // Dense: these fixtures are the BF16 deployments
+                // emission was taken against.
+                proj_repr: WeightRepr::Bf16,
             },
             "olmo2_1b",
         ),
@@ -96,6 +100,9 @@ fn main() {
                 force_prefill_path: true,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                // Dense: these fixtures are the BF16 deployments
+                // emission was taken against.
+                proj_repr: WeightRepr::Bf16,
             },
             "qwen2_5_1_5b",
         ),
@@ -120,6 +127,9 @@ fn main() {
                 force_prefill_path: false,
                 head_dim_padded: false,
                 gate_up_fused: true,
+                // Dense: these fixtures are the BF16 deployments
+                // emission was taken against.
+                proj_repr: WeightRepr::Bf16,
             },
             "mistral_7b_v03",
         ),
@@ -144,6 +154,9 @@ fn main() {
                 force_prefill_path: false,
                 head_dim_padded: true,
                 gate_up_fused: true,
+                // Dense: these fixtures are the BF16 deployments
+                // emission was taken against.
+                proj_repr: WeightRepr::Bf16,
             },
             "phi3_mini",
         ),
@@ -183,6 +196,8 @@ fn main() {
                 // 0.8B binds the packed bank; the emitted body states the
                 // chunked activation rather than reading a workspace.
                 gate_up_fused: true,
+                // 0.8B is a BF16 checkpoint.
+                proj_repr: WeightRepr::Bf16,
             },
             "qwen3_5_0_8b",
         ),

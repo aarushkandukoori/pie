@@ -7,10 +7,10 @@
 // three-way parity gate. One TU per deployment; the `mistral_7b_v03` suffix
 // keeps the symbols apart and the digest constant names the pair.
 //
-// Emitted from: llama_like/h4096/l32/qh32/kvh8/hd128/i14336/v32768/rope0/nv0/np0/qk0/fq1/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0
+// Emitted from: llama_like/h4096/l32/qh32/kvh8/hd128/i14336/v32768/rope0/nv0/np0/qk0/fq1/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0
 
 constexpr const char* kGeneratedDigest_mistral_7b_v03 =
-    "llama_like/h4096/l32/qh32/kvh8/hd128/i14336/v32768/rope0/nv0/np0/qk0/fq1/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0";
+    "llama_like/h4096/l32/qh32/kvh8/hd128/i14336/v32768/rope0/nv0/np0/qk0/fq1/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0";
 
 inline void generated_llama_like_decode_mistral_7b_v03(
 const Qwen3Weights& w,
@@ -526,7 +526,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
+        dense(*require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant, "layer.0.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[0].mlp_norm, "layer.0.mlp_norm")->data(),
@@ -539,7 +539,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
+        dense(*require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant, "layer.0.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -933,7 +933,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
+        dense(*require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant, "layer.1.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[1].mlp_norm, "layer.1.mlp_norm")->data(),
@@ -946,7 +946,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
+        dense(*require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant, "layer.1.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -1340,7 +1340,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
+        dense(*require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant, "layer.2.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[2].mlp_norm, "layer.2.mlp_norm")->data(),
@@ -1353,7 +1353,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
+        dense(*require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant, "layer.2.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -1747,7 +1747,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
+        dense(*require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant, "layer.3.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[3].mlp_norm, "layer.3.mlp_norm")->data(),
@@ -1760,7 +1760,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
+        dense(*require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant, "layer.3.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -2154,7 +2154,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
+        dense(*require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant, "layer.4.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[4].mlp_norm, "layer.4.mlp_norm")->data(),
@@ -2167,7 +2167,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
+        dense(*require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant, "layer.4.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -2561,7 +2561,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
+        dense(*require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant, "layer.5.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[5].mlp_norm, "layer.5.mlp_norm")->data(),
@@ -2574,7 +2574,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
+        dense(*require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant, "layer.5.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -2968,7 +2968,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
+        dense(*require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant, "layer.6.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[6].mlp_norm, "layer.6.mlp_norm")->data(),
@@ -2981,7 +2981,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
+        dense(*require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant, "layer.6.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -3375,7 +3375,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
+        dense(*require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant, "layer.7.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[7].mlp_norm, "layer.7.mlp_norm")->data(),
@@ -3388,7 +3388,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
+        dense(*require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant, "layer.7.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -3782,7 +3782,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
+        dense(*require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant, "layer.8.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[8].mlp_norm, "layer.8.mlp_norm")->data(),
@@ -3795,7 +3795,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
+        dense(*require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant, "layer.8.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -4189,7 +4189,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
+        dense(*require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant, "layer.9.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[9].mlp_norm, "layer.9.mlp_norm")->data(),
@@ -4202,7 +4202,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
+        dense(*require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant, "layer.9.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -4596,7 +4596,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
+        dense(*require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant, "layer.10.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[10].mlp_norm, "layer.10.mlp_norm")->data(),
@@ -4609,7 +4609,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
+        dense(*require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant, "layer.10.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -5003,7 +5003,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
+        dense(*require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant, "layer.11.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[11].mlp_norm, "layer.11.mlp_norm")->data(),
@@ -5016,7 +5016,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
+        dense(*require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant, "layer.11.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -5410,7 +5410,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
+        dense(*require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant, "layer.12.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[12].mlp_norm, "layer.12.mlp_norm")->data(),
@@ -5423,7 +5423,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
+        dense(*require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant, "layer.12.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -5817,7 +5817,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
+        dense(*require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant, "layer.13.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[13].mlp_norm, "layer.13.mlp_norm")->data(),
@@ -5830,7 +5830,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
+        dense(*require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant, "layer.13.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -6224,7 +6224,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
+        dense(*require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant, "layer.14.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[14].mlp_norm, "layer.14.mlp_norm")->data(),
@@ -6237,7 +6237,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
+        dense(*require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant, "layer.14.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -6631,7 +6631,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
+        dense(*require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant, "layer.15.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[15].mlp_norm, "layer.15.mlp_norm")->data(),
@@ -6644,7 +6644,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
+        dense(*require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant, "layer.15.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -7038,7 +7038,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant),
+        dense(*require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant, "layer.16.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[16].mlp_norm, "layer.16.mlp_norm")->data(),
@@ -7051,7 +7051,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant),
+        dense(*require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant, "layer.16.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -7445,7 +7445,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant),
+        dense(*require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant, "layer.17.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[17].mlp_norm, "layer.17.mlp_norm")->data(),
@@ -7458,7 +7458,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant),
+        dense(*require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant, "layer.17.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -7852,7 +7852,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant),
+        dense(*require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant, "layer.18.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[18].mlp_norm, "layer.18.mlp_norm")->data(),
@@ -7865,7 +7865,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant),
+        dense(*require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant, "layer.18.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -8259,7 +8259,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant),
+        dense(*require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant, "layer.19.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[19].mlp_norm, "layer.19.mlp_norm")->data(),
@@ -8272,7 +8272,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant),
+        dense(*require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant, "layer.19.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -8666,7 +8666,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant),
+        dense(*require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant, "layer.20.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[20].mlp_norm, "layer.20.mlp_norm")->data(),
@@ -8679,7 +8679,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant),
+        dense(*require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant, "layer.20.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -9073,7 +9073,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant),
+        dense(*require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant, "layer.21.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[21].mlp_norm, "layer.21.mlp_norm")->data(),
@@ -9086,7 +9086,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant),
+        dense(*require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant, "layer.21.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -9480,7 +9480,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant),
+        dense(*require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant, "layer.22.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[22].mlp_norm, "layer.22.mlp_norm")->data(),
@@ -9493,7 +9493,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant),
+        dense(*require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant, "layer.22.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -9887,7 +9887,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant),
+        dense(*require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant, "layer.23.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[23].mlp_norm, "layer.23.mlp_norm")->data(),
@@ -9900,7 +9900,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant),
+        dense(*require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant, "layer.23.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -10294,7 +10294,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant),
+        dense(*require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant, "layer.24.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[24].mlp_norm, "layer.24.mlp_norm")->data(),
@@ -10307,7 +10307,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[24].down_proj, "layer.24.down"), w.layers[24].down_proj_quant),
+        dense(*require(w.layers[24].down_proj, "layer.24.down"), w.layers[24].down_proj_quant, "layer.24.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -10701,7 +10701,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant),
+        dense(*require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant, "layer.25.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[25].mlp_norm, "layer.25.mlp_norm")->data(),
@@ -10714,7 +10714,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[25].down_proj, "layer.25.down"), w.layers[25].down_proj_quant),
+        dense(*require(w.layers[25].down_proj, "layer.25.down"), w.layers[25].down_proj_quant, "layer.25.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -11108,7 +11108,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant),
+        dense(*require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant, "layer.26.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[26].mlp_norm, "layer.26.mlp_norm")->data(),
@@ -11121,7 +11121,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[26].down_proj, "layer.26.down"), w.layers[26].down_proj_quant),
+        dense(*require(w.layers[26].down_proj, "layer.26.down"), w.layers[26].down_proj_quant, "layer.26.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -11515,7 +11515,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant),
+        dense(*require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant, "layer.27.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[27].mlp_norm, "layer.27.mlp_norm")->data(),
@@ -11528,7 +11528,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[27].down_proj, "layer.27.down"), w.layers[27].down_proj_quant),
+        dense(*require(w.layers[27].down_proj, "layer.27.down"), w.layers[27].down_proj_quant, "layer.27.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -11922,7 +11922,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant),
+        dense(*require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant, "layer.28.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[28].mlp_norm, "layer.28.mlp_norm")->data(),
@@ -11935,7 +11935,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[28].down_proj, "layer.28.down"), w.layers[28].down_proj_quant),
+        dense(*require(w.layers[28].down_proj, "layer.28.down"), w.layers[28].down_proj_quant, "layer.28.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -12329,7 +12329,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant),
+        dense(*require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant, "layer.29.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[29].mlp_norm, "layer.29.mlp_norm")->data(),
@@ -12342,7 +12342,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[29].down_proj, "layer.29.down"), w.layers[29].down_proj_quant),
+        dense(*require(w.layers[29].down_proj, "layer.29.down"), w.layers[29].down_proj_quant, "layer.29.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -12736,7 +12736,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant),
+        dense(*require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant, "layer.30.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[30].mlp_norm, "layer.30.mlp_norm")->data(),
@@ -12749,7 +12749,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[30].down_proj, "layer.30.down"), w.layers[30].down_proj_quant),
+        dense(*require(w.layers[30].down_proj, "layer.30.down"), w.layers[30].down_proj_quant, "layer.30.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -13143,7 +13143,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant),
+        dense(*require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant, "layer.31.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[31].mlp_norm, "layer.31.mlp_norm")->data(),
@@ -13156,7 +13156,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[31].down_proj, "layer.31.down"), w.layers[31].down_proj_quant),
+        dense(*require(w.layers[31].down_proj, "layer.31.down"), w.layers[31].down_proj_quant, "layer.31.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -13626,7 +13626,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
+        dense(*require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant, "layer.0.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[0].mlp_norm, "layer.0.mlp_norm")->data(),
@@ -13639,7 +13639,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
+        dense(*require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant, "layer.0.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -13953,7 +13953,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
+        dense(*require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant, "layer.1.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[1].mlp_norm, "layer.1.mlp_norm")->data(),
@@ -13966,7 +13966,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
+        dense(*require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant, "layer.1.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -14280,7 +14280,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
+        dense(*require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant, "layer.2.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[2].mlp_norm, "layer.2.mlp_norm")->data(),
@@ -14293,7 +14293,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
+        dense(*require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant, "layer.2.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -14607,7 +14607,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
+        dense(*require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant, "layer.3.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[3].mlp_norm, "layer.3.mlp_norm")->data(),
@@ -14620,7 +14620,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
+        dense(*require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant, "layer.3.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -14934,7 +14934,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
+        dense(*require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant, "layer.4.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[4].mlp_norm, "layer.4.mlp_norm")->data(),
@@ -14947,7 +14947,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
+        dense(*require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant, "layer.4.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -15261,7 +15261,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
+        dense(*require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant, "layer.5.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[5].mlp_norm, "layer.5.mlp_norm")->data(),
@@ -15274,7 +15274,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
+        dense(*require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant, "layer.5.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -15588,7 +15588,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
+        dense(*require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant, "layer.6.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[6].mlp_norm, "layer.6.mlp_norm")->data(),
@@ -15601,7 +15601,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
+        dense(*require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant, "layer.6.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -15915,7 +15915,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
+        dense(*require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant, "layer.7.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[7].mlp_norm, "layer.7.mlp_norm")->data(),
@@ -15928,7 +15928,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
+        dense(*require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant, "layer.7.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -16242,7 +16242,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
+        dense(*require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant, "layer.8.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[8].mlp_norm, "layer.8.mlp_norm")->data(),
@@ -16255,7 +16255,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
+        dense(*require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant, "layer.8.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -16569,7 +16569,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
+        dense(*require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant, "layer.9.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[9].mlp_norm, "layer.9.mlp_norm")->data(),
@@ -16582,7 +16582,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
+        dense(*require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant, "layer.9.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -16896,7 +16896,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
+        dense(*require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant, "layer.10.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[10].mlp_norm, "layer.10.mlp_norm")->data(),
@@ -16909,7 +16909,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
+        dense(*require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant, "layer.10.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -17223,7 +17223,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
+        dense(*require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant, "layer.11.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[11].mlp_norm, "layer.11.mlp_norm")->data(),
@@ -17236,7 +17236,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
+        dense(*require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant, "layer.11.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -17550,7 +17550,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
+        dense(*require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant, "layer.12.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[12].mlp_norm, "layer.12.mlp_norm")->data(),
@@ -17563,7 +17563,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
+        dense(*require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant, "layer.12.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -17877,7 +17877,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
+        dense(*require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant, "layer.13.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[13].mlp_norm, "layer.13.mlp_norm")->data(),
@@ -17890,7 +17890,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
+        dense(*require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant, "layer.13.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -18204,7 +18204,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
+        dense(*require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant, "layer.14.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[14].mlp_norm, "layer.14.mlp_norm")->data(),
@@ -18217,7 +18217,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
+        dense(*require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant, "layer.14.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -18531,7 +18531,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
+        dense(*require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant, "layer.15.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[15].mlp_norm, "layer.15.mlp_norm")->data(),
@@ -18544,7 +18544,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
+        dense(*require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant, "layer.15.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -18858,7 +18858,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant),
+        dense(*require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant, "layer.16.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[16].mlp_norm, "layer.16.mlp_norm")->data(),
@@ -18871,7 +18871,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant),
+        dense(*require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant, "layer.16.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -19185,7 +19185,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant),
+        dense(*require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant, "layer.17.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[17].mlp_norm, "layer.17.mlp_norm")->data(),
@@ -19198,7 +19198,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant),
+        dense(*require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant, "layer.17.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -19512,7 +19512,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant),
+        dense(*require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant, "layer.18.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[18].mlp_norm, "layer.18.mlp_norm")->data(),
@@ -19525,7 +19525,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant),
+        dense(*require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant, "layer.18.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -19839,7 +19839,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant),
+        dense(*require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant, "layer.19.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[19].mlp_norm, "layer.19.mlp_norm")->data(),
@@ -19852,7 +19852,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant),
+        dense(*require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant, "layer.19.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -20166,7 +20166,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant),
+        dense(*require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant, "layer.20.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[20].mlp_norm, "layer.20.mlp_norm")->data(),
@@ -20179,7 +20179,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant),
+        dense(*require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant, "layer.20.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -20493,7 +20493,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant),
+        dense(*require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant, "layer.21.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[21].mlp_norm, "layer.21.mlp_norm")->data(),
@@ -20506,7 +20506,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant),
+        dense(*require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant, "layer.21.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -20820,7 +20820,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant),
+        dense(*require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant, "layer.22.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[22].mlp_norm, "layer.22.mlp_norm")->data(),
@@ -20833,7 +20833,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant),
+        dense(*require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant, "layer.22.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -21147,7 +21147,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant),
+        dense(*require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant, "layer.23.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[23].mlp_norm, "layer.23.mlp_norm")->data(),
@@ -21160,7 +21160,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant),
+        dense(*require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant, "layer.23.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -21474,7 +21474,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant),
+        dense(*require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant, "layer.24.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[24].mlp_norm, "layer.24.mlp_norm")->data(),
@@ -21487,7 +21487,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[24].down_proj, "layer.24.down"), w.layers[24].down_proj_quant),
+        dense(*require(w.layers[24].down_proj, "layer.24.down"), w.layers[24].down_proj_quant, "layer.24.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -21801,7 +21801,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant),
+        dense(*require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant, "layer.25.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[25].mlp_norm, "layer.25.mlp_norm")->data(),
@@ -21814,7 +21814,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[25].down_proj, "layer.25.down"), w.layers[25].down_proj_quant),
+        dense(*require(w.layers[25].down_proj, "layer.25.down"), w.layers[25].down_proj_quant, "layer.25.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -22128,7 +22128,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant),
+        dense(*require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant, "layer.26.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[26].mlp_norm, "layer.26.mlp_norm")->data(),
@@ -22141,7 +22141,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[26].down_proj, "layer.26.down"), w.layers[26].down_proj_quant),
+        dense(*require(w.layers[26].down_proj, "layer.26.down"), w.layers[26].down_proj_quant, "layer.26.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -22455,7 +22455,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant),
+        dense(*require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant, "layer.27.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[27].mlp_norm, "layer.27.mlp_norm")->data(),
@@ -22468,7 +22468,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[27].down_proj, "layer.27.down"), w.layers[27].down_proj_quant),
+        dense(*require(w.layers[27].down_proj, "layer.27.down"), w.layers[27].down_proj_quant, "layer.27.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -22782,7 +22782,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant),
+        dense(*require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant, "layer.28.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[28].mlp_norm, "layer.28.mlp_norm")->data(),
@@ -22795,7 +22795,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[28].down_proj, "layer.28.down"), w.layers[28].down_proj_quant),
+        dense(*require(w.layers[28].down_proj, "layer.28.down"), w.layers[28].down_proj_quant, "layer.28.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -23109,7 +23109,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant),
+        dense(*require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant, "layer.29.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[29].mlp_norm, "layer.29.mlp_norm")->data(),
@@ -23122,7 +23122,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[29].down_proj, "layer.29.down"), w.layers[29].down_proj_quant),
+        dense(*require(w.layers[29].down_proj, "layer.29.down"), w.layers[29].down_proj_quant, "layer.29.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -23436,7 +23436,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant),
+        dense(*require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant, "layer.30.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[30].mlp_norm, "layer.30.mlp_norm")->data(),
@@ -23449,7 +23449,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[30].down_proj, "layer.30.down"), w.layers[30].down_proj_quant),
+        dense(*require(w.layers[30].down_proj, "layer.30.down"), w.layers[30].down_proj_quant, "layer.30.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -23763,7 +23763,7 @@ std::uint32_t declared_full_depth_rows)
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant),
+        dense(*require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant, "layer.31.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[31].mlp_norm, "layer.31.mlp_norm")->data(),
@@ -23776,7 +23776,7 @@ std::uint32_t declared_full_depth_rows)
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[31].down_proj, "layer.31.down"), w.layers[31].down_proj_quant),
+        dense(*require(w.layers[31].down_proj, "layer.31.down"), w.layers[31].down_proj_quant, "layer.31.down"),
         ws.y.data(), N, H, I, 1.f);
     }
     }
@@ -24008,7 +24008,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
+        dense(*require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant, "layer.0.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[0].mlp_norm, "layer.0.mlp_norm")->data(),
@@ -24021,7 +24021,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
+        dense(*require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant, "layer.0.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[1].attn_norm, "layer.1.attn_norm")->data(),
@@ -24087,7 +24087,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
+        dense(*require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant, "layer.1.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[1].mlp_norm, "layer.1.mlp_norm")->data(),
@@ -24100,7 +24100,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
+        dense(*require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant, "layer.1.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[2].attn_norm, "layer.2.attn_norm")->data(),
@@ -24166,7 +24166,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
+        dense(*require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant, "layer.2.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[2].mlp_norm, "layer.2.mlp_norm")->data(),
@@ -24179,7 +24179,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
+        dense(*require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant, "layer.2.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[3].attn_norm, "layer.3.attn_norm")->data(),
@@ -24245,7 +24245,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
+        dense(*require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant, "layer.3.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[3].mlp_norm, "layer.3.mlp_norm")->data(),
@@ -24258,7 +24258,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
+        dense(*require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant, "layer.3.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[4].attn_norm, "layer.4.attn_norm")->data(),
@@ -24324,7 +24324,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
+        dense(*require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant, "layer.4.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[4].mlp_norm, "layer.4.mlp_norm")->data(),
@@ -24337,7 +24337,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
+        dense(*require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant, "layer.4.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[5].attn_norm, "layer.5.attn_norm")->data(),
@@ -24403,7 +24403,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
+        dense(*require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant, "layer.5.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[5].mlp_norm, "layer.5.mlp_norm")->data(),
@@ -24416,7 +24416,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
+        dense(*require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant, "layer.5.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[6].attn_norm, "layer.6.attn_norm")->data(),
@@ -24482,7 +24482,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
+        dense(*require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant, "layer.6.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[6].mlp_norm, "layer.6.mlp_norm")->data(),
@@ -24495,7 +24495,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
+        dense(*require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant, "layer.6.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[7].attn_norm, "layer.7.attn_norm")->data(),
@@ -24561,7 +24561,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
+        dense(*require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant, "layer.7.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[7].mlp_norm, "layer.7.mlp_norm")->data(),
@@ -24574,7 +24574,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
+        dense(*require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant, "layer.7.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[8].attn_norm, "layer.8.attn_norm")->data(),
@@ -24640,7 +24640,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
+        dense(*require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant, "layer.8.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[8].mlp_norm, "layer.8.mlp_norm")->data(),
@@ -24653,7 +24653,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
+        dense(*require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant, "layer.8.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[9].attn_norm, "layer.9.attn_norm")->data(),
@@ -24719,7 +24719,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
+        dense(*require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant, "layer.9.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[9].mlp_norm, "layer.9.mlp_norm")->data(),
@@ -24732,7 +24732,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
+        dense(*require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant, "layer.9.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[10].attn_norm, "layer.10.attn_norm")->data(),
@@ -24798,7 +24798,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
+        dense(*require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant, "layer.10.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[10].mlp_norm, "layer.10.mlp_norm")->data(),
@@ -24811,7 +24811,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
+        dense(*require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant, "layer.10.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[11].attn_norm, "layer.11.attn_norm")->data(),
@@ -24877,7 +24877,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
+        dense(*require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant, "layer.11.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[11].mlp_norm, "layer.11.mlp_norm")->data(),
@@ -24890,7 +24890,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
+        dense(*require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant, "layer.11.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[12].attn_norm, "layer.12.attn_norm")->data(),
@@ -24956,7 +24956,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
+        dense(*require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant, "layer.12.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[12].mlp_norm, "layer.12.mlp_norm")->data(),
@@ -24969,7 +24969,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
+        dense(*require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant, "layer.12.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[13].attn_norm, "layer.13.attn_norm")->data(),
@@ -25035,7 +25035,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
+        dense(*require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant, "layer.13.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[13].mlp_norm, "layer.13.mlp_norm")->data(),
@@ -25048,7 +25048,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
+        dense(*require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant, "layer.13.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[14].attn_norm, "layer.14.attn_norm")->data(),
@@ -25114,7 +25114,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
+        dense(*require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant, "layer.14.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[14].mlp_norm, "layer.14.mlp_norm")->data(),
@@ -25127,7 +25127,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
+        dense(*require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant, "layer.14.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[15].attn_norm, "layer.15.attn_norm")->data(),
@@ -25193,7 +25193,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
+        dense(*require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant, "layer.15.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[15].mlp_norm, "layer.15.mlp_norm")->data(),
@@ -25206,7 +25206,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
+        dense(*require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant, "layer.15.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[16].attn_norm, "layer.16.attn_norm")->data(),
@@ -25272,7 +25272,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant),
+        dense(*require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant, "layer.16.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[16].mlp_norm, "layer.16.mlp_norm")->data(),
@@ -25285,7 +25285,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant),
+        dense(*require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant, "layer.16.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[17].attn_norm, "layer.17.attn_norm")->data(),
@@ -25351,7 +25351,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant),
+        dense(*require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant, "layer.17.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[17].mlp_norm, "layer.17.mlp_norm")->data(),
@@ -25364,7 +25364,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant),
+        dense(*require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant, "layer.17.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[18].attn_norm, "layer.18.attn_norm")->data(),
@@ -25430,7 +25430,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant),
+        dense(*require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant, "layer.18.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[18].mlp_norm, "layer.18.mlp_norm")->data(),
@@ -25443,7 +25443,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant),
+        dense(*require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant, "layer.18.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[19].attn_norm, "layer.19.attn_norm")->data(),
@@ -25509,7 +25509,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant),
+        dense(*require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant, "layer.19.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[19].mlp_norm, "layer.19.mlp_norm")->data(),
@@ -25522,7 +25522,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant),
+        dense(*require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant, "layer.19.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[20].attn_norm, "layer.20.attn_norm")->data(),
@@ -25588,7 +25588,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant),
+        dense(*require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant, "layer.20.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[20].mlp_norm, "layer.20.mlp_norm")->data(),
@@ -25601,7 +25601,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant),
+        dense(*require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant, "layer.20.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[21].attn_norm, "layer.21.attn_norm")->data(),
@@ -25667,7 +25667,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant),
+        dense(*require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant, "layer.21.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[21].mlp_norm, "layer.21.mlp_norm")->data(),
@@ -25680,7 +25680,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant),
+        dense(*require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant, "layer.21.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[22].attn_norm, "layer.22.attn_norm")->data(),
@@ -25746,7 +25746,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant),
+        dense(*require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant, "layer.22.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[22].mlp_norm, "layer.22.mlp_norm")->data(),
@@ -25759,7 +25759,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant),
+        dense(*require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant, "layer.22.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[23].attn_norm, "layer.23.attn_norm")->data(),
@@ -25825,7 +25825,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant),
+        dense(*require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant, "layer.23.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[23].mlp_norm, "layer.23.mlp_norm")->data(),
@@ -25838,7 +25838,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant),
+        dense(*require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant, "layer.23.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[24].attn_norm, "layer.24.attn_norm")->data(),
@@ -25904,7 +25904,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant),
+        dense(*require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant, "layer.24.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[24].mlp_norm, "layer.24.mlp_norm")->data(),
@@ -25917,7 +25917,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[24].down_proj, "layer.24.down"), w.layers[24].down_proj_quant),
+        dense(*require(w.layers[24].down_proj, "layer.24.down"), w.layers[24].down_proj_quant, "layer.24.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[25].attn_norm, "layer.25.attn_norm")->data(),
@@ -25983,7 +25983,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant),
+        dense(*require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant, "layer.25.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[25].mlp_norm, "layer.25.mlp_norm")->data(),
@@ -25996,7 +25996,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[25].down_proj, "layer.25.down"), w.layers[25].down_proj_quant),
+        dense(*require(w.layers[25].down_proj, "layer.25.down"), w.layers[25].down_proj_quant, "layer.25.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[26].attn_norm, "layer.26.attn_norm")->data(),
@@ -26062,7 +26062,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant),
+        dense(*require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant, "layer.26.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[26].mlp_norm, "layer.26.mlp_norm")->data(),
@@ -26075,7 +26075,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[26].down_proj, "layer.26.down"), w.layers[26].down_proj_quant),
+        dense(*require(w.layers[26].down_proj, "layer.26.down"), w.layers[26].down_proj_quant, "layer.26.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[27].attn_norm, "layer.27.attn_norm")->data(),
@@ -26141,7 +26141,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant),
+        dense(*require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant, "layer.27.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[27].mlp_norm, "layer.27.mlp_norm")->data(),
@@ -26154,7 +26154,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[27].down_proj, "layer.27.down"), w.layers[27].down_proj_quant),
+        dense(*require(w.layers[27].down_proj, "layer.27.down"), w.layers[27].down_proj_quant, "layer.27.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[28].attn_norm, "layer.28.attn_norm")->data(),
@@ -26220,7 +26220,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant),
+        dense(*require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant, "layer.28.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[28].mlp_norm, "layer.28.mlp_norm")->data(),
@@ -26233,7 +26233,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[28].down_proj, "layer.28.down"), w.layers[28].down_proj_quant),
+        dense(*require(w.layers[28].down_proj, "layer.28.down"), w.layers[28].down_proj_quant, "layer.28.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[29].attn_norm, "layer.29.attn_norm")->data(),
@@ -26299,7 +26299,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant),
+        dense(*require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant, "layer.29.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[29].mlp_norm, "layer.29.mlp_norm")->data(),
@@ -26312,7 +26312,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[29].down_proj, "layer.29.down"), w.layers[29].down_proj_quant),
+        dense(*require(w.layers[29].down_proj, "layer.29.down"), w.layers[29].down_proj_quant, "layer.29.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[30].attn_norm, "layer.30.attn_norm")->data(),
@@ -26378,7 +26378,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant),
+        dense(*require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant, "layer.30.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[30].mlp_norm, "layer.30.mlp_norm")->data(),
@@ -26391,7 +26391,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[30].down_proj, "layer.30.down"), w.layers[30].down_proj_quant),
+        dense(*require(w.layers[30].down_proj, "layer.30.down"), w.layers[30].down_proj_quant, "layer.30.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[31].attn_norm, "layer.31.attn_norm")->data(),
@@ -26457,7 +26457,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant),
+        dense(*require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant, "layer.31.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[31].mlp_norm, "layer.31.mlp_norm")->data(),
@@ -26470,7 +26470,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[31].down_proj, "layer.31.down"), w.layers[31].down_proj_quant),
+        dense(*require(w.layers[31].down_proj, "layer.31.down"), w.layers[31].down_proj_quant, "layer.31.down"),
         ws.y.data(), N, H, I, 1.f);
     // final_norm: deferred into the LmHead epilogue below.
     if (fwd_cfg.emit_logits) {
@@ -26600,7 +26600,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant),
+        dense(*require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant, "layer.0.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[0].mlp_norm, "layer.0.mlp_norm")->data(),
@@ -26613,7 +26613,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant),
+        dense(*require(w.layers[0].down_proj, "layer.0.down"), w.layers[0].down_proj_quant, "layer.0.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[1].attn_norm, "layer.1.attn_norm")->data(),
@@ -26704,7 +26704,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant),
+        dense(*require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant, "layer.1.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[1].mlp_norm, "layer.1.mlp_norm")->data(),
@@ -26717,7 +26717,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant),
+        dense(*require(w.layers[1].down_proj, "layer.1.down"), w.layers[1].down_proj_quant, "layer.1.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[2].attn_norm, "layer.2.attn_norm")->data(),
@@ -26808,7 +26808,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant),
+        dense(*require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant, "layer.2.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[2].mlp_norm, "layer.2.mlp_norm")->data(),
@@ -26821,7 +26821,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant),
+        dense(*require(w.layers[2].down_proj, "layer.2.down"), w.layers[2].down_proj_quant, "layer.2.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[3].attn_norm, "layer.3.attn_norm")->data(),
@@ -26912,7 +26912,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant),
+        dense(*require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant, "layer.3.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[3].mlp_norm, "layer.3.mlp_norm")->data(),
@@ -26925,7 +26925,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant),
+        dense(*require(w.layers[3].down_proj, "layer.3.down"), w.layers[3].down_proj_quant, "layer.3.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[4].attn_norm, "layer.4.attn_norm")->data(),
@@ -27016,7 +27016,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant),
+        dense(*require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant, "layer.4.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[4].mlp_norm, "layer.4.mlp_norm")->data(),
@@ -27029,7 +27029,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant),
+        dense(*require(w.layers[4].down_proj, "layer.4.down"), w.layers[4].down_proj_quant, "layer.4.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[5].attn_norm, "layer.5.attn_norm")->data(),
@@ -27120,7 +27120,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant),
+        dense(*require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant, "layer.5.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[5].mlp_norm, "layer.5.mlp_norm")->data(),
@@ -27133,7 +27133,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant),
+        dense(*require(w.layers[5].down_proj, "layer.5.down"), w.layers[5].down_proj_quant, "layer.5.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[6].attn_norm, "layer.6.attn_norm")->data(),
@@ -27224,7 +27224,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant),
+        dense(*require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant, "layer.6.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[6].mlp_norm, "layer.6.mlp_norm")->data(),
@@ -27237,7 +27237,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant),
+        dense(*require(w.layers[6].down_proj, "layer.6.down"), w.layers[6].down_proj_quant, "layer.6.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[7].attn_norm, "layer.7.attn_norm")->data(),
@@ -27328,7 +27328,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant),
+        dense(*require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant, "layer.7.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[7].mlp_norm, "layer.7.mlp_norm")->data(),
@@ -27341,7 +27341,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant),
+        dense(*require(w.layers[7].down_proj, "layer.7.down"), w.layers[7].down_proj_quant, "layer.7.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[8].attn_norm, "layer.8.attn_norm")->data(),
@@ -27432,7 +27432,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant),
+        dense(*require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant, "layer.8.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[8].mlp_norm, "layer.8.mlp_norm")->data(),
@@ -27445,7 +27445,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant),
+        dense(*require(w.layers[8].down_proj, "layer.8.down"), w.layers[8].down_proj_quant, "layer.8.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[9].attn_norm, "layer.9.attn_norm")->data(),
@@ -27536,7 +27536,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant),
+        dense(*require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant, "layer.9.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[9].mlp_norm, "layer.9.mlp_norm")->data(),
@@ -27549,7 +27549,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant),
+        dense(*require(w.layers[9].down_proj, "layer.9.down"), w.layers[9].down_proj_quant, "layer.9.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[10].attn_norm, "layer.10.attn_norm")->data(),
@@ -27640,7 +27640,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant),
+        dense(*require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant, "layer.10.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[10].mlp_norm, "layer.10.mlp_norm")->data(),
@@ -27653,7 +27653,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant),
+        dense(*require(w.layers[10].down_proj, "layer.10.down"), w.layers[10].down_proj_quant, "layer.10.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[11].attn_norm, "layer.11.attn_norm")->data(),
@@ -27744,7 +27744,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant),
+        dense(*require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant, "layer.11.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[11].mlp_norm, "layer.11.mlp_norm")->data(),
@@ -27757,7 +27757,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant),
+        dense(*require(w.layers[11].down_proj, "layer.11.down"), w.layers[11].down_proj_quant, "layer.11.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[12].attn_norm, "layer.12.attn_norm")->data(),
@@ -27848,7 +27848,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant),
+        dense(*require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant, "layer.12.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[12].mlp_norm, "layer.12.mlp_norm")->data(),
@@ -27861,7 +27861,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant),
+        dense(*require(w.layers[12].down_proj, "layer.12.down"), w.layers[12].down_proj_quant, "layer.12.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[13].attn_norm, "layer.13.attn_norm")->data(),
@@ -27952,7 +27952,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant),
+        dense(*require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant, "layer.13.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[13].mlp_norm, "layer.13.mlp_norm")->data(),
@@ -27965,7 +27965,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant),
+        dense(*require(w.layers[13].down_proj, "layer.13.down"), w.layers[13].down_proj_quant, "layer.13.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[14].attn_norm, "layer.14.attn_norm")->data(),
@@ -28056,7 +28056,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant),
+        dense(*require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant, "layer.14.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[14].mlp_norm, "layer.14.mlp_norm")->data(),
@@ -28069,7 +28069,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant),
+        dense(*require(w.layers[14].down_proj, "layer.14.down"), w.layers[14].down_proj_quant, "layer.14.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[15].attn_norm, "layer.15.attn_norm")->data(),
@@ -28160,7 +28160,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant),
+        dense(*require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant, "layer.15.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[15].mlp_norm, "layer.15.mlp_norm")->data(),
@@ -28173,7 +28173,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant),
+        dense(*require(w.layers[15].down_proj, "layer.15.down"), w.layers[15].down_proj_quant, "layer.15.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[16].attn_norm, "layer.16.attn_norm")->data(),
@@ -28264,7 +28264,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant),
+        dense(*require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant, "layer.16.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[16].mlp_norm, "layer.16.mlp_norm")->data(),
@@ -28277,7 +28277,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant),
+        dense(*require(w.layers[16].down_proj, "layer.16.down"), w.layers[16].down_proj_quant, "layer.16.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[17].attn_norm, "layer.17.attn_norm")->data(),
@@ -28368,7 +28368,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant),
+        dense(*require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant, "layer.17.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[17].mlp_norm, "layer.17.mlp_norm")->data(),
@@ -28381,7 +28381,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant),
+        dense(*require(w.layers[17].down_proj, "layer.17.down"), w.layers[17].down_proj_quant, "layer.17.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[18].attn_norm, "layer.18.attn_norm")->data(),
@@ -28472,7 +28472,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant),
+        dense(*require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant, "layer.18.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[18].mlp_norm, "layer.18.mlp_norm")->data(),
@@ -28485,7 +28485,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant),
+        dense(*require(w.layers[18].down_proj, "layer.18.down"), w.layers[18].down_proj_quant, "layer.18.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[19].attn_norm, "layer.19.attn_norm")->data(),
@@ -28576,7 +28576,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant),
+        dense(*require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant, "layer.19.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[19].mlp_norm, "layer.19.mlp_norm")->data(),
@@ -28589,7 +28589,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant),
+        dense(*require(w.layers[19].down_proj, "layer.19.down"), w.layers[19].down_proj_quant, "layer.19.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[20].attn_norm, "layer.20.attn_norm")->data(),
@@ -28680,7 +28680,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant),
+        dense(*require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant, "layer.20.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[20].mlp_norm, "layer.20.mlp_norm")->data(),
@@ -28693,7 +28693,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant),
+        dense(*require(w.layers[20].down_proj, "layer.20.down"), w.layers[20].down_proj_quant, "layer.20.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[21].attn_norm, "layer.21.attn_norm")->data(),
@@ -28784,7 +28784,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant),
+        dense(*require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant, "layer.21.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[21].mlp_norm, "layer.21.mlp_norm")->data(),
@@ -28797,7 +28797,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant),
+        dense(*require(w.layers[21].down_proj, "layer.21.down"), w.layers[21].down_proj_quant, "layer.21.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[22].attn_norm, "layer.22.attn_norm")->data(),
@@ -28888,7 +28888,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant),
+        dense(*require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant, "layer.22.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[22].mlp_norm, "layer.22.mlp_norm")->data(),
@@ -28901,7 +28901,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant),
+        dense(*require(w.layers[22].down_proj, "layer.22.down"), w.layers[22].down_proj_quant, "layer.22.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[23].attn_norm, "layer.23.attn_norm")->data(),
@@ -28992,7 +28992,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant),
+        dense(*require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant, "layer.23.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[23].mlp_norm, "layer.23.mlp_norm")->data(),
@@ -29005,7 +29005,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant),
+        dense(*require(w.layers[23].down_proj, "layer.23.down"), w.layers[23].down_proj_quant, "layer.23.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[24].attn_norm, "layer.24.attn_norm")->data(),
@@ -29096,7 +29096,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant),
+        dense(*require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant, "layer.24.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[24].mlp_norm, "layer.24.mlp_norm")->data(),
@@ -29109,7 +29109,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[24].down_proj, "layer.24.down"), w.layers[24].down_proj_quant),
+        dense(*require(w.layers[24].down_proj, "layer.24.down"), w.layers[24].down_proj_quant, "layer.24.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[25].attn_norm, "layer.25.attn_norm")->data(),
@@ -29200,7 +29200,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant),
+        dense(*require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant, "layer.25.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[25].mlp_norm, "layer.25.mlp_norm")->data(),
@@ -29213,7 +29213,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[25].down_proj, "layer.25.down"), w.layers[25].down_proj_quant),
+        dense(*require(w.layers[25].down_proj, "layer.25.down"), w.layers[25].down_proj_quant, "layer.25.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[26].attn_norm, "layer.26.attn_norm")->data(),
@@ -29304,7 +29304,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant),
+        dense(*require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant, "layer.26.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[26].mlp_norm, "layer.26.mlp_norm")->data(),
@@ -29317,7 +29317,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[26].down_proj, "layer.26.down"), w.layers[26].down_proj_quant),
+        dense(*require(w.layers[26].down_proj, "layer.26.down"), w.layers[26].down_proj_quant, "layer.26.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[27].attn_norm, "layer.27.attn_norm")->data(),
@@ -29408,7 +29408,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant),
+        dense(*require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant, "layer.27.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[27].mlp_norm, "layer.27.mlp_norm")->data(),
@@ -29421,7 +29421,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[27].down_proj, "layer.27.down"), w.layers[27].down_proj_quant),
+        dense(*require(w.layers[27].down_proj, "layer.27.down"), w.layers[27].down_proj_quant, "layer.27.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[28].attn_norm, "layer.28.attn_norm")->data(),
@@ -29512,7 +29512,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant),
+        dense(*require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant, "layer.28.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[28].mlp_norm, "layer.28.mlp_norm")->data(),
@@ -29525,7 +29525,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[28].down_proj, "layer.28.down"), w.layers[28].down_proj_quant),
+        dense(*require(w.layers[28].down_proj, "layer.28.down"), w.layers[28].down_proj_quant, "layer.28.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[29].attn_norm, "layer.29.attn_norm")->data(),
@@ -29616,7 +29616,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant),
+        dense(*require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant, "layer.29.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[29].mlp_norm, "layer.29.mlp_norm")->data(),
@@ -29629,7 +29629,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[29].down_proj, "layer.29.down"), w.layers[29].down_proj_quant),
+        dense(*require(w.layers[29].down_proj, "layer.29.down"), w.layers[29].down_proj_quant, "layer.29.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[30].attn_norm, "layer.30.attn_norm")->data(),
@@ -29720,7 +29720,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant),
+        dense(*require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant, "layer.30.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[30].mlp_norm, "layer.30.mlp_norm")->data(),
@@ -29733,7 +29733,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[30].down_proj, "layer.30.down"), w.layers[30].down_proj_quant),
+        dense(*require(w.layers[30].down_proj, "layer.30.down"), w.layers[30].down_proj_quant, "layer.30.down"),
         ws.y.data(), N, H, I, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[31].attn_norm, "layer.31.attn_norm")->data(),
@@ -29824,7 +29824,7 @@ std::uint32_t declared_full_depth_rows,
     }
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
-        make_weight_view(require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant),
+        dense(*require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant, "layer.31.o_proj"),
         ws.y.data(), N, H, Hq, 1.f);
     kernels::norm::rmsnorm_bf16(
         ws.y.data(), require(w.layers[31].mlp_norm, "layer.31.mlp_norm")->data(),
@@ -29837,7 +29837,7 @@ std::uint32_t declared_full_depth_rows,
         ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.gate.data(),
-        make_weight_view(require(w.layers[31].down_proj, "layer.31.down"), w.layers[31].down_proj_quant),
+        dense(*require(w.layers[31].down_proj, "layer.31.down"), w.layers[31].down_proj_quant, "layer.31.down"),
         ws.y.data(), N, H, I, 1.f);
     // final_norm: deferred into the LmHead epilogue below.
     if (fwd_cfg.emit_logits) {

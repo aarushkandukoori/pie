@@ -22,6 +22,7 @@
 #include <string>
 
 #include "attn/split_packed.hpp"
+#include "gemm/gemm.hpp"
 #include "layout/embed.hpp"
 #include "layout/gather_rows.hpp"
 #include "norm/residual_add.hpp"
@@ -232,6 +233,94 @@ inline void arm_rmsnorm(const ArmCtx& c,
         kernels::norm::rmsnorm_bf16(values.slot(ins[0]), weight,
                                     values.slot(outs[0]), rows, width, eps,
                                     stream);
+    }
+}
+
+// ── the WEIGHT REPRESENTATION axis ─────────────────────────────────
+//
+// Which storage a projection's weight is in used to be a question the
+// DRIVER answered: `make_weight_view(&wb.require(name), layer.q_proj_quant)`
+// looked into a per-layer descriptor the statement never mentioned, and
+// `gemm::act_x_w` routed on what it found. Eighteen call sites across
+// two executors, and every one of them was the driver knowing something
+// the declaration did not.
+//
+// Now the declaration STATES the symbol (`MatW::gemm_symbol`) and NAMES
+// the scale tensors (`MatW::scale_names`), so the executor's whole job
+// is to bind: the enum below is the registry's match, not a decision.
+enum class ScaledRepr { PerTensor, PerChannel, PerGroup, Mxfp4Marlin };
+
+// `y = x @ Wᵀ` over a weight stored some way other than dense bf16.
+//
+// The statement's weights are `[W, scales, (zeros)]` in that order —
+// `MatW::scale_names` derives the last two off the first, which is how
+// the loader already finds them, so a caller resolves three names and
+// passes three pointers.
+//
+// The group size is DERIVED from the scale tensor rather than read off a
+// descriptor, and that is not the same kind of fact as a kernel choice:
+// the symbol already fixed the layout, and `K / (scales per row)` is
+// arithmetic on two shapes the plan and the checkpoint both state. If
+// they disagree the checkpoint is malformed, which is why it throws
+// rather than picking something.
+inline void arm_scaled_matmul(const ArmCtx& c,
+                              const pie_forward::PieForwardOp& op,
+                              ScaledRepr repr,
+                              cublasHandle_t handle,
+                              const DeviceTensor& w,
+                              const DeviceTensor& scales,
+                              const DeviceTensor* zeros,
+                              float beta) {
+    const auto& plan = c.plan;
+    auto& values = c.values;
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 1, "scaled matmul inputs");
+    need(outs, 1, "scaled matmul outputs");
+    const int M = c.rows;
+    const int N = row_width(plan, outs[0]);
+    const int K = row_width(plan, ins[0]);
+    const void* const act = values.slot(ins[0]);
+    void* const y = values.slot(outs[0]);
+    const void* const zp = zeros != nullptr ? zeros->data() : nullptr;
+    switch (repr) {
+    case ScaledRepr::PerTensor:
+        kernels::gemm::act_x_wt_tensor_scaled(
+            handle, act, w.data(), w.dtype(), w.nbytes(),
+            scales.data(), scales.dtype(), scales.numel(), zp,
+            y, M, N, K, beta);
+        break;
+    case ScaledRepr::PerChannel:
+        // Row-major `[N, K]`, so a channel is an OUTPUT row: axis 0.
+        // The other axis would need `scale_numel == K`, and no
+        // checkpoint this driver reads stores it that way.
+        kernels::gemm::act_x_wt_channel_scaled(
+            handle, act, w.data(), w.dtype(), w.nbytes(),
+            scales.data(), scales.dtype(), scales.numel(), zp, 0,
+            y, M, N, K, beta);
+        break;
+    case ScaledRepr::PerGroup: {
+        const std::size_t per_row =
+            scales.numel() / static_cast<std::size_t>(N > 0 ? N : 1);
+        if (per_row == 0 || static_cast<std::size_t>(K) % per_row != 0) {
+            throw std::runtime_error(
+                "declared arm: a grouped-scaled weight states K=" +
+                std::to_string(K) + " over " + std::to_string(N) +
+                " rows, which does not divide its " +
+                std::to_string(scales.numel()) + " scales");
+        }
+        kernels::gemm::act_x_wt_grouped_scaled(
+            handle, act, w.data(), w.dtype(), w.nbytes(),
+            scales.data(), scales.dtype(), scales.numel(), zp,
+            static_cast<int>(static_cast<std::size_t>(K) / per_row),
+            y, M, N, K, beta);
+        break;
+    }
+    case ScaledRepr::Mxfp4Marlin:
+        kernels::gemm::act_x_wt_mxfp4_marlin(
+            handle, act, w.data(), w.nbytes(),
+            scales.data(), scales.numel(), y, M, N, K, beta);
+        break;
     }
 }
 

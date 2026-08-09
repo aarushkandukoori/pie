@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 // is written in these words. Re-exported so a declaration reaches its
 // facts and the words they are stated in from one place.
 pub use model_compiler::facts::{NormPlacement, QkNorm};
+use model_compiler::dsl::WeightRepr;
 use model_compiler::trace::{NormVariant, RopeKind};
 
 /// The llama_like family's facts: covers qwen3, mistral3, phi3, olmo2/3
@@ -68,6 +69,11 @@ impl LlamaLikeFacts {
             qk_norm: self.qk_norm,
             norm_variant: self.norm_variant,
             tied_embeddings: self.tied_embeddings,
+            // DENSE, because these are the SEMANTIC facts: a trace with
+            // no backend cannot name the kernel a scaled weight needs,
+            // so the representation reaches the namespace from the
+            // BACKEND facts (`llama_like_cuda` overrides it below).
+            proj_repr: model_compiler::dsl::WeightRepr::Bf16,
         }
     }
 
@@ -320,6 +326,27 @@ pub struct LlamaLikeCudaFacts {
     /// Serde-defaulted (append-only discipline).
     #[serde(default)]
     pub gate_up_fused: bool,
+    /// How this deployment STORES its linear projections — the weight
+    /// representation axis ([`model_compiler::dsl::WeightRepr`]).
+    ///
+    /// A pure binding fact, like [`Self::gate_up_fused`], and the last
+    /// one the driver was answering for itself: `make_weight_view` built
+    /// a `WeightView` out of a per-layer `QuantMeta` the statement never
+    /// mentioned and `gemm::act_x_w` routed on it — ten call sites here
+    /// and eight in qwen3.5, every one of them the driver knowing
+    /// something the declaration did not.
+    ///
+    /// ONE repr for the whole deployment rather than one per projection,
+    /// because a checkpoint quantizes uniformly and the build gate
+    /// refuses a mixed binding by name. Where a checkpoint ever does
+    /// mix, this becomes a field per projection and the text asks the
+    /// facts per handle — nothing else changes, which is the point of
+    /// putting the axis on the WEIGHT.
+    ///
+    /// Serde-defaulted to dense (append-only discipline), so a fixture
+    /// written before this field reads exactly as it did.
+    #[serde(default)]
+    pub proj_repr: WeightRepr,
 }
 
 /// The METAL backend's load-time facts — what the Metal deployment
@@ -394,6 +421,10 @@ impl LlamaLikeCudaFacts {
             // so, and the digest refuses the deployment if this fixture
             // and the binding disagree.
             gate_up_fused: true,
+            // Dense. The same contract line says so: a group it packs is
+            // a BF16 one, so a deployment that carries the bank cannot
+            // be quantized.
+            proj_repr: WeightRepr::Bf16,
         }
     }
 }

@@ -7,10 +7,10 @@
 // re-run the A/B battery. Decode + prefill only; the MTP service
 // classes stay on the interpreter walk.
 //
-// Emitted from: qwen3_5/l24/int4/v248320/te1/nv1/ah1024/aqh8/akvh2/ahd256/arot64/afq0/gkh16/gvh16/gkd128/gvd128/gck4/gfi0/moe0/di3584/sb1/wt0/wtm64/cm0/vs1/pd1
+// Emitted from: qwen3_5/l24/int4/v248320/te1/nv1/ah1024/aqh8/akvh2/ahd256/arot64/afq0/gkh16/gvh16/gkd128/gvd128/gck4/gfi0/moe0/di3584/sb1/wt0/wtm64/cm0/vs1/pd1/pr0
 
 constexpr const char* kQ35GeneratedDigest_qwen3_5_0_8b =
-    "qwen3_5/l24/int4/v248320/te1/nv1/ah1024/aqh8/akvh2/ahd256/arot64/afq0/gkh16/gvh16/gkd128/gvd128/gck4/gfi0/moe0/di3584/sb1/wt0/wtm64/cm0/vs1/pd1";
+    "qwen3_5/l24/int4/v248320/te1/nv1/ah1024/aqh8/akvh2/ahd256/arot64/afq0/gkh16/gvh16/gkd128/gvd128/gck4/gfi0/moe0/di3584/sb1/wt0/wtm64/cm0/vs1/pd1/pr0";
 
 inline void generated_qwen35_decode_qwen3_5_0_8b(
 const Qwen3_5Weights& w,

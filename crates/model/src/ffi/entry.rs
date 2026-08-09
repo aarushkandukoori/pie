@@ -23,6 +23,7 @@ use crate::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeF
 use crate::gemma_4::forward::facts::{Gemma4CudaFacts, Gemma4Facts};
 use crate::gpt_oss::forward::facts::{GptOssCudaFacts, GptOssFacts};
 use crate::qwen_3_5::forward::facts::{Qwen35CudaFacts, Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MlpKind, Qwen35MoeMlpFacts};
+use model_compiler::dsl::{ScaleLayout, WeightRepr};
 use model_compiler::facts::{NormPlacement, QkNorm};
 use model_compiler::trace::{FireClass, NormVariant, RopeKind};
 
@@ -142,6 +143,65 @@ pub struct PieForwardLlamaLikeCudaFacts {
     /// default is the UNFUSED form, which is the conservative one: it
     /// reads the two narrow buffers a decliner writes.
     pub gate_up_fused: u8,
+    /// How the linear projections are STORED
+    /// ([`PieForwardWeightRepr`]). Appended, and the zero-init rule is
+    /// what makes it safe: 0 is `Bf16`, the dense reading every caller
+    /// written before this field already meant.
+    pub proj_repr: u32,
+    /// The checkpoint carries zero-points beside the scales; non-zero is
+    /// true. Ignored unless `proj_repr` is one of the `Scaled` kinds.
+    pub proj_zero_point: u8,
+    /// Elements per scale under `PerGroup`; zero otherwise.
+    pub proj_group: u32,
+    /// Which axis `PerChannel` runs along. Zero — the output rows — for
+    /// every row-major `[N, K]` checkpoint this driver reads.
+    pub proj_axis: u32,
+}
+
+/// Mirrors [`model_compiler::dsl::WeightRepr`]'s discriminants, flattened
+/// to the wire the way every enum here crosses: appended-only, and 0 is
+/// the reading a zero-initialized caller already meant.
+///
+/// The variant's PAYLOAD rides beside it (`proj_group`, `proj_axis`,
+/// `proj_zero_point`) rather than in a union, because C's tagged unions
+/// and this ABI's zero-init rule do not mix.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PieForwardWeightRepr {
+    Bf16 = 0,
+    ScaledPerTensor = 1,
+    ScaledPerChannel = 2,
+    ScaledPerGroup = 3,
+    Mxfp4Marlin = 4,
+}
+
+/// The four wire fields into the repr they spell.
+///
+/// A free function over the fields rather than a method on one facts
+/// struct, because more than one family carries the axis and the wire
+/// shape is the same in each — `proj_repr` plus the payload that rides
+/// beside it.
+fn read_weight_repr(repr: u32, group: u32, axis: u32, zero_point: u8) -> WeightRepr {
+    let scaled = |layout| WeightRepr::Scaled {
+        layout,
+        group,
+        axis,
+        zero_point: zero_point != 0,
+    };
+    match repr {
+        0 => WeightRepr::Bf16,
+        1 => scaled(ScaleLayout::PerTensor),
+        2 => scaled(ScaleLayout::PerChannel),
+        3 => scaled(ScaleLayout::PerGroup),
+        4 => WeightRepr::Mxfp4Marlin,
+        // Refusing beats defaulting: a repr this build does not know is
+        // a driver newer than this library, and reading it as dense
+        // would hand the checkpoint's packed nibbles to a bf16 GEMM.
+        other => panic!(
+            "pie_forward: the driver states weight representation {other}, \
+             which this build's vocabulary does not carry"
+        ),
+    }
 }
 
 fn read_cuda_facts(facts: &PieForwardLlamaLikeCudaFacts) -> LlamaLikeCudaFacts {
@@ -152,6 +212,8 @@ fn read_cuda_facts(facts: &PieForwardLlamaLikeCudaFacts) -> LlamaLikeCudaFacts {
         head_dim_padded: facts.head_dim_padded != 0,
         force_prefill_path: facts.force_prefill_path != 0,
         gate_up_fused: facts.gate_up_fused != 0,
+        proj_repr: read_weight_repr(facts.proj_repr, facts.proj_group,
+                                    facts.proj_axis, facts.proj_zero_point),
     }
 }
 
@@ -433,6 +495,13 @@ pub struct PieForwardQwen35CudaFacts {
     pub moe_force_general: u8,
     /// The dense MLP bound a packed gate_up bank.
     pub gate_up_fused: u8,
+    /// How the linear projections are STORED ([`PieForwardWeightRepr`]),
+    /// with the payload that rides beside it. Same wire shape and same
+    /// zero-init rule as [`PieForwardLlamaLikeCudaFacts`]'s four.
+    pub proj_repr: u32,
+    pub proj_zero_point: u8,
+    pub proj_group: u32,
+    pub proj_axis: u32,
 }
 
 fn read_qwen35_cuda_facts(facts: &PieForwardQwen35CudaFacts) -> Qwen35CudaFacts {
@@ -449,6 +518,8 @@ fn read_qwen35_cuda_facts(facts: &PieForwardQwen35CudaFacts) -> Qwen35CudaFacts 
         moe_streamed_experts: facts.moe_streamed_experts != 0,
         moe_force_general: facts.moe_force_general != 0,
         gate_up_fused: facts.gate_up_fused != 0,
+        proj_repr: read_weight_repr(facts.proj_repr, facts.proj_group,
+                                    facts.proj_axis, facts.proj_zero_point),
     }
 }
 
