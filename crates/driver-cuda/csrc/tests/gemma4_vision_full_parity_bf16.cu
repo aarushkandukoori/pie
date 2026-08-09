@@ -146,10 +146,25 @@ Npy load_npy(const std::string& p){std::ifstream f(p,std::ios::binary);if(!f){st
     while(i<sh.size()){while(i<sh.size()&&!isdigit(sh[i]))++i;if(i>=sh.size())break;int64_t v=0;while(i<sh.size()&&isdigit(sh[i]))v=v*10+(sh[i++]-'0');o.shape.push_back(v);}
     o.data.resize((size_t)o.numel()*o.isz);f.read((char*)o.data.data(),(std::streamsize)o.data.size());return o;}
 std::string DIR;std::map<std::string,bf*> cache;
+// A staged checkpoint against the HF reference.
+//
+// `max_abs` alone is not readable on these tensors: they have a wide dynamic
+// range (layer_last has rms 41 and a peak of 1664), so a max deviation quoted
+// next to the rms looks alarming when it is ordinary bf16 rounding on the
+// largest element. bf16 carries an 8-bit significand, so the quantum at
+// magnitude m is about m/256 -- printed here as `quantum`, with the deviation
+// as a fraction of the reference's own peak. Numbers you can judge without
+// going away and computing the scale yourself.
 void ckpt(const char* tag,const bf* d,long n){std::vector<bf> y(n);CK(cudaMemcpy(y.data(),d,n*sizeof(bf),cudaMemcpyDeviceToHost));
-    Npy r=load_npy(g_dir+"/"+tag+"_f32.npy");const float* rp=(const float*)r.data.data();double ma=0,sq=0;
-    for(long i=0;i<n;i++){float v=__bfloat162float(y[i]);ma=std::max(ma,std::abs((double)v-rp[i]));sq+=(double)v*v;}
-    std::printf("  ckpt %-20s max_abs=%.3e rms=%.3f\n",tag,ma,std::sqrt(sq/n));}
+    Npy r=load_npy(g_dir+"/"+tag+"_f32.npy");const float* rp=(const float*)r.data.data();
+    double ma=0,sq=0,rmax=0,esq=0,rsq=0;
+    for(long i=0;i<n;i++){float v=__bfloat162float(y[i]);double e=(double)v-rp[i];
+        ma=std::max(ma,std::abs(e));sq+=(double)v*v;esq+=e*e;rsq+=(double)rp[i]*rp[i];
+        rmax=std::max(rmax,std::abs((double)rp[i]));}
+    std::printf("  ckpt %-20s rms=%8.2f  max|ref|=%9.1f  quantum=%7.2f  "
+                "max_abs=%.3e (%.2f%% of peak)  rel_rms=%.3f%%\n",
+                tag,std::sqrt(sq/n),rmax,rmax/256.0,ma,100*ma/(rmax?rmax:1),
+                100*std::sqrt(esq/(rsq?rsq:1)));}
 bf* Wbf(const std::string& name){auto it=cache.find(name);if(it!=cache.end())return it->second;
     Npy n=load_npy(DIR+"/weights/"+name+".npy");std::vector<bf> hb(n.numel());const float* fp=(const float*)n.data.data();
     for(int64_t i=0;i<n.numel();i++)hb[i]=__float2bfloat16(fp[i]);bf* d;CK(cudaMalloc(&d,hb.size()*sizeof(bf)));
