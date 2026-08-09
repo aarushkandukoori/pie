@@ -42,6 +42,7 @@ mod memory;
 mod pipeline;
 mod pool;
 mod program;
+mod ring;
 mod runtime;
 mod tables;
 mod timestamp;
@@ -67,6 +68,7 @@ pub use program::{
     FusedExecutable, GroupedExecutable, ProgramExecutable, ProgramStage, Pso, RegionExecutable,
     StageExecutable,
 };
+pub use ring::Ring;
 pub use runtime::{
     MAX_FUSED_CHANNELS, MAX_REGIONS_PER_PROGRAM, MAX_REGIONS_PER_STAGE, ORDINAL_BASE, Runtime,
 };

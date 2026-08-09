@@ -95,6 +95,7 @@ M2 command builder — with the two copies agreeing by inspection. One function.
 | C++ | Rust | |
 |---|---|---|
 | `check_readiness_host` | `check` | ported |
+| — | `Words`, `check_words` | added |
 | `M1PrepareOutcome` | `Readiness` | ported |
 | `M1ChannelEffect` | `Effect` | ported |
 | `batch::ChannelTicket` | `Ticket` | ported |
@@ -105,6 +106,12 @@ kind encoded as arithmetic (`0x200 + channel` permanent, `0x300` early, `0x500`
 an unorderable put). Nothing parsed them back, so the distinction was lost the
 moment it was made. `Reason` names each case and `is_permanent` answers the
 question the base addresses were encoding.
+
+`Words` and `check_words` were added when the device ring arrived: the check
+is a function of four ring words, and `ChannelState` was its first caller,
+not its input. `check` is now the snapshot of a `ChannelState` fed into
+`check_words`, and `metal::Ring::snapshot` feeds the same check instead of a
+second copy of it.
 
 ## M3 grouping — `src/pipeline/group.rs`
 

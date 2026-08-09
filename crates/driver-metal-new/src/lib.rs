@@ -65,7 +65,7 @@ pub use metal::{
     GroupedExecutable, Handle, Heap, Keepalive, MAX_BINDINGS, MAX_FUSED_CHANNELS,
     MAX_REGIONS_PER_PROGRAM, MAX_REGIONS_PER_STAGE, MIN_DEPTH, MIN_THREADGROUPS, Mapped, Math,
     Memory, Need, ORDINAL_BASE, PAGE, Pool, PoolStats, Pressure, ProgramExecutable, ProgramStage,
-    Pso, RegionExecutable, Runtime, Slot, StageExecutable, StepEncoder, Stepper,
+    Pso, RegionExecutable, Ring, Runtime, Slot, StageExecutable, StepEncoder, Stepper,
     THREADS_PER_THREADGROUP, TILE, Tables, Timestamps, Timing, Transient, Visibility,
     create_elastic, pages_for_bytes,
 };

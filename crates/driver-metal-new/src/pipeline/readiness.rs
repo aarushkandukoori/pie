@@ -173,6 +173,25 @@ pub enum Readiness {
     },
 }
 
+/// One ring's four words, as a value.
+///
+/// The check below is a function of these four numbers and nothing else; the
+/// [`ChannelState`] it was first written against was its first caller, not
+/// its input. Snapshotting them makes that true in the signature — and lets
+/// the device-backed ring, whose words live in a Metal buffer rather than in
+/// host atomics, feed the same check instead of a hand-rolled copy.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Words {
+    /// The consume sequence.
+    pub head: u64,
+    /// The publish sequence.
+    pub tail: u64,
+    /// Non-zero when a producer faulted the ring.
+    pub poison: u64,
+    /// Non-zero when no further cell will ever arrive.
+    pub closed: u64,
+}
+
 /// Check every channel a fire touches.
 ///
 /// The three slices are parallel and must be the same length; a fire with
@@ -182,6 +201,25 @@ pub enum Readiness {
 /// channel is the earliest one that was not ready rather than an arbitrary one.
 #[must_use]
 pub fn check(channels: &[&ChannelState], effects: &[Effect], tickets: &[Ticket]) -> Readiness {
+    let words: Vec<Words> = channels
+        .iter()
+        .map(|state| Words {
+            head: state.head(),
+            tail: state.tail(),
+            poison: state.poison(),
+            closed: state.closed(),
+        })
+        .collect();
+    check_words(&words, effects, tickets)
+}
+
+/// [`check`], against ring words already in hand.
+///
+/// This is the whole check; [`check`] is the snapshot of a [`ChannelState`]
+/// fed into it. The device ring takes this entry, because its words live in
+/// shared GPU memory and are read once, atomically, rather than four times.
+#[must_use]
+pub fn check_words(channels: &[Words], effects: &[Effect], tickets: &[Ticket]) -> Readiness {
     if channels.len() != effects.len() || channels.len() != tickets.len() {
         return Readiness::Mismatched {
             channels: channels.len(),
@@ -192,8 +230,8 @@ pub fn check(channels: &[&ChannelState], effects: &[Effect], tickets: &[Ticket])
 
     for (index, ((state, effect), ticket)) in channels.iter().zip(effects).zip(tickets).enumerate()
     {
-        let head = state.head();
-        let tail = state.tail();
+        let head = state.head;
+        let tail = state.tail;
         let failed = |reason| Readiness::Failed {
             channel: Some(index),
             reason,
@@ -203,10 +241,10 @@ pub fn check(channels: &[&ChannelState], effects: &[Effect], tickets: &[Ticket])
             reason,
         };
 
-        if state.poison() != 0 {
+        if state.poison != 0 {
             return failed(Reason::Poisoned);
         }
-        if state.closed() != 0 {
+        if state.closed != 0 {
             return failed(Reason::Closed);
         }
         if tail < head {

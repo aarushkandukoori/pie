@@ -78,7 +78,7 @@ pub use plan::{
     ConstPortValue, ExecPlan, StagePlan, adopt_launch_package, bounded_mtp_row_base,
     classify_exec_plan, const_port_value, port_consumes,
 };
-pub use readiness::{Effect, NO_TICKET, Readiness, Reason, Ticket, check};
+pub use readiness::{Effect, NO_TICKET, Readiness, Reason, Ticket, Words, check, check_words};
 pub use registry::{
     Channel, ChannelSpec, Direction, EmittedKernel, Endpoint, Geometry, HostRole, Instance,
     Program, Registry, channel_dtype,
