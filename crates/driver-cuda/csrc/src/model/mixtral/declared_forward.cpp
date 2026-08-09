@@ -24,6 +24,7 @@
 #include "attn/attention_flashinfer.hpp"
 #include "gemm/gemm.hpp"
 #include "model/declared/arms.hpp"
+#include "model/declared/registry.hpp"
 #include "model/declared/value_arena.hpp"
 
 namespace pie_cuda_driver::model {
@@ -72,52 +73,7 @@ std::size_t host_arena_hi() {
 // that plan: `gpt_oss_validate_stated_kernels` walks it at load and a
 // symbol outside this list is a model-load failure, so this list and
 // `family::gpt_oss_cuda` are two spellings of one vocabulary.
-enum class GoKernel {
-    // The ROW norms. Two entries because the SYMBOL says which fold
-    // runs -- `cuda::rmsnorm` picked it from the weight at trace time.
-    RmsnormRow,
-    RmsnormRowGemma,
-    GemmBias,
-    WriteKvToPages,
-    AttnFlashinferDecode,
-    AttnFlashinferPrefill,
-    AttnSinkRescale,
-    RopeYarnOriginal,
-    TopkSoftmax,
-    Bf16ToFp16,
-    Mxfp4GateUp,
-    Mxfp4Down,
-    GptOssGlu,
-    WeightedSum,
-    ResidualAdd,
-};
 
-GoKernel resolve_go_kernel(std::string_view k) {
-    if (k == "norm::rmsnorm_bf16") return GoKernel::RmsnormRow;
-    if (k == "norm::rmsnorm_gemma_bf16") return GoKernel::RmsnormRowGemma;
-    if (k == "gemm::act_x_wt_bias_bf16") return GoKernel::GemmBias;
-    if (k == "attn::write_kv_to_pages") return GoKernel::WriteKvToPages;
-    if (k == "attn::dispatch_attention_flashinfer_decode")
-        return GoKernel::AttnFlashinferDecode;
-    if (k == "attn::attention_flashinfer_prefill")
-        return GoKernel::AttnFlashinferPrefill;
-    if (k == "attn::attention_sink_rescale_bf16")
-        return GoKernel::AttnSinkRescale;
-    if (k == "rope::rope_yarn_original_bf16") return GoKernel::RopeYarnOriginal;
-    if (k == "moe::topk_softmax_bf16") return GoKernel::TopkSoftmax;
-    if (k == "quant::bf16_to_fp16") return GoKernel::Bf16ToFp16;
-    if (k == "quant::mxfp4_moe_gate_up_decode_bf16")
-        return GoKernel::Mxfp4GateUp;
-    if (k == "quant::mxfp4_moe_down_decode_bf16") return GoKernel::Mxfp4Down;
-    if (k == "mlp::gpt_oss_glu_bf16") return GoKernel::GptOssGlu;
-    if (k == "moe::token_batched_weighted_sum_bf16")
-        return GoKernel::WeightedSum;
-    if (k == "norm::residual_add_bf16") return GoKernel::ResidualAdd;
-    throw std::runtime_error(
-        "declared gptoss: stated kernel '" + std::string(k) +
-        "' is not in this executor's registry (the trace and the driver "
-        "drifted)");
-}
 
 [[noreturn]] void throw_drift(const std::string& what) {
     throw std::runtime_error("declared gptoss: " + what +
@@ -243,7 +199,7 @@ void gpt_oss_validate_stated_kernels(const pie_forward::ForwardPlan& plan) {
     for (std::size_t i = 0; i < n; ++i) {
         const auto& op = plan.op(i);
         if (op.kind != pie_forward::PieForwardOpKind::Launch) continue;
-        (void)resolve_go_kernel(plan.weight_name(op));
+        (void)declared::resolve_kernel(plan.weight_name(op));
     }
 }
 
@@ -436,9 +392,9 @@ bool gpt_oss_forward_declared(
                 break;
             case PieForwardOpKind::Launch: {
                 const auto names = plan.aux_names(op);
-                switch (resolve_go_kernel(plan.weight_name(op))) {
-                case GoKernel::RmsnormRow:
-                case GoKernel::RmsnormRowGemma: {
+                switch (declared::resolve_kernel(plan.weight_name(op))) {
+                case declared::Kernel::RmsnormRow:
+                case declared::Kernel::RmsnormRowGemma: {
                     // The MLP norm's result is read TWICE by the MoE
                     // block (router input and cast input), which is why
                     // it had a convention worth recording; the
@@ -448,7 +404,7 @@ bool gpt_oss_forward_declared(
                                                     : ws.norm_x.data());
                     break;
                 }
-                case GoKernel::GemmBias: {
+                case declared::Kernel::GemmBias: {
                     const ParsedName nm = parse_name(plan.name(names[0]));
                     if (nm.field == "q_proj")      place(0, ws.q.data());
                     else if (nm.field == "k_proj") place(0, ws.k.data());
@@ -458,23 +414,23 @@ bool gpt_oss_forward_declared(
                                      std::string(plan.name(names[0])) + "'");
                     break;
                 }
-                case GoKernel::AttnFlashinferDecode:
-                case GoKernel::AttnFlashinferPrefill:
+                case declared::Kernel::AttnFlashinferDecode:
+                case declared::Kernel::AttnFlashinferPrefillPlanless:
                     place(0, ws.attn_out.data());
                     place(1, d_lse.data());
                     break;
-                case GoKernel::AttnSinkRescale:
+                case declared::Kernel::AttnSinkRescale:
                     place(0, ws.attn_out.data());
                     break;
-                case GoKernel::RopeYarnOriginal:
+                case declared::Kernel::RopeYarnOriginal:
                     place(0, ws.q.data());
                     place(1, ws.k.data());
                     break;
-                case GoKernel::TopkSoftmax:
+                case declared::Kernel::TopkSoftmax:
                     place(0, d_topk_idx.data());
                     place(1, d_topk_w.data());
                     break;
-                case GoKernel::Bf16ToFp16:
+                case declared::Kernel::Bf16ToFp16:
                     // The rank test the arm no longer needs, kept HERE
                     // because a pin table is exactly the place a
                     // convention's per-site choice belongs.
@@ -482,23 +438,23 @@ bool gpt_oss_forward_declared(
                                  ? d_act_fp16.data()
                                  : d_route_act_fp16.data());
                     break;
-                case GoKernel::Mxfp4GateUp:
+                case declared::Kernel::Mxfp4GateUp:
                     place(0, d_route_gate.data());
                     place(1, d_route_up.data());
                     break;
-                case GoKernel::GptOssGlu:
+                case declared::Kernel::GptOssGlu:
                     place(0, d_route_gate.data());
                     break;
-                case GoKernel::Mxfp4Down:
+                case declared::Kernel::Mxfp4Down:
                     place(0, d_route_out.data());
                     break;
-                case GoKernel::WeightedSum:
+                case declared::Kernel::WeightedSum:
                     place(0, d_moe_out.data());
                     break;
-                case GoKernel::ResidualAdd:
+                case declared::Kernel::ResidualAdd:
                     place(0, ws.y.data());
                     break;
-                case GoKernel::WriteKvToPages:
+                case declared::Kernel::WriteKvToPages:
                     break;  // writes the cache, not a value
                 }
                 break;
@@ -635,9 +591,9 @@ bool gpt_oss_forward_declared(
             const auto aux = [&](std::size_t i) { return plan.name(names[i]); };
             const MixtralLayerWeights& layer =
                 w.layers[static_cast<std::size_t>(cur_layer)];
-            switch (resolve_go_kernel(sym)) {
-            case GoKernel::RmsnormRow:
-            case GoKernel::RmsnormRowGemma: {
+            switch (declared::resolve_kernel(sym)) {
+            case declared::Kernel::RmsnormRow:
+            case declared::Kernel::RmsnormRowGemma: {
                 // SHARED ARM (D1). The fold comes from the SYMBOL the
                 // registry matched, not from a param this arm reads.
                 const auto nrm = plan.aux_names(op);
@@ -648,10 +604,10 @@ bool gpt_oss_forward_declared(
                 declared::arm_rmsnorm(
                     {plan, values, N, 0, stream}, op,
                     require(w, plan.name(nrm[0])).data(), eps,
-                    resolve_go_kernel(sym) == GoKernel::RmsnormRowGemma);
+                    declared::resolve_kernel(sym) == declared::Kernel::RmsnormRowGemma);
                 break;
             }
-            case GoKernel::GemmBias: {
+            case declared::Kernel::GemmBias: {
                 // ISLAND (value arena). Four sites told apart by the
                 // projection they name, and every branch chose a buffer
                 // pair and a column count the trace already states: q/k/v
@@ -676,7 +632,7 @@ bool gpt_oss_forward_declared(
                     row_width(ins[0]), stream);
                 break;
             }
-            case GoKernel::WriteKvToPages: {
+            case declared::Kernel::WriteKvToPages: {
                 // ISLAND (value arena). k and v are the statement's two
                 // operands; the pages are the SINK and stay the cache's.
                 const auto ins = plan.inputs(op);
@@ -688,7 +644,7 @@ bool gpt_oss_forward_declared(
                     kv_last_page_lens, N, R, stream, row_valid_d);
                 break;
             }
-            case GoKernel::AttnFlashinferPrefill: {
+            case declared::Kernel::AttnFlashinferPrefillPlanless: {
                 auto kv_view = cache.layer_view(cur_layer);
                 // The plan-free wrapper, and it takes the LSE in the same
                 // last slot the decode dispatch does.
@@ -713,7 +669,7 @@ bool gpt_oss_forward_declared(
                     lse);
                 break;
             }
-            case GoKernel::AttnFlashinferDecode: {
+            case declared::Kernel::AttnFlashinferDecode: {
                 auto kv_view = cache.layer_view(cur_layer);
                 // The LSE is the second OUTPUT, and asking for it is the
                 // whole difference between this call and the one every
@@ -735,7 +691,7 @@ bool gpt_oss_forward_declared(
                     lse);
                 break;
             }
-            case GoKernel::AttnSinkRescale: {
+            case declared::Kernel::AttnSinkRescale: {
                 // ISLAND (value arena). Rescales the attention output
                 // in place -- now stated, so `outs[0]` and `ins[0]` are
                 // one buffer -- against the LSE, which is input 1 and
@@ -752,7 +708,7 @@ bool gpt_oss_forward_declared(
                     stream);
                 break;
             }
-            case GoKernel::RopeYarnOriginal: {
+            case declared::Kernel::RopeYarnOriginal: {
                 // ISLAND (value arena). Argument for argument the hand
                 // pass's `apply_rope` arm; the yarn params come off the
                 // shared cfg, which had resolved them all along, and the
@@ -768,7 +724,7 @@ bool gpt_oss_forward_declared(
                     fwd_cfg.yarn_original_max_position, stream);
                 break;
             }
-            case GoKernel::TopkSoftmax: {
+            case declared::Kernel::TopkSoftmax: {
                 // ISLAND (value arena). Both results are traced -- the
                 // expert ids and their weights -- so the two `d_topk_*`
                 // buffers are the arena's now.
@@ -783,7 +739,7 @@ bool gpt_oss_forward_declared(
                     N, row_width(ins[0]), top_k, stream);
                 break;
             }
-            case GoKernel::Bf16ToFp16: {
+            case declared::Kernel::Bf16ToFp16: {
                 // ISLAND (value arena), and the one that pays best. TWO
                 // sites over different extents, told apart here by the
                 // op's OUTPUT RANK -- 2 for the block input, 3 for the
@@ -800,7 +756,7 @@ bool gpt_oss_forward_declared(
                     declared::value_elements(plan, outs[0], N, R), stream);
                 break;
             }
-            case GoKernel::Mxfp4GateUp: {
+            case declared::Kernel::Mxfp4GateUp: {
                 // ISLAND (value arena). The expert BANKS stay reached
                 // through `w.layers`: they are per-expert pointer arrays
                 // and not tensors, which is the same reason `bind`
@@ -820,7 +776,7 @@ bool gpt_oss_forward_declared(
                     N, top_k, H, I, stream);
                 break;
             }
-            case GoKernel::GptOssGlu: {
+            case declared::Kernel::GptOssGlu: {
                 // ISLAND (value arena). `gate = glu(gate, up)`, which is
                 // why the pointer appeared twice; the alias is stated
                 // now, so `outs[0]` IS `ins[0]`.
@@ -836,7 +792,7 @@ bool gpt_oss_forward_declared(
                     stream, /*limit=*/cfg.swiglu_limit);
                 break;
             }
-            case GoKernel::Mxfp4Down: {
+            case declared::Kernel::Mxfp4Down: {
                 // ISLAND (value arena).
                 const auto ins = plan.inputs(op);
                 const auto outs = plan.outputs(op);
@@ -851,7 +807,7 @@ bool gpt_oss_forward_declared(
                     values.slot(outs[0]), N, top_k, H, I, stream);
                 break;
             }
-            case GoKernel::WeightedSum: {
+            case declared::Kernel::WeightedSum: {
                 // ISLAND (value arena). `dsl::cuda::weighted_sum` is
                 // spelled `(weights, x)` and RECORDS `[x, weights]` --
                 // the builder's order, not the caller's. Three of these
@@ -869,7 +825,7 @@ bool gpt_oss_forward_declared(
                     N, top_k, H, stream);
                 break;
             }
-            case GoKernel::ResidualAdd: {
+            case declared::Kernel::ResidualAdd: {
                 // ISLAND (value arena). `residual_add(x, residual)`
                 // lands on x -- input 0, which the `kernel!` row aliases
                 // output 0 over -- so the stream is operand 0 and the

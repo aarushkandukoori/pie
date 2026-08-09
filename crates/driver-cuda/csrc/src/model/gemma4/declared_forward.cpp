@@ -24,6 +24,7 @@
 #include "attn/attention_naive_paged.hpp"
 #include "gemm/gemm.hpp"
 #include "model/declared/arms.hpp"
+#include "model/declared/registry.hpp"
 #include "model/declared/value_arena.hpp"
 #include <string>
 #include <string_view>
@@ -37,75 +38,7 @@ namespace {
 // decode plan: `gemma4_validate_stated_kernels` walks the plan at load
 // and a symbol outside this list is a model-load failure, so this list
 // and `family::gemma4_cuda` are two spellings of one vocabulary.
-enum class G4Kernel {
-    // The ROW norms. Two entries because the SYMBOL says which fold
-    // runs -- `cuda::rmsnorm` picked it from the weight at trace time.
-    RmsnormRow,
-    RmsnormRowGemma,
-    QkvPackedPost,
-    QkRmsnormRopeRounded,
-    RopeQOnly,
-    RopeQOnlyPartial,
-    RmsnormNoScale,
-    WriteKvToPages,
-    AttnFlashinferDecode,
-    AttnFlashinferPrefill,
-    AttnNaivePaged,
-    GegluTanh,
-    ChunkedGegluTanh,
-    NormResidualScaleNorm,
-    NormResidualAdd,
-    ScalarMul,
-    TransposeNldToLnd,
-    LogitSoftcap,
-    ResidualAdd,
-    // The `attn.qv` seam's construct. In the registry because the trace
-    // STATES it -- the seam is real and its position rule is checked --
-    // and a symbol the registry does not know refuses the whole plan at
-    // load. Its arm throws: gemma-4 has no adapter support on either
-    // side, hand-written or declared, so a fire that reached it would be
-    // a lowering bug. `row.lora` is hard 0 below and arc 2 declines lora
-    // fires, which is what keeps it unreachable.
-    LoraQkvCorrection,
-};
 
-G4Kernel resolve_g4_kernel(std::string_view k) {
-    if (k == "norm::rmsnorm_bf16") return G4Kernel::RmsnormRow;
-    if (k == "norm::rmsnorm_gemma_bf16") return G4Kernel::RmsnormRowGemma;
-    if (k == "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16")
-        return G4Kernel::QkvPackedPost;
-    if (k == "rope::qk_rmsnorm_rope_bf16_rounded")
-        return G4Kernel::QkRmsnormRopeRounded;
-    if (k == "rope::rope_bf16") return G4Kernel::RopeQOnly;
-    if (k == "rope::rope_partial_bf16") return G4Kernel::RopeQOnlyPartial;
-    if (k == "norm::rmsnorm_no_scale_bf16") return G4Kernel::RmsnormNoScale;
-    if (k == "attn::write_kv_to_pages") return G4Kernel::WriteKvToPages;
-    if (k == "attn::dispatch_attention_flashinfer_decode")
-        return G4Kernel::AttnFlashinferDecode;
-    // gemma-4's prefill fires the PLAN-FREE wrapper, not the dispatch
-    // llama_like states — one call apart in C++, a whole contract apart
-    // in the declaration, so the symbols differ and this registry has
-    // only the one gemma-4 actually says.
-    if (k == "attn::attention_flashinfer_prefill")
-        return G4Kernel::AttnFlashinferPrefill;
-    if (k == "attn::attention_naive_paged")
-        return G4Kernel::AttnNaivePaged;
-    if (k == "mlp::geglu_tanh_bf16") return G4Kernel::GegluTanh;
-    if (k == "mlp::chunked_geglu_tanh_bf16") return G4Kernel::ChunkedGegluTanh;
-    if (k == "norm::rmsnorm_residual_add_scale_rmsnorm_bf16")
-        return G4Kernel::NormResidualScaleNorm;
-    if (k == "norm::rmsnorm_residual_add_bf16") return G4Kernel::NormResidualAdd;
-    if (k == "norm::scalar_mul_bf16") return G4Kernel::ScalarMul;
-    if (k == "layout::transpose_bf16_nld_to_lnd")
-        return G4Kernel::TransposeNldToLnd;
-    if (k == "attn::logit_softcap_bf16") return G4Kernel::LogitSoftcap;
-    if (k == "norm::residual_add_bf16") return G4Kernel::ResidualAdd;
-    if (k == "pie_lora_qkv_correction") return G4Kernel::LoraQkvCorrection;
-    throw std::runtime_error(
-        "declared gemma4: stated kernel '" + std::string(k) +
-        "' is not in this executor's registry (the trace and the driver "
-        "drifted)");
-}
 
 }  // namespace
 
@@ -114,7 +47,7 @@ void gemma4_validate_stated_kernels(const pie_forward::ForwardPlan& plan) {
     for (std::size_t i = 0; i < n; ++i) {
         const auto& op = plan.op(i);
         if (op.kind != pie_forward::PieForwardOpKind::Launch) continue;
-        (void)resolve_g4_kernel(plan.weight_name(op));
+        (void)declared::resolve_kernel(plan.weight_name(op));
     }
 }
 
@@ -642,9 +575,9 @@ bool gemma4_forward_declared(
             const auto aux = [&](std::size_t i) {
                 return plan.name(names[i]);
             };
-            switch (resolve_g4_kernel(sym)) {
-            case G4Kernel::RmsnormRow:
-            case G4Kernel::RmsnormRowGemma: {
+            switch (declared::resolve_kernel(sym)) {
+            case declared::Kernel::RmsnormRow:
+            case declared::Kernel::RmsnormRowGemma: {
                 // SHARED ARM (D1). The fold comes from the SYMBOL the
                 // registry matched, not from a param this arm reads.
                 const auto nrm = plan.aux_names(op);
@@ -655,10 +588,10 @@ bool gemma4_forward_declared(
                 declared::arm_rmsnorm(
                     {plan, values, N, 0, stream}, op,
                     require(w, plan.name(nrm[0])).data(), eps,
-                    resolve_g4_kernel(sym) == G4Kernel::RmsnormRowGemma);
+                    declared::resolve_kernel(sym) == declared::Kernel::RmsnormRowGemma);
                 break;
             }
-            case G4Kernel::ScalarMul: {
+            case declared::Kernel::ScalarMul: {
                 const std::string_view which = aux(0);
                 // ISLAND (value arena). Four sites that named four
                 // buffers and four element counts to apply one scalar.
@@ -683,7 +616,7 @@ bool gemma4_forward_declared(
                     static_cast<std::size_t>(N) * row_width(outs[0]), stream);
                 break;
             }
-            case G4Kernel::LoraQkvCorrection:
+            case declared::Kernel::LoraQkvCorrection:
                 // Unreachable by construction: the `HasLora` guard's
                 // then-region needs a lora row, and gemma-4 states none.
                 // Loud rather than silent -- an adapter dropped without a
@@ -692,7 +625,7 @@ bool gemma4_forward_declared(
                     "declared gemma4: lora correction reached, but gemma-4 "
                     "has no adapter support on either side (arc 2 should "
                     "have declined this fire)");
-            case G4Kernel::ResidualAdd:
+            case declared::Kernel::ResidualAdd:
                 {
                     const auto ins = plan.inputs(op);
                     const auto outs = plan.outputs(op);
@@ -704,7 +637,7 @@ bool gemma4_forward_declared(
                         stream);
                 }
                 break;
-            case G4Kernel::TransposeNldToLnd:
+            case declared::Kernel::TransposeNldToLnd:
                 {
                     // The three EXTENTS stay config: this value's rows
                     // are `[N, L, ple_dim]`, so `Tokens` is off the
@@ -721,7 +654,7 @@ bool gemma4_forward_declared(
                         N, L, ple_dim, stream);
                 }
                 break;
-            case G4Kernel::QkvPackedPost: {
+            case declared::Kernel::QkvPackedPost: {
                 auto kv_view = cache.layer_view(cur_layer);
                 kernels::attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
                     values.slot(plan.inputs(op)[0]),
@@ -736,7 +669,7 @@ bool gemma4_forward_declared(
                     eps, stream);
                 break;
             }
-            case G4Kernel::QkRmsnormRopeRounded: {
+            case declared::Kernel::QkRmsnormRopeRounded: {
                 const bool q_only = names.size == 1;
                 const auto outs_r = plan.outputs(op);
                 need(outs_r, 1, "rounded qk-norm-rope outputs");
@@ -754,7 +687,7 @@ bool gemma4_forward_declared(
                     eps, stream);
                 break;
             }
-            case G4Kernel::RopeQOnlyPartial:
+            case declared::Kernel::RopePartial:
                 kernels::rope::rope_partial_bf16(
                     values.slot(plan.outputs(op)[0]),
                     values.slot(plan.outputs(op)[0]), positions, N,
@@ -763,7 +696,7 @@ bool gemma4_forward_declared(
                     w.per_layer_rope_theta[static_cast<std::size_t>(cur_layer)],
                     stream);
                 break;
-            case G4Kernel::RmsnormNoScale:
+            case declared::Kernel::RmsnormNoScale:
                 {
                     const auto outs = plan.outputs(op);
                     need(outs, 1, "v-norm outputs");
@@ -772,7 +705,7 @@ bool gemma4_forward_declared(
                         N * (row_width(outs[0]) / cur_d), cur_d, eps, stream);
                 }
                 break;
-            case G4Kernel::WriteKvToPages: {
+            case declared::Kernel::WriteKvToPages: {
                 auto kv_view = cache.layer_view(cur_layer);
                 // The fourth argument is `qo_indptr`, not an optional.
                 // It was passed as nullptr on an assumption, and the
@@ -785,7 +718,7 @@ bool gemma4_forward_declared(
                     kv_last_page_lens, N, R, stream, row_valid_d);
                 break;
             }
-            case G4Kernel::AttnFlashinferDecode: {
+            case declared::Kernel::AttnFlashinferDecode: {
                 auto kv_view = cache.layer_view(cur_layer);
                 kernels::attn::DecodePlanCache* p =
                     (cur_full ? moe_ws.decode_plan_full
@@ -810,7 +743,7 @@ bool gemma4_forward_declared(
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
                 break;
             }
-            case G4Kernel::ChunkedGegluTanh:
+            case declared::Kernel::ChunkedGegluTanh:
                 {
                     const auto ins = plan.inputs(op);
                     const auto outs = plan.outputs(op);
@@ -821,7 +754,7 @@ bool gemma4_forward_declared(
                         row_width(outs[0]), stream);
                 }
                 break;
-            case G4Kernel::GegluTanh: {
+            case declared::Kernel::GegluTanh: {
                 // TWO sites for one kernel, told apart by the WIDTH the
                 // op declares — not by a counter. The PLE gate is
                 // `ple_dim` wide and its "up" operand is this layer's
@@ -862,7 +795,7 @@ bool gemma4_forward_declared(
                 }
                 break;
             }
-            case G4Kernel::NormResidualScaleNorm: {
+            case declared::Kernel::NormResidualScaleNorm: {
                 const std::string_view first = aux(0);
                 const ParsedName nm = parse_name(first);
                 // Two sites: the attention landing (norm_x -> y, then the
@@ -892,7 +825,7 @@ bool gemma4_forward_declared(
                     N, H, eps, stream);
                 break;
             }
-            case G4Kernel::NormResidualAdd: {
+            case declared::Kernel::NormResidualAdd: {
                 // The `ple_norm` test that used to live here chose
                 // between two input scratches. The trace names the
                 // input, so there is nothing left to tell apart.
@@ -906,13 +839,13 @@ bool gemma4_forward_declared(
                     values.slot(outs[0]), N, H, eps, stream);
                 break;
             }
-            case G4Kernel::LogitSoftcap:
+            case declared::Kernel::LogitSoftcap:
                 kernels::attn::logit_softcap_bf16(
                     values.slot(plan.outputs(op)[0]),
                     fwd_cfg.final_logit_softcap,
                     static_cast<std::size_t>(lm_head_rows) * V, stream);
                 break;
-            case G4Kernel::AttnFlashinferPrefill: {
+            case declared::Kernel::AttnFlashinferPrefillPlanless: {
                 auto kv_view = cache.layer_view(cur_layer);
                 kernels::attn::attention_flashinfer_prefill(
                     values.slot(plan.inputs(op)[0]), kv_view,
@@ -924,7 +857,7 @@ bool gemma4_forward_declared(
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
                 break;
             }
-            case G4Kernel::AttnNaivePaged: {
+            case declared::Kernel::AttnNaivePaged: {
                 auto kv_view = cache.layer_view(cur_layer);
                 // `num_pages_in_batch` is the host indptr's LAST entry —
                 // the fire's page count, not the layer's and not the
@@ -1111,35 +1044,35 @@ bool gemma4_forward_declared(
             case PieForwardOpKind::Launch: {
                 const auto names = plan.aux_names(op);
                 const auto aux = [&](std::size_t j) { return plan.name(names[j]); };
-                switch (resolve_g4_kernel(plan.weight_name(op))) {
-                case G4Kernel::RmsnormRow:
-                case G4Kernel::RmsnormRowGemma:
+                switch (declared::resolve_kernel(plan.weight_name(op))) {
+                case declared::Kernel::RmsnormRow:
+                case declared::Kernel::RmsnormRowGemma:
                     // Both sites (`attn_norm`, `final_norm`) norm the
                     // stream into the same scratch.
                     pin(0, ws.norm_x.data());
                     break;
-                case G4Kernel::ScalarMul: {
+                case declared::Kernel::ScalarMul: {
                     const std::string_view which = aux(0);
                     if (which == "scale.sqrt_hidden")        pin(0, ws.y.data());
                     else if (which == "scale.sqrt_ple_dim")  pin(0, per_layer_token);
                     else                                     pin(0, per_layer_proj);
                     break;
                 }
-                case G4Kernel::ResidualAdd:       pin(0, per_layer_proj); break;
-                case G4Kernel::TransposeNldToLnd: pin(0, per_layer_token); break;
-                case G4Kernel::QkvPackedPost:     pin(0, ws.q.data()); break;
-                case G4Kernel::QkRmsnormRopeRounded:
+                case declared::Kernel::ResidualAdd:       pin(0, per_layer_proj); break;
+                case declared::Kernel::TransposeNldToLnd: pin(0, per_layer_token); break;
+                case declared::Kernel::QkvPackedPost:     pin(0, ws.q.data()); break;
+                case declared::Kernel::QkRmsnormRopeRounded:
                     pin(0, ws.q.data());
                     pin(1, ws.k.data());
                     break;
-                case G4Kernel::RopeQOnlyPartial:
-                case G4Kernel::RopeQOnly:         pin(0, ws.q.data()); break;
-                case G4Kernel::RmsnormNoScale:    pin(0, ws.v.data()); break;
-                case G4Kernel::AttnFlashinferDecode:
-                case G4Kernel::AttnFlashinferPrefill:
-                case G4Kernel::AttnNaivePaged:    pin(0, ws.attn_out.data()); break;
-                case G4Kernel::ChunkedGegluTanh:  pin(0, ws.gate.data()); break;
-                case G4Kernel::GegluTanh: {
+                case declared::Kernel::RopePartial:
+                case declared::Kernel::RopeFull:         pin(0, ws.q.data()); break;
+                case declared::Kernel::RmsnormNoScale:    pin(0, ws.v.data()); break;
+                case declared::Kernel::AttnFlashinferDecode:
+                case declared::Kernel::AttnFlashinferPrefillPlanless:
+                case declared::Kernel::AttnNaivePaged:    pin(0, ws.attn_out.data()); break;
+                case declared::Kernel::ChunkedGegluTanh:  pin(0, ws.gate.data()); break;
+                case declared::Kernel::GegluTanh: {
                     // TWO sites for one kernel, told apart by the WIDTH
                     // the op declares — the same test the arm makes.
                     const auto& val = plan.value(outs[0]);
@@ -1148,14 +1081,14 @@ bool gemma4_forward_declared(
                                                               : ws.gate.data());
                     break;
                 }
-                case G4Kernel::NormResidualScaleNorm:
+                case declared::Kernel::NormResidualScaleNorm:
                     // `(landed, mlp_in)` in the declaration: the stream
                     // first, the normed activation second.
                     pin(0, ws.y.data());
                     pin(1, ws.norm_x.data());
                     break;
-                case G4Kernel::NormResidualAdd:   pin(0, ws.y.data()); break;
-                case G4Kernel::LogitSoftcap:      pin(0, ws.logits.data()); break;
+                case declared::Kernel::NormResidualAdd:   pin(0, ws.y.data()); break;
+                case declared::Kernel::LogitSoftcap:      pin(0, ws.logits.data()); break;
                 default: break;
                 }
                 break;
