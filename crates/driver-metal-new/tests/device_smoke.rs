@@ -1437,3 +1437,104 @@ fn a_mixed_length_fleet_runs_through_the_decoder() {
     let distinct: std::collections::HashSet<_> = lane1.iter().collect();
     assert!(distinct.len() > 1, "lane 1 wedged: {lane1:?}");
 }
+
+// ── The long horizon: a thousand greedy tokens through the decoder, the
+// cutover gate's N ≥ 1000 leg minus the old-backend comparison. ──
+
+#[test]
+fn a_thousand_tokens_decode_without_a_wedge_or_a_nan() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT");
+        return;
+    };
+    let prompt: Vec<u32> = match std::env::var("PIE_METAL_SMOKE_PROMPT_IDS") {
+        Ok(csv) => csv.split(',').map(|t| t.parse().unwrap()).collect(),
+        Err(_) => {
+            eprintln!("SKIP: set PIE_METAL_SMOKE_PROMPT_IDS");
+            return;
+        }
+    };
+    let horizon: u32 = std::env::var("PIE_SMOKE_HORIZON")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1000);
+    let snapshot = std::path::PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json")).unwrap();
+    let root: serde_json::Value = serde_json::from_str(&config).unwrap();
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().unwrap()).unwrap();
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json).unwrap();
+    let mut geometry = geometry_from_facts(&facts).unwrap();
+    geometry.quant = AffineFormat { bits: 4, group: 64 };
+    geometry.paged_kv_enabled = true;
+    geometry.max_tokens = 16;
+    geometry.max_requests = 1;
+    geometry.max_slots = 1;
+    geometry.kv_page_size = 32;
+    geometry.total_pages = 128; // 4096 positions: the whole max_ctx
+    let target = metal_storage_target();
+    let (plan, _) = compile_load_plan(&snapshot, &target, &descriptor_json).unwrap();
+    let context = Context::new().unwrap();
+    let tuning = Tuning::default();
+    let max_ctx = 4096u32;
+    let slot_bytes = scratch_slot_elems(&geometry, &tuning, geometry.max_tokens) * 2;
+    let storage =
+        stage_decode_storage(&context, &plan, &snapshot, &geometry, max_ctx, slot_bytes).unwrap();
+    let options = DagOptions {
+        gdn_prep: true,
+        ..DagOptions::default()
+    };
+    let vocab = geometry.vocab;
+    let mut decoder = driver_metal_new::metal::Decoder::new(
+        &context,
+        storage,
+        geometry,
+        tuning,
+        options,
+        max_ctx,
+        kernels_dir(),
+    )
+    .unwrap();
+
+    let mut token = decoder.prefill(0, 0, &prompt).unwrap();
+    let started = std::time::Instant::now();
+    let mut distinct = std::collections::HashSet::new();
+    let mut position = prompt.len() as u32;
+    for step in 0..horizon {
+        decoder
+            .fire(&[driver_metal_new::metal::Lane {
+                request: 0,
+                slot: 0,
+                token,
+                position,
+            }])
+            .unwrap_or_else(|err| panic!("step {step} at position {position}: {err}"));
+        token = decoder.argmax_row(0);
+        assert!(
+            token < vocab,
+            "step {step}: argmax {token} outside the vocabulary"
+        );
+        distinct.insert(token);
+        position += 1;
+        if (step + 1) % 200 == 0 {
+            let elapsed = started.elapsed().as_secs_f64();
+            eprintln!(
+                "{} tokens, {:.1} tok/s, {} distinct",
+                step + 1,
+                f64::from(step + 1) / elapsed,
+                distinct.len()
+            );
+        }
+    }
+    let elapsed = started.elapsed().as_secs_f64();
+    eprintln!(
+        "horizon {horizon}: {:.1} tok/s end to end, {} distinct tokens, final position {position}",
+        f64::from(horizon) / elapsed,
+        distinct.len()
+    );
+    assert!(
+        distinct.len() >= 5,
+        "a greedy run may loop a sentence, but {} distinct tokens over {horizon} is a wedge",
+        distinct.len()
+    );
+}
