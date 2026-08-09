@@ -1069,6 +1069,14 @@ bool forward_declared_tmpl(
                 break;  // see the fallback pass below
             case PieForwardOpKind::Launch: {
                 switch (resolve_q35_kernel(plan.weight_name(op))) {
+                case Q35Kernel::RmsnormRow:
+                case Q35Kernel::RmsnormRowGemma:
+                    // All three sites -- attn_norm, mlp_norm,
+                    // final_norm -- land in `norm_x`. qwen3_5's
+                    // post-attention norm reads it where llama_like
+                    // reads `norm_y`.
+                    place(0, ws.norm_x.data());
+                    break;
                 case Q35Kernel::AttnFlashinferDecode:
                 case Q35Kernel::AttnFlashinferPrefill:
                     place(0, ws.attn_out.data());

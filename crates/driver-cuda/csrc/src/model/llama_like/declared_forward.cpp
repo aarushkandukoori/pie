@@ -119,19 +119,12 @@ void pin_llama_like_values(const pie_forward::ForwardPlan& plan,
             // The residual stream.
             values.pin(outs[0], ws.y.data());
             break;
-        case PieForwardOpKind::Rmsnorm: {
-            const ParsedWeightName nm = parse_weight_name(plan.weight_name(op));
-            if (nm.field == "attn_norm") {
-                // LoRA's `qkv_in`, captured at fire setup.
-                values.pin(outs[0], post_norm ? ws.norm_y.data()
-                                              : ws.norm_x.data());
-            } else if (nm.field == "final_norm") {
-                values.pin(outs[0], ws.norm_y.data());
-            }
-            // `mlp_norm`'s output is read only by the gate/up matmul, so
-            // it stays an arena value (converted island).
+        case PieForwardOpKind::Rmsnorm:
+            // The row norms are `Launch` now (`cuda::rmsnorm` states the
+            // fold), so their entries live in the Launch case below.
+            // This one stays for a SEMANTIC trace and does nothing for a
+            // CUDA one, which no longer carries the kind.
             break;
-        }
         case PieForwardOpKind::Matmul: {
             const ParsedWeightName nm = parse_weight_name(plan.weight_name(op));
             if (nm.field == "qkv") {
@@ -191,6 +184,28 @@ void pin_llama_like_values(const pie_forward::ForwardPlan& plan,
                 outs.size >= 2) {
                 values.pin(outs[0], ws.q.data());
                 values.pin(outs[1], ws.k.data());
+            }
+            // THE ROW NORMS, moved here with the statement. `attn_norm`'s
+            // result is LoRA's `qkv_in`, captured at fire setup and
+            // therefore reached by NAME from outside this walk — the one
+            // reason a converted island still needs an entry. Missing it
+            // would not show on a gate: `lora=0` on every fire the
+            // harness runs.
+            if (sym == "norm::rmsnorm_bf16" ||
+                sym == "norm::rmsnorm_gemma_bf16") {
+                const auto aux = plan.aux_names(op);
+                if (aux.size == 1 && outs.size >= 1) {
+                    const ParsedWeightName nm =
+                        parse_weight_name(plan.name(aux[0]));
+                    if (nm.field == "attn_norm") {
+                        values.pin(outs[0], post_norm ? ws.norm_y.data()
+                                                      : ws.norm_x.data());
+                    } else if (nm.field == "final_norm") {
+                        values.pin(outs[0], ws.norm_y.data());
+                    }
+                    // `mlp_norm`'s result is read only by the gate/up
+                    // matmul, so it stays an arena value.
+                }
             }
             break;
         }

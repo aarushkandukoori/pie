@@ -1091,9 +1091,11 @@ bool gemma4_forward_declared(
                 break;
             }
             case PieForwardOpKind::Rmsnorm:
-                // Both sites (`attn_norm`, `final_norm`) norm the stream
-                // into the same scratch.
-                pin(0, ws.norm_x.data());
+                // The row norms are `Launch` now; their entry moved to
+                // the Launch case with the statement. This stays for a
+                // semantic trace, which gemma-4's CUDA text no longer
+                // produces.
+                break;
                 break;
             case PieForwardOpKind::RmsnormPerHead: {
                 const ParsedName nm = parse_name(plan.weight_name(op));
@@ -1118,6 +1120,12 @@ bool gemma4_forward_declared(
                 const auto names = plan.aux_names(op);
                 const auto aux = [&](std::size_t j) { return plan.name(names[j]); };
                 switch (resolve_g4_kernel(plan.weight_name(op))) {
+                case G4Kernel::RmsnormRow:
+                case G4Kernel::RmsnormRowGemma:
+                    // Both sites (`attn_norm`, `final_norm`) norm the
+                    // stream into the same scratch.
+                    pin(0, ws.norm_x.data());
+                    break;
                 case G4Kernel::ScalarMul: {
                     const std::string_view which = aux(0);
                     if (which == "scale.sqrt_hidden")        pin(0, ws.y.data());

@@ -427,12 +427,10 @@ bool gpt_oss_forward_declared(
             case PieForwardOpKind::Embed:
                 place(0, ws.y.data());
                 break;
-            case PieForwardOpKind::Rmsnorm: {
-                const ParsedName nm = parse_name(plan.weight_name(op));
-                place(0, nm.field == "mlp_norm" ? ws.norm_y.data()
-                                                : ws.norm_x.data());
+            case PieForwardOpKind::Rmsnorm:
+                // The row norms are `Launch` now; their entry moved to
+                // the Launch case below with the statement.
                 break;
-            }
             case PieForwardOpKind::Matmul:
             case PieForwardOpKind::AddBias:
                 place(0, ws.y.data());
@@ -447,6 +445,17 @@ bool gpt_oss_forward_declared(
             case PieForwardOpKind::Launch: {
                 const auto names = plan.aux_names(op);
                 switch (resolve_go_kernel(plan.weight_name(op))) {
+                case GoKernel::RmsnormRow:
+                case GoKernel::RmsnormRowGemma: {
+                    // The MLP norm's result is read TWICE by the MoE
+                    // block (router input and cast input), which is why
+                    // it had a convention worth recording; the
+                    // attention norm's is the projections'.
+                    const ParsedName nm = parse_name(plan.name(names[0]));
+                    place(0, nm.field == "mlp_norm" ? ws.norm_y.data()
+                                                    : ws.norm_x.data());
+                    break;
+                }
                 case GoKernel::GemmBias: {
                     const ParsedName nm = parse_name(plan.name(names[0]));
                     if (nm.field == "q_proj")      place(0, ws.q.data());
