@@ -102,12 +102,12 @@ pub fn qmm_bm_slot(bm: u32) -> usize {
 #[must_use]
 pub fn qmm_bn(out_vec: u32, n: u32, min_batch: u32) -> u32 {
     let bm = qmm_bm(n);
-    if n < min_batch || n % bm != 0 {
+    if n < min_batch || !n.is_multiple_of(bm) {
         return 0;
     }
     let mut best = 0;
     for bn in [16, 32, 64] {
-        if out_vec % bn == 0 {
+        if out_vec.is_multiple_of(bn) {
             best = bn;
         }
     }
@@ -123,12 +123,12 @@ pub fn qmm_bn(out_vec: u32, n: u32, min_batch: u32) -> u32 {
 #[must_use]
 pub fn qmm_bn_unsplit(out_vec: u32, n: u32, min_batch: u32, crossover_tg: u32) -> u32 {
     let bm = qmm_bm(n);
-    if n < min_batch || n % bm != 0 || out_vec % 16 != 0 {
+    if n < min_batch || !n.is_multiple_of(bm) || !out_vec.is_multiple_of(16) {
         return 0;
     }
     let row_tiles = n / bm;
     let narrow_tg = (out_vec / 16) * row_tiles;
-    if narrow_tg <= crossover_tg || out_vec % 32 != 0 {
+    if narrow_tg <= crossover_tg || !out_vec.is_multiple_of(32) {
         16
     } else {
         32
