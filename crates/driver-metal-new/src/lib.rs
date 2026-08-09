@@ -48,4 +48,6 @@ pub use error::{Error, Result};
 pub mod metal;
 
 #[cfg(target_vendor = "apple")]
-pub use metal::{Compiler, Context, DeviceInfo, Heap, Slot};
+pub use metal::{
+    ArgumentTable, Compiler, Context, DeviceInfo, Heap, Slot, StepEncoder, Stepper, Visibility,
+};

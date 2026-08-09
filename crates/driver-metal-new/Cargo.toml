@@ -82,6 +82,9 @@ features = [
     "MTLCounters",
     "MTLArgument",
     "MTLCommandBuffer",
+    # `MTLStages` and the encoder barrier live here; the MTL4 encoder's barrier
+    # methods are gated on it even though nothing else in this driver is.
+    "MTLCommandEncoder",
     # the Metal 4 stack this driver is written against
     "MTL4CommandQueue",
     "MTL4CommandBuffer",

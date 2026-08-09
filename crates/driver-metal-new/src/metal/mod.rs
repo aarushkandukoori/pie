@@ -21,14 +21,17 @@
 //! complete and tested. [`context`] follows it -- the queue, the allocator
 //! pair and the residency set, which every later object is created against.
 //! [`heap`] places every long-lived buffer inside one resident range. The
-//! [`pipeline`] compiles kernel text into pipeline states.
+//! [`pipeline`] compiles kernel text into pipeline states, and [`encoder`]
+//! encodes a step against them and waits for it with a bound.
 
 mod context;
 mod device;
+mod encoder;
 mod heap;
 mod pipeline;
 
 pub use context::{ALLOCATOR_COUNT, Context};
 pub use device::DeviceInfo;
+pub use encoder::{ArgumentTable, StepEncoder, Stepper, Visibility};
 pub use heap::{Heap, Slot};
 pub use pipeline::Compiler;
