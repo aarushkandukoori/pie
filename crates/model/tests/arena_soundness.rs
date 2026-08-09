@@ -964,3 +964,80 @@ fn short(k: &OpKind) -> String {
         other => format!("{other:?}").chars().take(40).collect(),
     }
 }
+
+/// A statement that lowers to SEVERAL rectangles gives every one of
+/// them the same operands — and for the epilogue that is not true of
+/// the kernels it emits.
+///
+/// `Lowerer::emit` resolves a launch's args from `op.inputs ++
+/// op.outputs`, once per rectangle. That is right for a statement whose
+/// rectangles are row or layer slices of one kernel. The epilogue is
+/// not that: it emits a row GATHER, a norm and a GEMM from one
+/// `LmHead`, and the gather's destination is neither of the op's
+/// operands — it is the compacted activation the GEMM then reads.
+///
+/// So the flat list says the gather writes the LOGITS, which it does
+/// not, and every driver quietly ignores those args and uses a
+/// workspace field (`ws.norm_y` in three of the four executors, each
+/// with the same apologetic comment). This test pins the discrepancy
+/// down so the fix has something to satisfy: it prints, per family, the
+/// epilogue's rectangles and the operands each was handed.
+#[test]
+fn what_the_epilogue_hands_each_of_its_rectangles() {
+    use model_compiler::lower::{lower, Arg, Fire};
+
+    for (name, class, plan) in families() {
+        // A fire whose sampled rows are a strict SUBSET, which is what
+        // makes the epilogue emit its gather at all.
+        let mut rows = plain(8);
+        for r in rows.iter_mut().skip(2) {
+            r.samples = false;
+            r.multi_token = true;
+        }
+        let Ok(out) = lower(&plan, &rows, Fire::default()) else {
+            continue;
+        };
+        for l in &out.launches {
+            let kernel = &out.kernels[l.kernel as usize];
+            // The EPILOGUE's gather by exact symbol: `contains("gather")`
+            // also catches deepseek_v4's paged compress-gather, which is
+            // a body statement and lowers one-to-one.
+            if kernel != "layout::gather_bf16_rows" {
+                continue;
+            }
+            let peers: Vec<&str> = out
+                .launches
+                .iter()
+                .filter(|p| p.op == l.op)
+                .map(|p| out.kernels[p.kernel as usize].as_str())
+                .collect();
+            let args: Vec<String> = out.args[l.args.start as usize..l.args.end as usize]
+                .iter()
+                .map(|a| match a {
+                    Arg::Arena { at, width } => format!("arena@{at}/w{width}"),
+                    Arg::Named { value, width } => format!("named(v{value})/w{width}"),
+                    Arg::Weight(w) => format!("weight({w})"),
+                })
+                .collect();
+            println!("{name:12} {class:?} op {} -> {peers:?}", l.op);
+            println!("    every rectangle is handed: {args:?}");
+            // The ONE thing that is true and has to stay true: the last
+            // rectangle really does write the op's output. If that ever
+            // stops holding, the flat list has no truthful operand left
+            // at all.
+            let last = out
+                .launches
+                .iter()
+                .filter(|p| p.op == l.op)
+                .next_back()
+                .expect("the epilogue emits at least the gemm");
+            assert!(
+                out.kernels[last.kernel as usize].contains("gemm"),
+                "{name} {class:?}: the epilogue's last rectangle is {}, \
+                 not the gemm — the operand run describes that one and \
+                 nothing else",
+                out.kernels[last.kernel as usize]
+            );
+        }
+    }
+}
