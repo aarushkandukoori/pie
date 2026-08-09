@@ -21,6 +21,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "attn/attention_mla.hpp"
+#include "attn/mla_paged.hpp"
 #include "attn/split_packed.hpp"
 #include "gemm/gemm.hpp"
 #include "layout/embed.hpp"
@@ -345,6 +347,123 @@ inline void arm_scaled_matmul(const ArmCtx& c,
             scales.data(), scales.numel(), y, M, N, K, beta);
         break;
     }
+}
+
+// ── MLA: the absorbed attention three families share ────────────────
+//
+// deepseek_v4, glm5 and kimi_k2 all state these, and all three reach
+// them today through a hand-written pass. Porting them here rather than
+// into one family's executor is the point: what differs between the
+// three is the HEAD GEOMETRY, which is config either way, and the
+// operands, which the statements give.
+//
+// The geometry stays explicit parameters for the reason `eps` does --
+// `qk_nope_dim`, `v_head_dim` and `kv_lora_rank` are how the absorb
+// carves a row, and a row width divided by a head count is that carving
+// only once you already know one of them.
+
+// `mla_absorb_q_to_latent`: the query into the latent basis.
+//
+// One operand, one weight, one result whose shape is
+// `[Tokens, heads, kv_lora_rank]` -- so the head count comes off the
+// result and only the two INNER dims are parameters.
+inline void arm_mla_absorb_q_to_latent(const ArmCtx& c,
+                                       const pie_forward::PieForwardOp& op,
+                                       cublasHandle_t handle,
+                                       const void* kv_b_proj,
+                                       int qk_nope_dim,
+                                       int v_head_dim) {
+    const auto& plan = c.plan;
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 1, "mla absorb-q inputs");
+    need(outs, 1, "mla absorb-q outputs");
+    const auto& rv = plan.value(outs[0]);
+    if (rv.rank != 3) {
+        throw std::runtime_error(
+            "declared arm: an MLA absorb states rank " +
+            std::to_string(rv.rank) + ", wants [Tokens, heads, dim]");
+    }
+    kernels::gemm::mla_absorb_q_to_latent_bf16(
+        handle, c.values.slot(ins[0]), kv_b_proj, c.values.slot(outs[0]),
+        c.rows, static_cast<int>(rv.dims[1].value), qk_nope_dim, v_head_dim,
+        static_cast<int>(rv.dims[2].value));
+}
+
+// `mla_absorb_latent_to_v`: the latent attention output back to V.
+//
+// The inverse, and the mirror image of the shape above: here the
+// result's trailing dim is `v_head_dim` and `kv_lora_rank` is the
+// parameter, because that is which end of the absorb each one is.
+inline void arm_mla_absorb_latent_to_v(const ArmCtx& c,
+                                       const pie_forward::PieForwardOp& op,
+                                       cublasHandle_t handle,
+                                       const void* kv_b_proj,
+                                       int qk_nope_dim,
+                                       int kv_lora_rank) {
+    const auto& plan = c.plan;
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 1, "mla absorb-v inputs");
+    need(outs, 1, "mla absorb-v outputs");
+    const auto& rv = plan.value(outs[0]);
+    if (rv.rank != 3) {
+        throw std::runtime_error(
+            "declared arm: an MLA absorb states rank " +
+            std::to_string(rv.rank) + ", wants [Tokens, heads, dim]");
+    }
+    kernels::gemm::mla_absorb_latent_to_v_bf16(
+        handle, c.values.slot(ins[0]), kv_b_proj, c.values.slot(outs[0]),
+        c.rows, static_cast<int>(rv.dims[1].value), qk_nope_dim,
+        static_cast<int>(rv.dims[2].value), kv_lora_rank);
+}
+
+// `write_mla_to_pages`: commit the compressed KV row and its rope half.
+//
+// Two operands, no result -- the cache is the effect, and a cache is
+// not a traced value. The CSRs and the layer view stay driver inputs
+// for the same reason they do in every KV write arm.
+inline void arm_write_mla_to_pages(const ArmCtx& c,
+                                   const pie_forward::PieForwardOp& op,
+                                   MlaCacheLayerView layer,
+                                   const std::uint32_t* qo_indptr,
+                                   const std::uint32_t* kv_page_indices,
+                                   const std::uint32_t* kv_page_indptr,
+                                   const std::uint32_t* kv_last_page_lens,
+                                   int num_requests,
+                                   const std::uint8_t* row_valid) {
+    const auto ins = c.plan.inputs(op);
+    need(ins, 2, "mla write inputs");
+    kernels::attn::write_mla_to_pages(
+        layer, c.values.slot(ins[0]), c.values.slot(ins[1]),
+        qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
+        c.rows, num_requests, c.stream, row_valid);
+}
+
+// `attention_mla`: attention over the latent cache.
+//
+// Two operands (the latent query and its rope half), one result, and an
+// LSE the caller owns -- a second OUTPUT where the statement declares
+// one, the caller's scratch otherwise, exactly as gpt-oss's sink
+// dispatch reads it.
+inline void arm_attention_mla(const ArmCtx& c,
+                              const pie_forward::PieForwardOp& op,
+                              const kernels::attn::MlaPlanCache& mla_plan,
+                              MlaCacheLayerView layer,
+                              const std::uint32_t* kv_page_indices,
+                              AttentionWorkspaceView attn_ws,
+                              float* lse_fallback) {
+    const auto& plan = c.plan;
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 2, "mla attention inputs");
+    need(outs, 1, "mla attention outputs");
+    float* lse = outs.size >= 2
+                     ? static_cast<float*>(c.values.slot(outs[1]))
+                     : lse_fallback;
+    kernels::attn::dispatch_attention_mla_bf16(
+        mla_plan, c.values.slot(ins[0]), c.values.slot(ins[1]), layer,
+        c.values.slot(outs[0]), kv_page_indices, attn_ws, c.stream, lse);
 }
 
 // The EPILOGUE's compaction, which is the half of `LmHead` every
