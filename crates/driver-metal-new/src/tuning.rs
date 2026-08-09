@@ -20,6 +20,15 @@
 //! arms in one `switch`. Both are hard compile errors, so the C++ tuning
 //! layer does not currently build; see [`Tuning::for_device`] for how the
 //! conflict is resolved here.
+//!
+//! # No process-wide singleton
+//!
+//! The C++ reaches every constant through free functions over a function-local
+//! `static const DeviceTuning`, so the table is queried once per process and
+//! cannot be varied afterwards. Nothing here does that: [`Tuning::resolve`]
+//! returns a value and the caller holds it. The singleton is why the C++ shell
+//! needs `set_*_for_test` hooks scattered through `mtl4_context.hpp`, and a
+//! table that a test can simply construct does not need any of them.
 
 use std::env;
 
@@ -124,17 +133,18 @@ impl Tuning {
     /// The C++ has two `case 8:` arms and they disagree. The first sets
     /// `qmm_min_batch = 8` and leaves the routed crossover inherited; the
     /// second leaves the dense one to the default and sets
-    /// `qmm_min_batch_moe = 12`. Since the default for the dense crossover IS
-    /// 8, the first arm is a no-op restatement of the default and the second
-    /// is the only one that says anything, so the second is taken here: on
-    /// Apple8, dense 8 (inherited) and routed 12 (named).
+    /// `qmm_min_batch_moe = 12`. The duplicated FIELD resolves it: the first
+    /// declaration (`= 8`) closes with "the M2 table above stands as a
+    /// measurement of the binary it was taken on; nothing has re-run it since
+    /// the FP16 wiring, **which is why the Apple8 entry still names its own
+    /// number**", while the second declaration (`= 12`) is the pre-FP16 text,
+    /// still ending "so a routed checkpoint keeps the M1 number" from when the
+    /// M1 number WAS 12.
     ///
-    /// That reading matches the second arm's own comment -- "the DENSE
-    /// crossover here is eight, which is now the default and is not
-    /// restated" -- and it makes the M2 entry mean what it meant before the
-    /// default moved under it. It is a reading of intent rather than a
-    /// measurement, and it should be confirmed against the M2 Max sweep the
-    /// comments cite before this crate carries traffic.
+    /// So the two duplicates are one new pair and one stale pair, and the new
+    /// pair is: default routed 8, Apple8 routed 12. That is what is taken
+    /// here, and the first declaration's closing sentence is the C++ saying so
+    /// outright rather than an inference from intent.
     #[must_use]
     pub fn for_device(device: Device) -> Self {
         let mut t = Self::default();
@@ -192,7 +202,14 @@ impl Tuning {
             t.sdpa_tile_min_rows_per_request,
         );
         t.sdpa_mma = env_bool("PIE_METAL_SDPA_MMA", t.sdpa_mma);
-        t.moe_batch_min_per_expert = env_u32(
+        // A THRESHOLD, not a count: `moe_should_batch` compares `n_pairs` to
+        // `n_experts * this`, so 0 means "batch every fire". The C++ reads it
+        // through the same positive-only parser as the crossovers and
+        // therefore SILENTLY IGNORES the one value its own documentation names
+        // -- `device_tuning.hpp` cites `PIE_METAL_MOE_BATCH_MIN_PER_EXPERT=0`
+        // as how the routed GEMM was forced onto every fire to clear it of a
+        // numerics charge. That sweep cannot have gone through this variable.
+        t.moe_batch_min_per_expert = env_threshold(
             "PIE_METAL_MOE_BATCH_MIN_PER_EXPERT",
             t.moe_batch_min_per_expert,
         );
@@ -215,6 +232,51 @@ impl Tuning {
         }
     }
 
+    /// Whether a mixture of `n_experts` batches its routed FFN for `n_pairs`.
+    ///
+    /// Batching reads each expert's weights once for all its rows; a matvec
+    /// reads them per row. The two meet when an expert's run half fills a
+    /// tile. Written against the NARROW tile because that is the cheapest way
+    /// in: a batch that cannot pay for a 16-row tile cannot pay for a wider
+    /// one, and [`Self::moe_tile_rows`] widens only after this says yes.
+    ///
+    /// `n_experts == 0` is false rather than a division: a checkpoint with no
+    /// experts has no routed FFN to batch.
+    #[must_use]
+    pub const fn moe_should_batch(&self, n_pairs: u32, n_experts: u32) -> bool {
+        if n_experts == 0 {
+            return false;
+        }
+        // A threshold no fleet can reach refuses, rather than becoming one
+        // every fleet reaches. The C++ writes this as a plain `int` multiply,
+        // where passing the range is undefined behaviour and the reachable
+        // outcome -- a negative product -- makes the comparison TRUE and
+        // batches a mixture that should not batch.
+        match n_experts.checked_mul(self.moe_batch_min_per_expert) {
+            Some(threshold) => n_pairs >= threshold,
+            None => false,
+        }
+    }
+
+    /// Rows each expert's run is padded to, for a batch of `n_pairs`.
+    ///
+    /// 1 when the mixture does not batch at all, and otherwise the widest tile
+    /// the rows per expert pay for. Priced off ROWS PER EXPERT because that is
+    /// what decides how much of a tile a run fills; the thresholds are a table
+    /// of measurements rather than a curve, and they have to be re-swept
+    /// whenever the routed GEMM changes.
+    #[must_use]
+    pub const fn moe_tile_rows(&self, n_pairs: u32, n_experts: u32) -> u32 {
+        if !self.moe_should_batch(n_pairs, n_experts) {
+            return 1;
+        }
+        let per = n_pairs / n_experts;
+        if per >= self.moe_tile_wide_per {
+            return 64;
+        }
+        if per >= self.moe_tile_mid_per { 32 } else { 16 }
+    }
+
     /// Whether a `bits`/`group` quantization reaches the FP16 matrix path.
     #[must_use]
     pub fn fp16_gemm_format(&self, bits: u32, group: u32) -> bool {
@@ -224,17 +286,20 @@ impl Tuning {
 
 /// A positive integer from the environment, or `fallback`.
 ///
-/// Zero and negative values are REJECTED rather than accepted, matching the
-/// C++: every constant this parses is a count or a batch size, and 0 would
-/// disable the thing being measured rather than tune it.
+/// For a COUNT: a batch size, a threadgroup count, a lane width. Zero is
+/// rejected rather than accepted, matching the C++, because 0 for any of these
+/// would disable the thing being measured rather than tune it. Use
+/// [`env_threshold`] where 0 is a setting.
 fn env_u32(name: &str, fallback: u32) -> u32 {
-    let Ok(raw) = env::var(name) else {
-        return fallback;
-    };
-    match raw.parse::<u32>() {
-        Ok(v) if v > 0 => v,
-        _ => fallback,
-    }
+    parse_count(env::var(name).ok().as_deref(), fallback)
+}
+
+/// A non-negative integer from the environment, or `fallback`.
+///
+/// For a THRESHOLD, where 0 means "no threshold" and is a value a sweep sets
+/// on purpose.
+fn env_threshold(name: &str, fallback: u32) -> u32 {
+    parse_threshold(env::var(name).ok().as_deref(), fallback)
 }
 
 /// A boolean from the environment, or `fallback`.
@@ -242,13 +307,39 @@ fn env_u32(name: &str, fallback: u32) -> u32 {
 /// Unlike [`env_u32`], `0` is a VALUE here and not a rejected one -- it is
 /// how a sweep turns a path off. Anything else non-empty is true.
 fn env_bool(name: &str, fallback: bool) -> bool {
-    let Ok(raw) = env::var(name) else {
-        return fallback;
-    };
-    if raw.is_empty() {
-        return fallback;
+    parse_bool(env::var(name).ok().as_deref(), fallback)
+}
+
+/// Surrounding whitespace is ignored on every override.
+///
+/// `strtol` skips LEADING whitespace and then rejects anything trailing, so
+/// the C++ reads `" 8"` as 8 and `"8 "` as unset. That asymmetry is an
+/// artifact of `strtol` rather than a decision, and a sweep script that
+/// interpolates a padded value should not silently get the default on one side
+/// and the value on the other.
+fn trimmed(raw: Option<&str>) -> Option<&str> {
+    raw.map(str::trim).filter(|s| !s.is_empty())
+}
+
+fn parse_count(raw: Option<&str>, fallback: u32) -> u32 {
+    match trimmed(raw).map(str::parse::<u32>) {
+        Some(Ok(v)) if v > 0 => v,
+        _ => fallback,
     }
-    raw != "0"
+}
+
+fn parse_threshold(raw: Option<&str>, fallback: u32) -> u32 {
+    match trimmed(raw).map(str::parse::<u32>) {
+        Some(Ok(v)) => v,
+        _ => fallback,
+    }
+}
+
+fn parse_bool(raw: Option<&str>, fallback: bool) -> bool {
+    match trimmed(raw) {
+        Some(v) => v != "0",
+        None => fallback,
+    }
 }
 
 #[cfg(test)]
@@ -313,5 +404,117 @@ mod tests {
             ..Tuning::default()
         };
         assert!(!off.fp16_gemm_format(4, 64));
+    }
+
+    #[test]
+    fn a_count_refuses_zero_because_zero_would_disable_it() {
+        assert_eq!(parse_count(Some("8"), 12), 8);
+        assert_eq!(parse_count(None, 12), 12);
+        assert_eq!(parse_count(Some(""), 12), 12);
+        assert_eq!(parse_count(Some("0"), 12), 12, "0 is not a batch size");
+        assert_eq!(parse_count(Some("-4"), 12), 12);
+        assert_eq!(parse_count(Some("eight"), 12), 12);
+        assert_eq!(parse_count(Some("8x"), 12), 12, "trailing garbage");
+        assert_eq!(
+            parse_count(Some("99999999999999999999"), 12),
+            12,
+            "past u32 the fallback is taken; the C++ `int(strtol(...))` \
+             truncates LONG_MAX instead and hands the table a negative"
+        );
+    }
+
+    /// The C++ documents `PIE_METAL_MOE_BATCH_MIN_PER_EXPERT=0` as the way it
+    /// cleared the routed GEMM of a numerics charge, and then reads the
+    /// variable through a parser that rejects 0.
+    #[test]
+    fn the_moe_threshold_accepts_the_zero_its_own_documentation_names() {
+        assert_eq!(parse_threshold(Some("0"), 1), 0);
+        assert_eq!(parse_threshold(Some("4"), 1), 4);
+        assert_eq!(parse_threshold(None, 1), 1);
+        assert_eq!(parse_threshold(Some("-1"), 1), 1);
+        assert_eq!(parse_threshold(Some(""), 1), 1);
+    }
+
+    #[test]
+    fn a_decode_does_not_batch_its_mixture_and_a_prefill_does() {
+        let t = Tuning::default();
+        // The case the constant exists for: eight pairs over 128 experts is
+        // one live row in sixteen of every tile.
+        assert!(!t.moe_should_batch(8, 128));
+        assert_eq!(t.moe_tile_rows(8, 128), 1);
+
+        assert!(t.moe_should_batch(128, 128));
+        assert_eq!(t.moe_tile_rows(1024, 128), 16, "eight rows an expert");
+        assert_eq!(t.moe_tile_rows(4096, 128), 32, "thirty-two an expert");
+
+        // The default wide threshold is 1<<24, which is "never split".
+        assert_eq!(t.moe_tile_rows(1 << 20, 128), 32);
+        let wide = Tuning {
+            moe_tile_wide_per: 64,
+            ..t
+        };
+        assert_eq!(wide.moe_tile_rows(128 * 64, 128), 64);
+    }
+
+    /// The behaviour the C++ documents and its own parser makes unreachable.
+    #[test]
+    fn a_zero_threshold_batches_every_fire() {
+        let always = Tuning {
+            moe_batch_min_per_expert: 0,
+            ..Tuning::default()
+        };
+        assert!(
+            always.moe_should_batch(1, 128),
+            "at a zero threshold even a one-row decode batches"
+        );
+        assert_eq!(always.moe_tile_rows(1, 128), 16);
+        assert!(
+            !always.moe_should_batch(1, 0),
+            "no experts is still no routed FFN"
+        );
+    }
+
+    #[test]
+    fn an_unreachable_threshold_refuses_rather_than_wrapping() {
+        let never = Tuning {
+            moe_batch_min_per_expert: u32::MAX,
+            ..Tuning::default()
+        };
+        assert!(
+            !never.moe_should_batch(u32::MAX, 128),
+            "the product passes u32; the C++ int multiply is undefined here and \
+             its reachable outcome batches a fleet that should not"
+        );
+        assert_eq!(never.moe_tile_rows(u32::MAX, 128), 1);
+    }
+
+    #[test]
+    fn a_bool_is_off_only_for_zero() {
+        assert!(!parse_bool(Some("0"), true));
+        assert!(parse_bool(Some("1"), false));
+        assert!(parse_bool(Some("00"), false), "only a bare 0 turns it off");
+        assert!(
+            parse_bool(Some("false"), false),
+            "matching the C++, which \
+                 compares against the one character"
+        );
+        assert!(parse_bool(None, true));
+        assert!(!parse_bool(None, false));
+        assert!(parse_bool(Some(""), true), "empty is unset, not false");
+    }
+
+    #[test]
+    fn padding_reads_the_same_on_both_sides() {
+        assert_eq!(parse_count(Some(" 8"), 12), 8);
+        assert_eq!(
+            parse_count(Some("8 "), 12),
+            8,
+            "the C++ takes the leading space and refuses the trailing one, \
+             which is strtol's shape rather than a decision"
+        );
+        assert_eq!(parse_count(Some("\t8\n"), 12), 8);
+        assert_eq!(parse_threshold(Some(" 0 "), 1), 0);
+        assert!(!parse_bool(Some(" 0 "), true));
+        assert_eq!(parse_count(Some("   "), 12), 12, "blank is unset");
     }
 }
