@@ -31,6 +31,7 @@ mod encoder;
 mod feedback;
 mod heap;
 mod pipeline;
+mod pool;
 mod tables;
 
 pub use context::{ALLOCATOR_COUNT, Context};
@@ -39,4 +40,5 @@ pub use encoder::{ArgumentTable, StepEncoder, Stepper, Visibility};
 pub use feedback::{Feedback, Feedbacks};
 pub use heap::{Heap, Slot};
 pub use pipeline::Compiler;
+pub use pool::{DEFAULT_CAPACITY, Pool, PoolStats, SMALLEST_CLASS, Transient};
 pub use tables::{MAX_BINDINGS, Tables};
