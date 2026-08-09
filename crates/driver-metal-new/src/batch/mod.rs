@@ -58,7 +58,7 @@ pub use dispatch::{
 pub use dispatch_gptoss::{
     GptOssDagStats, build_gptoss_dag, build_gptoss_dag_mb, gptoss_dag_stats, gptoss_is_dense_proj,
     gptoss_mb_kind, gptoss_moe_qmm_bn, gptoss_moe_sorted_rows, gptoss_qmm_bn, gptoss_qmm_min_batch,
-    gptoss_qmm_pool_rows, gptoss_qmm_rows,
+    gptoss_qmm_pool_rows, gptoss_qmm_rows, gptoss_scratch_elems_mb,
 };
 pub use dispatch_mb::{
     PREFILL_ORDINAL_BASE, PREFILL_ORDINAL_STRIDE, ROUTED_DECODE_BATCHED, SDPA_QUERY_TILE,

@@ -1820,3 +1820,196 @@ fn the_gptoss_assembly_decodes_the_reference_tokens() {
         );
     }
 }
+
+/// One packed 16-token paged prefill answers with mlx_lm's next token.
+///
+/// Sixteen rows is the fire that exercises every tile arm at once: the
+/// dense projections take the shared BIASED GEMM (16 rows is past the
+/// crossover and this family biases every projection), the mixture takes
+/// the routed MXFP4 GEMM (64 pairs over 32 experts pads each expert's
+/// run to a 16-row tile), the attention reads the PAGE pool through the
+/// sink kernel, and the tail compacts to the ONE sampled row before the
+/// LM head. Reference: mlx_lm greedily continues this prompt with 5542
+/// (' known').
+#[test]
+fn the_gptoss_prefill_answers_in_one_paged_fire() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_GPTOSS_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_GPTOSS_CHECKPOINT to a gpt-oss MLX snapshot");
+        return;
+    };
+    let snapshot = PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json"))
+        .expect("the snapshot has a config.json");
+    let root: serde_json::Value = serde_json::from_str(&config).expect("config.json parses");
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().expect("utf8 path"))
+        .expect("the config converts to a descriptor");
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json)
+        .expect("the driver's facts read the descriptor");
+    let mut geometry =
+        driver_metal_new::batch::gptoss_geometry_from_facts(&facts).expect("a gpt-oss shape");
+
+    // "The quick brown fox jumps over the lazy dog, and the capital of
+    // France is" — 16 tokens, so the batch fills whole row tiles.
+    let prompt: [u32; 16] = [
+        976, 4853, 19705, 68347, 65613, 1072, 290, 29082, 6446, 11, 326, 290, 9029, 328, 10128, 382,
+    ];
+    let n = prompt.len() as u32;
+    geometry.max_tokens = n;
+    geometry.max_requests = 1;
+    geometry.paged_kv_enabled = true;
+    geometry.kv_page_size = 32;
+    geometry.total_pages = 128;
+
+    let target = metal_storage_target();
+    let (plan, _moe) = compile_load_plan(&snapshot, &target, &descriptor_json)
+        .expect("the plan compiles and its files exist");
+    let context = Context::new().expect("a Metal device answers");
+    let tuning = Tuning::default();
+    let max_ctx = 4096u32;
+    let scratch_bytes = driver_metal_new::batch::gptoss_scratch_elems_mb(&geometry, &tuning, n) * 4;
+    let shared_view = driver_metal_new::batch::gptoss_decode_geometry(&geometry);
+    let storage = stage_decode_storage(
+        &context,
+        &plan,
+        &snapshot,
+        &shared_view,
+        max_ctx,
+        scratch_bytes,
+    )
+    .expect("every region allocates and every tensor stages");
+    driver_metal_new::batch::solve_quant_into(&mut geometry, |name| {
+        storage
+            .weights
+            .get(name)
+            .map(driver_metal_new::region::Region::len)
+    })
+    .expect("the staged tensors carry the trio");
+
+    let dag = driver_metal_new::batch::build_gptoss_dag_mb(&geometry, &tuning, n, 1, 0, false);
+    let schedule = build_scratch_schedule(&dag, false).expect("the MB DAG schedules hazard-free");
+    let compiler = Compiler::new(&context).expect("the shader compiler starts");
+    let base = load_step_psos(
+        &compiler,
+        &context,
+        &kernels_dir(),
+        &driver_metal_new::batch::gptoss_mb_plan(&geometry),
+    )
+    .expect("every planned MB entrypoint compiles");
+    let mb_plan = driver_metal_new::batch::plan_multibatch_psos(
+        AffineFormat {
+            bits: geometry.proj_bits,
+            group: 64,
+        },
+        driver_metal_new::batch::MbFeatures {
+            bias: true,
+            ..driver_metal_new::batch::MbFeatures::default()
+        },
+        &tuning,
+    );
+    let mb = driver_metal_new::metal::load_mb_psos(&compiler, &context, &kernels_dir(), &mb_plan)
+        .expect("the shared GEMM lattice compiles");
+    let go = driver_metal_new::metal::load_gptoss_mb_psos(
+        &compiler,
+        &context,
+        &kernels_dir(),
+        &geometry,
+    )
+    .expect("the routed lattice compiles");
+
+    let step = driver_metal_new::metal::GptOssMbStep::prepare(
+        &context, &storage, &geometry, &tuning, &schedule, base, mb, go, n, 1, max_ctx,
+    )
+    .expect("the MB step binds whole");
+    // The point of a 16-row fire: had the tiles silently not engaged,
+    // this smoke would pass without ever touching either GEMM.
+    let decided = |kind: driver_metal_new::batch::Kernel| {
+        step.dag
+            .iter()
+            .find(|d| d.kind == kind)
+            .expect("in the DAG")
+            .qmm_bn
+    };
+    assert!(
+        decided(driver_metal_new::batch::Kernel::GoQmvQ) > 0,
+        "the dense projections must tile at 16 rows"
+    );
+    assert!(
+        decided(driver_metal_new::batch::Kernel::GoExpertGate) > 0,
+        "the mixture must tile at 64 pairs"
+    );
+
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().expect("io slot");
+    let write_u32s = |slot: IoSlot, values: &[u32]| {
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        // SAFETY: host-owned; nothing is encoded yet.
+        unsafe { io(slot).write(0, &bytes).expect("io write") };
+    };
+    write_u32s(IoSlot::TokenId, &prompt);
+    let positions: Vec<u32> = (0..n).collect();
+    write_u32s(IoSlot::Position, &positions);
+    write_u32s(
+        IoSlot::SeqLen,
+        &positions.iter().map(|p| p + 1).collect::<Vec<_>>(),
+    );
+    write_u32s(IoSlot::ReqOfToken, &vec![0; prompt.len()]);
+    let pages: Vec<u32> = (0..geometry.total_pages).collect();
+    write_u32s(IoSlot::KvPageIndices, &pages);
+    write_u32s(IoSlot::KvPageIndptr, &[0, geometry.total_pages]);
+    write_u32s(
+        IoSlot::WPage,
+        &positions
+            .iter()
+            .map(|p| p / geometry.kv_page_size)
+            .collect::<Vec<_>>(),
+    );
+    write_u32s(
+        IoSlot::WOff,
+        &positions
+            .iter()
+            .map(|p| p % geometry.kv_page_size)
+            .collect::<Vec<_>>(),
+    );
+    // The sampler reads ONE row: the last. Everything after the gather
+    // is [1, *].
+    write_u32s(IoSlot::SampleRows, &[n - 1]);
+    write_u32s(IoSlot::AttnMaskStride, &[0]);
+    // SAFETY: host-owned; the mask-enabled flags are u8 rows.
+    unsafe {
+        io(IoSlot::AttnMaskEnabled)
+            .write(0, &vec![0u8; prompt.len()])
+            .expect("io write");
+    }
+
+    let mut stepper = Stepper::new(&context).expect("a stepper");
+    step.fire(&mut stepper).expect("the paged prefill retires");
+
+    let logits = io(IoSlot::Logits);
+    let vocab = geometry.vocab as usize;
+    // SAFETY: the step retired; row 0 is the one sampled row.
+    let bytes =
+        unsafe { std::slice::from_raw_parts(logits.contents().cast::<u8>().as_ptr(), vocab * 2) };
+    let mut finite = 0usize;
+    let mut best = (0usize, f32::NEG_INFINITY);
+    for (i, pair) in bytes.chunks_exact(2).enumerate() {
+        let value = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+        if value.is_finite() {
+            finite += 1;
+            if value > best.1 {
+                best = (i, value);
+            }
+        }
+    }
+    eprintln!(
+        "paged prefill: {finite}/{vocab} finite, argmax {} ({:.3})",
+        best.0, best.1
+    );
+    assert_eq!(
+        finite, vocab,
+        "a NaN in the logits is a wrong kernel upstream"
+    );
+    assert_eq!(
+        best.0, 5542,
+        "mlx_lm continues this prompt with 5542 (' known')"
+    );
+}

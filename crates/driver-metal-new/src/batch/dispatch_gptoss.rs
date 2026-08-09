@@ -241,6 +241,23 @@ pub fn gptoss_is_dense_proj(kind: Kernel) -> bool {
     )
 }
 
+/// The widest activation an N-token gpt-oss fire ping-pongs through the
+/// pool — the MB twin of
+/// [`gptoss_scratch_elems`](super::gptoss_scratch_elems), which it
+/// collapses to at one row. The mixture's sorted stack dominates every
+/// real fire; the dense term uses the POOL's padded row count
+/// ([`gptoss_qmm_pool_rows`]) because the GEMM writes its padding rows,
+/// and a pool sized to the true batch would put those writes in the next
+/// colour's slot.
+#[must_use]
+pub fn gptoss_scratch_elems_mb(g: &GptOssGeometry, tuning: &Tuning, rows: u32) -> u64 {
+    let stack = u64::from(gptoss_moe_sorted_rows(g, tuning, rows))
+        * u64::from(g.intermediate.max(g.hidden));
+    let dense = u64::from(gptoss_qmm_pool_rows(rows)) * u64::from(g.q_dim().max(g.hidden));
+    let router = u64::from(rows.max(1)) * u64::from(g.n_experts);
+    stack.max(dense).max(router)
+}
+
 /// How many rows a dense projection's GEMM runs over: whole row tiles.
 ///
 /// Padded UNCONDITIONALLY once past the crossover, unlike the shared

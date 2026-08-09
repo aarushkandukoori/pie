@@ -80,7 +80,7 @@ pub use feedback::{Feedback, Feedbacks};
 pub use fire::{DeviceInputs, Execution, Mode, Prepare, PreparedFire};
 pub use fused::M2Command;
 pub use gptoss_bind::bind_gptoss_consts;
-pub use gptoss_step::GptOssStep;
+pub use gptoss_step::{GptOssMbPsos, GptOssMbStep, GptOssStep, gptoss_mb_pso, load_gptoss_mb_psos};
 pub use grouped::{GroupStats, LaneCandidate, M3Group, MAX_LANES, REGION_THREADS};
 pub use handle::Handle;
 pub use heap::{Heap, Slot};

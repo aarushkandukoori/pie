@@ -308,6 +308,13 @@ pub fn stage_decode_storage(
             IoSlot::AttnMaskEnabled,
             alloc_zeroed(context, n, "io attn mask enabled")?,
         );
+        // Which body rows the fire samples — at most all of them. The
+        // row-gather compaction is the first reader; unallocated, it was
+        // the one MB slot the paged block forgot.
+        set(
+            IoSlot::SampleRows,
+            alloc_zeroed(context, n * 4, "io sample rows")?,
+        );
     }
 
     // The argmax substrate: allocated always, inert unless the DAG carries
