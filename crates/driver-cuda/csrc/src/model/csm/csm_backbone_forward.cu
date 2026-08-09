@@ -19,7 +19,9 @@
 
 #include "model/csm/csm_backbone_forward.hpp"
 
+#include "mlp/swiglu.hpp"
 #include "norm/rmsnorm.hpp"
+#include "sample/argmax.hpp"
 #include "model/csm/csm_naive_kernels.cuh"
 
 namespace pie_cuda_driver::model {
@@ -148,7 +150,7 @@ void bb_layer(const CsmBackboneRawWeights& w,const CsmBackboneLayerRaw& L,
     kernels::norm::rmsnorm_bf16(s.resid,L.post_ln_w,s.normed,R,H,w.norm_eps,S);
     k_matmul<<<G2(s.inter,R),B2,0,S>>>(s.normed,L.gate,s.gate,R,H,s.inter);
     k_matmul<<<G2(s.inter,R),B2,0,S>>>(s.normed,L.up,s.up,R,H,s.inter);
-    k_swiglu<<<(long)(R*s.inter+255)/256,256,0,S>>>(s.gate,s.up,s.gate,(long)R*s.inter);
+    kernels::mlp::swiglu_bf16(s.gate,s.up,s.gate,R*s.inter,S);
     k_matmul<<<G2(H,R),B2,0,S>>>(s.gate,L.down,s.mlp,R,s.inter,H);
     k_add<<<(long)(R*H+255)/256,256,0,S>>>(s.resid,s.mlp,(long)R*H);
 }
@@ -226,7 +228,7 @@ int csm_generate_audio(const CsmBackboneRawWeights& w,
     for(int f=0; f<max_frames; ++f){
         // cb0 = argmax(lm_head(last_hidden))
         k_matmul<<<G2(AV,1),B2,0,S>>>(last_hidden,w.lm_head,lm_logits,1,H,AV);
-        k_argmax<<<1,256,0,S>>>(lm_logits,AV,d_arg);
+        kernels::sample::argmax_bf16(lm_logits,d_arg,1,AV,S);
         int cb0; CK(cudaMemcpyAsync(&cb0,d_arg,sizeof(int),cudaMemcpyDeviceToHost,S));CK(cudaStreamSynchronize(S));
 
         // depth decoder -> cb1..cb31 (seeded by last_hidden + cb0)
