@@ -1338,3 +1338,102 @@ fn a_two_lane_fleet_decodes_both_lanes_token_exact() {
     assert_eq!(&sequences[1][..3], &[13, 561, 6511], "lane 1 drifted");
     assert_eq!(sequences[0], sequences[1], "identical lanes disagreed");
 }
+
+// ── The decoder runner: a mixed-length fleet, where the per-slot conv
+// orientation diverges during prefill and the join copy earns its keep. ──
+
+#[test]
+fn a_mixed_length_fleet_runs_through_the_decoder() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT");
+        return;
+    };
+    let prompt: Vec<u32> = match std::env::var("PIE_METAL_SMOKE_PROMPT_IDS") {
+        Ok(csv) => csv.split(',').map(|t| t.parse().unwrap()).collect(),
+        Err(_) => {
+            eprintln!("SKIP: set PIE_METAL_SMOKE_PROMPT_IDS");
+            return;
+        }
+    };
+    let snapshot = std::path::PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json")).unwrap();
+    let root: serde_json::Value = serde_json::from_str(&config).unwrap();
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().unwrap()).unwrap();
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json).unwrap();
+    let mut geometry = geometry_from_facts(&facts).unwrap();
+    geometry.quant = AffineFormat { bits: 4, group: 64 };
+    geometry.paged_kv_enabled = true;
+    geometry.max_tokens = 16;
+    geometry.max_requests = 2;
+    geometry.max_slots = 2;
+    geometry.kv_page_size = 32;
+    geometry.total_pages = 128;
+    let target = metal_storage_target();
+    let (plan, _) = compile_load_plan(&snapshot, &target, &descriptor_json).unwrap();
+    let context = Context::new().unwrap();
+    let tuning = Tuning::default();
+    let max_ctx = 4096u32;
+    let slot_bytes = scratch_slot_elems(&geometry, &tuning, geometry.max_tokens) * 2;
+    let storage =
+        stage_decode_storage(&context, &plan, &snapshot, &geometry, max_ctx, slot_bytes).unwrap();
+    let options = DagOptions {
+        gdn_prep: true,
+        ..DagOptions::default()
+    };
+    let mut decoder = driver_metal_new::metal::Decoder::new(
+        &context,
+        storage,
+        geometry.clone(),
+        tuning,
+        options,
+        max_ctx,
+        kernels_dir(),
+    )
+    .unwrap();
+
+    // Lane 0: the full prompt. Lane 1: its first three tokens — a
+    // different length, so the two slots' orientations diverge and the
+    // first joint fire must normalize one of them.
+    let short: Vec<u32> = prompt[..3].to_vec();
+    let first0 = decoder.prefill(0, 0, &prompt).unwrap();
+    let first1 = decoder.prefill(1, 1, &short).unwrap();
+    eprintln!("lane 0 prefill answer {first0}, lane 1 {first1}");
+    assert_eq!(first0, 11751, "lane 0 must still say ' Paris'");
+
+    let mut tokens = [first0, first1];
+    let mut positions = [prompt.len() as u32, short.len() as u32];
+    let mut lane0 = Vec::new();
+    let mut lane1 = Vec::new();
+    for _ in 0..4 {
+        decoder
+            .fire(&[
+                driver_metal_new::metal::Lane {
+                    request: 0,
+                    slot: 0,
+                    token: tokens[0],
+                    position: positions[0],
+                },
+                driver_metal_new::metal::Lane {
+                    request: 1,
+                    slot: 1,
+                    token: tokens[1],
+                    position: positions[1],
+                },
+            ])
+            .unwrap();
+        tokens = [decoder.argmax_row(0), decoder.argmax_row(1)];
+        positions = [positions[0] + 1, positions[1] + 1];
+        lane0.push(tokens[0]);
+        lane1.push(tokens[1]);
+    }
+    eprintln!("lane 0: {lane0:?}");
+    eprintln!("lane 1: {lane1:?}");
+    assert_eq!(
+        &lane0[..3],
+        &[13, 561, 6511],
+        "the full-prompt lane must keep the single-request answer through a mixed fleet"
+    );
+    let distinct: std::collections::HashSet<_> = lane1.iter().collect();
+    assert!(distinct.len() > 1, "lane 1 wedged: {lane1:?}");
+}

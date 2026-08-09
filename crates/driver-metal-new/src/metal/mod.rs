@@ -32,6 +32,7 @@ mod archive;
 mod bind;
 mod bind_mb;
 mod context;
+mod decoder;
 mod device;
 mod elastic;
 mod encoder;
@@ -65,6 +66,7 @@ pub use bind_mb::{
     MbBindOffsets, bind_decode_dag_mb, bind_gdn_conv_parity, paged_attention_mask_pitch_bytes,
 };
 pub use context::{ALLOCATOR_COUNT, Context};
+pub use decoder::{Decoder, Lane};
 pub use device::DeviceInfo;
 pub use elastic::{
     Arena, Budget, CHUNK, Elastic, Need, PAGE, Pressure, TILE, create as create_elastic,
