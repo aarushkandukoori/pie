@@ -51,7 +51,7 @@ pub use feedback::{Feedback, Feedbacks};
 pub use heap::{Heap, Slot};
 pub use keepalive::{Keepalive, MIN_DEPTH, MIN_THREADGROUPS, THREADS_PER_THREADGROUP};
 pub use memory::{Memory, Pages, reclaimable_pages};
-pub use pipeline::{Archived, Compiled, Compiler};
+pub use pipeline::{Archived, Compiled, Compiler, Math};
 pub use pool::{DEFAULT_CAPACITY, Pool, PoolStats, SMALLEST_CLASS, Transient};
 pub use tables::{MAX_BINDINGS, Tables};
 pub use timestamp::{Granularity, Timestamps};

@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use driver_metal_new::{Archived, Archives, Compiler, Context, Request};
+use driver_metal_new::{Archived, Archives, Compiler, Context, Math, Request};
 
 /// A scratch cache directory of this test's own.
 ///
@@ -103,6 +103,51 @@ fn editing_the_source_misses_the_archive_it_had_written() {
         matches!(second.archive, Archived::Written),
         "an edited source is a different key, so a miss: {:?}",
         second.archive
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The math mode is part of what a source compiles to, so it must be part of
+/// the key.
+///
+/// Without it the precise batch is served the fast batch's binaries and
+/// reports a hit. That is the worst shape of failure this cache can have: not
+/// a slow start, but the wrong arithmetic arriving quickly and looking
+/// correct. A transcode kernel served a reassociated build produces
+/// quantisation codes that are off by a step.
+#[test]
+fn the_two_math_modes_do_not_share_an_archive() {
+    let dir = scratch("math");
+    let context = Context::new().expect("context");
+    let path = kernel(&dir, "k.metal", &source("one"));
+    let requests = vec![Request::new(&path, "one")];
+    let archives = Archives::new(Some(dir.join("cache")));
+
+    let fast = Compiler::with_archives(&context, archives.clone())
+        .expect("compiler")
+        .compile_batch_with(&context, &requests, Math::Fast);
+    assert!(matches!(fast.archive, Archived::Written));
+
+    let precise = Compiler::with_archives(&context, archives.clone())
+        .expect("compiler")
+        .compile_batch_with(&context, &requests, Math::Precise);
+    assert!(
+        matches!(precise.archive, Archived::Written),
+        "the precise batch was served the fast batch's binaries: {:?}",
+        precise.archive
+    );
+
+    // And each mode still hits its OWN archive -- a key that merely differed
+    // every time would also pass the assertion above while caching nothing.
+    let again = Compiler::with_archives(&context, archives)
+        .expect("compiler")
+        .compile_batch_with(&context, &requests, Math::Precise);
+    assert!(
+        again.archive.is_hit(),
+        "the precise batch did not find the archive it had just written, so \
+         the mode is being mixed into the key unstably: {:?}",
+        again.archive
     );
 
     let _ = std::fs::remove_dir_all(&dir);

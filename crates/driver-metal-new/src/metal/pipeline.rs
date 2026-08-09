@@ -30,6 +30,28 @@
 //! serving path compiles nothing. If a future OS makes this safe, the
 //! evidence to re-test with is above.
 //!
+//! # There is no pipeline registry, and that is the port
+//!
+//! The C++ shell hands out pipelines as an opaque `Pso { void* }` across an
+//! FFI boundary, so it needs somewhere to own them: an `NSMutableArray` of
+//! live objects, a parallel `unordered_set<void*>` to make membership cheap,
+//! a `release_pso` that removes from both, and a `retained_pso_count` so a
+//! test can prove the pair stayed in step. Four mechanisms exist to answer
+//! one question -- who owns this -- that the type system was not allowed to
+//! answer.
+//!
+//! Here a pipeline IS a `Retained<ProtocolObject<dyn MTLComputePipelineState>>`
+//! and the answer is "whoever holds it". Dropping it releases it, the
+//! compiler keeps no reference, and there is no count to keep in step because
+//! there is no second copy of the truth. `tests/device_pso.rs` asserts this
+//! rather than assuming it: it takes a weak reference, drops the strong one,
+//! and requires the weak to have gone -- which fails the moment anything in
+//! this crate starts retaining pipelines behind the caller's back.
+//!
+//! What did NOT evaporate is the C++'s `device_cache_id`, because that
+//! answers a different question -- which GPU a compiled binary is valid on.
+//! It moved to [`Context::cache_id`] and salts every archive key.
+//!
 //! # The language version is a property of the driver
 //!
 //! `MTLCompileOptions` defaults to an older MSL standard. Under that default
@@ -50,7 +72,7 @@ use objc2_metal::{
     MTL4ComputePipelineDescriptor, MTL4LibraryFunctionDescriptor,
     MTL4PipelineDataSetSerializer, MTL4PipelineDataSetSerializerConfiguration,
     MTL4PipelineDataSetSerializerDescriptor, MTLCompileOptions, MTLComputePipelineState, MTLDevice,
-    MTLLanguageVersion, MTLLibrary,
+    MTLLanguageVersion, MTLLibrary, MTLMathFloatingPointFunctions, MTLMathMode,
 };
 
 use super::archive::{Archives, MAX_AGE};
@@ -155,10 +177,25 @@ impl Compiler {
         source: &str,
         function: &str,
     ) -> Result<Retained<ProtocolObject<dyn MTLComputePipelineState>>> {
+        self.compile_with(context, source, function, Math::Fast)
+    }
+
+    /// [`compile`](Self::compile) with the arithmetic pinned.
+    ///
+    /// # Errors
+    ///
+    /// As [`compile`](Self::compile).
+    pub fn compile_with(
+        &self,
+        context: &Context,
+        source: &str,
+        function: &str,
+        math: Math,
+    ) -> Result<Retained<ProtocolObject<dyn MTLComputePipelineState>>> {
         // Held across both halves. The library build is part of the same
         // compilation and there is no evidence separating the two.
         let _gate = GATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let library = build_library(context, source, function)?;
+        let library = build_library(context, source, function, math)?;
         self.build_pipeline(&library, function, None)
     }
 
@@ -185,6 +222,21 @@ impl Compiler {
     /// the C++ shell's own note that driving Metal's compiler service from
     /// extra threads measured no faster.
     pub fn compile_batch(&self, context: &Context, requests: &[Request]) -> Compiled {
+        self.compile_batch_with(context, requests, Math::Fast)
+    }
+
+    /// [`compile_batch`](Self::compile_batch) with the arithmetic pinned.
+    ///
+    /// The mode applies to every file in the batch, because it is a property
+    /// of a translation unit -- see [`Math`]. A load that needs both wants two
+    /// batches, and they will not share an archive because the mode is in the
+    /// key.
+    pub fn compile_batch_with(
+        &self,
+        context: &Context,
+        requests: &[Request],
+        math: Math,
+    ) -> Compiled {
         if requests.is_empty() {
             return Compiled {
                 pipelines: Vec::new(),
@@ -192,7 +244,7 @@ impl Compiler {
             };
         }
         let batch = Batch::load(requests);
-        let path = self.archives.path(batch.key(self.salt(context)));
+        let path = self.archives.path(batch.key(self.salt(context, math)));
 
         let _gate = GATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
@@ -205,7 +257,7 @@ impl Compiler {
             .paths()
             .len())
             .map(|index| match batch.source(index) {
-                Some(Ok(source)) => build_library(context, source, ""),
+                Some(Ok(source)) => build_library(context, source, "", math),
                 Some(Err(error)) => Err(clone_read_error(error, &batch.paths()[index])),
                 None => unreachable!("index came from paths()"),
             })
@@ -278,9 +330,13 @@ impl Compiler {
     /// The GPU, because a binary compiled for one is not valid on another and
     /// a cache directory can be shared over a network home. The language
     /// version, because the same text compiled as two dialects is two
-    /// different sets of binaries.
-    fn salt(&self, context: &Context) -> u64 {
-        context.device().registryID() ^ (LANGUAGE_VERSION.0 as u64).rotate_left(32)
+    /// different sets of binaries. And the math mode, for the same reason --
+    /// see [`Math::tag`] for why leaving it out is a wrong answer rather than
+    /// a slow one.
+    fn salt(&self, context: &Context, math: Math) -> u64 {
+        context.cache_id()
+            ^ (LANGUAGE_VERSION.0 as u64).rotate_left(32)
+            ^ math.tag().rotate_left(16)
     }
 
     /// Build one pipeline off `library`, looking in `task` if there is one.
@@ -384,6 +440,71 @@ impl Archived {
     }
 }
 
+/// How much the compiler may rewrite the arithmetic it was given.
+///
+/// A property of the TRANSLATION UNIT, not of an entry point, which is why it
+/// is an argument to a compile rather than a field on a request: a batch
+/// builds one library per file and shares it across every entry point in that
+/// file, so a per-request setting would silently be whichever request got
+/// there first.
+///
+/// The C++ instead keeps a `saw_ptir_compile` /
+/// `last_ptir_fast_math_disabled` pair on the context and exposes
+/// `last_ptir_compile_disabled_fast_math()`. That accessor cannot return
+/// anything but "has a strict compile happened yet": the function that sets
+/// the flag writes `MTLMathModeSafe` into the options and then reads the
+/// field back to decide the flag, so it is comparing a value with itself. A
+/// mode that is an argument needs no flag to remember it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Math {
+    /// Metal's default: reassociation, `x / c` into `x * (1/c)`, and no
+    /// promises about NaN or signed zero. Right for kernels whose output is
+    /// compared against a tolerance.
+    #[default]
+    Fast,
+
+    /// Safe mode with precise transcendentals.
+    ///
+    /// Needed by two things that look unrelated and are not. Load-time
+    /// transcode has to reproduce another implementation's arithmetic bit for
+    /// bit, and one ulp on a reciprocal moves a rounded 4-bit quantisation
+    /// code by a whole step. And the interpreter's ops are specified down to
+    /// NaN propagation and argmax tie-breaks, which a reassociating compiler
+    /// is free to change.
+    Precise,
+}
+
+impl Math {
+    /// Apply to freshly made compile options.
+    fn apply(self, options: &MTLCompileOptions) {
+        match self {
+            // Left alone rather than set to the fast constants. The default
+            // IS fast, and writing it would claim this crate has an opinion
+            // about a value it would rather inherit if the SDK changes it.
+            Self::Fast => {}
+            Self::Precise => {
+                options.setMathMode(MTLMathMode::Safe);
+                options
+                    .setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
+            }
+        }
+    }
+
+    /// A byte that distinguishes the modes inside a cache key.
+    ///
+    /// Load-bearing. The same source compiled both ways is two different sets
+    /// of binaries, and an archive is keyed by its sources: without this the
+    /// second batch would be served the first one's pipelines, which is a
+    /// wrong answer that looks like a fast one. The C++ leaves this to the
+    /// caller, which passes an `archive_path` by hand and is not checked.
+    const fn tag(self) -> u64 {
+        match self {
+            Self::Fast => 0,
+            Self::Precise => 1,
+        }
+    }
+}
+
 /// Turn one source into a library, pinned to this driver's dialect.
 ///
 /// `function` only names the failure. A library is a translation unit and a
@@ -393,9 +514,11 @@ fn build_library(
     context: &Context,
     source: &str,
     function: &str,
+    math: Math,
 ) -> Result<Retained<ProtocolObject<dyn MTLLibrary>>> {
     let options = MTLCompileOptions::new();
     options.setLanguageVersion(LANGUAGE_VERSION);
+    math.apply(&options);
     context
         .device()
         .newLibraryWithSource_options_error(&NSString::from_str(source), Some(&options))
