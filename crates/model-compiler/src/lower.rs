@@ -1146,7 +1146,7 @@ impl Buffers {
                 if last_use[v as usize] >= i {
                     return true;
                 }
-                free.push((offset[v as usize], size[v as usize]));
+                insert_free(&mut free, (offset[v as usize], size[v as usize]));
                 false
             });
             // A `Select` allocates nothing: its value IS a window of its
@@ -1197,8 +1197,35 @@ impl Buffers {
                     continue;
                 }
                 let want = value_bytes(plan, v, n_tokens, n_requests);
-                let at = match free.iter().position(|&(_, s)| s >= want) {
-                    Some(f) => free.remove(f).0,
+                // BEST fit, and SPLIT the remainder back.
+                //
+                // First-fit-and-keep-the-whole-block was costing 4-15x
+                // at the fire shape that sizes the driver's activation
+                // block (`arena_soundness.rs` prices it per family): a
+                // freed logits-sized block satisfying a one-row norm
+                // retired the rest of itself, so the walk bump-allocated
+                // almost everything. It read as cheap because the ratio
+                // had been measured on an eight-row all-sampled fire,
+                // where the logits dominate the arena AND the floor and
+                // the loss hides inside both.
+                let at = match free
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, block)| block.1 >= want)
+                    .min_by_key(|(_, block)| block.1)
+                    .map(|(i, _)| i)
+                {
+                    Some(f) => {
+                        let (off, size_of) = free.remove(f);
+                        // The tail keeps the block's alignment, so a
+                        // split never hands out an address the bump path
+                        // would not have.
+                        let tail = (off + want).div_ceil(256) * 256;
+                        if tail < off + size_of {
+                            insert_free(&mut free, (tail, off + size_of - tail));
+                        }
+                        off
+                    }
                     None => {
                         // 256-byte alignment, and BUMP only: a decode
                         // body runs inside a capture, so the same plan
@@ -1219,6 +1246,32 @@ impl Buffers {
             bytes: used,
             pinned,
         }
+    }
+}
+
+/// Return a block to the pool, MERGED with any neighbour it touches.
+///
+/// The pool is kept sorted by offset so this is one scan. Without it,
+/// splitting makes fragmentation worse rather than better: a block cut
+/// into pieces to serve small values never becomes whole again, so a
+/// later large value bump-allocates past a run of adjacent free bytes
+/// that would have held it.
+fn insert_free(free: &mut Vec<(usize, usize)>, block: (usize, usize)) {
+    let (at, len) = block;
+    if len == 0 {
+        return;
+    }
+    let i = free.partition_point(|&(off, _)| off < at);
+    free.insert(i, (at, len));
+    // Merge forward first, then back, so a block filling a hole between
+    // two free neighbours coalesces all three.
+    if i + 1 < free.len() && free[i].0 + free[i].1 == free[i + 1].0 {
+        let (_, next_len) = free.remove(i + 1);
+        free[i].1 += next_len;
+    }
+    if i > 0 && free[i - 1].0 + free[i - 1].1 == free[i].0 {
+        let (_, this_len) = free.remove(i);
+        free[i - 1].1 += this_len;
     }
 }
 

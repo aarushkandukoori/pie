@@ -592,8 +592,19 @@ fn what_is_live_where_the_arena_peaks() {
         if name != "gemma_4" && name != "llama_like" {
             continue;
         }
-        let rows = plain(1);
-        let (n_tokens, n_requests) = (rows.len(), rows.len());
+        // A REALISTIC shape, not one row: at one row the logits dwarf
+        // everything and the peak lands on the epilogue, which says
+        // nothing about the token-scaled cost that actually sizes the
+        // block. 64 tokens with 4 sampled puts the peak back in the
+        // layers, where it is at 6144.
+        let rows: Vec<Row> = (0..64)
+            .map(|i| Row {
+                samples: i < 4,
+                multi_token: i >= 4,
+                ..Row::default()
+            })
+            .collect();
+        let (n_tokens, n_requests) = (rows.len(), 4);
         let buffers = Buffers::assign(&plan, &rows);
 
         let mut last = vec![0usize; plan.values.len()];
@@ -637,10 +648,25 @@ fn what_is_live_where_the_arena_peaks() {
             .filter(|&v| placed(v) && def[v] <= peak_at && peak_at <= last[v])
             .map(|v| (bytes(v), last[v] - def[v], v))
             .collect();
-        holders.sort_by_key(|&(b, span, _)| std::cmp::Reverse(b * span.max(1)));
-        println!("  {:>9}  {:>6}  {}", "bytes", "ops live", "shape");
-        for (b, span, v) in holders.into_iter().take(8) {
-            println!("  {b:>9}  {span:>6}  {:?}", plan.values[v].shape.0);
+        println!("  holding {} values", holders.len());
+        // Grouped by SHAPE: the trace is layer-unrolled, so one role
+        // appears once per layer and a per-value list would be 35 copies
+        // of the same answer.
+        let mut by_shape: std::collections::BTreeMap<String, (usize, usize, usize)> =
+            Default::default();
+        for (b, span, v) in holders {
+            let e = by_shape
+                .entry(format!("{:?}", plan.values[v].shape.0))
+                .or_insert((0, 0, 0));
+            e.0 += 1;
+            e.1 += b;
+            e.2 = e.2.max(span);
+        }
+        let mut rows_out: Vec<_> = by_shape.into_iter().collect();
+        rows_out.sort_by_key(|(_, (_, b, _))| std::cmp::Reverse(*b));
+        println!("  {:>5}  {:>11}  {:>8}  {}", "count", "bytes", "max span", "shape");
+        for (shape, (count, b, span)) in rows_out.into_iter().take(8) {
+            println!("  {count:>5}  {b:>11}  {span:>8}  {shape}");
         }
     }
 }
@@ -674,10 +700,48 @@ fn what_a_widest_fire_actually_costs() {
                 })
                 .collect();
             let b = Buffers::assign(&plan, &rows);
+            // The FLOOR at this same shape. The earlier ratio was taken
+            // at eight all-sampled rows, where the logits dominate both
+            // sides and the ratio says little; at the shape that sizes
+            // the block it separates "the text holds this much" from
+            // "the free list is losing this much".
+            let mut last = vec![0usize; plan.values.len()];
+            let mut def = vec![usize::MAX; plan.values.len()];
+            for (i, op) in plan.ops.iter().enumerate() {
+                for &v in op.inputs.iter().chain(op.outputs.iter()) {
+                    if let Some(s) = last.get_mut(v as usize) { *s = (*s).max(i); }
+                }
+                for &v in &op.outputs {
+                    if let Some(s) = def.get_mut(v as usize) { *s = (*s).min(i); }
+                }
+            }
+            let sizes: Vec<usize> = (0..plan.values.len())
+                .map(|v| if b.offset[v] == Buffers::NAMED { 0 }
+                     else { value_bytes(&plan, v as ValueId, tokens, sampled.max(1)) })
+                .collect();
+            let mut floor = 0usize;
+            let mut cur = 0usize;
+            let mut ends: Vec<Vec<usize>> = vec![Vec::new(); plan.ops.len() + 1];
+            for v in 0..plan.values.len() {
+                if sizes[v] == 0 || def[v] == usize::MAX { continue; }
+                ends[last[v].min(plan.ops.len())].push(v);
+            }
+            for i in 0..plan.ops.len() {
+                for &v in &plan.ops[i].outputs {
+                    if (v as usize) < sizes.len() && def[v as usize] == i {
+                        cur += sizes[v as usize];
+                    }
+                }
+                floor = floor.max(cur);
+                for &v in &ends[i] { cur -= sizes[v]; }
+            }
             println!(
-                "{name:12} {tokens} tokens / {sampled} sampled -> {:>13} bytes ({:.2} GB)",
+                "{name:12} {tokens}t/{sampled}s -> arena {:>13} ({:.2} GB)  floor {:>13} ({:.2} GB)  x{:.2}",
                 b.bytes,
-                b.bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+                b.bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+                floor,
+                floor as f64 / (1024.0 * 1024.0 * 1024.0),
+                b.bytes as f64 / floor.max(1) as f64
             );
         }
     }
