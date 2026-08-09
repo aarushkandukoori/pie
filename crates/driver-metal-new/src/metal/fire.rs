@@ -77,7 +77,6 @@ const MTP_DRAFTS: u16 = tensor_ir::op::intrinsic_tags::MTP_DRAFTS;
 ///
 /// `M1DeviceInputs`, with the two sentinels made absent: no logits is
 /// `None`, not an invalid handle, and no MTP draft row is `None`, not `-1`.
-/// (`logits_rows`, the M3 explicit row map, lands with the M3 slice.)
 #[derive(Clone, Debug, Default)]
 pub struct DeviceInputs {
     /// The forward's bf16 logits, when the program reads them.
@@ -86,6 +85,12 @@ pub struct DeviceInputs {
     pub logits_row_offset: u32,
     /// Rows of the logits buffer belonging to this fire.
     pub logits_row_count: u32,
+    /// The explicit logits row map, when the rows are not contiguous.
+    ///
+    /// Empty means rows `logits_row_offset ..` in order. Only the M3 group
+    /// reads it; when present its length must equal
+    /// [`logits_row_count`](Self::logits_row_count).
+    pub logits_rows: Vec<u32>,
     /// The model's vocabulary width.
     pub vocab: u32,
     /// The MTP draft row this fire runs, if any.
@@ -727,10 +732,10 @@ fn offset(value: Option<u64>, what: &str) -> Result<u64> {
 
 /// The bytes of a `#[repr(C)]`, padding-free record slice.
 ///
-/// Private and used only with the lane-table records, `ValueDesc` and
+/// Crate-internal and used only with the lane-table records, `ValueDesc` and
 /// `OpParams`, each of which is declared as-uploaded ABI with its size
 /// pinned by a test.
-fn pod_bytes<T: Copy>(values: &[T]) -> &[u8] {
+pub(super) fn pod_bytes<T: Copy>(values: &[T]) -> &[u8] {
     // SAFETY: `T` is one of the crate's `#[repr(C)]` ABI records, fully
     // initialised, with no padding bytes; the slice covers exactly the
     // values' own storage.
@@ -740,7 +745,7 @@ fn pod_bytes<T: Copy>(values: &[T]) -> &[u8] {
 }
 
 /// Write one POD record at `offset` of `region`.
-fn write_pod<T: Copy>(region: &Transient, at: u64, value: &T) -> Result<()> {
+pub(super) fn write_pod<T: Copy>(region: &Transient, at: u64, value: &T) -> Result<()> {
     // SAFETY: the region was just acquired or belongs to a fire no step is
     // running against; `pod_bytes` covers the record exactly.
     unsafe { region.write(at, pod_bytes(std::slice::from_ref(value))) }

@@ -555,12 +555,59 @@ forward gap → post) and commits with the fused region demonstrably run; a
 never-encoded command reports "never encoded"; an unfusable stage is refused
 with the host's own reason.
 
-## Not yet started
+## The group — `src/metal/grouped.rs`
 
-| C++ | lines | |
+| C++ | Rust | |
 |---|---|---|
-| `bind_m3_*` | 687–703 | missing |
-| M3 grouped lanes | 2412–3350 | missing |
+| `prepare_m3_group` | `Runtime::prepare_m3` | ported |
+| `encode_m3_pre` / `encode_m3_post` | `M3Group::encode_pre` / `encode_post` | ported |
+| `finish_m3_group` | `M3Group::finish` | ported |
+| `bind_m3_effect` / `bind_m3_region` | the encode binds | ported |
+| `M3LaneCandidate` | `LaneCandidate` | ported |
+| `M3GroupStats` | `GroupStats` | ported |
+| `M3EncodedRegion` / `M3StageCommand` / `M3GroupCommand` | private structs / `M3Group` | ported |
+| the 64-lane cap | `MAX_LANES` | ported |
+| `kM3RegionThreads` | `REGION_THREADS`, drift-checked | ported |
+| `M3GroupCommand::target` | — | dropped |
+| `timestamp_heap` / `m3_gpu_timestamps_enabled` | — | dropped |
+| the `release_group` lambda | ownership | dropped |
+| `M1DeviceInputs::logits_rows` | `DeviceInputs::logits_rows` | ported |
+
+The 220-line `release_group` lambda — six group transients, up to seven more
+per stage, every external registration and the timestamp heap, recycled by
+hand on fourteen failure exits — is ownership here: every early `?` drops
+the group and everything it holds. The timestamp heap is dead code by its
+own hand (`m3_gpu_timestamps_enabled()` returns `false`; the C++ prices the
+feature at 5.0ms of a ~13ms token) and the host-clock fallback it fell back
+to is `GroupStats::post_forward_critical_ns`, kept. `kM3RegionThreads` was
+the transcription the emitter's own doc warns about — "a hand-kept copy
+carrying a 'must equal' comment has nothing comparing the two" — and is now
+compared, by a dev-dependency test against `METAL_M3_REGION_THREADS`.
+
+The `encoded` guard — the one lesson this path had already learned — keeps
+its shape, and `finish` bounds the fault report at four lanes rather than
+letting one bad group log a novel. The `reserved[3]` words of the layout
+record are written through their real names (`binding_stride`,
+`rows_per_lane`, `op_stride` in `lane.rs`), which is where this ledger's
+struct-zoo slice started.
+
+Four device tests, the first of which is the path's whole point: two fires
+sharing a stage identity and size bucket become **one** region dispatch
+(`body_launches == 1` for two committed lanes). A never-encoded group says
+so once instead of faulting every lane; a lane gone stale since composition
+aborts the group naming the readiness check; two lanes sharing a ring are
+refused as the ordering hazard they are.
+
+## Closed out
+
+Every line of `csrc/src/pipeline/m1_runtime.cpp` (3411 lines, plus its
+202-line header and the `region_support.hpp` walkers) is now accounted for
+in this ledger: ported with an argued difference, or dropped with the reason
+the C++ needed it and the Rust does not. The two entries that remain
+`missing` — `m1_extents_from_forward_desc` and `m3_extents_from_forward_desc`
+in the extents section, and `m1_singleton_fallback_inputs` in the fire
+section — are field copies out of `batch::MemberForwardDesc`, and belong to
+the `batch/` port that owns that type.
 
 ## Where this stands
 
@@ -572,7 +619,8 @@ without a GPU. The C++ had none for any of it: every one of these functions
 lived in an anonymous namespace behind a pimpl, reachable only through a
 `*_for_test` hook or not at all.
 
-The metal half now carries the buffer view, the program compile, the device
-ring and the single-lane fire — twenty-five device tests between them,
-including four that run a whole fire end to end. What is left is the two
-placed paths: M2 around a forward, and the M3 group.
+The metal half is done: the buffer view, the program compile, the device
+ring, the single-lane fire, the M2 placement and the M3 group — thirty-two
+device tests between them, including end-to-end fires on all three paths
+against a real GPU. The port of `m1_runtime.cpp` is complete; what remains
+of the driver is the subsystems around it, `batch/` first.

@@ -149,10 +149,14 @@ about a specific defect rather than a description of the change. In order:
 | `497e811ae` | `pipeline/emitted.rs` | `unordered_map::emplace` silently keeps the *first* of two kernels claiming one slot, so array order chose between two kernels. The `error`-before-`source` rule lived in a comment nowhere near its call sites. |
 | `968001fee` | `PARITY-M1.md` | Ledger closed out for the portable half. |
 
-### Phase 3 — the pipeline, metal half (in progress, 6 commits, 2026-08-09)
+### Phase 3 — the pipeline, metal half (complete, 2026-08-09)
 
-`8b71cb608` … `7bb0cf891`. The GPU half of `m1_runtime.cpp`, on the same
-method, tested against the real device (25 device tests so far):
+`8b71cb608` onward. The GPU half of `m1_runtime.cpp`, on the same method,
+tested against the real device (32 device tests, including end-to-end fires
+on all three launch paths). **`m1_runtime.cpp` is now fully ported** —
+`PARITY-M1.md`'s "Closed out" section is the statement; the only `missing`
+entries left are field copies out of `batch::MemberForwardDesc`, which
+belong to the `batch/` port.
 
 | commit | module | the defect it argues |
 |---|---|---|
@@ -162,20 +166,17 @@ method, tested against the real device (25 device tests so far):
 | `b60f9459e` | `metal/ring.rs` | `create_standalone_buffer` hands back a handle **with no owner**; the release call exists only because of that, and forgetting it leaked every K/V buffer. `Ring` owns its buffers; `readiness::check_words` lets the device ring and the interpreter share one readiness check. |
 | `7bb0cf891` | `metal/fire.rs` | `execute`'s nine failure exits share a `goto cleanup_failure` label — `Transient`'s `Drop` is that label. `release()`/`resource_accounted` die with it. Four device tests run a whole fire end to end. |
 
-## What is left
-
-### Immediate: the two placed paths of `m1_runtime.cpp`
-
-Both land under `src/metal/` and need a device. `PARITY-M1.md` has the
-details; the fire, ring, handle, lane-table and executables they consume are
-done and tested.
-
-| C++ | lines | notes |
+| commit | module | the defect it argues |
 |---|---|---|
-| M2 fused placement | 1982–2411 | `prepare_m2_command`/`set_m2_logits_row`/`encode_m2_pre`/`encode_m2_post`/`finish_m2_command` + `bind_m2_*` (655–685). Runs against the **forward executor's** context (`RawMetalContext& target`) — decide how the Rust command references it. `M2EncodedRegion`/`M2CommandPlan` land here. |
-| M3 grouped lanes | 2412–3350 | `prepare_m3_group`/`encode_m3_pre`/`encode_m3_post`/`finish_m3_group` + `bind_m3_*` (687–703). `M3LaneCandidate`/`M3GroupStats`/`M3EncodedRegion`/`M3StageCommand`/`M3GroupCommand` land here; `lane.rs` already has the sidecar records and `GroupLayout`'s real field names. `timestamp_heap` is dead by default (`m3_gpu_timestamps_enabled()` returns false). |
+| `8b71cb608` | `metal/handle.rs` | `subhandle` minted views it should have refused. |
+| `862ae69fc` | `pipeline/lane.rs` | `M3GroupLayout::reserved[3]` is load-bearing on both sides of the ABI; the struct zoo dissolves. |
+| `cc5c9f53a` | `metal/program.rs`, `metal/runtime.rs` | `compile_program`; `PsoCompileTransaction` dropped — build-then-install makes rollback the default. |
+| `b60f9459e` | `metal/ring.rs` | A release call exists only because the handle has no owner; the standalone-buffer hole closes. |
+| `7bb0cf891` | `metal/fire.rs` | `execute`'s `goto cleanup_failure` is `Transient::drop`; four device tests run a whole fire. |
+| `64dc047d8` | `metal/fused.rs` | The M2 `target` pointer dropped; the never-encoded zero fill reported as such (the M3 lesson, applied to M2). |
+| (this commit) | `metal/grouped.rs` | The 220-line `release_group` lambda is ownership; `kM3RegionThreads` drift-checked; two lanes provably become one dispatch. |
 
-### After that
+## What is left
 
 | subsystem | C++ | lines |
 |---|---|---|

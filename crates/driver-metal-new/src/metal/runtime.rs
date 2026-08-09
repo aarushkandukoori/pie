@@ -270,6 +270,11 @@ impl Runtime {
         ordinal
     }
 
+    /// The grouped effect pair, once a program compile has produced it.
+    pub(super) fn grouped_effects_pair(&self) -> Option<(Pso, Pso)> {
+        self.grouped_effects.clone()
+    }
+
     /// Compile `plan` into an executable program, through the caches.
     ///
     /// `versions` must come from the registration that shipped the kernels —
