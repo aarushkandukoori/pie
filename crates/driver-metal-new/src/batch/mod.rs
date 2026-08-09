@@ -15,6 +15,7 @@ mod abi;
 mod admit;
 mod color;
 mod geometry;
+mod golden;
 mod mask;
 mod member;
 mod paging;
@@ -34,6 +35,10 @@ pub use color::{
     schedule_scratch,
 };
 pub use geometry::{AffineFormat, DecodeGeometry};
+pub use golden::{
+    Tap, TapSite, dir_from_env, dump_bf16, dump_bf16_sorted, dump_taps, dump_tokens,
+    sorted_dump_rows, tap_for, taps_recycle, write_npy,
+};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
 pub use paging::{

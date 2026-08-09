@@ -188,8 +188,28 @@ shared vocabulary. The porting order that follows from the includes:
    geometry live under `model/<family>/` and land with the family port.
    (`DecodeGeometry` itself has since landed — see the geometry section.)
 3. `expert_paging.hpp` (195): ported -- see "Expert paging" below.
-4. `decode_psos` (582), `golden_tap` (238), `worker.hpp` (171),
+4. `decode_psos` (582), `worker.hpp` (171),
    `simple_family` (2176), then `forward.cpp/.hpp` (5393) over everything.
+   (`golden_tap` has since landed — see "The golden taps" below.)
+
+## The golden taps — `src/batch/golden.rs`
+
+`batch/golden_tap.hpp/.cpp` (316 together): the env-gated activation dump
+the accuracy gate diffs against the MLX reference, tap by tap.
+
+| C++ | Rust | |
+|---|---|---|
+| `tap_for` (the kernel→name/bind/width table) | `tap_for` | ported, with its three stories: GatedRms is `gdn_core` (the reference taps after the gate RMSNorm); routed SiluMul is `shared_act` at its own width (the `swiglu` tap was present-but-empty on every routed checkpoint); the mixture taps exist because the routed FFN was the one block no parity run could see |
+| `Dispatch` parameter | `TapSite { kind, layer }` | ported narrower: tapping reads two fields, so it asks for two — the family `Dispatch` needn't exist yet |
+| `write_npy` (silent on failed open) | `write_npy -> io::Result` | ported; the silence is deleted, not preserved — a "successful" dump that left nothing behind cost a bisect once, which is also why `dir_from_env` still mkdirs |
+| `golden_tap_dir()` static | `dir_from_env()` | ported; the create failure is returned, not swallowed |
+| `golden_taps_recycle` | `taps_recycle` | ported with its argument (the one defect class the no-recycle dump cannot see) |
+| `dump_golden_taps` | `dump_taps` (unsafe, over `[R: Region]`) | ported; the last-writer-of-a-colour rule and its reason (in-place rewriters would publish the later tensor under the earlier name) pinned by test |
+| `dump_golden_bf16` / `_sorted` / `_tokens` | `dump_bf16` / `dump_bf16_sorted` / `dump_tokens` | ported over slices; the sorted dump's perm-not-recomputed argument kept (within-expert order is atomics-decided) |
+
+The C++ silently skipped a row whose read left the pool slot; the Rust
+zero-fills it after a named bounds check — a dump is diagnostic, but a
+short slot is now visible in the data instead of shortening it.
 
 ## The geometry — `src/batch/geometry.rs`
 
