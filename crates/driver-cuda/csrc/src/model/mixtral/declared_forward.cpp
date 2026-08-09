@@ -559,29 +559,15 @@ bool gpt_oss_forward_declared(
                                 token_ids, require(w, plan.weight_name(op)).data(), V);
             break;
         }
-        case PieForwardOpKind::Rmsnorm: {
-            // ISLAND (value arena). Three sites that chose between two
-            // scratch slots by weight NAME -- `attn_norm` to `norm_x`,
-            // `mlp_norm` to `norm_y`, `final_norm` to `norm_x` again --
-            // and the choice was never anything but which value the
-            // statement produces. The MoE block reading `norm_y` twice
-            // was the same fact: two readers of one value.
-            //
-            // The `throw_drift` on an unrecognised field goes with them.
-            // It fired when the DECLARATION named a norm this arm had no
-            // slot for, and there is no slot left to lack; a weight that
-            // does not exist still fails, in `require`.
-            const std::string_view name = plan.weight_name(op);
-            const auto ins = plan.inputs(op);
-            const auto outs = plan.outputs(op);
-            need(ins, 1, "rmsnorm inputs");
-            need(outs, 1, "rmsnorm outputs");
-            declared::arm_rmsnorm({plan, values, N, 0, stream}, op,
-                                  require(w, name).data(), eps,
-                                  op.param0 == static_cast<std::uint32_t>(
-                                      pie_forward::PieForwardNormVariant::Gemma));
-            break;
-        }
+        case PieForwardOpKind::Rmsnorm:
+            // RUNG 5: the semantic cascade is deleted -- a class
+            // trace states which FOLD it runs (`cuda::rmsnorm`),
+            // so this kind reaching the walk means the trace and
+            // this executor drifted. Choosing here from a param
+            // is what the statement now says instead.
+            throw_drift("semantic Rmsnorm in a class trace "
+                    "(the declaration states the fold)");
+
         case PieForwardOpKind::Matmul: {
             // ISLAND (value arena). `beta=1` is the whole of what this
             // arm was for: o_proj folds the residual, and the fold is

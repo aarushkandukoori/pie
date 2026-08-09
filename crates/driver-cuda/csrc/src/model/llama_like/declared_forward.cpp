@@ -1397,83 +1397,16 @@ void llama_like_forward_declared(
             declared::arm_embed({plan, values, N, 0, stream}, op, token_ids, wb.require(name).data(), V);
             break;
         }
-        case PieForwardOpKind::Rmsnorm: {
-            // Gemma folds `(1 + w)` instead of `w`. Different arithmetic,
-            // so a different kernel — but the same signature and the same
-            // row space, and the variant rides on the wire, so the choice
-            // is one symbol and every arm below fans onto it. This used
-            // to throw; the lowering now names the fold's kernel, and a
-            // refusal here would be the executor disagreeing with the
-            // declaration it was handed.
-            const bool gemma_fold =
-                op.param0 !=
-                static_cast<std::uint32_t>(PieForwardNormVariant::Plain);
-            const auto norm = [&](const void* x, const void* weight,
-                                  void* y, int rows, int width) {
-                if (gemma_fold) {
-                    kernels::norm::rmsnorm_gemma_bf16(
-                        x, weight, y, rows, width, eps, stream);
-                } else {
-                    kernels::norm::rmsnorm_bf16(
-                        x, weight, y, rows, width, eps, stream);
-                }
-            };
-            const std::string_view name = plan.weight_name(op);
-            const ParsedWeightName nm = parse_weight_name(name);
-            if (nm.field == "attn_norm") {
-                const auto& layer = layer_of(w, nm, name);
-                // The normed activation is a traced VALUE whose buffer
-                // the pin pass states, because LoRA reaches it by name
-                // outside the walk — the shared arm asks for it by id.
-                // Post-norm norms the o_proj OUTPUT (the pinned
-                // scratch), pre-norm the residual stream.
-                // The OPERAND is the statement's on the pre-norm path
-                // (the residual stream); post-norm norms the o_proj
-                // scratch and keeps its convention until that island
-                // moves.
-                // ISLAND (value arena), BOTH placements. Pre-norm this
-                // is the residual stream; post-norm it is the o_proj
-                // scratch. Either way it is the statement's operand, so
-                // the branch that picked between two workspace fields
-                // goes away and the width comes off the value.
-                declared::arm_rmsnorm({plan, values, N, 0, stream}, op,
-                                  wb.require(name).data(), eps,
-                                  op.param0 == static_cast<std::uint32_t>(
-                                      PieForwardNormVariant::Gemma));
-            } else if (nm.field == "mlp_norm") {
-                const auto& layer = layer_of(w, nm, name);
-                // ISLAND (value arena), both placements. The normed
-                // activation is a TRACED VALUE, not "ws.norm_y" — that
-                // name is this family's convention, and qwen3_5 spells
-                // the same role `ws.norm_x`. Post-norm the operand is
-                // the down_proj scratch instead of the stream, which is
-                // a different VALUE and not a different buffer rule.
-                declared::arm_rmsnorm({plan, values, N, 0, stream}, op,
-                                  wb.require(name).data(), eps,
-                                  op.param0 == static_cast<std::uint32_t>(
-                                      PieForwardNormVariant::Gemma));
-            } else if (nm.field == "q_norm") {
-                // Global qk-norm (olmo2): ONE row RMSNorm over the
-                // flattened [N, heads * head_dim] projection, in place —
-                // the hand-written `rmsnorm_qk` global branch, verbatim.
-                const auto& layer = layer_of(w, nm, name);
-                norm(ws.q.data(), wb.require(name).data(),
-                     ws.q.data(), N, Hq);
-            } else if (nm.field == "k_norm") {
-                const auto& layer = layer_of(w, nm, name);
-                norm(ws.k.data(), wb.require(name).data(),
-                     ws.k.data(), N, Hk);
-            } else if (nm.layer < 0 && nm.field == "final_norm") {
-                // Deferred to LmHead: the hand-written epilogue interleaves
-                // the final norm with the logit-row gather (norm is row-wise,
-                // so gather-then-norm equals norm-then-gather), and copying
-                // that block whole is what keeps the two paths bit-identical.
-                &wb.require(name);
-            } else {
-                throw_unknown_weight(name);
-            }
-            break;
-        }
+        case PieForwardOpKind::Rmsnorm:
+            // RUNG 5: the semantic cascade is deleted -- a class
+            // trace states which FOLD it runs (`cuda::rmsnorm`),
+            // so this kind reaching the walk means the trace and
+            // this executor drifted. Choosing here from a param
+            // is what the statement now says instead.
+            throw std::runtime_error(
+            "declared forward: semantic Rmsnorm in a class trace "
+            "(the declaration states the fold via cuda::rmsnorm)");
+
         case PieForwardOpKind::AddBias: {
             // Qwen-2 family qkv biases: broadcast add onto the raw
             // projection, the hand-written `maybe_add_bias` calls

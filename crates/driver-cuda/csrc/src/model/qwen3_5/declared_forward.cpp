@@ -1382,32 +1382,15 @@ bool forward_declared_tmpl(
             declared::arm_embed({plan, values, N, 0, stream}, op, token_ids, wb.require(name).data(), cfg.vocab_size);
             break;
         }
-        case PieForwardOpKind::Rmsnorm: {
-            // The dense hybrid folds Gemma everywhere (declared_facts'
-            // norm-variant derivation); a Plain variant here is drift.
-            if (op.param0 !=
-                static_cast<std::uint32_t>(PieForwardNormVariant::Gemma)) {
-                throw_drift("only the Gemma rmsnorm variant is emitted "
-                            "(the dense hybrid folds (1+w) everywhere)");
-            }
-            // ISLAND (value arena). Three sites -- `attn_norm`,
-            // `mlp_norm`, `final_norm` -- that all landed in `norm_x`
-            // and differed only in which value they produce. The note
-            // about qwen3_5's MLP reading `norm_x` where llama_like
-            // reads `norm_y` was the same fact said in buffers: two
-            // readers of one value. The name checks go with them; an
-            // unbound weight still fails, in `wb.require`.
-            const std::string_view name = plan.weight_name(op);
-            const auto ins = plan.inputs(op);
-            const auto outs = plan.outputs(op);
-            need(ins, 1, "rmsnorm inputs");
-            need(outs, 1, "rmsnorm outputs");
-            declared::arm_rmsnorm({plan, values, N, 0, stream}, op,
-                                  wb.require(name).data(), eps,
-                                  op.param0 == static_cast<std::uint32_t>(
-                                      PieForwardNormVariant::Gemma));
-            break;
-        }
+        case PieForwardOpKind::Rmsnorm:
+            // RUNG 5: the semantic cascade is deleted -- a class
+            // trace states which FOLD it runs (`cuda::rmsnorm`),
+            // so this kind reaching the walk means the trace and
+            // this executor drifted. Choosing here from a param
+            // is what the statement now says instead.
+            throw_drift("semantic Rmsnorm in a class trace "
+                    "(the declaration states the fold)");
+
         case PieForwardOpKind::Matmul: {
             // ISLAND (value arena). Fifteen branches keyed on the weight
             // NAME chose a buffer pair and three extents each; every one

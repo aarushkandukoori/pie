@@ -561,23 +561,15 @@ bool gemma4_forward_declared(
                  N, row_width(outs[0]), row_width(ins[0]), 0.f);
             break;
         }
-        case PieForwardOpKind::Rmsnorm: {
-            // ISLAND (value arena). Both sites — layer 0's `attn_norm`
-            // (every later layer's input norm arrives fused into the
-            // previous layer's PLE landing) and the epilogue's
-            // `final_norm` — ran the SAME call with the same buffers,
-            // told apart only to be treated identically. The operands
-            // and the width are the trace's.
-            const std::string_view name = plan.weight_name(op);
-            const auto ins = plan.inputs(op);
-            const auto outs = plan.outputs(op);
-            need(ins, 1, "rmsnorm inputs");
-            need(outs, 1, "rmsnorm outputs");
-            kernels::norm::rmsnorm_bf16(
-                values.slot(ins[0]), require(w, name).data(),
-                values.slot(outs[0]), N, row_width(ins[0]), eps, stream);
-            break;
-        }
+        case PieForwardOpKind::Rmsnorm:
+            // RUNG 5: the semantic cascade is deleted -- a class
+            // trace states which FOLD it runs (`cuda::rmsnorm`),
+            // so this kind reaching the walk means the trace and
+            // this executor drifted. Choosing here from a param
+            // is what the statement now says instead.
+            throw_drift("semantic Rmsnorm in a class trace "
+                    "(the declaration states the fold)");
+
         case PieForwardOpKind::RmsnormPerHead: {
             // ISLAND (value arena), and three branches become one.
             //
