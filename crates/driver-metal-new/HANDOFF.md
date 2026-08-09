@@ -93,7 +93,7 @@ argument for each design decision lives.
 
 ## What has been done
 
-Thirty-nine commits on `origin/rewrite`, in two phases plus a crash fix.
+Forty-five commits on `origin/rewrite`, in three phases plus a crash fix.
 
 ### Phase 1 — the shell (`mtl4_context.hpp`, 27 commits)
 
@@ -102,8 +102,9 @@ set, placement heaps, the runtime compiler and its archive cache, dispatch and
 fences, argument tables, transient buffer pool, timestamps and timing, elastic
 buffers, keepalive, feedback.
 
-`PARITY.md` is the ledger: 61 entries, 51 ported, 6 dropped with a stated
-reason, 4 missing and all four the same standalone-buffer hole.
+`PARITY.md` is the ledger: 61 entries, 52 ported, 9 dropped with a stated
+reason, nothing missing — the standalone-buffer hole closed with the device
+ring (phase 3).
 
 ### The kernel panics (2026-08-08)
 
@@ -148,28 +149,31 @@ about a specific defect rather than a description of the change. In order:
 | `497e811ae` | `pipeline/emitted.rs` | `unordered_map::emplace` silently keeps the *first* of two kernels claiming one slot, so array order chose between two kernels. The `error`-before-`source` rule lived in a comment nowhere near its call sites. |
 | `968001fee` | `PARITY-M1.md` | Ledger closed out for the portable half. |
 
+### Phase 3 — the pipeline, metal half (in progress, 6 commits, 2026-08-09)
+
+`8b71cb608` … `7bb0cf891`. The GPU half of `m1_runtime.cpp`, on the same
+method, tested against the real device (25 device tests so far):
+
+| commit | module | the defect it argues |
+|---|---|---|
+| `8b71cb608` | `metal/handle.rs` | `subhandle` minted views it should have refused: no bounds, `nullptr + offset` UB on an invalid base, and a designated initializer that silently drops the `elastic` flag. `Handle` is a retained, checked view. |
+| `862ae69fc` | `pipeline/lane.rs` | `M3GroupLayout::reserved[3]` is **load-bearing on both sides of the ABI** — the host writes binding stride/rows-per-lane/op stride through a field named `reserved` and the kernels read all three. The struct zoo dissolves: the lane-table ABI is mirrored portably and drift-checked against `tensor_compiler::plan`; executables land with their builders. |
+| `cc5c9f53a` | `metal/program.rs`, `metal/runtime.rs` | `compile_program` at a third of the C++ line count. `PsoCompileTransaction` dropped: build-then-install makes rollback the default. Per-region archives become one archive per program. The bool+reason+vec triples become `Result<Vec<_>, String>`. |
+| `b60f9459e` | `metal/ring.rs` | `create_standalone_buffer` hands back a handle **with no owner**; the release call exists only because of that, and forgetting it leaked every K/V buffer. `Ring` owns its buffers; `readiness::check_words` lets the device ring and the interpreter share one readiness check. |
+| `7bb0cf891` | `metal/fire.rs` | `execute`'s nine failure exits share a `goto cleanup_failure` label — `Transient`'s `Drop` is that label. `release()`/`resource_accounted` die with it. Four device tests run a whole fire end to end. |
+
 ## What is left
 
-### Immediate: the GPU half of `m1_runtime.cpp`
+### Immediate: the two placed paths of `m1_runtime.cpp`
 
-All of it lands under `src/metal/` and needs a device to test. `PARITY-M1.md`
-has the line ranges.
+Both land under `src/metal/` and need a device. `PARITY-M1.md` has the
+details; the fire, ring, handle, lane-table and executables they consume are
+done and tested.
 
 | C++ | lines | notes |
 |---|---|---|
-| `M1RegionExecutable` … `M3GroupCommand` | 388–546 | the struct zoo the three paths share |
-| `bind_m2_*` / `bind_m3_*` | 654–735 | |
-| `PsoCompileTransaction` | ~700 | |
-| `compile_program` | 736–1454 | the biggest single function; already has `cache.rs`, `stage_cache.rs`, `emitted.rs`, `identity.rs` and `meta.rs` under it |
-| `prepare` / `execute` (M1 singleton) | 1455–1981 | |
-| M2 fused placement | 1982–2411 | |
-| M3 grouped lanes | 2412–3350 | |
-| `subhandle` / `external_handle` | 194–215 | small; `SlotHandle` arithmetic |
-
-Note that the portable slices were built to be *called* by these. `compile_program`
-in particular should come out substantially shorter than 718 lines, because the
-identity, the caches, the emitted-kernel index and the metadata walk are all
-already written and tested.
+| M2 fused placement | 1982–2411 | `prepare_m2_command`/`set_m2_logits_row`/`encode_m2_pre`/`encode_m2_post`/`finish_m2_command` + `bind_m2_*` (655–685). Runs against the **forward executor's** context (`RawMetalContext& target`) — decide how the Rust command references it. `M2EncodedRegion`/`M2CommandPlan` land here. |
+| M3 grouped lanes | 2412–3350 | `prepare_m3_group`/`encode_m3_pre`/`encode_m3_post`/`finish_m3_group` + `bind_m3_*` (687–703). `M3LaneCandidate`/`M3GroupStats`/`M3EncodedRegion`/`M3StageCommand`/`M3GroupCommand` land here; `lane.rs` already has the sidecar records and `GroupLayout`'s real field names. `timestamp_heap` is dead by default (`m3_gpu_timestamps_enabled()` returns false). |
 
 ### After that
 
@@ -197,8 +201,6 @@ half first, into `src/`, with tests that run anywhere.
   ignore red.
 - `device_timing::encoding_and_execution_are_measured_separately` is **flaky
   under load** and passes on rerun.
-- The 4 `missing` entries in `PARITY.md` are all the same standalone-buffer
-  hole, assigned to `context-cpp`.
 - Nothing here is wired into `crates/driver` or the worker yet. The cutover plan
   — how `driver-metal-new` actually *replaces* `driver-metal` on the serving
   path, and what test gate authorises that — has not been written and should be
