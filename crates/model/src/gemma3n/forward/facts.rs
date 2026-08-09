@@ -14,7 +14,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The AltUp residual.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Gemma3nAltUpFacts {
     /// How many streams. The ACTIVE one is the stream the layer body
     /// actually runs on; the rest are predicted and corrected.
@@ -23,7 +23,7 @@ pub struct Gemma3nAltUpFacts {
 }
 
 /// The attention block. gemma-4's geometry, so the same questions.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Gemma3nAttnFacts {
     pub heads: u32,
     pub kv_heads: u32,
@@ -40,7 +40,7 @@ impl Gemma3nAttnFacts {
 }
 
 /// The whole family.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Gemma3nFacts {
     pub vocab: u32,
     pub hidden: u32,

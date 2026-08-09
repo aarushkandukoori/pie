@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// What a layer mixes with, per `cfg.layer_types`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NemotronLayerKind {
     Mamba,
@@ -27,7 +27,7 @@ pub enum NemotronLayerKind {
 }
 
 /// The mamba mixer's dims.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NemotronMambaFacts {
     pub num_heads: u32,
     pub head_dim: u32,
@@ -53,7 +53,7 @@ impl NemotronMambaFacts {
 }
 
 /// The attention mixer's dims.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NemotronAttnFacts {
     pub heads: u32,
     pub kv_heads: u32,
@@ -71,7 +71,7 @@ impl NemotronAttnFacts {
 
 /// The MoE block. ReLU² rather than swiglu, and a sigmoid-with-bias
 /// router.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NemotronMoeFacts {
     pub num_experts: u32,
     pub top_k: u32,
@@ -80,7 +80,7 @@ pub struct NemotronMoeFacts {
 }
 
 /// The whole family.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NemotronHFacts {
     pub vocab: u32,
     pub hidden: u32,

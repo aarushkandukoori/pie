@@ -678,6 +678,10 @@ bool gemma4_forward_declared(
                 break;
             }
             case declared::Kernel::RopePartial:
+                // NOT the shared arm: this family's theta and rotary
+                // width are PER LAYER, and the shared one reads a single
+                // context value. Restored deliberately after the merge
+                // reached for it -- a wrong theta rotates silently.
                 kernels::rope::rope_partial_bf16(
                     values.slot(plan.outputs(op)[0]),
                     values.slot(plan.outputs(op)[0]), positions, N,

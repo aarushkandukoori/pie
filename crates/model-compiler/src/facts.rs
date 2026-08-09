@@ -74,3 +74,20 @@ pub fn window_left_at(list: &[i32], l: u32) -> i32 {
         n => list[(l as usize).min(n - 1)],
     }
 }
+
+/// The ROPE THETA layer `l` rotates at.
+///
+/// The same shape as [`window_left_at`] and for the same reason: most
+/// architectures carry one value in config, and some (gemma-4) alternate
+/// it per layer between their local and global attention. A driver that
+/// read the single one from config was reading the wrong one for half of
+/// gemma-4's layers, which is why this is a fact and not a cfg field.
+///
+/// An EMPTY list is a text that states no rotation, and the accessor
+/// says so by answering zero rather than by guessing a default.
+pub fn rope_theta_at(list: &[f32], l: u32) -> f32 {
+    match list.len() {
+        0 => 0.0,
+        n => list[(l as usize).min(n - 1)],
+    }
+}

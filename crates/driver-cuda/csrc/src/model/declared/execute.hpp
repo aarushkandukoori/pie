@@ -23,6 +23,7 @@
 // this file exists to make, rather than a claim it exists to support.
 
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 
 #include "attention_workspace.hpp"
@@ -143,18 +144,32 @@ inline bool execute_shared(const ExecCtx& c,
     // the statement's, so nothing here decides it.
     case Kernel::RopeFull:
     case Kernel::RopePartial: {
+        // A caller whose theta varies per layer states so by leaving
+        // `rope_theta` zero, and keeps its own arm. Refusing here is
+        // what makes that safe: a zero theta rotates by nothing, and
+        // silently.
+        if (c.rope_theta == 0.f) return false;
         need(outs, 1, "rope outputs");
         const bool q_only = outs.size < 2;
         void* const rq = values.slot(outs[0]);
         void* const rk = q_only ? rq : values.slot(outs[1]);
         const int kv_heads = q_only ? 0 : c.num_kv_heads;
+        // `[rotary_dim]`, zero for the full rotation.
+        //
+        // The THETA is the CONTEXT's and not the statement's, and that
+        // is the one thing this arm still reads that it should not:
+        // gemma-4 alternates theta per layer, so a caller handing one
+        // config value is handing the wrong one for half that model.
+        // gemma-4 therefore keeps its own rope arm; see `dsl::cuda::rope`
+        // for what unblocks moving it here.
+        const auto ps = plan.aux_params(op);
+        if (ps.size != 1) {
+            throw std::runtime_error(
+                "declared arm: a rotation states " +
+                std::to_string(ps.size) +
+                " scalar arguments, wants 1 (rotary_dim)");
+        }
         if (resolve_kernel(plan.weight_name(op)) == Kernel::RopePartial) {
-            const auto ps = plan.aux_params(op);
-            if (ps.size < 1) {
-                throw std::runtime_error(
-                    "declared arm: a partial rotation states no rotary "
-                    "width");
-            }
             kernels::rope::rope_partial_bf16(
                 rq, rk, c.positions, N, c.num_q_heads, kv_heads, c.head_dim,
                 static_cast<int>(ps[0]), c.rope_theta, stream);
