@@ -17,6 +17,7 @@
 
 #include "model/declared/value_arena.hpp"
 #include "model/declared/arms.hpp"
+#include "model/declared/registry.hpp"
 #include "model/declared/weights.hpp"
 #include "batch/supergraph.hpp"
 #include "norm/add_bias.hpp"
@@ -306,126 +307,7 @@ WeightView dense(const DeviceTensor& t,
 // plans, staging — without choosing. A symbol outside this vocabulary
 // means the trace and this executor drifted; `build` validates every
 // stated symbol at model load so that drift fails at boot, not mid-fire.
-enum class LaunchKernel {
-    // The ROW norms. Two entries rather than one with a flag, because
-    // the SYMBOL says which fold runs -- `cuda::rmsnorm` picked it from
-    // the weight at trace time. Reading a variant off a param and
-    // choosing here is what this replaces.
-    RmsnormRow,
-    RmsnormRowGemma,
-    // The WEIGHT REPRESENTATION axis. One entry per storage, because the
-    // statement names which -- `MatW::gemm_symbol` -- where the Matmul
-    // arm below used to build a `WeightView` out of a per-layer
-    // descriptor and let `gemm::act_x_w` route on it.
-    MatmulTensorScaled,
-    MatmulChannelScaled,
-    MatmulGroupedScaled,
-    MatmulMxfp4Marlin,
-    // The ROTATION. Two entries because a full rotation and a partial
-    // one are different arithmetic -- the arm used to ask whether a
-    // rotary width param was nonzero, which is a kernel chosen from a
-    // number the driver read.
-    RopeFull,
-    RopePartial,
-    // The head-dim staging (2c). Statements now, so their results are
-    // values -- where sixteen sites read a boolean and staged into
-    // workspace fields nothing named.
-    PadHeadDim,
-    StripHeadDim,
-    // The COLLECTIVES. Statements, because they are real device work
-    // with operands and a result -- and synchronisation points the
-    // capture rules have to know about, which is why they are stated
-    // rather than reached for through `tp->` from inside a pass.
-    AllReduce,
-    AllReduceOut,
-    ResidualAddRmsnorm,
-    RopeStandardTable,
-    QkvDecodeQkNormRopeWriteKv,
-    QkRmsnormRope,
-    AttentionXqaDecodePrepared,
-    AttentionFlashinferDecode,
-    DequantKvCacheLayerToBf16Active,
-    AttentionFlashinferPrefill,
-    AttentionFlashinferPrefillCustom,
-    AttentionFlashinferDecodeCapture,
-    AttentionFlashinferPrefillCapture,
-    WriteKvExplicit,
-    WriteKvToPages,
-    LoraQkvCorrection,
-    ChunkedSwiglu,
-    Swiglu,
-};
 
-LaunchKernel resolve_launch_kernel(std::string_view kernel) {
-    if (kernel == "norm::rmsnorm_bf16") return LaunchKernel::RmsnormRow;
-    if (kernel == "norm::rmsnorm_gemma_bf16")
-        return LaunchKernel::RmsnormRowGemma;
-    if (kernel == "gemm::act_x_wt_tensor_scaled")
-        return LaunchKernel::MatmulTensorScaled;
-    if (kernel == "gemm::act_x_wt_channel_scaled")
-        return LaunchKernel::MatmulChannelScaled;
-    if (kernel == "gemm::act_x_wt_grouped_scaled")
-        return LaunchKernel::MatmulGroupedScaled;
-    if (kernel == "gemm::act_x_wt_mxfp4_marlin")
-        return LaunchKernel::MatmulMxfp4Marlin;
-    if (kernel == "mlp::chunked_swiglu_bf16") {
-        return LaunchKernel::ChunkedSwiglu;
-    }
-    if (kernel == "mlp::swiglu_bf16") {
-        return LaunchKernel::Swiglu;
-    }
-    if (kernel == "dist::all_reduce_bf16") return LaunchKernel::AllReduce;
-    if (kernel == "dist::all_reduce_bf16_out") return LaunchKernel::AllReduceOut;
-    if (kernel == "norm::residual_add_rmsnorm_bf16")
-        return LaunchKernel::ResidualAddRmsnorm;
-    if (kernel == "attn::pad_head_dim_bf16") return LaunchKernel::PadHeadDim;
-    if (kernel == "attn::strip_head_dim_bf16") return LaunchKernel::StripHeadDim;
-    if (kernel == "rope::rope_bf16") return LaunchKernel::RopeFull;
-    if (kernel == "rope::rope_partial_bf16") return LaunchKernel::RopePartial;
-    if (kernel == "rope::rope_standard_table") {
-        return LaunchKernel::RopeStandardTable;
-    }
-    if (kernel == "attn::qkv_decode_qk_norm_rope_write_kv_bf16") {
-        return LaunchKernel::QkvDecodeQkNormRopeWriteKv;
-    }
-    if (kernel == "rope::qk_rmsnorm_rope_bf16") {
-        return LaunchKernel::QkRmsnormRope;
-    }
-    if (kernel == "attn::attention_xqa_decode_bf16_prepared") {
-        return LaunchKernel::AttentionXqaDecodePrepared;
-    }
-    if (kernel == "attn::dispatch_attention_flashinfer_decode") {
-        return LaunchKernel::AttentionFlashinferDecode;
-    }
-    if (kernel == "attn::dequant_kv_cache_layer_to_bf16_active") {
-        return LaunchKernel::DequantKvCacheLayerToBf16Active;
-    }
-    if (kernel == "attn::dispatch_attention_flashinfer_prefill_bf16") {
-        return LaunchKernel::AttentionFlashinferPrefill;
-    }
-    if (kernel == "attn::dispatch_attention_flashinfer_prefill_custom") {
-        return LaunchKernel::AttentionFlashinferPrefillCustom;
-    }
-    if (kernel == "attn::dispatch_attention_flashinfer_decode_capture") {
-        return LaunchKernel::AttentionFlashinferDecodeCapture;
-    }
-    if (kernel == "attn::dispatch_attention_flashinfer_prefill_capture_bf16") {
-        return LaunchKernel::AttentionFlashinferPrefillCapture;
-    }
-    if (kernel == "attn::write_kv_explicit_bf16") {
-        return LaunchKernel::WriteKvExplicit;
-    }
-    if (kernel == "attn::write_kv_to_pages") {
-        return LaunchKernel::WriteKvToPages;
-    }
-    if (kernel == "pie_lora_qkv_correction") {
-        return LaunchKernel::LoraQkvCorrection;
-    }
-    throw std::runtime_error(
-        "declared forward: stated kernel '" + std::string(kernel) +
-        "' is not in this executor's registry (the trace and the driver "
-        "drifted)");
-}
 
 // Boot validation: every Launch symbol a class trace states must resolve.
 void validate_stated_kernels(const pie_forward::ForwardPlan& plan) {
@@ -433,7 +315,7 @@ void validate_stated_kernels(const pie_forward::ForwardPlan& plan) {
     for (std::size_t i = 0; i < n; ++i) {
         const PieForwardOp& op = plan.op(i);
         if (op.kind == PieForwardOpKind::Launch) {
-            (void)resolve_launch_kernel(plan.weight_name(op));
+            (void)declared::resolve_kernel(plan.weight_name(op));
         }
     }
 }
@@ -1880,7 +1762,7 @@ void llama_like_forward_declared(
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             };
-            switch (resolve_launch_kernel(plan.weight_name(op))) {
+            switch (declared::resolve_kernel(plan.weight_name(op))) {
             // The MLP activation. The declaration states WHICH swiglu,
             // from the gate_up binding fact it was traced with, so this
             // arm no longer asks the workspace — it CHECKS, because a
@@ -1888,8 +1770,8 @@ void llama_like_forward_declared(
             // model bound would otherwise read the wrong buffer and
             // produce plausible garbage. Refuse on drift, the same rule
             // the region table's plan cross-check follows.
-            case LaunchKernel::ChunkedSwiglu:
-            case LaunchKernel::Swiglu: {
+            case declared::Kernel::ChunkedSwiglu:
+            case declared::Kernel::Swiglu: {
                 // BINDING, both spellings. The chunked form reads one
                 // packed operand and the pair form reads two, and each
                 // statement carries the operands it reads -- so the
@@ -1898,8 +1780,8 @@ void llama_like_forward_declared(
                 // reading created (2d), between this arm and a Matmul
                 // arm that had to guess the same thing.
                 const bool pair =
-                    resolve_launch_kernel(plan.weight_name(op)) ==
-                    LaunchKernel::Swiglu;
+                    declared::resolve_kernel(plan.weight_name(op)) ==
+                    declared::Kernel::Swiglu;
                 const auto si = plan.inputs(op);
                 const auto so = plan.outputs(op);
                 declared::need(si, pair ? 2 : 1, "swiglu inputs");
@@ -1917,8 +1799,8 @@ void llama_like_forward_declared(
                 }
                 break;
             }
-            case LaunchKernel::RmsnormRow:
-            case LaunchKernel::RmsnormRowGemma: {
+            case declared::Kernel::RmsnormRow:
+            case declared::Kernel::RmsnormRowGemma: {
                 // SHARED ARM (D1). The fold comes from the SYMBOL the
                 // registry matched, not from a param this arm reads --
                 // which is the difference between binding and choosing.
@@ -1931,12 +1813,12 @@ void llama_like_forward_declared(
                 declared::arm_rmsnorm(
                     {plan, values, N, 0, stream}, op,
                     wb.require(plan.name(aux[0])).data(), eps,
-                    resolve_launch_kernel(plan.weight_name(op)) ==
-                        LaunchKernel::RmsnormRowGemma);
+                    declared::resolve_kernel(plan.weight_name(op)) ==
+                        declared::Kernel::RmsnormRowGemma);
                 break;
             }
-            case LaunchKernel::AllReduce:
-            case LaunchKernel::AllReduceOut: {
+            case declared::Kernel::AllReduce:
+            case declared::Kernel::AllReduceOut: {
                 // BINDING. Which collective is the SYMBOL; whether the
                 // result is the operand's own bytes is the `kernel!`
                 // row's alias pair, which the host already honoured
@@ -1960,7 +1842,7 @@ void llama_like_forward_declared(
                     ncclSum, stream);
                 break;
             }
-            case LaunchKernel::ResidualAddRmsnorm: {
+            case declared::Kernel::ResidualAddRmsnorm: {
                 // The two-step landing's second half: `y += summed` and
                 // the norm of the sum, one launch. Operand 0 is the
                 // residual stream (updated in place), operand 1 the
@@ -1984,8 +1866,8 @@ void llama_like_forward_declared(
                     N, out_w(0), eps, stream);
                 break;
             }
-            case LaunchKernel::PadHeadDim:
-            case LaunchKernel::StripHeadDim: {
+            case declared::Kernel::PadHeadDim:
+            case declared::Kernel::StripHeadDim: {
                 // BINDING. Both directions are one kernel shape --
                 // operand in, result out, the head COUNT and the two
                 // widths -- and the count comes off the result's own
@@ -2002,8 +1884,8 @@ void llama_like_forward_declared(
                         ", wants [Tokens, heads, head_dim]");
                 }
                 const int heads = static_cast<int>(rv.dims[1].value);
-                if (resolve_launch_kernel(plan.weight_name(op)) ==
-                    LaunchKernel::PadHeadDim) {
+                if (declared::resolve_kernel(plan.weight_name(op)) ==
+                    declared::Kernel::PadHeadDim) {
                     kernels::attn::pad_head_dim_bf16(
                         values.slot(pi[0], plan.value(pi[0])),
                         values.slot(po[0], plan.value(po[0])),
@@ -2016,8 +1898,8 @@ void llama_like_forward_declared(
                 }
                 break;
             }
-            case LaunchKernel::RopeFull:
-            case LaunchKernel::RopePartial: {
+            case declared::Kernel::RopeFull:
+            case declared::Kernel::RopePartial: {
                 // BINDING. Which rotation runs is the SYMBOL; the
                 // partial one's width rides the statement's params, so
                 // nothing here reads the config for it.
@@ -2034,8 +1916,8 @@ void llama_like_forward_declared(
                                              plan.value(rope_outs[0]));
                 void* const rk = values.slot(rope_outs[1],
                                              plan.value(rope_outs[1]));
-                if (resolve_launch_kernel(plan.weight_name(op)) ==
-                    LaunchKernel::RopePartial) {
+                if (declared::resolve_kernel(plan.weight_name(op)) ==
+                    declared::Kernel::RopePartial) {
                     const auto rp = plan.aux_params(op);
                     if (rp.size != 1) {
                         throw std::runtime_error(
@@ -2053,7 +1935,7 @@ void llama_like_forward_declared(
                 }
                 break;
             }
-            case LaunchKernel::RopeStandardTable: {
+            case declared::Kernel::RopeStandardTable: {
                 if (ws.rope_table.empty()) {
                     throw std::runtime_error(
                         "declared forward: trace states the rope table "
@@ -2072,7 +1954,7 @@ void llama_like_forward_declared(
                     N, d, cfg.rope_theta, stream);
                 break;
             }
-            case LaunchKernel::QkvDecodeQkNormRopeWriteKv: {
+            case declared::Kernel::QkvDecodeQkNormRopeWriteKv: {
                 // aux_names = [q_norm, k_norm], signature order; the
                 // second INPUT, when present, is the rope-table value —
                 // the trace says whether the table exists, so no latch.
@@ -2135,7 +2017,7 @@ void llama_like_forward_declared(
                     cfg.rope_theta, eps, stream);
                 break;
             }
-            case LaunchKernel::QkRmsnormRope: {
+            case declared::Kernel::QkRmsnormRope: {
                 const auto aux = plan.aux_names(op);
                 if (aux.size != 2) {
                     throw std::runtime_error(
@@ -2181,7 +2063,7 @@ void llama_like_forward_declared(
                     cfg.rope_theta, eps, stream);
                 break;
             }
-            case LaunchKernel::AttentionXqaDecodePrepared: {
+            case declared::Kernel::AttentionXqaDecodePrepared: {
                 resolve_masked_pages(/*takes_paged_decode=*/false);
                 auto kv_view = cache.layer_view(L);
                 kernels::attn::attention_xqa_decode_bf16_prepared(
@@ -2192,7 +2074,7 @@ void llama_like_forward_declared(
                     attn_ws.view(), stream, sm_scale_override);
                 break;
             }
-            case LaunchKernel::AttentionFlashinferDecode: {
+            case declared::Kernel::AttnFlashinferDecode: {
                 // STRUCTURAL S-4: tail-layer attention on a union fire
                 // pairs with the PREFIX plan and its dedicated
                 // workspace (the plan/workspace pairing rule).
@@ -2262,7 +2144,7 @@ void llama_like_forward_declared(
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 break;
             }
-            case LaunchKernel::AttentionFlashinferDecodeCapture: {
+            case declared::Kernel::AttentionFlashinferDecodeCapture: {
                 if (decode_plan == nullptr) {
                     throw std::runtime_error(
                         "declared forward: trace states the capture decode "
@@ -2289,7 +2171,7 @@ void llama_like_forward_declared(
                     cache.page_size());
                 break;
             }
-            case LaunchKernel::AttentionFlashinferPrefillCapture: {
+            case declared::Kernel::AttentionFlashinferPrefillCapture: {
                 const kernels::attn::PrefillPlanCache* pp =
                     is_pure_decode ? prefill_decode_plan : prefill_plan;
                 if (pp == nullptr) {
@@ -2319,7 +2201,7 @@ void llama_like_forward_declared(
                 prefill_score_capture->publish();
                 break;
             }
-            case LaunchKernel::DequantKvCacheLayerToBf16Active: {
+            case declared::Kernel::DequantKvCacheLayerToBf16Active: {
                 auto kv_view = cache.layer_view(L);
                 // In a mask peel's prefix region the staging covers the
                 // PLAIN lanes' pages only — beyond the split the host
@@ -2333,7 +2215,7 @@ void llama_like_forward_declared(
                     kv_view, kv_page_indices, num_pages_in_batch, stream);
                 break;
             }
-            case LaunchKernel::AttentionFlashinferPrefillCustom: {
+            case declared::Kernel::AttentionFlashinferPrefillCustom: {
                 // Masked PURE-DECODE fires dispatch against their
                 // dedicated plan slot (the supergraph axiom): see
                 // LlamaLikePlanState::mask_decode_plan.
@@ -2409,7 +2291,7 @@ void llama_like_forward_declared(
                     attn_ws.view(), stream);
                 break;
             }
-            case LaunchKernel::WriteKvExplicit: {
+            case declared::Kernel::WriteKvExplicit: {
                 auto kv_view = cache.layer_view(L);
                 // 2c: the pad staging that used to sit here is a
                 // STATEMENT (`cuda::pad_head_dim`), so k and v arrive
@@ -2438,7 +2320,7 @@ void llama_like_forward_declared(
                                            : nullptr);
                 break;
             }
-            case LaunchKernel::LoraQkvCorrection: {
+            case declared::Kernel::LoraQkvCorrection: {
                 // The pseudo-symbol: one operation, many calls — the
                 // hand-written apply, argument for argument (qkv_in is
                 // the buffer the projections read; scratch borrows
@@ -2483,7 +2365,7 @@ void llama_like_forward_declared(
                            ws.gate.data());
                 break;
             }
-            case LaunchKernel::WriteKvToPages: {
+            case declared::Kernel::WriteKvToPages: {
                 auto kv_view = cache.layer_view(L);
                 // Windowed (A3): base pointers stay; `first_token` skips
                 // the fused-prefix rows the peel's other region already
@@ -2506,7 +2388,7 @@ void llama_like_forward_declared(
                     /*first_token=*/win_start);
                 break;
             }
-            case LaunchKernel::AttentionFlashinferPrefill: {
+            case declared::Kernel::AttnFlashinferPrefill: {
                 // Mechanical plan binding, not a choice: prepare builds
                 // `prefill_plan` for prefill-shaped fires and
                 // `prefill_decode_plan` for the decode-shaped

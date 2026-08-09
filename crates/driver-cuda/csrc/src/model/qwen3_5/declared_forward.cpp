@@ -7,6 +7,7 @@
 #include "moe/topk_softmax.hpp"
 #include <type_traits>
 #include "model/declared/arms.hpp"
+#include "model/declared/registry.hpp"
 #include "model/declared/weights.hpp"
 
 #include <algorithm>
@@ -227,106 +228,7 @@ const DeviceTensor* require(const DeviceTensor* t, std::string_view name) {
 // symbol outside this vocabulary means the trace and this executor
 // drifted, and `qwen35_validate_stated_kernels` makes that a model-load
 // failure.
-enum class Q35Kernel {
-    // The ROW norms. Two entries because the SYMBOL says which fold
-    // runs -- `cuda::rmsnorm` picked it from the weight at trace time,
-    // and this family's is a deployment fact (`facts.norm_variant`).
-    RmsnormRow,
-    RmsnormRowGemma,
-    // The WEIGHT REPRESENTATION axis, one entry per storage. This
-    // family had EIGHT of the eighteen `make_weight_view` sites; the
-    // statement names the symbol now (`MatW::gemm_symbol`) and the arm
-    // below binds the scale tensors it also names.
-    MatmulTensorScaled,
-    MatmulChannelScaled,
-    MatmulGroupedScaled,
-    MatmulMxfp4Marlin,
-    // The ROTATION and the two SPLITS. Symbols where the arms used to
-    // read a width param and compare traced extents against config
-    // numbers -- both kernel choices made from numbers.
-    RopeFull,
-    RopePartial,
-    SplitRows,
-    SplitGdnBa,
-    ConvUpdateBatched,
-    ConvPrefillBatched,
-    StepBatched,
-    StepBatchedBf16,
-    StepBatchedGqa,
-    StepBatchedGqaBf16,
-    PrefillWarpTiledGqa,
-    PrefillWarpTiledGqaBf16,
-    PrefillCached,
-    PrefillCachedBf16,
-    PrefillFla,
-    PrefillFlaBf16,
-    RepeatInterleave,
-    VerifyStashLoad,
-    VerifyStashStore,
-    AttnFlashinferDecode,
-    AttnFlashinferPrefill,
-    WriteKvExplicit,
-    WriteKvToPages,
-    ChunkedSwiglu,
-    Swiglu,
-    // The aligned MoE leg. Eight launches, in the order the traced form
-    // states them; `kernels::mlp::chunked_swiglu_bf16` is shared with the dense
-    // leg and already above.
-    TopkSoftmax,
-    MoeAlignDecode,
-    MoeGatherAligned,
-    MoeBuildPtrsAligned,
-    MoeGroupedGemm,
-    MoeReorderAligned,
-    MoeWeightedSum,
-    SigmoidDotScalarGateAdd,
-};
 
-Q35Kernel resolve_q35_kernel(std::string_view k) {
-    if (k == "norm::rmsnorm_bf16") return Q35Kernel::RmsnormRow;
-    if (k == "norm::rmsnorm_gemma_bf16") return Q35Kernel::RmsnormRowGemma;
-    if (k == "rope::rope_bf16") return Q35Kernel::RopeFull;
-    if (k == "rope::rope_partial_bf16") return Q35Kernel::RopePartial;
-    if (k == "layout::split_bf16_rows") return Q35Kernel::SplitRows;
-    if (k == "layout::split_qwen_gdn_ba_bf16") return Q35Kernel::SplitGdnBa;
-    if (k == "gemm::act_x_wt_tensor_scaled") return Q35Kernel::MatmulTensorScaled;
-    if (k == "gemm::act_x_wt_channel_scaled") return Q35Kernel::MatmulChannelScaled;
-    if (k == "gemm::act_x_wt_grouped_scaled") return Q35Kernel::MatmulGroupedScaled;
-    if (k == "gemm::act_x_wt_mxfp4_marlin") return Q35Kernel::MatmulMxfp4Marlin;
-    if (k == "ssm::causal_conv1d_update_batched_bf16") return Q35Kernel::ConvUpdateBatched;
-    if (k == "ssm::causal_conv1d_prefill_batched_bf16") return Q35Kernel::ConvPrefillBatched;
-    if (k == "ssm::recurrent_gated_delta_step_batched") return Q35Kernel::StepBatched;
-    if (k == "ssm::recurrent_gated_delta_step_batched_state_bf16") return Q35Kernel::StepBatchedBf16;
-    if (k == "ssm::recurrent_gated_delta_step_batched_gqa") return Q35Kernel::StepBatchedGqa;
-    if (k == "ssm::recurrent_gated_delta_step_batched_gqa_state_bf16") return Q35Kernel::StepBatchedGqaBf16;
-    if (k == "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa") return Q35Kernel::PrefillWarpTiledGqa;
-    if (k == "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16") return Q35Kernel::PrefillWarpTiledGqaBf16;
-    if (k == "ssm::chunk_gated_delta_prefill_batched_cached") return Q35Kernel::PrefillCached;
-    if (k == "ssm::chunk_gated_delta_prefill_batched_cached_state_bf16") return Q35Kernel::PrefillCachedBf16;
-    if (k == "ssm::chunk_gated_delta_prefill_batched") return Q35Kernel::PrefillFla;
-    if (k == "ssm::chunk_gated_delta_prefill_batched_state_bf16") return Q35Kernel::PrefillFlaBf16;
-    if (k == "ssm::repeat_interleave_heads_fp32") return Q35Kernel::RepeatInterleave;
-    if (k == "qwen35_verify_stash_load") return Q35Kernel::VerifyStashLoad;
-    if (k == "qwen35_verify_stash_store") return Q35Kernel::VerifyStashStore;
-    if (k == "attn::dispatch_attention_flashinfer_decode") return Q35Kernel::AttnFlashinferDecode;
-    if (k == "attn::dispatch_attention_flashinfer_prefill_bf16") return Q35Kernel::AttnFlashinferPrefill;
-    if (k == "attn::write_kv_explicit_bf16") return Q35Kernel::WriteKvExplicit;
-    if (k == "attn::write_kv_to_pages") return Q35Kernel::WriteKvToPages;
-    if (k == "mlp::chunked_swiglu_bf16") return Q35Kernel::ChunkedSwiglu;
-    if (k == "mlp::swiglu_bf16") return Q35Kernel::Swiglu;
-    if (k == "moe::topk_softmax_bf16") return Q35Kernel::TopkSoftmax;
-    if (k == "moe::moe_align_decode") return Q35Kernel::MoeAlignDecode;
-    if (k == "moe::gather_moe_aligned_inputs_bf16") return Q35Kernel::MoeGatherAligned;
-    if (k == "moe::build_moe_ptrs_aligned_bf16") return Q35Kernel::MoeBuildPtrsAligned;
-    if (k == "moe::moe_grouped_gemm_bf16") return Q35Kernel::MoeGroupedGemm;
-    if (k == "moe::reorder_moe_aligned_output_bf16") return Q35Kernel::MoeReorderAligned;
-    if (k == "moe::token_batched_weighted_sum_add_bf16") return Q35Kernel::MoeWeightedSum;
-    if (k == "mlp::sigmoid_dot_scalar_gate_add_bf16") return Q35Kernel::SigmoidDotScalarGateAdd;
-    throw std::runtime_error(
-        "declared qwen3_5: stated kernel '" + std::string(k) +
-        "' is not in this executor's registry (the trace and the driver "
-        "drifted)");
-}
 
 // Rung 3, second family: the static C++ form of the decode/prefill
 // class traces, emitted by `cargo run -p pie-forward --bin emit-cuda`
@@ -348,7 +250,7 @@ void qwen35_validate_stated_kernels(const pie_forward::ForwardPlan& plan) {
     for (std::size_t i = 0; i < n; ++i) {
         const pie_forward::PieForwardOp& op = plan.op(i);
         if (op.kind == pie_forward::PieForwardOpKind::Launch) {
-            (void)resolve_q35_kernel(plan.weight_name(op));
+            (void)declared::resolve_kernel(plan.weight_name(op));
         }
     }
 }
@@ -862,18 +764,18 @@ bool forward_declared_tmpl(
         // permissive direction is the failure mode: a value would take
         // an arena address while an arm still wrote a workspace field.
         const auto converted_launch = [&](const PieForwardOp& op) {
-            switch (resolve_q35_kernel(plan.weight_name(op))) {
-            case Q35Kernel::ConvUpdateBatched:
-            case Q35Kernel::ConvPrefillBatched:
-            case Q35Kernel::WriteKvExplicit:
-            case Q35Kernel::WriteKvToPages:
+            switch (declared::resolve_kernel(plan.weight_name(op))) {
+            case declared::Kernel::ConvUpdateBatched:
+            case declared::Kernel::ConvPrefillBatched:
+            case declared::Kernel::WriteKvExplicit:
+            case declared::Kernel::WriteKvToPages:
                 return true;
-            case Q35Kernel::ChunkedSwiglu:
+            case declared::Kernel::ChunkedSwiglu:
                 // The DENSE caller is converted; the routed and shared
                 // ones still name the MoE workspace.
                 return kIsDense;
-            case Q35Kernel::AttnFlashinferDecode:
-            case Q35Kernel::AttnFlashinferPrefill:
+            case declared::Kernel::AttnFlashinferDecode:
+            case declared::Kernel::AttnFlashinferPrefill:
                 // BOTH ENDS now. The dispatches declare an output in
                 // both classes -- the goldens say so, correcting an
                 // earlier reading here -- so the query comes off the
@@ -881,17 +783,17 @@ bool forward_declared_tmpl(
                 // guard's binding and `ws.attn_out` as fallbacks that
                 // this deployment does not take.
                 return true;
-            case Q35Kernel::StepBatched:
-            case Q35Kernel::StepBatchedBf16:
-            case Q35Kernel::StepBatchedGqa:
-            case Q35Kernel::StepBatchedGqaBf16:
-            case Q35Kernel::PrefillWarpTiledGqa:
-            case Q35Kernel::PrefillWarpTiledGqaBf16:
-            case Q35Kernel::PrefillCached:
-            case Q35Kernel::PrefillCachedBf16:
-            case Q35Kernel::PrefillFla:
-            case Q35Kernel::PrefillFlaBf16:
-            case Q35Kernel::RepeatInterleave:
+            case declared::Kernel::StepBatched:
+            case declared::Kernel::StepBatchedBf16:
+            case declared::Kernel::StepBatchedGqa:
+            case declared::Kernel::StepBatchedGqaBf16:
+            case declared::Kernel::PrefillWarpTiledGqa:
+            case declared::Kernel::PrefillWarpTiledGqaBf16:
+            case declared::Kernel::PrefillCached:
+            case declared::Kernel::PrefillCachedBf16:
+            case declared::Kernel::PrefillFla:
+            case declared::Kernel::PrefillFlaBf16:
+            case declared::Kernel::RepeatInterleave:
                 // Both ends now. The recurrence writes the value it is
                 // asked for -- its own where the decode step declares
                 // one, its guard's otherwise -- and reads its five
@@ -1108,58 +1010,58 @@ bool forward_declared_tmpl(
             case PieForwardOpKind::Guard:
                 break;  // see the fallback pass below
             case PieForwardOpKind::Launch: {
-                switch (resolve_q35_kernel(plan.weight_name(op))) {
-                case Q35Kernel::SplitRows:
+                switch (declared::resolve_kernel(plan.weight_name(op))) {
+                case declared::Kernel::SplitRows:
                     // `[conv_dim | V_dim]` -- the qkvz row split.
                     place(0, la.mixed_qkv.data());
                     place(1, la.z.data());
                     break;
-                case Q35Kernel::SplitGdnBa:
+                case declared::Kernel::SplitGdnBa:
                     // The interleaved b/a split.
                     place(0, la.b.data());
                     place(1, la.a.data());
                     break;
-                case Q35Kernel::RopeFull:
-                case Q35Kernel::RopePartial:
+                case declared::Kernel::RopeFull:
+                case declared::Kernel::RopePartial:
                     // The rotation rewrites q and k where they lie; the
                     // pins follow the statement, exactly as they did
                     // when this was the semantic kind above.
                     place(0, ws.q.data());
                     place(1, ws.k.data());
                     break;
-                case Q35Kernel::RmsnormRow:
-                case Q35Kernel::RmsnormRowGemma:
+                case declared::Kernel::RmsnormRow:
+                case declared::Kernel::RmsnormRowGemma:
                     // All three sites -- attn_norm, mlp_norm,
                     // final_norm -- land in `norm_x`. qwen3_5's
                     // post-attention norm reads it where llama_like
                     // reads `norm_y`.
                     place(0, ws.norm_x.data());
                     break;
-                case Q35Kernel::AttnFlashinferDecode:
-                case Q35Kernel::AttnFlashinferPrefill:
+                case declared::Kernel::AttnFlashinferDecode:
+                case declared::Kernel::AttnFlashinferPrefill:
                     place(0, ws.attn_out.data());
                     break;
-                case Q35Kernel::ConvUpdateBatched:
-                case Q35Kernel::ConvPrefillBatched:
+                case declared::Kernel::ConvUpdateBatched:
+                case declared::Kernel::ConvPrefillBatched:
                     place(0, la.mixed_qkv_post.data());
                     break;
-                case Q35Kernel::StepBatched:
-                case Q35Kernel::StepBatchedBf16:
-                case Q35Kernel::StepBatchedGqa:
-                case Q35Kernel::StepBatchedGqaBf16:
-                case Q35Kernel::PrefillWarpTiledGqa:
-                case Q35Kernel::PrefillWarpTiledGqaBf16:
-                case Q35Kernel::PrefillCached:
-                case Q35Kernel::PrefillCachedBf16:
-                case Q35Kernel::PrefillFla:
-                case Q35Kernel::PrefillFlaBf16:
+                case declared::Kernel::StepBatched:
+                case declared::Kernel::StepBatchedBf16:
+                case declared::Kernel::StepBatchedGqa:
+                case declared::Kernel::StepBatchedGqaBf16:
+                case declared::Kernel::PrefillWarpTiledGqa:
+                case declared::Kernel::PrefillWarpTiledGqaBf16:
+                case declared::Kernel::PrefillCached:
+                case declared::Kernel::PrefillCachedBf16:
+                case declared::Kernel::PrefillFla:
+                case declared::Kernel::PrefillFlaBf16:
                     // Ten spellings of the recurrence, one result: the
                     // core the gated norm reads. Which one a fire takes
                     // is the guard's business and not this table's.
                     place(0, la.core_out.data());
                     break;
-                case Q35Kernel::Swiglu:
-                case Q35Kernel::ChunkedSwiglu:
+                case declared::Kernel::Swiglu:
+                case declared::Kernel::ChunkedSwiglu:
                     // The dense MLP's activation, whichever spelling the
                     // binding took -- both land in `ws.gate`, which is
                     // what `down` reads. The routed and shared-expert
@@ -1803,9 +1705,9 @@ case PieForwardOpKind::Launch: {
                 op.param0 == 2  // RecurrentState store mark
                     ? state_cache.recurrent_state_raw(SL, /*slot=*/0)
                     : nullptr;
-            switch (resolve_q35_kernel(plan.weight_name(op))) {
-            case Q35Kernel::RmsnormRow:
-            case Q35Kernel::RmsnormRowGemma: {
+            switch (declared::resolve_kernel(plan.weight_name(op))) {
+            case declared::Kernel::RmsnormRow:
+            case declared::Kernel::RmsnormRowGemma: {
                 // SHARED ARM (D1). The fold comes from the SYMBOL the
                 // registry matched. This family's driver used to THROW
                 // on anything but the Gemma variant -- a deployment's
@@ -1819,14 +1721,14 @@ case PieForwardOpKind::Launch: {
                 declared::arm_rmsnorm(
                     {plan, values, N, 0, stream}, op,
                     wb.require(plan.name(nrm[0])).data(), eps,
-                    resolve_q35_kernel(plan.weight_name(op)) ==
-                        Q35Kernel::RmsnormRowGemma);
+                    declared::resolve_kernel(plan.weight_name(op)) ==
+                        declared::Kernel::RmsnormRowGemma);
                 break;
             }
-            case Q35Kernel::MatmulTensorScaled:
-            case Q35Kernel::MatmulChannelScaled:
-            case Q35Kernel::MatmulGroupedScaled:
-            case Q35Kernel::MatmulMxfp4Marlin: {
+            case declared::Kernel::MatmulTensorScaled:
+            case declared::Kernel::MatmulChannelScaled:
+            case declared::Kernel::MatmulGroupedScaled:
+            case declared::Kernel::MatmulMxfp4Marlin: {
                 // BINDING, not routing -- llama_like's arm verbatim.
                 // The statement's weight list is `[W, scales]`, plus
                 // `zeros` where the checkpoint carries them.
@@ -1836,13 +1738,13 @@ case PieForwardOpKind::Launch: {
                                 std::to_string(qa.size) +
                                 " weights, wants 2 or 3");
                 }
-                const auto matched = resolve_q35_kernel(plan.weight_name(op));
+                const auto matched = declared::resolve_kernel(plan.weight_name(op));
                 const declared::ScaledRepr repr =
-                    matched == Q35Kernel::MatmulTensorScaled
+                    matched == declared::Kernel::MatmulTensorScaled
                         ? declared::ScaledRepr::PerTensor
-                    : matched == Q35Kernel::MatmulChannelScaled
+                    : matched == declared::Kernel::MatmulChannelScaled
                         ? declared::ScaledRepr::PerChannel
-                    : matched == Q35Kernel::MatmulGroupedScaled
+                    : matched == declared::Kernel::MatmulGroupedScaled
                         ? declared::ScaledRepr::PerGroup
                         : declared::ScaledRepr::Mxfp4Marlin;
                 declared::arm_scaled_matmul(
@@ -1855,8 +1757,8 @@ case PieForwardOpKind::Launch: {
                     0.f);
                 break;
             }
-            case Q35Kernel::RopeFull:
-            case Q35Kernel::RopePartial: {
+            case declared::Kernel::RopeFull:
+            case declared::Kernel::RopePartial: {
                 // BINDING. The SYMBOL says which rotation; the partial
                 // one's width rides the statement's params, so the
                 // executor reads neither a config nor an op field for
@@ -1865,8 +1767,8 @@ case PieForwardOpKind::Launch: {
                 need(ro, 2, "rope outputs");
                 void* const rq = values.slot(ro[0]);
                 void* const rk = values.slot(ro[1]);
-                if (resolve_q35_kernel(plan.weight_name(op)) ==
-                    Q35Kernel::RopePartial) {
+                if (declared::resolve_kernel(plan.weight_name(op)) ==
+                    declared::Kernel::RopePartial) {
                     const auto rp = plan.aux_params(op);
                     if (rp.size != 1) {
                         throw_drift("a partial rotation states " +
@@ -1883,8 +1785,8 @@ case PieForwardOpKind::Launch: {
                 }
                 break;
             }
-            case Q35Kernel::SplitRows:
-            case Q35Kernel::SplitGdnBa: {
+            case declared::Kernel::SplitRows:
+            case declared::Kernel::SplitGdnBa: {
                 // The two GDN splits, told apart by their SYMBOLS. The
                 // arm they replace compared `op.param0`/`param1`
                 // against `conv_dim`, `V_dim` and `V_h` -- which works
@@ -1894,8 +1796,8 @@ case PieForwardOpKind::Launch: {
                 const auto so = plan.outputs(op);
                 need(si, 1, "split inputs");
                 need(so, 2, "split outputs");
-                if (resolve_q35_kernel(plan.weight_name(op)) ==
-                    Q35Kernel::SplitRows) {
+                if (declared::resolve_kernel(plan.weight_name(op)) ==
+                    declared::Kernel::SplitRows) {
                     kernels::layout::split_bf16_rows(
                         values.slot(si[0]), values.slot(so[0]),
                         values.slot(so[1]), N, row_width(so[0]),
@@ -1907,7 +1809,7 @@ case PieForwardOpKind::Launch: {
                 }
                 break;
             }
-            case Q35Kernel::ConvUpdateBatched: {
+            case declared::Kernel::ConvUpdateBatched: {
                 const auto& layer = conv_weight();
                 // ISLAND (value arena). The conv state, the slot ids
                 // and the stride stay the CACHE's -- a per-request
@@ -1927,7 +1829,7 @@ case PieForwardOpKind::Launch: {
                     R, conv_dim, conv_K, stream);
                 break;
             }
-            case Q35Kernel::ConvPrefillBatched: {
+            case declared::Kernel::ConvPrefillBatched: {
                 const auto& layer = conv_weight();
                 // ISLAND (value arena).
                 const auto ins = plan.inputs(op);
@@ -1946,35 +1848,35 @@ case PieForwardOpKind::Launch: {
                     commit_lens);
                 break;
             }
-            case Q35Kernel::StepBatched:
+            case declared::Kernel::StepBatched:
                 kernels::ssm::recurrent_gated_delta_step_batched(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
                     static_cast<float*>(bound_or_out()), R, V_h, K_d, V_d, stream);
                 break;
-            case Q35Kernel::StepBatchedBf16:
+            case declared::Kernel::StepBatchedBf16:
                 kernels::ssm::recurrent_gated_delta_step_batched_state_bf16(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
                     rs_slot0, slot_ids_d, slot_stride,
                     static_cast<float*>(bound_or_out()), R, V_h, K_d, V_d, stream);
                 break;
-            case Q35Kernel::StepBatchedGqa:
+            case declared::Kernel::StepBatchedGqa:
                 kernels::ssm::recurrent_gated_delta_step_batched_gqa(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
                     static_cast<float*>(bound_or_out()), R, K_h, V_h, K_d, V_d, stream);
                 break;
-            case Q35Kernel::StepBatchedGqaBf16:
+            case declared::Kernel::StepBatchedGqaBf16:
                 kernels::ssm::recurrent_gated_delta_step_batched_gqa_state_bf16(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
                     rs_slot0, slot_ids_d, slot_stride,
                     static_cast<float*>(bound_or_out()), R, K_h, V_h, K_d, V_d, stream);
                 break;
-            case Q35Kernel::PrefillWarpTiledGqa:
+            case declared::Kernel::PrefillWarpTiledGqa:
                 kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
@@ -1982,7 +1884,7 @@ case PieForwardOpKind::Launch: {
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
-            case Q35Kernel::PrefillWarpTiledGqaBf16:
+            case declared::Kernel::PrefillWarpTiledGqaBf16:
                 kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
@@ -1990,7 +1892,7 @@ case PieForwardOpKind::Launch: {
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
-            case Q35Kernel::PrefillCached:
+            case declared::Kernel::PrefillCached:
                 kernels::ssm::chunk_gated_delta_prefill_batched_cached(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
@@ -1998,7 +1900,7 @@ case PieForwardOpKind::Launch: {
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
-            case Q35Kernel::PrefillCachedBf16:
+            case declared::Kernel::PrefillCachedBf16:
                 kernels::ssm::chunk_gated_delta_prefill_batched_cached_state_bf16(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
@@ -2006,7 +1908,7 @@ case PieForwardOpKind::Launch: {
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
-            case Q35Kernel::PrefillFla:
+            case declared::Kernel::PrefillFla:
                 kernels::ssm::chunk_gated_delta_prefill_batched(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
@@ -2015,7 +1917,7 @@ case PieForwardOpKind::Launch: {
                     R, K_h, V_h, K_d, V_d, stream, write_state,
                     commit_lens);
                 break;
-            case Q35Kernel::PrefillFlaBf16:
+            case declared::Kernel::PrefillFlaBf16:
                 kernels::ssm::chunk_gated_delta_prefill_batched_state_bf16(
                     rec_q(), rec_k(),
                     rec_in(2), rec_in(3), rec_in(4),
@@ -2024,7 +1926,7 @@ case PieForwardOpKind::Launch: {
                     R, K_h, V_h, K_d, V_d, stream, write_state,
                     commit_lens);
                 break;
-            case Q35Kernel::RepeatInterleave: {
+            case declared::Kernel::RepeatInterleave: {
                 // The declaration states the pair q-then-k; the toggle
                 // binds them in that order.
                 // ISLAND (value arena) on the SOURCE. The
@@ -2042,8 +1944,8 @@ case PieForwardOpKind::Launch: {
                 repeat_next_is_k = !repeat_next_is_k;
                 break;
             }
-            case Q35Kernel::VerifyStashLoad:
-            case Q35Kernel::VerifyStashStore: {
+            case declared::Kernel::VerifyStashLoad:
+            case declared::Kernel::VerifyStashStore: {
                 // The pseudo-symbols name an OPERATION the driver
                 // implements as a cudaMemcpyAsync trio ([mixed_qkv|a|b]
                 // against the layer's stash slab) — a launcher may be
@@ -2066,8 +1968,8 @@ case PieForwardOpKind::Launch: {
                 auto* stash = static_cast<std::uint16_t*>(
                     state_cache.verify_hidden_stash_layer(linear_idx));
                 const bool load =
-                    resolve_q35_kernel(plan.weight_name(op)) ==
-                    Q35Kernel::VerifyStashLoad;
+                    declared::resolve_kernel(plan.weight_name(op)) ==
+                    declared::Kernel::VerifyStashLoad;
                 const auto cp = [&](void* dst, const void* src,
                                     std::size_t n) {
                     CUDA_CHECK(cudaMemcpyAsync(
@@ -2090,7 +1992,7 @@ case PieForwardOpKind::Launch: {
                 }
                 break;
             }
-            case Q35Kernel::AttnFlashinferDecode: {
+            case declared::Kernel::AttnFlashinferDecode: {
                 if (decode_plan == nullptr) {
                     throw_drift("trace states the flashinfer decode "
                                 "kernel but prepare built no decode plan");
@@ -2110,7 +2012,7 @@ case PieForwardOpKind::Launch: {
                     attn_ws.view(), stream);
                 break;
             }
-            case Q35Kernel::AttnFlashinferPrefill: {
+            case declared::Kernel::AttnFlashinferPrefill: {
                 if (prefill_plan == nullptr) {
                     throw_drift("trace states the flashinfer prefill "
                                 "kernel but prepare built no prefill plan");
@@ -2129,7 +2031,7 @@ case PieForwardOpKind::Launch: {
                     kv_last_page_lens, attn_ws.view(), stream);
                 break;
             }
-            case Q35Kernel::WriteKvExplicit: {
+            case declared::Kernel::WriteKvExplicit: {
                 auto kv_view = kv_view_of(SL);
                 // ISLAND (value arena). The pages are the SINK and stay
                 // the cache's; k and v are the statement's operands.
@@ -2140,7 +2042,7 @@ case PieForwardOpKind::Launch: {
                     w_page_d, w_off_d, N, stream, row_valid_d);
                 break;
             }
-            case Q35Kernel::WriteKvToPages: {
+            case declared::Kernel::WriteKvToPages: {
                 auto kv_view = kv_view_of(SL);
                 // ISLAND (value arena).
                 const auto ins = plan.inputs(op);
@@ -2155,7 +2057,7 @@ case PieForwardOpKind::Launch: {
             // arm reads them off the plan. Only the dense MLP states
             // it -- the routed and shared legs always bind packed
             // banks and take the chunked kernel below.
-            case Q35Kernel::Swiglu: {
+            case declared::Kernel::Swiglu: {
                 const auto si = plan.inputs(op);
                 const auto so = plan.outputs(op);
                 need(si, 2, "swiglu pair inputs");
@@ -2168,7 +2070,7 @@ case PieForwardOpKind::Launch: {
             // The MLP activation. WHICH of the two runs is the
             // checkpoint's gate_up binding, and the trace states it —
             // the executor no longer reads a workspace to find out.
-            case Q35Kernel::ChunkedSwiglu: {
+            case declared::Kernel::ChunkedSwiglu: {
                 // Three callers share this kernel: the dense MLP's, the
                 // routed leg's (block-major rows) and the shared expert's
                 // (token rows). The operand's OWN extent tells them apart --
@@ -2222,14 +2124,14 @@ case PieForwardOpKind::Launch: {
             // shapes are transcribed from `qwen3_5_moe_forward.cpp`'s
             // aligned block rather than re-derived -- this arm's job is to
             // fire the same launches, not to re-decide them.
-            case Q35Kernel::TopkSoftmax:
-            case Q35Kernel::MoeAlignDecode:
-            case Q35Kernel::MoeGatherAligned:
-            case Q35Kernel::MoeBuildPtrsAligned:
-            case Q35Kernel::MoeGroupedGemm:
-            case Q35Kernel::MoeReorderAligned:
-            case Q35Kernel::MoeWeightedSum:
-            case Q35Kernel::SigmoidDotScalarGateAdd: {
+            case declared::Kernel::TopkSoftmax:
+            case declared::Kernel::MoeAlignDecode:
+            case declared::Kernel::MoeGatherAligned:
+            case declared::Kernel::MoeBuildPtrsAligned:
+            case declared::Kernel::MoeGroupedGemm:
+            case declared::Kernel::MoeReorderAligned:
+            case declared::Kernel::MoeWeightedSum:
+            case declared::Kernel::SigmoidDotScalarGateAdd: {
                 if constexpr (kIsDense) {
                     throw_drift("a MoE launch in a dense fire");
                 } else {
@@ -2250,8 +2152,8 @@ case PieForwardOpKind::Launch: {
                     // The shared expert is NOT folded here, matching the
                     // hand path's `constexpr bool fold_shared = false`.
                     constexpr int shared_row_begin = -1;
-                    switch (resolve_q35_kernel(plan.weight_name(op))) {
-                    case Q35Kernel::TopkSoftmax:
+                    switch (declared::resolve_kernel(plan.weight_name(op))) {
+                    case declared::Kernel::TopkSoftmax:
                         // ISLAND (value arena). `topk(logits)` states
                         // one operand and two results.
                         kernels::moe::topk_softmax_bf16(
@@ -2262,7 +2164,7 @@ case PieForwardOpKind::Launch: {
                                 values.slot(plan.outputs(op)[1])),
                             N, E, Ktop, stream);
                         break;
-                    case Q35Kernel::MoeAlignDecode:
+                    case declared::Kernel::MoeAlignDecode:
                         kernels::moe::moe_align_decode(
                             mw.topk_idx.data(), mw.aligned_route_ids.data(),
                             mw.aligned_expert_ids.data(),
@@ -2270,7 +2172,7 @@ case PieForwardOpKind::Launch: {
                             routes, E, block, max_blocks,
                             /*num_tokens_past_padded=*/nullptr, stream);
                         break;
-                    case Q35Kernel::MoeGatherAligned:
+                    case declared::Kernel::MoeGatherAligned:
                         // ISLAND (value arena).
                         // `gather_moe_aligned_inputs(x, sorted_route_ids)`
                         // -- both operands and the result are stated.
@@ -2282,7 +2184,7 @@ case PieForwardOpKind::Launch: {
                             routes, aligned_rows, Ktop, H,
                             shared_row_begin, N, stream);
                         break;
-                    case Q35Kernel::MoeBuildPtrsAligned: {
+                    case declared::Kernel::MoeBuildPtrsAligned: {
                         const auto aux = plan.aux_names(op);
                         if (aux.size != 2) {
                             throw_drift("the ptr build names " +
@@ -2309,7 +2211,7 @@ case PieForwardOpKind::Launch: {
                             /*shared_down=*/nullptr, stream);
                         break;
                     }
-                    case Q35Kernel::MoeGroupedGemm: {
+                    case declared::Kernel::MoeGroupedGemm: {
                         // Which projection this is, read off the BANK the
                         // statement names -- not off a counter, which is how
                         // the two would drift once anything reorders them.
@@ -2354,14 +2256,14 @@ case PieForwardOpKind::Launch: {
                         }
                         break;
                     }
-                    case Q35Kernel::MoeReorderAligned:
+                    case declared::Kernel::MoeReorderAligned:
                         kernels::moe::reorder_moe_aligned_output_bf16(
                             mw.aligned_out.data(), mw.aligned_route_ids.data(),
                             mw.expert_out.data(), routes, aligned_rows, H,
                             shared_row_begin, N,
                             /*shared_out=*/nullptr, stream);
                         break;
-                    case Q35Kernel::MoeWeightedSum:
+                    case declared::Kernel::MoeWeightedSum:
                         // The reorder above already put the rows back in
                         // ROUTE order, so this is the plain token-batched
                         // sum. `_aligned_` names a kernel that reads
@@ -2382,7 +2284,7 @@ case PieForwardOpKind::Launch: {
                                 values.slot(plan.inputs(op)[1])),
                             N, Ktop, H, stream);
                         break;
-                    case Q35Kernel::SigmoidDotScalarGateAdd: {
+                    case declared::Kernel::SigmoidDotScalarGateAdd: {
                         const auto aux = plan.aux_names(op);
                         if (aux.size != 1) {
                             throw_drift("the shared gate names " +

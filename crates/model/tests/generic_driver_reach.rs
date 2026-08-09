@@ -5,10 +5,11 @@
 //! needs nothing per-family except a name-to-tensor map. What it still
 //! needs is an ARM per launcher symbol — the call itself.
 //!
-//! Four executors exist and between them resolve a set of symbols. Seven
-//! families were declared without one. This measures the overlap, which
-//! is the size of the remaining work and the only honest way to state it:
-//! not "seven executors to write" but "N symbols that no arm covers".
+//! ONE registry resolves a set of symbols. Seven families were declared
+//! without any arm for theirs. This measures the overlap, which is the
+//! size of the remaining work and the only honest way to state it: not
+//! "seven executors to write" -- there is one executor -- but "N symbols
+//! the registry does not resolve".
 //!
 //! It is a measurement, not a gate — it prints, and only fails if the
 //! registries stop being readable.
@@ -18,26 +19,29 @@ use model_compiler::trace::{FireClass, ForwardPlan};
 use std::collections::BTreeSet;
 
 fn arms() -> BTreeSet<String> {
-    let root = format!(
-        "{}/../driver-cuda/csrc/src/model",
+    // ONE registry now. There were four -- one per family executor --
+    // and this function read all four; the merge is what made
+    // `AttnFlashinferPrefill` naming two different kernels visible.
+    //
+    // Reading the header rather than the executors is also the more
+    // honest measure: an arm serves a symbol only if the registry
+    // resolves it, and the registry is where that is decided.
+    let path = format!(
+        "{}/../driver-cuda/csrc/src/model/declared/registry.hpp",
         env!("CARGO_MANIFEST_DIR")
     );
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
     let mut out = BTreeSet::new();
-    for fam in ["llama_like", "qwen3_5", "gemma4", "mixtral"] {
-        let path = format!("{root}/{fam}/declared_forward.cpp");
-        let text = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
-        for (i, _) in text.match_indices("== \"") {
-            let before = &text[..i];
-            if !(before.ends_with("k ") || before.ends_with("kernel ")) {
-                continue;
-            }
-            if let Some(end) = text[i + 4..].find('"') {
-                out.insert(text[i + 4..i + 4 + end].to_string());
-            }
+    for (i, _) in text.match_indices("k == \"") {
+        if let Some(end) = text[i + 6..].find('"') {
+            out.insert(text[i + 6..i + 6 + end].to_string());
         }
     }
-    assert!(!out.is_empty(), "the registries stopped being literal compares");
+    assert!(
+        !out.is_empty(),
+        "the registry stopped being literal compares"
+    );
     out
 }
 
