@@ -43,6 +43,7 @@ mod readiness;
 mod registry;
 mod resolve;
 mod scratch;
+mod status;
 mod step;
 mod value;
 
@@ -75,6 +76,10 @@ pub use registry::{
 pub use resolve::{Geometry as FireGeometry, Resolution, last_page_len, resolve};
 pub use scratch::{
     ALIGN as SCRATCH_ALIGN, DUMMY_BYTES, Layout, MAX_BYTES as MAX_SCRATCH_BYTES, TooLarge, layout,
+};
+pub use status::{
+    Diagnosis, FAULT_CLASSES, Fault, FaultClass, Outcome as StatusOutcome, STATUS_BYTES, Site,
+    State, Status, describe_fault, report as report_status,
 };
 pub use step::{PassInputs, StepOutcome, step};
 pub use value::{Value, concrete_dtype, decode_wire, encode_wire, value_matches, wire_cell_bytes};

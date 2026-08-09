@@ -180,6 +180,39 @@ would run the take against a ring it never checked was non-empty. A capacity of
 zero is full and empty at once, so both gates are unsatisfiable; the C++
 defaulted the field to 1 and then overwrote it with the plan's zero.
 
+## Device status — `src/pipeline/status.rs`
+
+| C++ | Rust | |
+|---|---|---|
+| `DeviceStatus` | `Status` | ported |
+| the M1 status decode (1945–1968) | `Outcome::of` + `report` | ported |
+| the M2 status decode (2385–2408) | `Outcome::of` + `report` | dropped |
+| the M3 lane report (3169–3220) | `Outcome::of` + `report` | ported |
+| the `site ==` chain | `Site` | ported |
+| `static_assert(sizeof(DeviceStatus) == 16)` | `STATUS_BYTES` + a test | ported |
+| — | `FAULT_CLASSES`, `describe_fault` | added |
+
+Three copies of the decode, agreeing on `state == 4` and `state == 2` and on
+nothing else. The M1 copy printed the fault in decimal — `160` for a code the
+whole rest of the system writes as `0xA0` — and discarded `reserved0` and
+`reserved1`, so the guard site the kernel deliberately recorded was thrown
+away. The M3 copy printed hex and decoded the site. Same kernel, same fault,
+two reports.
+
+All three treated "not 4 and not 2" as an op fault, which swallows `state = 0`
+(the kernel wrote nothing) and `state = 1` (the kernel started and stopped)
+into "generated op fault 0". The M3 path had learned half of this — it guards
+on `encoded`, because a group that never dispatched reads back as a lane-wide
+zero fill and produced a GPU fault report for something the GPU was never asked
+to do. The M1 path never learned it. `Diagnosis` separates all four.
+
+`describe_fault` is new. `codegen/fault.rs` declares every code a kernel can
+write, with the per-channel classes and the two that alias op tags, and its own
+module doc says "Nothing decodes these: the drivers surface the number and a
+human reads it". The table exists; the driver may as well read it. The mirror
+is checked against `tensor_compiler::codegen::fault::CLASSES` in a test, with
+the compiler as a dev-dependency only, so the copy cannot drift.
+
 ## Not yet started
 
 | C++ | lines | |
@@ -194,7 +227,6 @@ defaulted the field to 1 and then overwrote it with the plan's zero.
 | `inline_ptir_rng_preamble` | ~125 | missing |
 | `HostEmittedKernels` | ~150–192 | missing |
 | `subhandle` / `external_handle` | ~194–215 | missing |
-| `DeviceStatus` + fault decoding | 81–87 | missing |
 | `bind_m2_*` / `bind_m3_*` | 654–735 | missing |
 
 Everything above this section is portable and tests without a GPU. Everything

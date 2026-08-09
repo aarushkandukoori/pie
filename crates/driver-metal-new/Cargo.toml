@@ -137,3 +137,9 @@ features = [
 
 [dev-dependencies]
 tempfile = "3"
+
+# Tests only. The driver deliberately does not depend on the compiler at build
+# time -- see the `identity::Versions` comment -- but `pipeline::status` mirrors
+# the compiler's fault-code table, and a hand-copied table that nothing checks
+# drifts. The dev-dependency makes the mirror a test rather than a promise.
+tensor-compiler = { path = "../tensor-compiler" }
