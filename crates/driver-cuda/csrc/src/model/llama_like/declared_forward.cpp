@@ -1414,31 +1414,28 @@ void llama_like_forward_declared(
                 // (the residual stream); post-norm norms the o_proj
                 // scratch and keeps its convention until that island
                 // moves.
-                norm(post_norm ? ws.norm_x.data()
-                               : values.slot(plan.inputs(op)[0],
-                                             plan.value(plan.inputs(op)[0])),
-                     wb.require(name).data(), attn_norm_out, N,
-                     post_norm ? H : in_w(0));
+                // ISLAND (value arena), BOTH placements. Pre-norm this
+                // is the residual stream; post-norm it is the o_proj
+                // scratch. Either way it is the statement's operand, so
+                // the branch that picked between two workspace fields
+                // goes away and the width comes off the value.
+                norm(values.slot(plan.inputs(op)[0],
+                                 plan.value(plan.inputs(op)[0])),
+                     wb.require(name).data(), attn_norm_out, N, in_w(0));
             } else if (nm.field == "mlp_norm") {
                 const auto& layer = layer_of(w, nm, name);
-                if (post_norm) {
-                    // Post-norm: the down_proj OUTPUT (in norm_x) → norm_y.
-                    norm(ws.norm_x.data(), wb.require(name).data(),
-                         ws.norm_y.data(), N, H);
-                } else {
-                    // ISLAND (value arena): the normed activation is a
-                    // TRACED VALUE, not "ws.norm_y" — that name is this
-                    // family's convention, and qwen3_5 spells the same
-                    // role `ws.norm_x`. Producer and consumer move
-                    // together; the post-norm arm above keeps its
-                    // convention until its own island moves.
-                    norm(values.slot(plan.inputs(op)[0],
-                                     plan.value(plan.inputs(op)[0])),
-                         wb.require(name).data(),
-                         values.slot(plan.outputs(op)[0],
-                                     plan.value(plan.outputs(op)[0])),
-                         N, in_w(0));
-                }
+                // ISLAND (value arena), both placements. The normed
+                // activation is a TRACED VALUE, not "ws.norm_y" — that
+                // name is this family's convention, and qwen3_5 spells
+                // the same role `ws.norm_x`. Post-norm the operand is
+                // the down_proj scratch instead of the stream, which is
+                // a different VALUE and not a different buffer rule.
+                norm(values.slot(plan.inputs(op)[0],
+                                 plan.value(plan.inputs(op)[0])),
+                     wb.require(name).data(),
+                     values.slot(plan.outputs(op)[0],
+                                 plan.value(plan.outputs(op)[0])),
+                     N, in_w(0));
             } else if (nm.field == "q_norm") {
                 // Global qk-norm (olmo2): ONE row RMSNorm over the
                 // flattened [N, heads * head_dim] projection, in place —
@@ -1512,8 +1509,6 @@ void llama_like_forward_declared(
                           values.slot(plan.inputs(op)[0],
                                       plan.value(plan.inputs(op)[0])))
                     : (post_norm ? ws.y.data() : ws.norm_x.data());
-            const void* const mlp_in =
-                post_norm ? ws.y.data() : ws.norm_y.data();
             if (nm.field == "qkv") {
                 // The packed GEMM, nothing else: whether the fused
                 // decode-QKV epilogue follows is the DECLARATION's arm
@@ -1576,10 +1571,13 @@ void llama_like_forward_declared(
             } else if (nm.field == "gate_up") {
                 // The island's consumer: the same traced value the
                 // mlp_norm arm produced (pre-norm only — see there).
+                // The statement's operand in both placements: post-norm
+                // it is the mlp_norm result, pre-norm the same. The
+                // `mlp_in` indirection existed to pick a workspace
+                // field and has no reader left.
                 const void* const gate_up_in =
-                    post_norm ? mlp_in
-                              : values.slot(plan.inputs(op)[0],
-                                            plan.value(plan.inputs(op)[0]));
+                    values.slot(plan.inputs(op)[0],
+                                plan.value(plan.inputs(op)[0]));
                 // The trace declares one packed matmul either way; whether
                 // the binding materialised it fused is this emitter's call,
                 // the same dispatch the hand-written `use_fused_gu` makes.
@@ -2284,11 +2282,29 @@ void llama_like_forward_declared(
                         "declared forward: lora correction without a "
                         "layer tag");
                 }
+                // ISLAND (value arena), on the two operands it states.
+                // The correction's declared inputs ARE q and v -- it
+                // rewrites them where they lie, which is why it records
+                // no outputs -- so those are the statement's.
+                //
+                // The BASE activation is not: this launch does not take
+                // it as an operand, so `qkv_in` stays the convention's
+                // and follows the projections' own island. The scratch
+                // borrows `ws.gate` exactly as the hand-written call
+                // does, and is not a value either.
+                const auto lins = plan.inputs(op);
+                if (lins.size < 2) {
+                    throw std::runtime_error(
+                        "declared forward: the lora correction states " +
+                        std::to_string(lins.size) + " operands, wants q and v");
+                }
                 const void* const qkv_in =
                     post_norm ? ws.y.data() : ws.norm_x.data();
                 (lora_staged != nullptr ? *lora_staged : *lora_state)
                     .apply(cublas.handle(), op.layer, qkv_in, H, Hq, Hk,
-                           ws.q.data(), ws.v.data(), ws.gate.data());
+                           values.slot(lins[0], plan.value(lins[0])),
+                           values.slot(lins[1], plan.value(lins[1])),
+                           ws.gate.data());
                 break;
             }
             case LaunchKernel::WriteKvToPages: {
@@ -2474,9 +2490,16 @@ void llama_like_forward_declared(
             // the residual stream by its own launch, exactly the
             // hand-written `kernels::norm::residual_add_bf16` calls after the
             // attn_norm and mlp_norm blocks.
+            // ISLAND (value arena). `residual_add(x, residual)` lands
+            // on operand 0 — the `kernel!` row aliases the result over
+            // it — so the stream is the destination and the sub-layer's
+            // normed output is the addend.
             kernels::norm::residual_add_bf16(
-                ws.y.data(), ws.norm_y.data(),
-                static_cast<std::size_t>(N) * H, stream);
+                values.slot(plan.outputs(op)[0],
+                            plan.value(plan.outputs(op)[0])),
+                values.slot(plan.inputs(op)[1],
+                            plan.value(plan.inputs(op)[1])),
+                static_cast<std::size_t>(N) * out_w(0), stream);
             break;
         }
         case PieForwardOpKind::LmHead: {
