@@ -1236,6 +1236,25 @@ void llama_like_forward_declared(
         // the staging IS `ws.k`/`ws.v` and the write reads the values
         // directly. qwen3-0.6b is unpadded, so the gate checks that leg
         // and not this one.
+        // THE ATTENTION'S QUERY DOES NOT MOVE YET, and the reason is
+        // recorded because the obvious change fails.
+        //
+        // Its dispatches declare no output -- `out []` on every one,
+        // checked against the gate model's golden -- so only the query
+        // could move, the way qwen3.5's did. Taking it from
+        // `plan.inputs(op)[0]` instead of `attn_q` fails at LOAD:
+        //
+        //   declared value arena: value 17 is one the lowering left to
+        //   the backend, and no pin pass bound it
+        //
+        // Before the first fire, so it is not a placement question. The
+        // KV writes below make the same move and are green, which rules
+        // out the arena wiring and the pin pass in general. Adding an
+        // arity guard did not change it, so it is not a short operand
+        // span either. Left as it is rather than pinned into silence: a
+        // pin that made this go away would bind a value whose identity
+        // is not yet understood, and that is how a plausible pointer to
+        // the wrong buffer gets made.
         const auto kv_src = [&](std::size_t i, void* staged) -> const void* {
             if (head_dim_padded) return staged;
             return values.slot(plan.inputs(op)[i],
@@ -2095,7 +2114,13 @@ void llama_like_forward_declared(
                 // require the unpadded head dim.
                 if (head_dim_padded) {
                     kernels::attn::pad_head_dim_bf16(
-                        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+                        // Q's pad, inside a KV WRITE: this statement's
+                        // operands are k and v, so `inputs[0]` is K here
+                        // and the query is not the write's to name. It
+                        // stays the convention's until the attention --
+                        // whose operand q IS -- pads it itself.
+                        ws.q.data(),
+                        attn_q, N, num_q_heads, d, dk, stream);
                     kernels::attn::pad_head_dim_bf16(
                         values.slot(plan.inputs(op)[0],
                                     plan.value(plan.inputs(op)[0])),
@@ -2158,7 +2183,13 @@ void llama_like_forward_declared(
                 // (Pad staging comment above applies here too.)
                 if (head_dim_padded) {
                     kernels::attn::pad_head_dim_bf16(
-                        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+                        // Q's pad, inside a KV WRITE: this statement's
+                        // operands are k and v, so `inputs[0]` is K here
+                        // and the query is not the write's to name. It
+                        // stays the convention's until the attention --
+                        // whose operand q IS -- pads it itself.
+                        ws.q.data(),
+                        attn_q, N, num_q_heads, d, dk, stream);
                     kernels::attn::pad_head_dim_bf16(
                         values.slot(plan.inputs(op)[0],
                                     plan.value(plan.inputs(op)[0])),
