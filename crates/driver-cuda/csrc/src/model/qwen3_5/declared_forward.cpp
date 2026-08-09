@@ -2120,9 +2120,15 @@ case PieForwardOpKind::Launch: {
                     constexpr int shared_row_begin = -1;
                     switch (resolve_q35_kernel(plan.weight_name(op))) {
                     case Q35Kernel::TopkSoftmax:
+                        // ISLAND (value arena). `topk(logits)` states
+                        // one operand and two results.
                         kernels::moe::topk_softmax_bf16(
-                            mw.router_logits.data(), mw.topk_idx.data(),
-                            mw.topk_weights.data(), N, E, Ktop, stream);
+                            values.slot(plan.inputs(op)[0]),
+                            static_cast<std::int32_t*>(
+                                values.slot(plan.outputs(op)[0])),
+                            static_cast<float*>(
+                                values.slot(plan.outputs(op)[1])),
+                            N, E, Ktop, stream);
                         break;
                     case Q35Kernel::MoeAlignDecode:
                         kernels::moe::moe_align_decode(
@@ -2133,9 +2139,14 @@ case PieForwardOpKind::Launch: {
                             /*num_tokens_past_padded=*/nullptr, stream);
                         break;
                     case Q35Kernel::MoeGatherAligned:
+                        // ISLAND (value arena).
+                        // `gather_moe_aligned_inputs(x, sorted_route_ids)`
+                        // -- both operands and the result are stated.
                         kernels::moe::gather_moe_aligned_inputs_bf16(
-                            ws.norm_x.data(), mw.aligned_route_ids.data(),
-                            mw.aligned_expert_in.data(),
+                            values.slot(plan.inputs(op)[0]),
+                            static_cast<const std::int32_t*>(
+                                values.slot(plan.inputs(op)[1])),
+                            values.slot(plan.outputs(op)[0]),
                             routes, aligned_rows, Ktop, H,
                             shared_row_begin, N, stream);
                         break;
@@ -2228,9 +2239,16 @@ case PieForwardOpKind::Launch: {
                         // the hand body sets `add_to_residual` and `moe_out`
                         // IS the residual stream. The declaration says the
                         // same thing, so there is no trailing add to make.
+                        // ISLAND (value arena). `weighted_sum_add(x,
+                        // weights, residual)` accumulates INTO the
+                        // residual, which is operand 2 and which the
+                        // `kernel!` row now aliases the result over.
                         kernels::moe::token_batched_weighted_sum_add_bf16(
-                            ws.y.data(), mw.expert_out.data(),
-                            mw.topk_weights.data(), N, Ktop, H, stream);
+                            values.slot(plan.outputs(op)[0]),
+                            values.slot(plan.inputs(op)[0]),
+                            static_cast<const float*>(
+                                values.slot(plan.inputs(op)[1])),
+                            N, Ktop, H, stream);
                         break;
                     case Q35Kernel::SigmoidDotScalarGateAdd: {
                         const auto aux = plan.aux_names(op);
@@ -2242,10 +2260,17 @@ case PieForwardOpKind::Launch: {
                         // (x, gate_weight, ACCUMULATOR, addend) -- the
                         // hand call's order. Reversing the last two lands
                         // the gate on the wrong buffer and still compiles.
+                        // ISLAND (value arena).
+                        // `sigmoid_dot_scalar_gate_add(x, base, shared)`
+                        // -- `base` is the residual stream and the
+                        // kernel's own header calls that argument the
+                        // "in-place add destination", which the table
+                        // now says too.
                         kernels::mlp::sigmoid_dot_scalar_gate_add_bf16(
-                            ws.norm_x.data(),
+                            values.slot(plan.inputs(op)[0]),
                             wb.require(plan.name(aux[0])).data(),
-                            ws.y.data(), mw.shared_out.data(),
+                            values.slot(plan.outputs(op)[0]),
+                            values.slot(plan.inputs(op)[2]),
                             N, H, stream);
                         break;
                     }

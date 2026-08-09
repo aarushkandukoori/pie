@@ -76,7 +76,12 @@ pub static KERNELS: &[KernelSig] = &[
     // on the stream (tp=1) — one launch where the semantic text has a
     // WeightedSum and a ResidualAdd.
     kernel!(moe_weighted_sum "moe::token_batched_weighted_sum_bf16"),
-    kernel!(moe_weighted_sum_add "moe::token_batched_weighted_sum_add_bf16"),
+    // The `_add` spelling accumulates into the residual, which the
+    // statement carries as its THIRD operand (`weighted_sum_add(x,
+    // weights, residual)`); the plain spelling above writes a fresh
+    // value and aliases nothing.
+    kernel!(moe_weighted_sum_add "moe::token_batched_weighted_sum_add_bf16",
+        in_place = &[(0, 2)]),
     // The routed MXFP4 GEMVs. Like qwen3_5's GEMV leg the expert axis
     // rides INSIDE the value, so each is one rectangle over `N * k`
     // routes; unlike it, the weight slot names a per-expert POINTER

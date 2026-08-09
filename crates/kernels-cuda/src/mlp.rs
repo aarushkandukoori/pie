@@ -37,5 +37,9 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(gpt_oss_glu "mlp::gpt_oss_glu_bf16", in_place = &[(0, 0)]),
     kernel!(sigmoid_scalar_gate_add "mlp::sigmoid_scalar_gate_add_bf16"),
     kernel!(sigmoid_scalar_gate_strided_add "mlp::sigmoid_scalar_gate_strided_add_bf16"),
-    kernel!(moe_shared_gate_dot "mlp::sigmoid_dot_scalar_gate_add_bf16"),
+    // The shared expert's landing: `out += sigmoid(x . gate) * y`, and
+    // `out` IS the residual stream the statement takes as operand 1 --
+    // the header calls it "in-place add destination" in as many words.
+    kernel!(moe_shared_gate_dot "mlp::sigmoid_dot_scalar_gate_add_bf16",
+        in_place = &[(0, 1)]),
 ];
