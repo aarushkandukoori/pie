@@ -270,6 +270,21 @@ mod tests {
     }
 
     #[test]
+    fn every_transform_this_driver_claims_has_a_host_implementation() {
+        // What lets this driver delegate load-time transcoding to
+        // `model_loader::executor::host` instead of porting the C++
+        // transcode loops: the executor's gate is the convert mask, and
+        // every transform the Metal mask can put in a plan is inside it.
+        // The C++ `transcode.hpp` was a MIRROR of that executor (its own
+        // header says so); the Rust driver calls the original.
+        assert_eq!(
+            METAL_TILE_MAP_MASK & !model_loader::plan::CONVERT_TILE_MAP_MASK,
+            0,
+            "a transform the host executor cannot run would fail at load,              far from this claim"
+        );
+    }
+
+    #[test]
     fn the_target_states_the_device_and_nothing_optimistic() {
         let target = metal_storage_target();
         assert_eq!(target.backend, BackendKind::Metal);

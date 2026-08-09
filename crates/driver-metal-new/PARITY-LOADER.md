@@ -72,10 +72,43 @@ Apple GPU aborts rather than faults on a non-resident touch), and a slot is
 every tensor of one expert or nothing (one `expert_ids` buffer indexes every
 routed projection, so per-tensor slot numbers cannot exist).
 
+## Transcode — dropped whole, with its receipts
+
+`loader/transcode.hpp` (354) is not ported, because it was already a port:
+its own header says the affine encoder "is mirrored in
+`loader/src/testkit/host_executor.rs`" — today
+`model_loader::executor::host` — and exists only because a C++ driver
+could not run the Rust executor's loops over its own heap. The Rust
+driver can: `execute_plan_into(plan, snapshot_dir, sink)` streams every
+finalized tensor (TileMaps run, peak memory = one tensor's working set)
+into a sink that writes heap regions.
+
+Verified quirk-for-quirk against the C++ before dropping, because the
+header's stories are load-bearing: `mlx_affine_group_params` in the Rust
+executor starts `w_max` at ZERO, negates the scale unless the negative
+extreme dominates, snaps the ENDPOINT rather than the scale
+(`scale = edge / round(edge / scale)`), and rounds half AWAY FROM ZERO
+(`f32::round`) — the one character that was an 8.2% disagreement with
+`mx.quantize` on MXFP4-derived banks whose values sit on half-integers.
+Codes are picked against the f32 parameters and stored as BF16, as MLX
+does. The E2M1 nibble LUT and E8M0 block exponents live in
+`decode_mxfp4_elements`.
+
+What the C++ had that the executor does not: `parallel_ranges` threaded
+the loops across cores, and transforms wrote DIRECTLY into the wired heap
+(no per-tensor allocation). If load time ever regresses on big
+checkpoints, the fix is threading inside the executor — where convert
+also benefits — not a re-mirrored copy here; this ledger entry is the
+argument against the second copy.
+
+The claim is pinned by `every_transform_this_driver_claims_has_a_host_
+implementation` in `src/loader/plan.rs`: the Metal tile-map mask is
+inside the host executor's convert gate, so every transform a Metal plan
+can carry runs there.
+
 ## Not yet started
 
 | C++ | lines | blocker |
 |---|---|---|
 | `heap_bind.cpp` | 2044 | Metal-side: heap alloc + argument tables; needs `src/metal` runtime surface |
-| `transcode.hpp` | 354 | tensor staging/transcode; portable, next candidate |
 | `heap_bind_metal.hpp` | 209 | Metal-side companion of `heap_bind.cpp` |

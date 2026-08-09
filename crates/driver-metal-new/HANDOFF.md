@@ -178,18 +178,22 @@ belong to the `batch/` port.
 
 ## What is left
 
-| subsystem | C++ | lines |
-|---|---|---|
-| `batch/` | scheduling, fires, tickets, channel composition | ~11.6k |
-| `loader/` | model loading | ~3.2k |
-| `pipeline/interp.hpp` | the CPU reference interpreter | 1.7k |
-| `pipeline/descriptor_resolve.hpp` | | 400 |
-| `pipeline/registry.cpp` | | 452 |
-| `store/`, `model/` | small | ~375 |
+This table has been refreshed as slices landed; the ledgers
+(`PARITY-BATCH.md`, `PARITY-LOADER.md`) are the authoritative
+per-entity state.
 
-`batch/` is the largest remaining piece and is mostly portable — it is
-scheduling logic, not GPU code — so it should follow the same pattern: portable
-half first, into `src/`, with tests that run anywhere.
+| subsystem | state |
+|---|---|
+| `pipeline/` | done — interp (`op.rs`/`step.rs`/`channel.rs`/`value.rs`/`plan.rs`), descriptor_resolve (`resolve.rs`), registry (`registry.rs`) all landed in earlier sessions |
+| `batch/` independent surface | done — schedule, mask, admit, member, color, abi, timing, psos, worker, geometry, sizing, paging |
+| `batch/` family-coupled remainder | open — golden_tap, the scratch schedule, decode_psos' multibatch tail, `simple_family` (2.2k), `forward.cpp/.hpp` (5.4k); all consume the family `Dispatch` DAG |
+| `loader/` portable | done — heap plan (`heap.rs`), load plan (`plan.rs`), expert slab (`slab.rs` + `model_loader::group_slot`); `transcode.hpp` dropped with receipts (the Rust host executor is the original, see `PARITY-LOADER.md`) |
+| `loader/` Metal side | open — `heap_bind.cpp` (2044) + `heap_bind_metal.hpp` (209): heap alloc, argument tables, staging |
+| `store/`, `model/` | open — `kv_pool.hpp`/`linear_state_slots.hpp` (69 lines together); `model/` families are being ported by concurrent agents (`facts.rs` landed; llama_like in progress on origin) |
+
+The family-coupled batch remainder and the Metal-side loader are the two
+real bodies of work; both follow the same pattern as everything above:
+portable half first, into `src/`, with tests that run anywhere.
 
 ### Also outstanding
 
