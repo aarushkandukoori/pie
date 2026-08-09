@@ -23,6 +23,7 @@ mod dispatch_gptoss;
 mod dispatch_llama;
 mod dispatch_mb;
 mod gemma4;
+mod gemma4_consts;
 mod geometry;
 mod geometry_facts;
 mod golden;
@@ -79,6 +80,9 @@ pub use dispatch_mb::{
     rms_mb, uses_alt_quant,
 };
 pub use gemma4::{Gemma4Geometry, gemma4_geometry_from_facts, gemma4_qmv_kn};
+pub use gemma4_consts::{
+    GegluParams, LayerScalarParams, PleCombineParams, SoftcapParams, VNormParams,
+};
 pub use geometry::{AffineFormat, DecodeGeometry};
 pub use geometry_facts::{
     GeometryRefused, ROUTER_MAX_EXPERTS, ROUTER_MAX_TOP_K, geometry_from_facts,
