@@ -109,27 +109,58 @@ pub fn stage_plan_weights(
     plan: &LoadPlan,
     snapshot_dir: &Path,
 ) -> Result<(Handle, HashMap<String, Handle>)> {
+    // Arena mode: a Metal plan carries BulkExtentWrite, which addresses the
+    // persistent arena by offset — the streaming path refuses it by design.
+    // The arena IS the laid-out weights region, so it is copied whole and
+    // each tensor becomes a slice at the offset the plan's own memory plan
+    // assigned. Tensors the plan publishes outside the arena are appended
+    // after it. The transient cost is one host arena beside the device
+    // region; the zero-copy mapping the ledger defers would remove it.
     let storage = execute_plan(plan, snapshot_dir).map_err(|err| Error::Create {
         what: "staged weights",
         message: err.to_string(),
     })?;
-    let align = |n: u64| n.div_ceil(256) * 256;
-    // Deterministic layout: plan order, not hash order.
-    let mut names: Vec<&String> = storage.tensors.keys().collect();
-    names.sort();
-    let total: u64 = names
+    let arena_len = storage.arena.len() as u64;
+    let names_by_tensor: HashMap<_, _> = plan
+        .tensors
         .iter()
-        .map(|name| align(storage.tensors[*name].len() as u64))
+        .map(|tensor| (tensor.id, tensor.name.as_str()))
+        .collect();
+    // (name, arena offset, bytes) for every tensor the arena holds.
+    let mut in_arena: Vec<(&str, u64, u64)> = Vec::new();
+    for buffer in &plan.buffers {
+        let (Some(offset), Some(tensor)) = (buffer.persistent_offset, buffer.tensor) else {
+            continue;
+        };
+        if let Some(name) = names_by_tensor.get(&tensor) {
+            in_arena.push((name, offset, buffer.bytes));
+        }
+    }
+    let arena_names: std::collections::HashSet<&str> =
+        in_arena.iter().map(|(name, _, _)| *name).collect();
+    let mut published: Vec<(&String, &Vec<u8>)> = storage
+        .tensors
+        .iter()
+        .filter(|(name, _)| !arena_names.contains(name.as_str()))
+        .collect();
+    published.sort_by_key(|(name, _)| name.as_str());
+    let extra: u64 = published
+        .iter()
+        .map(|(_, bytes)| (bytes.len() as u64).div_ceil(256) * 256)
         .sum();
-    let region = allocate(context, total.max(1), "weights region")?;
-    let mut weights = HashMap::with_capacity(names.len());
-    let mut at = 0u64;
-    for name in names {
-        let bytes = &storage.tensors[name];
-        // SAFETY: the region is freshly allocated; nothing else touches it.
+    let region = allocate(context, (arena_len + extra).max(1), "weights region")?;
+    // SAFETY: the region is freshly allocated; the GPU has no reference.
+    unsafe { region.write(0, &storage.arena)? };
+    let mut weights = HashMap::new();
+    for (name, offset, bytes) in in_arena {
+        weights.insert(name.to_string(), region.slice(offset, bytes)?);
+    }
+    let mut at = arena_len;
+    for (name, bytes) in published {
+        // SAFETY: as above; the offset stays inside the sized region.
         unsafe { region.write(at, bytes)? };
         weights.insert(name.clone(), region.slice(at, bytes.len() as u64)?);
-        at += align(bytes.len() as u64);
+        at += (bytes.len() as u64).div_ceil(256) * 256;
     }
     Ok((region, weights))
 }

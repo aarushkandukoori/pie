@@ -277,7 +277,7 @@ pub fn build_decode_dag(g: &DecodeGeometry, tuning: &Tuning, options: DagOptions
     let kv_dim = g.n_kv_heads * g.head_dim;
 
     let mut dag: Vec<Dispatch> = Vec::new();
-    let mut emit = |dag: &mut Vec<Dispatch>, kind: Kernel, layer: Option<u32>, launch: Launch| {
+    let emit = |dag: &mut Vec<Dispatch>, kind: Kernel, layer: Option<u32>, launch: Launch| {
         let ordinal = u32::try_from(dag.len()).expect("a DAG is hundreds of dispatches");
         dag.push(Dispatch {
             kind,

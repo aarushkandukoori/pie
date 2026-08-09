@@ -19,6 +19,7 @@ mod consts;
 mod dataflow;
 mod dispatch;
 mod geometry;
+mod geometry_facts;
 mod golden;
 mod mask;
 mod member;
@@ -49,6 +50,9 @@ pub use dispatch::{
     DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
 };
 pub use geometry::{AffineFormat, DecodeGeometry};
+pub use geometry_facts::{
+    GeometryRefused, ROUTER_MAX_EXPERTS, ROUTER_MAX_TOP_K, geometry_from_facts,
+};
 pub use golden::{
     Tap, TapSite, dir_from_env, dump_bf16, dump_bf16_sorted, dump_taps, dump_tokens,
     sorted_dump_rows, tap_for, taps_recycle, write_npy,
