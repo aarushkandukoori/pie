@@ -25,6 +25,7 @@
 #include "gemm/gemm.hpp"
 #include "model/declared/arms.hpp"
 #include "model/declared/registry.hpp"
+#include "model/declared/weights.hpp"
 #include "model/declared/value_arena.hpp"
 #include <string>
 #include <string_view>
@@ -188,8 +189,13 @@ ParsedName parse_name(std::string_view name) {
 
 // The binder. gemma-4's trace names its weights after the driver's own
 // fields, so this is a map and not a translation.
-const DeviceTensor* bind(const Gemma4Weights& w, std::string_view name) {
-    const ParsedName nm = parse_name(name);
+// The signature is `declared::WeightBinder`'s -- a plain function
+// pointer plus context -- so no arm that goes through it names a struct
+// field, which is what lets an arm be shared.
+const DeviceTensor* bind_gemma4_weight(
+    const void* ctx, const declared::ParsedWeightName& nm,
+    std::string_view name) {
+    const auto& w = *static_cast<const Gemma4Weights*>(ctx);
     if (nm.layer < 0) {
         if (nm.field == "embed") return w.embed;
         if (nm.field == "embed_per_layer") return w.embed_per_layer;
@@ -225,15 +231,6 @@ const DeviceTensor* bind(const Gemma4Weights& w, std::string_view name) {
     throw_drift("unknown layer weight '" + std::string(name) + "'");
 }
 
-const DeviceTensor& require(const Gemma4Weights& w, std::string_view name) {
-    const DeviceTensor* t = bind(w, name);
-    if (t == nullptr) {
-        throw std::runtime_error("declared gemma4: weight '" +
-                                 std::string(name) +
-                                 "' is named by the trace but not bound");
-    }
-    return *t;
-}
 
 }  // namespace
 
@@ -252,7 +249,8 @@ std::string gemma4_validate_stated_weights(
         // identical launches apart.
         if (name.rfind("scale.", 0) == 0) return true;
         try {
-            return bind(w, name) != nullptr;
+            return declared::WeightBinder{&bind_gemma4_weight, &w}
+                       .find(name) != nullptr;
         } catch (const std::exception&) {
             return false;
         }
@@ -311,6 +309,9 @@ bool gemma4_forward_declared(
     int num_logit_rows)
 {
     if (!declared.usable) return false;
+    // Every weight an arm reads goes through the binder: the arms name
+    // what the TRACE names, never a struct field.
+    const declared::WeightBinder wb{&bind_gemma4_weight, &w};
     // WHICH CLASS. `use_decode_path` is the hand-written pass's own test
     // and this mirrors it, `force_prefill_path` included — a deployment
     // forced onto the prefill kernels must reach the PREFILL class here
@@ -400,7 +401,7 @@ bool gemma4_forward_declared(
 
     const auto gemm = [&](const void* act, std::string_view weight, void* out,
                           int m, int n, int k, float beta) {
-        kernels::gemm::act_x_wt_bf16(cublas.handle(), act, require(w, weight).data(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(), act, wb.require(weight).data(),
                                 out, m, n, k, beta);
     };
 
@@ -461,7 +462,7 @@ bool gemma4_forward_declared(
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
             declared::arm_embed({plan, values, N, 0, stream}, op,
-                                token_ids, require(w, name).data(), V);
+                                token_ids, wb.require(name).data(), V);
             break;
         }
         case PieForwardOpKind::Matmul: {
@@ -523,7 +524,7 @@ bool gemma4_forward_declared(
                             "' states no head width");
             }
             kernels::norm::rmsnorm_bf16(
-                values.slot(ins[0]), require(w, name).data(),
+                values.slot(ins[0]), wb.require(name).data(),
                 values.slot(outs[0]), N * (row_width(ins[0]) / head), head,
                 eps, stream);
             break;
@@ -587,7 +588,7 @@ bool gemma4_forward_declared(
                 }
                 declared::arm_rmsnorm(
                     {plan, values, N, 0, stream}, op,
-                    require(w, plan.name(nrm[0])).data(), eps,
+                    wb.require(plan.name(nrm[0])).data(), eps,
                     declared::resolve_kernel(sym) == declared::Kernel::RmsnormRowGemma);
                 break;
             }
@@ -660,7 +661,7 @@ bool gemma4_forward_declared(
                     values.slot(plan.inputs(op)[0]),
                     values.slot(plan.outputs(op)[0]),
                     kv_view.k_pages, kv_view.v_pages,
-                    require(w, aux(0)).data(), require(w, aux(1)).data(),
+                    wb.require(aux(0)).data(), wb.require(aux(1)).data(),
                     positions, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, row_valid_d, N,
                     cfg.num_attention_heads, cur_hk / cur_d, cur_d,
@@ -679,8 +680,8 @@ bool gemma4_forward_declared(
                     // for; the kernel is told `num_kv_heads = 0` below
                     // and never reads it.
                     values.slot(outs_r[outs_r.size > 1 ? 1 : 0]),
-                    require(w, aux(0)).data(),
-                    q_only ? nullptr : require(w, aux(1)).data(),
+                    wb.require(aux(0)).data(),
+                    q_only ? nullptr : wb.require(aux(1)).data(),
                     positions, N, cfg.num_attention_heads,
                     q_only ? 0 : cur_hk / cur_d, cur_d,
                     w.per_layer_rope_theta[static_cast<std::size_t>(cur_layer)],
@@ -819,9 +820,9 @@ bool gemma4_forward_declared(
                 // goes with them -- it was this family naming which
                 // scratch the previous statement had landed in.
                 kernels::norm::rmsnorm_residual_add_scale_rmsnorm_bf16(
-                    values.slot(ins[0]), require(w, first).data(),
+                    values.slot(ins[0]), wb.require(first).data(),
                     values.slot(outs[0]), scale,
-                    require(w, aux(1)).data(), values.slot(outs[1]),
+                    wb.require(aux(1)).data(), values.slot(outs[1]),
                     N, H, eps, stream);
                 break;
             }
@@ -835,7 +836,7 @@ bool gemma4_forward_declared(
                 need(ins, 1, "norm-residual-add inputs");
                 need(outs, 1, "norm-residual-add outputs");
                 kernels::norm::rmsnorm_residual_add_bf16(
-                    values.slot(ins[0]), require(w, first).data(),
+                    values.slot(ins[0]), wb.require(first).data(),
                     values.slot(outs[0]), N, H, eps, stream);
                 break;
             }
