@@ -129,7 +129,33 @@ fn the_metal_table_admits_its_rows_and_refuses_the_rest() {
     assert_eq!(check_plan(&ok), Vec::<String>::new());
 }
 
-/// The table is exactly the set of symbols `dsl::cuda` can record.
+/// Rows no `dsl::cuda` text states, and why each one is in the table.
+///
+/// This list is the seam between the table's TWO jobs, which stopped being
+/// one job when the ABI pilot landed. The compiler's job is to plan against
+/// symbols a declaration can record; `driver-cuda-new`'s
+/// `every_launcher_the_header_declares_has_a_row` gives the table a second
+/// one — being the operand contract for every launcher a HEADER declares,
+/// whether a declaration reaches it or not. A row can now be real and
+/// unstated, so the invariant below is a containment plus this pinned
+/// remainder rather than an equality.
+///
+/// Sorted, because it is compared against a sorted difference.
+const UNSTATED_ROWS: &[&str] = &[
+    // Live, and hand-written: gemma3n, glm5 and gemma-4's bodies call it
+    // directly. No declaration states it because `interleaved` reaches the
+    // kernel as an ARGUMENT rather than as a second symbol, and the families
+    // that pass it true are not declared.
+    "rope::rope_bf16",
+    // Nothing calls this one — not a declaration, not a driver body, not a
+    // test. It is in the table because `rope.hpp` declares it and the header
+    // rule admits no exceptions, which makes it the one row here that would
+    // be better DELETED than pinned: the launcher and its definition in
+    // `rope.cu` are dead too.
+    "rope::rope_partial_bf16_position_delta",
+];
+
+/// The table covers every symbol `dsl::cuda` can record.
 ///
 /// This is the argument that [`check_plan`]'s coverage rule — which
 /// runs at LOAD and fails the trace — can never fire spuriously on a
@@ -138,8 +164,18 @@ fn the_metal_table_admits_its_rows_and_refuses_the_rest() {
 /// is the guard that makes the table's other three declarations get
 /// written: a new `cuda::` wrapper fails this test until its
 /// contract exists.
+///
+/// The containment direction is the load-bearing one and takes no
+/// exceptions. The reverse is pinned to [`UNSTATED_ROWS`] rather than
+/// asserted empty, for the reason that list gives — and it still fires on
+/// a new wrapper, which lands in the remainder until its author either
+/// states it or names it there with a reason. This is the same shape the
+/// Metal table has carried all along (see
+/// `the_metal_table_admits_its_rows_and_refuses_the_rest`): declared ⊇
+/// stated is safe precisely because of the refusal half, since a symbol
+/// nothing states is a symbol nothing can reach.
 #[test]
-fn the_table_is_exactly_the_dsl_surface() {
+fn the_table_covers_the_dsl_surface() {
     let dsl = include_str!("../../model-compiler/src/dsl.rs");
     let mut stated: Vec<&str> = dsl
         .split('"')
@@ -201,9 +237,29 @@ fn the_table_is_exactly_the_dsl_surface() {
     stated.dedup();
     let mut declared: Vec<&str> = KERNELS.iter().map(|k| k.symbol).collect();
     declared.sort_unstable();
+
+    let unbacked: Vec<&str> = stated
+        .iter()
+        .filter(|s| !declared.contains(s))
+        .copied()
+        .collect();
+    assert!(
+        unbacked.is_empty(),
+        "dsl::cuda records symbols the kernel! table does not declare, so \
+         `check_plan` would refuse them at LOAD: {unbacked:?}"
+    );
+
+    let unstated: Vec<&str> = declared
+        .iter()
+        .filter(|d| !stated.contains(d))
+        .copied()
+        .collect();
     assert_eq!(
-        stated, declared,
-        "the kernel! table and dsl::cuda's stated symbols have drifted"
+        unstated, UNSTATED_ROWS,
+        "the table's rows that no dsl::cuda text states have changed. A row \
+         that arrived here needs either a text that states it or an entry in \
+         `UNSTATED_ROWS` saying why it is real without one; a row that left \
+         needs its entry deleted"
     );
 }
 

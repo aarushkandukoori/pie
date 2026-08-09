@@ -6191,6 +6191,9 @@ mod seam_tests {
                 seam: "attn.qv".to_string(),
                 layer: Some(0),
                 op: Some(2),
+                // This fixture exists for the adapter POSITION rule, which
+                // reads `layer`/`op` and never the exposed set.
+                values: vec![],
             }],
         }
     }
