@@ -40,6 +40,7 @@ mod pipeline;
 mod pool;
 mod tables;
 mod timestamp;
+mod timing;
 
 pub use archive::{Archives, CACHE_ENV, EXTENSION, MAX_AGE};
 pub use context::{ALLOCATOR_COUNT, Context};
@@ -54,3 +55,4 @@ pub use pipeline::{Archived, Compiled, Compiler};
 pub use pool::{DEFAULT_CAPACITY, Pool, PoolStats, SMALLEST_CLASS, Transient};
 pub use tables::{MAX_BINDINGS, Tables};
 pub use timestamp::{Granularity, Timestamps};
+pub use timing::Timing;

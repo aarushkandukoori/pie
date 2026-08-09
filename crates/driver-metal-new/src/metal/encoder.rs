@@ -40,7 +40,7 @@
 //! rather than papering over it with a retry.
 
 use std::ptr::NonNull;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -55,6 +55,7 @@ use super::feedback::Feedbacks;
 use super::heap::Slot;
 use super::tables::Tables;
 use super::timestamp::{Granularity, Timestamps};
+use super::timing::Timing;
 use crate::error::{Error, Result};
 
 /// How long one probe of the completion wait lasts.
@@ -354,16 +355,22 @@ impl<'ctx> Stepper<'ctx> {
     /// the command buffer is still closed -- an encoder abandoned mid-step
     /// leaves Metal holding an open command buffer against an allocator this
     /// type is about to reset.
-    pub fn run<F>(&mut self, encode: F) -> Result<()>
+    pub fn run<F>(&mut self, encode: F) -> Result<Timing>
     where
         F: FnOnce(&mut StepEncoder<'_>) -> Result<()>,
     {
         self.preflight()?;
+        let encode_begin = Instant::now();
         let allocator = self.allocator();
         allocator.reset();
         let buffer = self.encode_one(allocator, encode)?;
+        // Read before the commit, so the encode half is the encode half. A
+        // single reading either side of the commit would put the submission
+        // in whichever of the two the caller was not looking at.
+        let committed = Instant::now();
         let value = self.commit(std::slice::from_ref(&buffer));
-        self.await_value(value)
+        self.await_value(value)?;
+        Ok(self.timing(value, committed - encode_begin, committed.elapsed()))
     }
 
     /// Encode `count` command buffers and submit them in ONE commit.
@@ -390,14 +397,17 @@ impl<'ctx> Stepper<'ctx> {
     /// The first encode error, with the buffers encoded so far dropped and
     /// nothing committed -- a partial batch is work the caller did not ask
     /// for and cannot undo. Otherwise as [`run`](Self::run).
-    pub fn run_parallel<F>(&mut self, count: usize, mut encode: F) -> Result<()>
+    pub fn run_parallel<F>(&mut self, count: usize, mut encode: F) -> Result<Timing>
     where
         F: FnMut(usize, &mut StepEncoder<'_>) -> Result<()>,
     {
         self.preflight()?;
         if count == 0 {
-            return Ok(());
+            // A zeroed timing, not a refusal. Nothing was encoded and nothing
+            // ran, and every field of that is honestly zero.
+            return Ok(Timing::default());
         }
+        let encode_begin = Instant::now();
         let allocator = self.allocator();
         allocator.reset();
 
@@ -405,8 +415,10 @@ impl<'ctx> Stepper<'ctx> {
         for index in 0..count {
             buffers.push(self.encode_one(allocator, |step| encode(index, step))?);
         }
+        let committed = Instant::now();
         let value = self.commit(&buffers);
-        self.await_value(value)
+        self.await_value(value)?;
+        Ok(self.timing(value, committed - encode_begin, committed.elapsed()))
     }
 
     /// Encode and run `count` segments IN ORDER, with the host between them.
@@ -432,24 +444,62 @@ impl<'ctx> Stepper<'ctx> {
     /// From the first segment that fails. A segment that never finished
     /// leaves the host holding results that were never computed, so `between`
     /// is not called for it and the remaining segments are not encoded.
-    pub fn run_segments<F, B>(&mut self, count: usize, mut encode: F, mut between: B) -> Result<()>
+    pub fn run_segments<F, B>(
+        &mut self,
+        count: usize,
+        mut encode: F,
+        mut between: B,
+    ) -> Result<Timing>
     where
         F: FnMut(usize, &mut StepEncoder<'_>) -> Result<()>,
         B: FnMut(usize) -> Result<()>,
     {
         self.preflight()?;
+        let mut total = Timing::default();
         for index in 0..count {
+            let encode_begin = Instant::now();
             let allocator = self.allocator();
             // Legal every time round for the same reason as in `run`, and
             // resetting per segment rather than once is what keeps a long
             // model from growing the allocator by its segment count.
             allocator.reset();
             let buffer = self.encode_one(allocator, |step| encode(index, step))?;
+            let committed = Instant::now();
             let value = self.commit(std::slice::from_ref(&buffer));
             self.await_value(value)?;
+            // `between` is the caller's, not the step's. Timing it here would
+            // charge the GPU for host work that happens to sit between two
+            // submissions, which is the opposite of what this split is for.
+            let segment = self.timing(value, committed - encode_begin, committed.elapsed());
+            total.extend(segment);
             between(index)?;
         }
-        Ok(())
+        Ok(total)
+    }
+
+    /// Assemble the timing for a submission that has just completed.
+    ///
+    /// The GPU's own number is read here and not waited for. The feedback
+    /// block is dispatched asynchronously, and the C++ spins up to 200 times
+    /// at 50us for it -- 10 ms of sleeping per step, on the token path, for a
+    /// number the step does not need. `None` says it has not arrived; a
+    /// caller that wants it can ask [`super::Feedbacks::await_step`] for it
+    /// with [`Timing::step`].
+    fn timing(&self, value: u64, encode: Duration, gpu_exec: Duration) -> Timing {
+        Timing {
+            encode,
+            gpu_exec,
+            // Only when it describes THIS submission. The slot holds the most
+            // recent report, which before this one lands is the previous
+            // step's -- attributing that to this step would be a number that
+            // is real, plausible, and about something else.
+            gpu: self
+                .feedback
+                .latest()
+                .filter(|report| report.step == value)
+                .map(|report| report.gpu_time()),
+            step: value,
+        }
     }
 
     /// Refuse before encoding anything, for the two reasons a step cannot run.
