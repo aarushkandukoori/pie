@@ -381,26 +381,13 @@ fn emit_range(
     }
 }
 
-fn emit_op(
-    b: &mut Body,
-    op: &model_compiler::trace::Op,
-    plan: &ForwardPlan,
-    facts: &Qwen35HybridFacts,
-    cuda: &Qwen35CudaFacts,
-    is_decode: bool,
-    commit: bool,
-    repeat_next_is_k: &mut bool,
-) {
-    let _ = (plan, is_decode);
-    let is_full = |l: u32| facts.is_full_attn(l);
-    match &op.kind {
-        OpKind::Embed { weight } => {
-            assert_eq!(weight, "embed");
-            b.stmt("kernels::layout::embed_bf16(");
-            b.stmt("    token_ids, require(w.embed, \"embed\")->data(), ws.y.data(),");
-            b.stmt("    N, H, cfg.vocab_size, stream);");
-        }
-        OpKind::Rmsnorm { weight, .. } => {
+/// The ROW norm's emission, shared by the semantic kind and the stated
+/// symbol.
+///
+/// A CUDA text states `norm::rmsnorm_gemma_bf16` now
+/// (`dsl::cuda::rmsnorm`); a semantic one still records the kind. Same
+/// buffers, same weights, one body.
+fn emit_row_norm_q35(b: &mut Body, weight: &str) {
             // Gemma fold everywhere (the walk's drift check is emission-
             // time here: the trace carries the variant the facts stated).
             if weight == "final_norm" {
@@ -421,6 +408,30 @@ fn emit_op(
                 "    ws.y.data(), require(w.layers[{layer}].{member}, \"{weight}\")->data(),"
             ));
             b.stmt("    ws.norm_x.data(), N, H, eps, stream);");
+}
+
+
+fn emit_op(
+    b: &mut Body,
+    op: &model_compiler::trace::Op,
+    plan: &ForwardPlan,
+    facts: &Qwen35HybridFacts,
+    cuda: &Qwen35CudaFacts,
+    is_decode: bool,
+    commit: bool,
+    repeat_next_is_k: &mut bool,
+) {
+    let _ = (plan, is_decode);
+    let is_full = |l: u32| facts.is_full_attn(l);
+    match &op.kind {
+        OpKind::Embed { weight } => {
+            assert_eq!(weight, "embed");
+            b.stmt("kernels::layout::embed_bf16(");
+            b.stmt("    token_ids, require(w.embed, \"embed\")->data(), ws.y.data(),");
+            b.stmt("    N, H, cfg.vocab_size, stream);");
+        }
+        OpKind::Rmsnorm { weight, .. } => {
+            emit_row_norm_q35(b, weight);
         }
         OpKind::Matmul { weight, beta_one, selector } => {
             assert!(selector.is_none(), "emitter(q35): dyn matmul out of scope");
@@ -878,6 +889,13 @@ fn emit_launch(
                 b.stmt("        cudaMemcpyDeviceToDevice, stream));");
             }
             b.stmt("}");
+        }
+        // The ROW norms, now that `cuda::rmsnorm` states the fold.
+        "norm::rmsnorm_bf16" | "norm::rmsnorm_gemma_bf16" => {
+            let weight = weights
+                .first()
+                .expect("a stated row norm names its weight");
+            emit_row_norm_q35(b, weight);
         }
         other => panic!("emitter(q35): stated kernel {other} out of scope"),
     }

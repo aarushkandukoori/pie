@@ -147,7 +147,7 @@ impl MoeLayerW {
 fn moe_mlp_body_aligned_cuda(l: u32, facts: &Qwen35MoeMlpFacts, y: &Val) -> Val {
     let w = MoeLayerW::new(l, facts);
     let y = y.clone();
-    let m = rmsnorm(&y, &w.mlp_norm);
+    let m = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
 
     let aligned = model_compiler::trace::Dim::MoeAlignedRoutes {
         top_k: facts.top_k,
@@ -322,7 +322,7 @@ fn moe_mlp_body_cuda(
     let w = MoeLayerW::new(l, facts);
     // Semantic: the lowering reads the variant and names the fold's
     // kernel, so there is nothing here for a CUDA reading to add.
-    let m = rmsnorm(y, &w.mlp_norm);
+    let m = dsl::cuda::rmsnorm(y, &w.mlp_norm);
 
     // The router stays two ops — a plain GEMM for the logits, then the
     // fused top-k/softmax/renormalize — because the fused call takes the
@@ -361,7 +361,7 @@ fn moe_mlp_body_cuda(
 /// qwen3.5 hybrid.
 ///
 /// This is a FRAGMENT, not a model: the unit the qwen3_5 declaration
-/// composes on a `Linear` layer (`y += gdn(l, rmsnorm(y, attn_norm))`,
+/// composes on a `Linear` layer (`y += gdn(l, dsl::cuda::rmsnorm(y, attn_norm))`,
 /// plan.md Part 1's `match layers[l]`), traced against layer 0 with the
 /// residual stream as a fragment parameter ([`dsl::input`]),
 /// exactly the MoE fragment's shape. The FULL-attention layer kind of this
@@ -559,7 +559,7 @@ fn gdn_attn_body_cuda(
     let w = GdnLayerW::new(t, l, facts);
     let mut y = y.clone();
 
-    let x = rmsnorm(&y, &w.attn_norm);
+    let x = dsl::cuda::rmsnorm(&y, &w.attn_norm);
 
     let (qkv, z, a, b) = gdn_in_proj(&x, &w, facts);
 
@@ -866,7 +866,7 @@ fn full_attn_body_cuda(
     let w = FullAttnLayerW::new(t, l, facts);
     let mut y = y.clone();
 
-    let x = rmsnorm(&y, &w.attn_norm);
+    let x = dsl::cuda::rmsnorm(&y, &w.attn_norm);
 
     let (qg, k, v) = if facts.fused_qkv {
         split_qkv(&matmul(&x, &w.qgkv), 2 * facts.q_width(), facts.kv_width())
@@ -879,8 +879,8 @@ fn full_attn_body_cuda(
     };
     let (q, gate) = split_q_gate(&qg, facts.q_heads, facts.head_dim);
 
-    let q = rmsnorm(&q, &w.q_norm);
-    let k = rmsnorm(&k, &w.k_norm);
+    let q = dsl::cuda::rmsnorm(&q, &w.q_norm);
+    let k = dsl::cuda::rmsnorm(&k, &w.k_norm);
     let (q, k) = rope_partial(&q, &k, RopeKind::Standard, facts.rotary_dim);
     // The OnAttnProj site (A4): post-rope, pre-KV-write — the
     // hand-written full-attn invoke's position, observing the roped q
@@ -1031,7 +1031,7 @@ fn dense_mlp_body_cuda(
         repr: WeightRepr::Bf16,
     };
     let mut y = y.clone();
-    let m = rmsnorm(&y, &mlp_norm);
+    let m = dsl::cuda::rmsnorm(&y, &mlp_norm);
     let act = dsl::cuda::swiglu(&matmul(&m, &gate_up), intermediate, packed);
     y += matmul(&act, &down);
     y
@@ -1045,12 +1045,12 @@ fn dense_mlp_body_cuda(
 /// let mut y = embed[tok];
 /// for l in 0..layers {
 ///     y += match layers[l] {          // static match, resolved at trace time
-///         Full   => full_attn(l, rmsnorm(y, attn_norm)),
-///         Linear => gdn(l, rmsnorm(y, attn_norm)),
+///         Full   => full_attn(l, dsl::cuda::rmsnorm(y, attn_norm)),
+///         Linear => gdn(l, dsl::cuda::rmsnorm(y, attn_norm)),
 ///     };
-///     y += mlp(l, rmsnorm(y, mlp_norm));   // dense or MoE, per the facts
+///     y += mlp(l, dsl::cuda::rmsnorm(y, mlp_norm));   // dense or MoE, per the facts
 /// }
-/// lm_head(rmsnorm(y, final_norm))
+/// lm_head(dsl::cuda::rmsnorm(y, final_norm))
 /// ```
 ///
 /// The `match layers[l]` runs over [`Qwen35HybridFacts::is_full_attn`] —

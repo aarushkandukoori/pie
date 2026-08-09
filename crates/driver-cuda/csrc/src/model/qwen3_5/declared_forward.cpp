@@ -211,6 +211,11 @@ const DeviceTensor* require(const DeviceTensor* t, std::string_view name) {
 // drifted, and `qwen35_validate_stated_kernels` makes that a model-load
 // failure.
 enum class Q35Kernel {
+    // The ROW norms. Two entries because the SYMBOL says which fold
+    // runs -- `cuda::rmsnorm` picked it from the weight at trace time,
+    // and this family's is a deployment fact (`facts.norm_variant`).
+    RmsnormRow,
+    RmsnormRowGemma,
     ConvUpdateBatched,
     ConvPrefillBatched,
     StepBatched,
@@ -246,6 +251,8 @@ enum class Q35Kernel {
 };
 
 Q35Kernel resolve_q35_kernel(std::string_view k) {
+    if (k == "norm::rmsnorm_bf16") return Q35Kernel::RmsnormRow;
+    if (k == "norm::rmsnorm_gemma_bf16") return Q35Kernel::RmsnormRowGemma;
     if (k == "ssm::causal_conv1d_update_batched_bf16") return Q35Kernel::ConvUpdateBatched;
     if (k == "ssm::causal_conv1d_prefill_batched_bf16") return Q35Kernel::ConvPrefillBatched;
     if (k == "ssm::recurrent_gated_delta_step_batched") return Q35Kernel::StepBatched;
@@ -1787,6 +1794,25 @@ case PieForwardOpKind::Launch: {
                     ? state_cache.recurrent_state_raw(SL, /*slot=*/0)
                     : nullptr;
             switch (resolve_q35_kernel(plan.weight_name(op))) {
+            case Q35Kernel::RmsnormRow:
+            case Q35Kernel::RmsnormRowGemma: {
+                // SHARED ARM (D1). The fold comes from the SYMBOL the
+                // registry matched. This family's driver used to THROW
+                // on anything but the Gemma variant -- a deployment's
+                // answer hard-coded into an executor -- and now it
+                // serves whichever the text states.
+                const auto nrm = plan.aux_names(op);
+                if (nrm.size != 1) {
+                    throw_drift("a stated row norm names " +
+                                std::to_string(nrm.size) + " weights");
+                }
+                declared::arm_rmsnorm(
+                    {plan, values, N, 0, stream}, op,
+                    wb.require(plan.name(nrm[0])).data(), eps,
+                    resolve_q35_kernel(plan.weight_name(op)) ==
+                        Q35Kernel::RmsnormRowGemma);
+                break;
+            }
             case Q35Kernel::ConvUpdateBatched: {
                 const auto& layer = conv_weight();
                 // ISLAND (value arena). The conv state, the slot ids

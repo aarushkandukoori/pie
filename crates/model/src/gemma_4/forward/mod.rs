@@ -167,7 +167,7 @@ pub fn gemma4_cuda(
             },
         );
         let scaled = dsl::cuda::scalar_mul(&ple, "rsqrt_hidden");
-        let normed_ple = rmsnorm(
+        let normed_ple = dsl::cuda::rmsnorm(
             &scaled,
             &NormW {
                 name: "ple_model_norm".into(),
@@ -188,7 +188,7 @@ pub fn gemma4_cuda(
         // ── Layers ──────────────────────────────────────────────────
         // Layer 0 norms the stream itself; every other layer received
         // its input norm from the layer before (see the doc above).
-        let mut normed = rmsnorm(&y, &Gemma4LayerW::new(0, facts).attn_norm);
+        let mut normed = dsl::cuda::rmsnorm(&y, &Gemma4LayerW::new(0, facts).attn_norm);
 
         for l in 0..facts.layers {
             let w = Gemma4LayerW::new(l, facts);
@@ -220,7 +220,7 @@ pub fn gemma4_cuda(
                 // have used — NOT by falling back to a generic rope.
                 let q = matmul(&normed, &w.q_proj);
                 if full {
-                    let q = rmsnorm(&q, &w.q_norm);
+                    let q = dsl::cuda::rmsnorm(&q, &w.q_norm);
                     dsl::cuda::rope_partial_q_only(&q)
                 } else {
                     dsl::cuda::qk_rmsnorm_rope_rounded_q_only(&q, &w.q_norm)
@@ -247,8 +247,8 @@ pub fn gemma4_cuda(
                     // Partial rope has no fused pair, so the norms are
                     // their own statements — `can_fuse_qk_norm_rope`
                     // reads `!partial`.
-                    let q = rmsnorm(&q, &w.q_norm);
-                    let k = rmsnorm(&k, &w.k_norm);
+                    let q = dsl::cuda::rmsnorm(&q, &w.q_norm);
+                    let k = dsl::cuda::rmsnorm(&k, &w.k_norm);
                     dsl::rope_partial(&q, &k, RopeKind::Standard, facts.global_rotary_dim)
                 } else {
                     dsl::cuda::qk_rmsnorm_rope_rounded(&q, &k, &w.q_norm, &w.k_norm)
@@ -342,7 +342,7 @@ pub fn gemma4_cuda(
         }
 
         // ── Epilogue ────────────────────────────────────────────────
-        let normed = rmsnorm(
+        let normed = dsl::cuda::rmsnorm(
             &y,
             &NormW {
                 name: "final_norm".into(),

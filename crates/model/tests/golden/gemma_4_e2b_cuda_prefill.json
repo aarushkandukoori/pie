@@ -5766,9 +5766,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.0.attn_norm",
-          "variant": "Plain"
+        "Launch": {
+          "kernel": "norm::rmsnorm_bf16",
+          "weights": [
+            "layer.0.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -15438,9 +15440,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "final_norm",
-          "variant": "Plain"
+        "Launch": {
+          "kernel": "norm::rmsnorm_bf16",
+          "weights": [
+            "final_norm"
+          ]
         }
       },
       "inputs": [

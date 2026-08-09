@@ -38,6 +38,10 @@ namespace {
 // and a symbol outside this list is a model-load failure, so this list
 // and `family::gemma4_cuda` are two spellings of one vocabulary.
 enum class G4Kernel {
+    // The ROW norms. Two entries because the SYMBOL says which fold
+    // runs -- `cuda::rmsnorm` picked it from the weight at trace time.
+    RmsnormRow,
+    RmsnormRowGemma,
     QkvPackedPost,
     QkRmsnormRopeRounded,
     RopeQOnly,
@@ -66,6 +70,8 @@ enum class G4Kernel {
 };
 
 G4Kernel resolve_g4_kernel(std::string_view k) {
+    if (k == "norm::rmsnorm_bf16") return G4Kernel::RmsnormRow;
+    if (k == "norm::rmsnorm_gemma_bf16") return G4Kernel::RmsnormRowGemma;
     if (k == "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16")
         return G4Kernel::QkvPackedPost;
     if (k == "rope::qk_rmsnorm_rope_bf16_rounded")
@@ -645,6 +651,21 @@ bool gemma4_forward_declared(
                 return plan.name(names[i]);
             };
             switch (resolve_g4_kernel(sym)) {
+            case G4Kernel::RmsnormRow:
+            case G4Kernel::RmsnormRowGemma: {
+                // SHARED ARM (D1). The fold comes from the SYMBOL the
+                // registry matched, not from a param this arm reads.
+                const auto nrm = plan.aux_names(op);
+                if (nrm.size != 1) {
+                    throw_drift("a stated row norm names " +
+                                std::to_string(nrm.size) + " weights");
+                }
+                declared::arm_rmsnorm(
+                    {plan, values, N, 0, stream}, op,
+                    require(w, plan.name(nrm[0])).data(), eps,
+                    resolve_g4_kernel(sym) == G4Kernel::RmsnormRowGemma);
+                break;
+            }
             case G4Kernel::ScalarMul: {
                 const std::string_view which = aux(0);
                 // ISLAND (value arena). Four sites that named four

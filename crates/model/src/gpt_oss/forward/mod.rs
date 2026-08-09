@@ -145,7 +145,7 @@ pub fn gpt_oss_cuda(
         for l in 0..facts.layers {
             let w = GptOssLayerW::new(l, facts);
             let kv = dsl::Kv::at(t, l);
-            let normed = rmsnorm(&y, &w.attn_norm);
+            let normed = dsl::cuda::rmsnorm(&y, &w.attn_norm);
 
             // The q/k/v biases FOLD INTO the projection's epilogue
             // (`kernels::gemm::act_x_wt_bias_bf16`): at decode these route to the
@@ -237,7 +237,7 @@ pub fn gpt_oss_cuda(
             }
 
             // ── The MoE block ───────────────────────────────────────
-            let mlp_in = rmsnorm(&y, &w.mlp_norm);
+            let mlp_in = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
             let logits = proj(&mlp_in, &w.router, &w.router_bias);
             let (experts, weights) = dsl::cuda::topk(&logits, facts.top_k);
 
@@ -284,7 +284,7 @@ pub fn gpt_oss_cuda(
             y = dsl::cuda::residual_add(&y, &combined, hidden);
         }
 
-        let normed = rmsnorm(
+        let normed = dsl::cuda::rmsnorm(
             &y,
             &NormW {
                 name: "final_norm".into(),

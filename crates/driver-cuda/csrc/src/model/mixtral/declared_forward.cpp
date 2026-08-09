@@ -73,6 +73,10 @@ std::size_t host_arena_hi() {
 // symbol outside this list is a model-load failure, so this list and
 // `family::gpt_oss_cuda` are two spellings of one vocabulary.
 enum class GoKernel {
+    // The ROW norms. Two entries because the SYMBOL says which fold
+    // runs -- `cuda::rmsnorm` picked it from the weight at trace time.
+    RmsnormRow,
+    RmsnormRowGemma,
     GemmBias,
     WriteKvToPages,
     AttnFlashinferDecode,
@@ -89,6 +93,8 @@ enum class GoKernel {
 };
 
 GoKernel resolve_go_kernel(std::string_view k) {
+    if (k == "norm::rmsnorm_bf16") return GoKernel::RmsnormRow;
+    if (k == "norm::rmsnorm_gemma_bf16") return GoKernel::RmsnormRowGemma;
     if (k == "gemm::act_x_wt_bias_bf16") return GoKernel::GemmBias;
     if (k == "attn::write_kv_to_pages") return GoKernel::WriteKvToPages;
     if (k == "attn::dispatch_attention_flashinfer_decode")
@@ -643,6 +649,21 @@ bool gpt_oss_forward_declared(
             const MixtralLayerWeights& layer =
                 w.layers[static_cast<std::size_t>(cur_layer)];
             switch (resolve_go_kernel(sym)) {
+            case GoKernel::RmsnormRow:
+            case GoKernel::RmsnormRowGemma: {
+                // SHARED ARM (D1). The fold comes from the SYMBOL the
+                // registry matched, not from a param this arm reads.
+                const auto nrm = plan.aux_names(op);
+                if (nrm.size != 1) {
+                    throw_drift("a stated row norm names " +
+                                std::to_string(nrm.size) + " weights");
+                }
+                declared::arm_rmsnorm(
+                    {plan, values, N, 0, stream}, op,
+                    require(w, plan.name(nrm[0])).data(), eps,
+                    resolve_go_kernel(sym) == GoKernel::RmsnormRowGemma);
+                break;
+            }
             case GoKernel::GemmBias: {
                 // ISLAND (value arena). Four sites told apart by the
                 // projection they name, and every branch chose a buffer
