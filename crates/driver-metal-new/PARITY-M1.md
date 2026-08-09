@@ -282,21 +282,49 @@ full-width `region`, so `(stage 1, region 0)` and `(stage 0, region
 rather than correctness — but it is a hand-written hash with a bug in it and
 the standard one has neither.
 
+## Already covered elsewhere in the crate
+
+| C++ | Rust | |
+|---|---|---|
+| `inline_ptir_rng_preamble` | `shader::splice_with` | dropped |
+| `kPtirRngInclude` | `shader::DIRECTIVE` | dropped |
+| `default_m1_cache_dir` | `metal::Archives::discover` | dropped |
+| `fnv1a64` | `tensor_ir::fnv1a64` | dropped |
+| `align_up` | `scratch` (private) | dropped |
+| `wire_value_bytes` | `pipeline::wire_cell_bytes` | dropped |
+
+`inline_ptir_rng_preamble` is a `find`/`replace` loop over the literal text
+`#include "ptir_rng.generated.metal"`, anywhere it appears, mutating the string
+under the cursor it is scanning with. `shader::splice_with` was already written
+against the same requirement and is stricter in the two ways that matter: it
+honours a directive only at column zero, so the same characters inside a
+comment or a string literal are left alone, and it builds the output forward
+so the scan never revisits text a replacement introduced. It also handles
+nested includes and bounds the depth, neither of which the C++ attempts.
+
 ## Not yet started
+
+Everything below names a Metal type and will land under `src/metal/`. That is
+why the split falls here rather than at a line number in the C++: everything
+above tests on any machine, and everything below needs a device.
 
 | C++ | lines | |
 |---|---|---|
 | `M1RegionExecutable` … `M3GroupCommand` | 388–546 | missing |
-| `M1ChannelEffect` derivation callers | 553–592 | ported |
+| `bind_m2_*` / `bind_m3_*` | 654–735 | missing |
 | `PsoCompileTransaction` | ~700 | missing |
 | `compile_program` | 736–1454 | missing |
 | `prepare` / `execute` (M1 singleton) | 1455–1981 | missing |
 | M2 fused placement | 1982–2411 | missing |
 | M3 grouped lanes | 2412–3350 | missing |
-| `inline_ptir_rng_preamble` | ~125 | missing |
-| `subhandle` / `external_handle` | ~194–215 | missing |
-| `bind_m2_*` / `bind_m3_*` | 654–735 | missing |
+| `subhandle` / `external_handle` | 194–215 | missing |
 
-Everything above this section is portable and tests without a GPU. Everything
-below it names a Metal type and will land under `src/metal/`, which is why the
-split falls where it does rather than at a line number in the C++.
+## Where this stands
+
+Eleven subjects ported, in eleven commits, each one argued from a specific
+defect in the C++ rather than from a wish to have it in Rust. The portable half
+of `m1_runtime.cpp` — everything that is a function of the plan and the fire's
+numbers rather than of the device — is done, and it carries 122 tests that run
+without a GPU. The C++ had none for any of it: every one of these functions
+lived in an anonymous namespace behind a pimpl, reachable only through a
+`*_for_test` hook or not at all.
