@@ -136,12 +136,15 @@ void pin_llama_like_values(const pie_forward::ForwardPlan& plan,
             } else if (nm.field == "v_proj") {
                 values.pin(outs[0], ws.v.data());
             } else if (nm.field == "gate_up") {
-                // The FUSED binding's destination. The unfused pair
-                // writes `ws.gate`/`ws.up`, which this single traced
-                // value does not describe -- the gap qwen3.5's arm
-                // stops at too -- so only the fused spelling asks for
-                // the value and this entry serves it.
+                // The PACKED binding's destination -- and now the only
+                // reading of this name. An unfused binding states its
+                // two halves (2d), each a value of its own, so the pair
+                // below serves them.
                 values.pin(outs[0], ws.gate_up_fused.data());
+            } else if (nm.field == "gate_proj") {
+                values.pin(outs[0], ws.gate.data());
+            } else if (nm.field == "up_proj") {
+                values.pin(outs[0], ws.up.data());
             } else if (nm.field == "o_proj" || nm.field == "down") {
                 values.pin(outs[0], post_norm ? ws.norm_x.data()
                                               : ws.y.data());
@@ -1261,10 +1264,6 @@ void llama_like_forward_declared(
         }
     }
 
-    // Whether the gate_up Matmul took the fused binding; decides which
-    // swiglu kernel the following Swiglu op launches (the hand-written
-    // `use_fused_gu` pairing).
-    bool gate_up_used_fused = false;
     // WHICH FACE of a row split a launch serves. Two axes, never nested
     // (the engine plans the mask split UNPLANNED for hooked fires), and
     // both are now RECTANGLE properties rather than walk state — they
@@ -1623,38 +1622,35 @@ void llama_like_forward_declared(
                         out_slot(0), N, out_w(0), in_w(0), beta);
                 }
             } else if (nm.field == "gate_up") {
-                // The island's consumer: the same traced value the
-                // mlp_norm arm produced (pre-norm only — see there).
-                // The statement's operand in both placements: post-norm
-                // it is the mlp_norm result, pre-norm the same. The
-                // `mlp_in` indirection existed to pick a workspace
-                // field and has no reader left.
-                const void* const gate_up_in =
+                // The PACKED bank, and only that (2d). An unfused
+                // binding states TWO matmuls -- each with its own weight
+                // name, its own operand and its own traced result -- so
+                // this branch no longer fires two GEMMs into buffers the
+                // single statement did not describe, and
+                // `gate_up_used_fused` goes with it.
+                //
+                // `require` refuses a binding that disagrees with the
+                // fact the trace was taken under: a deployment without
+                // the bank states the pair, so reaching this name at all
+                // means the packed one.
+                kernels::gemm::act_x_w(cublas.handle(),
                     values.slot(plan.inputs(op)[0],
-                                plan.value(plan.inputs(op)[0]));
-                // The trace declares one packed matmul either way; whether
-                // the binding materialised it fused is this emitter's call,
-                // the same dispatch the hand-written `use_fused_gu` makes.
-                gate_up_used_fused =
-                    layer.gate_up_proj_fused != nullptr &&
-                    !ws.gate_up_fused.empty();
-                if (gate_up_used_fused) {
-                    kernels::gemm::act_x_w(cublas.handle(),
-                        gate_up_in,
-                        WeightView(*layer.gate_up_proj_fused),
-                        out_slot(0), N, out_w(0), in_w(0));
-                } else {
-                    kernels::gemm::act_x_w(cublas.handle(),
-                        gate_up_in,
-                        dense(wb.require_field(nm.layer, "gate_proj", name),
-                              layer.gate_proj_quant, name),
-                        ws.gate.data(), N, I, H);
-                    kernels::gemm::act_x_w(cublas.handle(),
-                        gate_up_in,
-                        dense(wb.require_field(nm.layer, "up_proj", name),
-                              layer.up_proj_quant, name),
-                        ws.up.data(), N, I, H);
-                }
+                                plan.value(plan.inputs(op)[0])),
+                    WeightView(*require(layer.gate_up_proj_fused, name)),
+                    out_slot(0), N, out_w(0), in_w(0));
+            } else if (nm.field == "gate_proj" || nm.field == "up_proj") {
+                // One half of an unfused binding. Its result is a traced
+                // value now, so it lands in the arena rather than in the
+                // `ws.gate` / `ws.up` convention the single packed
+                // statement forced on the activation downstream.
+                kernels::gemm::act_x_w(cublas.handle(),
+                    values.slot(plan.inputs(op)[0],
+                                plan.value(plan.inputs(op)[0])),
+                    dense(wb.require(name),
+                          nm.field == "gate_proj" ? layer.gate_proj_quant
+                                                  : layer.up_proj_quant,
+                          name),
+                    out_slot(0), N, out_w(0), in_w(0));
             } else if (nm.field == "down") {
                 // The island's consumer.
                 const void* const down_in =
@@ -1830,71 +1826,31 @@ void llama_like_forward_declared(
             // the region table's plan cross-check follows.
             case LaunchKernel::ChunkedSwiglu:
             case LaunchKernel::Swiglu: {
-                const bool stated_fused =
+                // BINDING, both spellings. The chunked form reads one
+                // packed operand and the pair form reads two, and each
+                // statement carries the operands it reads -- so the
+                // `stated_fused != gate_up_used_fused` cross-check is
+                // deleted. It existed to catch a drift the one-statement
+                // reading created (2d), between this arm and a Matmul
+                // arm that had to guess the same thing.
+                const bool pair =
                     resolve_launch_kernel(plan.weight_name(op)) ==
-                    LaunchKernel::ChunkedSwiglu;
-                if (stated_fused != gate_up_used_fused) {
-                    throw std::runtime_error(
-                        "declared forward: the trace states the "
-                        + std::string(stated_fused ? "packed" : "unfused")
-                        + " swiglu but this deployment bound the other "
-                          "gate_up form (facts drift)");
-                }
-                void* const dst =
-                    values.slot(plan.outputs(op)[0],
-                                plan.value(plan.outputs(op)[0]));
-                if (stated_fused) {
-                    // ISLAND (value arena): the packed bank is the
-                    // statement's operand.
-                    kernels::mlp::chunked_swiglu_bf16(
-                        values.slot(plan.inputs(op)[0],
-                                    plan.value(plan.inputs(op)[0])),
-                        dst, N, out_w(0), stream);
-                } else {
-                    // The PAIR spelling reads `ws.gate` and `ws.up`,
-                    // which the single traced `gate_up` value does not
-                    // describe -- the gap this family and qwen3.5 both
-                    // stop at.
+                    LaunchKernel::Swiglu;
+                const auto si = plan.inputs(op);
+                const auto so = plan.outputs(op);
+                declared::need(si, pair ? 2 : 1, "swiglu inputs");
+                declared::need(so, 1, "swiglu outputs");
+                void* const dst = values.slot(so[0], plan.value(so[0]));
+                if (pair) {
                     kernels::mlp::swiglu_bf16(
-                        ws.gate.data(), ws.up.data(), dst,
-                        N * out_w(0), stream);
+                        values.slot(si[0], plan.value(si[0])),
+                        values.slot(si[1], plan.value(si[1])),
+                        dst, N * out_w(0), stream);
+                } else {
+                    kernels::mlp::chunked_swiglu_bf16(
+                        values.slot(si[0], plan.value(si[0])),
+                        dst, N, out_w(0), stream);
                 }
-                break;
-            }
-            case LaunchKernel::MatmulTensorScaled:
-            case LaunchKernel::MatmulChannelScaled:
-            case LaunchKernel::MatmulGroupedScaled:
-            case LaunchKernel::MatmulMxfp4Marlin: {
-                // BINDING, not routing. The symbol the registry matched
-                // says which storage; the statement's weight list says
-                // which tensors — `[W, scales]`, plus `zeros` when the
-                // checkpoint carries them. Nothing here reads a
-                // descriptor, which is the whole of what 1b buys.
-                const auto aux = plan.aux_names(op);
-                if (aux.size < 2 || aux.size > 3) {
-                    throw std::runtime_error(
-                        "declared forward: a scaled projection names " +
-                        std::to_string(aux.size) +
-                        " weights, wants 2 (W, scales) or 3 (+ zeros)");
-                }
-                const auto matched = resolve_launch_kernel(plan.weight_name(op));
-                const declared::ScaledRepr repr =
-                    matched == LaunchKernel::MatmulTensorScaled
-                        ? declared::ScaledRepr::PerTensor
-                    : matched == LaunchKernel::MatmulChannelScaled
-                        ? declared::ScaledRepr::PerChannel
-                    : matched == LaunchKernel::MatmulGroupedScaled
-                        ? declared::ScaledRepr::PerGroup
-                        : declared::ScaledRepr::Mxfp4Marlin;
-                declared::arm_scaled_matmul(
-                    {plan, values, N, 0, stream}, op, repr, cublas.handle(),
-                    wb.require(plan.name(aux[0])),
-                    wb.require(plan.name(aux[1])),
-                    aux.size == 3 ? &wb.require(plan.name(aux[2])) : nullptr,
-                    // A quantized projection never folds its residual:
-                    // `try_fold_residual` refuses a `Launch`, so the
-                    // landing is a stated `residual_add` of its own.
-                    0.f);
                 break;
             }
             case LaunchKernel::RmsnormRow:

@@ -264,7 +264,14 @@ pub struct Layer {
     pub k_bias: MatW,
     pub v_bias: MatW,
     pub o_proj: MatW,
+    /// The PACKED gate‖up bank, for a deployment whose loader join
+    /// materialised one.
     pub gate_up: MatW,
+    /// The two halves, for a deployment whose did not. A text states
+    /// either the packed handle or this pair — never both — and which
+    /// is a binding fact (`gate_up_fused`).
+    pub gate_proj: MatW,
+    pub up_proj: MatW,
     pub down: MatW,
     pub attn_norm: NormW,
     pub mlp_norm: NormW,
@@ -405,6 +412,8 @@ impl M {
             v_bias: mat("v_bias", f.kv_width),
             o_proj: mat("o_proj", f.hidden),
             gate_up: mat("gate_up", 2 * f.intermediate),
+            gate_proj: mat("gate_proj", f.intermediate),
+            up_proj: mat("up_proj", f.intermediate),
             down: mat("down", f.hidden),
             attn_norm: row_norm("attn_norm"),
             mlp_norm: row_norm("mlp_norm"),
@@ -5671,6 +5680,37 @@ pub mod cuda {
             vec![],
             None,
             vec![x.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the activation produces its value")
+    }
+
+    /// `kernels::mlp::swiglu_bf16` in its PAIR form: two operands, the
+    /// gate and the up projection, into one activation.
+    ///
+    /// The spelling an UNFUSED gate_up binding actually fires, and the
+    /// one the declaration could not carry until now. [`Self::swiglu`]
+    /// above states one packed operand either way and lets `packed` pick
+    /// the kernel — which left the pair form reading two workspace
+    /// buffers (`ws.gate`, `ws.up`) that no traced value described, so
+    /// the executor had to keep that convention and cross-check it
+    /// against the fact on every launch.
+    ///
+    /// With the projections stated as two matmuls the two operands ARE
+    /// values, and the whole `gate_up_used_fused` correspondence between
+    /// the Matmul arm and this one disappears: each statement says what
+    /// it reads.
+    pub fn swiglu_pair(gate: &Val, up: &Val, intermediate: u32) -> Val {
+        record(
+            &gate.t,
+            gate.layer,
+            "mlp::swiglu_bf16",
+            vec![],
+            None,
+            vec![gate.id, up.id],
             Some((
                 Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
                 DType::BF16,
