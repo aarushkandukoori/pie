@@ -118,6 +118,37 @@ pub fn llama_like(facts: &LlamaLikeFacts) -> ForwardPlan {
 
 /// The LOWERED llama_like: the SAME text as [`llama_like`], traced with
 /// the CUDA backend facts and a fire class in hand, so the class arms run
+/// The MLP's projection-and-activation pair, in the spelling this
+/// deployment's BINDING fires (2d).
+///
+/// `packed` is [`LlamaLikeCudaFacts::gate_up_fused`]. The loader's dense
+/// join either materialised one `[2I, H]` bank or it did not, and that
+/// is known at load — so the trace states one form or the other and
+/// nothing downstream asks again.
+///
+/// It used to state the PACKED matmul either way and let the activation
+/// carry a `packed` flag. That made the unfused reading a lie: the
+/// executor fired two GEMMs into `ws.gate` / `ws.up`, buffers the single
+/// traced value did not describe, and then cross-checked the activation
+/// against the fact on every launch to catch the drift it had created.
+/// Two statements say it instead.
+fn mlp(
+    x: &Val,
+    w: &dsl::Layer,
+    intermediate: u32,
+    packed: bool,
+) -> Val {
+    if packed {
+        cuda::swiglu(&matmul(x, &w.gate_up), intermediate, true)
+    } else {
+        cuda::swiglu_pair(
+            &matmul(x, &w.gate_proj),
+            &matmul(x, &w.up_proj),
+            intermediate,
+        )
+    }
+}
+
 /// and the traced form states its kernels as raw signatures
 /// ([`model_compiler::dsl::cuda`]; north-star-dsl.md). One trace per
 /// [`FireClass`]; family names `llama_like.cuda.decode` / `.prefill`.
@@ -697,17 +728,20 @@ fn llama_like_cuda_text(
                 // separate residual landing (`+=` of a non-matmul records
                 // the explicit ResidualAdd launch).
                 y += dsl::cuda::rmsnorm(&matmul(&a, &w.o_proj), &w.attn_norm);
-                // ② The activation STATES its kernel: which of the two
-                // swiglu spellings runs is the gate_up BINDING's answer,
-                // known at load, so it erases here instead of being
-                // re-derived from a workspace on every fire.
-                let act = cuda::swiglu(&matmul(&y, &w.gate_up), f.intermediate, cuda.gate_up_fused);
+                // ② The MLP's two spellings, and the binding picks
+                // which the text STATES -- not which the executor
+                // reads. A packed bank is one matmul into the chunked
+                // kernel; an unfused binding is TWO matmuls into the
+                // pair kernel, and until 2d that second reading was a
+                // one-statement lie the executor repaired by firing two
+                // GEMMs into workspace buffers no value described.
+                let act = mlp(&y, &w, f.intermediate, cuda.gate_up_fused);
                 y += dsl::cuda::rmsnorm(&matmul(&act, &w.down), &w.mlp_norm);
             } else {
                 // Pre-norm: `+=` of a fresh matmul IS the beta=1 fold.
                 y += matmul(&a, &w.o_proj);
                 let x = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
-                let act = cuda::swiglu(&matmul(&x, &w.gate_up), f.intermediate, cuda.gate_up_fused);
+                let act = mlp(&x, &w, f.intermediate, cuda.gate_up_fused);
                 y += matmul(&act, &w.down);
             }
         }

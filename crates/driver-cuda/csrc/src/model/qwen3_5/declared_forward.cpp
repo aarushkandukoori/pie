@@ -740,10 +740,6 @@ bool forward_declared_tmpl(
     const float* k_recur_full =
         (V_h == K_h) ? la.k_pre.data() : la.k_norm.data();
 
-    // Whether the gate_up Matmul took the fused binding; decides which
-    // swiglu kernel the following Swiglu op launches (the hand-written
-    // fused-vs-unfused pairing in qwen35_dense_mlp_block).
-    bool gate_up_used_fused = false;
 
     // Commit-advance op filter — the walk's mirror of the hand-written
     // layer loop's `if (commit_advance) { if (!is_linear) continue; ...
@@ -1036,6 +1032,10 @@ bool forward_declared_tmpl(
                 else if (nm.field == "v_proj")      place(0, ws.v.data());
                 else if (nm.field == "o_proj")      place(0, ws.y.data());
                 else if (nm.field == "gate_up")     place(0, ws.gate_up_fused.data());
+                // The unfused pair (2d): each half is a value of its
+                // own now, and lands where the activation reads it.
+                else if (nm.field == "gate_proj")   place(0, ws.gate.data());
+                else if (nm.field == "up_proj")     place(0, ws.up.data());
                 else if (nm.field == "down")        place(0, ws.y.data());
                 else if constexpr (!kIsDense) {
                     if (moe_ws != nullptr) {
@@ -1489,34 +1489,31 @@ bool forward_declared_tmpl(
                 }
             }
 
-            // The one branch that is NOT a buffer choice, and the reason
-            // it survives: an unfused binding fires TWO gemms for this
-            // one statement, into two buffers the traced value does not
-            // describe. See the note at `values` above -- the fix is a
-            // declaration fix, and until it lands this branch keeps the
-            // convention it was written against.
+            // The PACKED bank, and only that (2d). An unfused binding
+            // states its two halves as two matmuls, each with its own
+            // weight name and its own traced result -- so this branch no
+            // longer fires two GEMMs for one statement into buffers the
+            // traced value did not describe, and the
+            // `gate_up_used_fused` correspondence with the activation
+            // arm goes with it.
             if (nm.field == "gate_up") {
                 if constexpr (kIsDense) {
-                gate_up_used_fused =
-                    layer.gate_up_proj_fused != nullptr &&
-                    !ws.gate_up_fused.empty();
-                if (gate_up_used_fused) {
                     kernels::gemm::act_x_w(cublas.handle(),
                         values.slot(ins[0]),
-                        WeightView(*layer.gate_up_proj_fused),
+                        WeightView(*require(layer.gate_up_proj_fused, name)),
                         values.slot(outs[0]), M, cols, depth);
-                } else {
+                } else { throw_unknown_weight(name); }
+                break;
+            }
+            if (nm.field == "gate_proj" || nm.field == "up_proj") {
+                if constexpr (kIsDense) {
                     kernels::gemm::act_x_w(cublas.handle(),
                         values.slot(ins[0]),
-                        dense(wb.require_field(nm.layer, "gate_proj", name),
-                              layer.gate_proj_quant, name),
-                        ws.gate.data(), M, cols / 2, depth);
-                    kernels::gemm::act_x_w(cublas.handle(),
-                        values.slot(ins[0]),
-                        dense(wb.require_field(nm.layer, "up_proj", name),
-                              layer.up_proj_quant, name),
-                        ws.up.data(), M, cols / 2, depth);
-                }
+                        dense(wb.require(name),
+                              nm.field == "gate_proj" ? layer.gate_proj_quant
+                                                      : layer.up_proj_quant,
+                              name),
+                        values.slot(outs[0]), M, cols, depth);
                 } else { throw_unknown_weight(name); }
                 break;
             }
@@ -1757,11 +1754,11 @@ bool forward_declared_tmpl(
                 N * row_width(outs[0]), stream);
             break;
         }
-        case PieForwardOpKind::Swiglu: {
-            declared::arm_swiglu(ws, gate_up_used_fused, ws.gate.data(), N, I,
-                                 stream);
-            break;
-        }
+        case PieForwardOpKind::Swiglu:
+            // RUNG 5: a class trace states which activation runs, and
+            // (2d) the operands it reads.
+            throw_drift("semantic Swiglu reached the class-trace walk "
+                        "(the declaration states the activation)");
 case PieForwardOpKind::Launch: {
             // The dumb arm (rung 4c-iii): resolve the STATED launcher
             // symbol and bind. Each handler is the corresponding branch
@@ -2144,6 +2141,20 @@ case PieForwardOpKind::Launch: {
                     kv_last_page_lens, N, R, stream);
                 break;
             }
+            // The PAIR form (2d): two operands, both traced, so the
+            // arm reads them off the plan. Only the dense MLP states
+            // it -- the routed and shared legs always bind packed
+            // banks and take the chunked kernel below.
+            case Q35Kernel::Swiglu: {
+                const auto si = plan.inputs(op);
+                const auto so = plan.outputs(op);
+                need(si, 2, "swiglu pair inputs");
+                need(so, 1, "swiglu pair outputs");
+                kernels::mlp::swiglu_bf16(
+                    values.slot(si[0]), values.slot(si[1]),
+                    values.slot(so[0]), N * row_width(so[0]), stream);
+                break;
+            }
             // The MLP activation. WHICH of the two runs is the
             // checkpoint's gate_up binding, and the trace states it —
             // the executor no longer reads a workspace to find out.
@@ -2389,19 +2400,6 @@ case PieForwardOpKind::Launch: {
                         break;
                     }
                 }
-                break;
-            }
-            case Q35Kernel::Swiglu: {
-                // The PAIR spelling, which an unfused gate_up binding
-                // takes. Its two operands are `ws.gate` and `ws.up`,
-                // which the single traced `gate_up` value does not
-                // describe -- the same gap the Matmul arm stops at, and
-                // it stops here too.
-                const auto outs = plan.outputs(op);
-                need(outs, 1, "swiglu outputs");
-                kernels::mlp::swiglu_bf16(
-                    ws.gate.data(), ws.up.data(), values.slot(outs[0]),
-                    N * row_width(outs[0]), stream);
                 break;
             }
             }

@@ -1063,19 +1063,22 @@ fn dense_mlp_body_cuda(
         per_head: None,
         layer: Some(l),
     };
-    // `gate_up` is DENSE whatever the deployment stores, and that is a
-    // claim about this statement rather than about the checkpoint: the
-    // trace declares ONE packed matmul, which is the packed bank the
-    // loader's dense join built — and that join declines quantized
-    // groups. A quantized deployment binds gate and up separately, so
-    // the truthful statement is TWO scaled matmuls, which is 2d. Until
-    // it lands, such a deployment meets the executor's `dense` refusal
-    // by name rather than a silently-routed GEMM.
+    // The PACKED bank is what the loader's dense join built, and that
+    // join declines quantized groups -- so this handle is BF16 by the
+    // same contract that makes it exist. The unfused pair below carries
+    // the deployment's repr, which is where a quantized checkpoint's
+    // gate and up actually live.
     let gate_up = MatW {
         name: w("gate_up"),
         width: 2 * intermediate,
         layer: Some(l),
         repr: WeightRepr::Bf16,
+    };
+    let half = |name: &str| MatW {
+        name: w(name),
+        width: intermediate,
+        layer: Some(l),
+        repr,
     };
     let down = MatW {
         name: w("down"),
@@ -1085,7 +1088,18 @@ fn dense_mlp_body_cuda(
     };
     let mut y = y.clone();
     let m = dsl::cuda::rmsnorm(&y, &mlp_norm);
-    let act = dsl::cuda::swiglu(&matmul(&m, &gate_up), intermediate, packed);
+    // 2d: the binding's answer, STATED. llama_like's `mlp` helper
+    // verbatim -- one packed matmul into the chunked kernel, or two
+    // matmuls into the pair form.
+    let act = if packed {
+        dsl::cuda::swiglu(&matmul(&m, &gate_up), intermediate, true)
+    } else {
+        dsl::cuda::swiglu_pair(
+            &matmul(&m, &half("gate_proj")),
+            &matmul(&m, &half("up_proj")),
+            intermediate,
+        )
+    };
     y += matmul(&act, &down);
     y
 }

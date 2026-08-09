@@ -911,38 +911,39 @@ fn emit_op(
                     } else {
                         "ws.norm_y.data()"
                     };
-                    // The binding dispatch, RESOLVED — not transliterated.
-                    // It used to be a per-layer `const bool ... != nullptr
-                    // && !ws.gate_up_fused.empty()` and an `if` around
-                    // both GEMM forms, in a file whose whole point is that
-                    // this deployment's choices are already made. The
-                    // second term was always true (`workspace.cpp`
-                    // allocates that buffer unconditionally), and the
-                    // first is the load-time fact the trace now carries,
-                    // so only the taken branch is emitted. The `require`
-                    // on the unfused side is what refuses a binding that
-                    // disagrees with the fact.
-                    if cuda.gate_up_fused {
-                        b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
-                        b.stmt(&format!("    {mlp_in},"));
-                        b.stmt(&format!(
-                            "    WeightView(*require(w.layers[{layer}].gate_up_proj_fused, \"{weight}\")),"
-                        ));
-                        b.stmt("    ws.gate_up_fused.data(), N, 2 * I, H);");
+                    // The PACKED bank (2d). The unfused branch this arm
+                    // used to carry is gone with the one-statement
+                    // reading: a deployment without the bank states
+                    // `gate_proj` and `up_proj` below, so reaching this
+                    // name means the join materialised one. `require`
+                    // refuses a binding that says otherwise.
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
+                    b.stmt(&format!("    {mlp_in},"));
+                    b.stmt(&format!(
+                        "    WeightView(*require(w.layers[{layer}].gate_up_proj_fused, \"{weight}\")),"
+                    ));
+                    b.stmt("    ws.gate_up_fused.data(), N, 2 * I, H);");
+                }
+                // The two halves of an unfused binding, each its own
+                // statement and each landing where the pair activation
+                // reads it.
+                ("gate_proj", false) | ("up_proj", false) => {
+                    let mlp_in = if facts.norm_placement == NormPlacement::Post {
+                        "ws.y.data()"
                     } else {
-                        b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
-                        b.stmt(&format!("    {mlp_in},"));
-                        b.stmt(&format!(
-                            "    dense(*require(w.layers[{layer}].gate_proj, \"{weight}\"), w.layers[{layer}].gate_proj_quant, \"{weight}\"),"
-                        ));
-                        b.stmt("    ws.gate.data(), N, I, H);");
-                        b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
-                        b.stmt(&format!("    {mlp_in},"));
-                        b.stmt(&format!(
-                            "    dense(*require(w.layers[{layer}].up_proj, \"{weight}\"), w.layers[{layer}].up_proj_quant, \"{weight}\"),"
-                        ));
-                        b.stmt("    ws.up.data(), N, I, H);");
-                    }
+                        "ws.norm_y.data()"
+                    };
+                    let (member, quant, dst) = if field == "gate_proj" {
+                        ("gate_proj", "gate_proj_quant", "ws.gate.data()")
+                    } else {
+                        ("up_proj", "up_proj_quant", "ws.up.data()")
+                    };
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
+                    b.stmt(&format!("    {mlp_in},"));
+                    b.stmt(&format!(
+                        "    dense(*require(w.layers[{layer}].{member}, \"{weight}\"), w.layers[{layer}].{quant}, \"{weight}\"),"
+                    ));
+                    b.stmt(&format!("    {dst}, N, I, H);"));
                 }
                 ("down", true) => {
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
