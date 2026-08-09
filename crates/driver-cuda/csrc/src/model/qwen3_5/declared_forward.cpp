@@ -880,8 +880,18 @@ bool forward_declared_tmpl(
             case PieForwardOpKind::SplitQGate:
             case PieForwardOpKind::RmsnormPerHead:
             case PieForwardOpKind::SigmoidGateMul:
+            case PieForwardOpKind::LmHead:
+            case PieForwardOpKind::HookSite:
                 return true;
             default:
+                // `Guard` is deliberately NOT here, and it looks like it
+                // should be: a guard writes nothing itself, its regions
+                // do, and they answer for themselves. But a guard's
+                // result may be written by an arm that still uses a
+                // convention -- the attention's does -- and the guard is
+                // the only op that names that value, so counting it
+                // converted lets the value move out from under an arm
+                // that has not. Tried, and the gate said so.
                 return false;
             }
         };
@@ -2277,25 +2287,42 @@ case PieForwardOpKind::Launch: {
             // the full normed hidden is copied back to ws.y for MTP/state
             // plumbing — a fire-shape service the trace does not state,
             // exactly like the gather.
+            // ISLAND (value arena). The normed hidden and the logits
+            // are the statement's; `V` and `H` are their row widths.
+            const auto lins = plan.inputs(op);
+            const auto louts = plan.outputs(op);
+            need(lins, 1, "lm_head inputs");
+            need(louts, 1, "lm_head outputs");
+            const void* head_in = values.slot(lins[0]);
+            int head_rows = N;
             if (logit_row_indices_d != nullptr &&
                 num_logit_rows > 0 &&
                 num_logit_rows < N) {
+                // The gather's DESTINATION stays named, for the reason
+                // gemma-4's and gpt-oss's do: the epilogue is one
+                // statement lowering to several rectangles, so the
+                // row-gathered activation between them is a driver
+                // scratch with no traced id to ask for.
                 kernels::layout::gather_bf16_rows(
-                    static_cast<const std::uint16_t*>(ws.norm_x.data()),
+                    static_cast<const std::uint16_t*>(head_in),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_y.data()),
-                    num_logit_rows, H, stream);
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_y.data(), *lm_head,
-                    ws.logits.data(), num_logit_rows, V, H);
-            } else {
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_x.data(), *lm_head,
-                    ws.logits.data(), N, V, H);
+                    num_logit_rows, row_width(lins[0]), stream);
+                head_in = ws.norm_y.data();
+                head_rows = num_logit_rows;
             }
+            kernels::gemm::act_x_w(cublas.handle(), head_in, *lm_head,
+                                   values.slot(louts[0]), head_rows,
+                                   row_width(louts[0]), row_width(lins[0]));
+            // The copy-back is the OTHER fire-shape service the trace
+            // does not state: MTP and the state plumbing read the full
+            // normed hidden from `ws.y` after the epilogue. Its source
+            // is the statement's operand; its destination is not a
+            // traced value at this point in the fire.
             CUDA_CHECK(cudaMemcpyAsync(
-                ws.y.data(), ws.norm_x.data(),
-                static_cast<std::size_t>(N) * H * sizeof(std::uint16_t),
+                ws.y.data(), values.slot(lins[0]),
+                static_cast<std::size_t>(N) * row_width(lins[0]) *
+                    sizeof(std::uint16_t),
                 cudaMemcpyDeviceToDevice, stream));
             break;
         }
@@ -2317,10 +2344,16 @@ case PieForwardOpKind::Launch: {
             // layer is a no-op, and the hook ledger counts the
             // full-attention layers (context.cpp registers that count).
             if (full_attn) {
+                // ISLAND (value arena). The observed buffer is the
+                // seam's own value -- `attn.q` names the roped q -- so
+                // the site stops naming `ws.q` and its width stops
+                // being `Hq`.
+                const auto hins = plan.inputs(op);
+                need(hins, 1, "hook site inputs");
                 invoke_stage_hook(
-                    stage_hooks, point, ws.q.data(),
+                    stage_hooks, point, values.slot(hins[0]),
                     static_cast<std::uint32_t>(N),
-                    static_cast<std::uint32_t>(Hq),
+                    static_cast<std::uint32_t>(row_width(hins[0])),
                     static_cast<std::uint32_t>(L), stream);
             }
             break;
