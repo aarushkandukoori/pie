@@ -295,6 +295,39 @@ Five portable tests: the 25-kind base surface, the full feature set with
 single-claim disjointness, the override ordering, `routing_only`, and the
 signature-table validation.
 | `golden_tap.cpp` | 238 | missing |
-| `worker.hpp` | 171 | missing |
+| — | — | — (`worker.hpp` ported below) |
+
+## The executor worker — `src/batch/worker.rs`
+
+| C++ | Rust | |
+|---|---|---|
+| `ExecutorWorker` | `Worker<S>` | ported |
+| `run` / `post` / `drain` | `run` / `post` / `drain` | ported |
+| `submitted` | `submitted` | ported |
+| the same-thread inline re-entry | a refusal with instructions | dropped |
+| `worker_thread_id` | — | dropped |
+
+The C++ serializes every executor touch through one FIFO thread — the
+thread-affinity Metal requires and the forward/control-op exclusion in one
+mechanism — but the guarantee holds only *as long as everyone remembers to
+go through the worker*: the context pointer stays reachable from any
+thread. `Worker<S>` closes that by ownership: the state is constructed ON
+the worker thread by a factory and never leaves it, jobs receive `&mut S`,
+and `S` need not be `Send` — which is exactly what lets it hold the
+runtime's `Rc`s and a `Stepper`. "Another thread touched the context" goes
+from a discipline to unrepresentable, and a test proves an `Rc`-holding
+state works.
+
+`run` still resumes the job's panic on the caller (the C++ rethrows the
+captured exception) and the worker survives; `post` contains panics so one
+bad job cannot tear the thread down; drop drains before stopping. What did
+not survive is inline same-thread re-entry: a Rust job already holds
+`&mut S`, an inline nested job would alias it, so re-entry refuses with
+instructions instead of deadlocking. `worker_thread_id` existed for that
+inline check and for tests; the refusal owns the former and the tests ask
+the worker directly.
+
+Five portable tests: the `!Send`-state fence, FIFO + drain-as-barrier,
+panic resume + survival, contained post panics, drop-as-barrier.
 | `simple_family.cpp` / `.hpp` | 2176 | missing |
 | `forward.cpp` / `forward.hpp` | 5393 | missing — the executor; last, over everything above |

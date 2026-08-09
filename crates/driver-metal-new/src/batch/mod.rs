@@ -19,6 +19,7 @@ mod member;
 mod psos;
 mod schedule;
 mod timing;
+mod worker;
 
 pub use abi::{
     ArgmaxParams, ForwardGraphKey, IO_SLOT_COUNT, IoSlot, Kernel, PAGE_BUCKET_GRAN, Region,
@@ -36,3 +37,4 @@ pub use schedule::{
 pub use timing::{
     Ablation, BoundaryMismatch, DispatchAttribution, DispatchInfo, StepAttribution, attribute_step,
 };
+pub use worker::Worker;
