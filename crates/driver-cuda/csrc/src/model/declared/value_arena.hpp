@@ -193,6 +193,14 @@ class ValueArena {
         return block_ + at;
     }
 
+    // Whether a value is reached through the PIN table rather than the
+    // host's placement. A bring-up probe: an arm mid-migration whose
+    // operand answers `false` is reading bytes no unconverted arm
+    // writes, which is a silently wrong buffer rather than a fault.
+    bool is_pinned(std::uint32_t value_id) const {
+        return value_id < count_ && pinned_[value_id] != nullptr;
+    }
+
     // Overload kept for the call sites mid-migration, which pass the
     // value descriptor because the arena used to need it for SIZING. It
     // does not any more — the host sized it — so the descriptor is

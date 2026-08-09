@@ -16,6 +16,7 @@
 #include "model/declared/value_arena.hpp"
 #include <cstdio>
 #include <cstdlib>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -311,6 +312,29 @@ bool qwen35_declared_moe_enabled() {
         return v != nullptr && v[0] != '\0' && v[0] != '0';
     }();
     return enabled;
+}
+
+// `PIE_DECLARED_HOST_ARENA=0` puts this family's pin table back in
+// charge; the host assigns otherwise. The A/B the conversion is checked
+// against is `cuda_declared_family_parity`'s `qwen3_5_dense` row, run
+// with and without it.
+//
+// `_LO`/`_HI` window the host's half by OWNER id — gemma-4's bisect cut,
+// and the reasoning for that axis is written out there.
+bool qwen35_host_arena_enabled() {
+    const char* v = std::getenv("PIE_DECLARED_HOST_ARENA");
+    return v == nullptr || v[0] != '0';
+}
+
+std::size_t host_arena_lo() {
+    const char* v = std::getenv("PIE_DECLARED_HOST_ARENA_LO");
+    return v != nullptr ? static_cast<std::size_t>(std::atoll(v)) : 0;
+}
+
+std::size_t host_arena_hi() {
+    const char* v = std::getenv("PIE_DECLARED_HOST_ARENA_HI");
+    return v != nullptr ? static_cast<std::size_t>(std::atoll(v))
+                        : static_cast<std::size_t>(-1);
 }
 
 bool qwen35_declared_exec_trace_enabled() {
@@ -762,6 +786,202 @@ bool forward_declared_tmpl(
     declared::trace_arena("qwen35", plan, flat, ws.declared_values.nbytes(),
                           N, R);
 
+    // WHAT THE CONVENTION WAS, for every value a CONVERTED arm touches.
+    //
+    // A pin WINS over the host's offset, which is the migration rule
+    // rather than a conflict: an arm that has not moved still writes
+    // `ws.norm_x` by convention, so its consumers have to read those
+    // bytes and not the ones the lowering set aside. An entry goes away
+    // when its island moves, and the value falls through to the arena.
+    //
+    // Which entries are LIVE is decided by `movable` below, not by this
+    // switch: an entry here is what the convention was, and the arena
+    // takes over a value only once every op touching it reads its
+    // operands off the plan.
+    //
+    // WHICH VALUES MAY MOVE, and why it is computed rather than listed.
+    // A value can take the host's address only when EVERY op that
+    // touches it has been converted -- one unconverted reader still
+    // looks at a workspace field, and one unconverted writer still fills
+    // one. Listing the movable set by hand is the same bookkeeping the
+    // pin table already is, kept in a second place and able to drift, so
+    // it is derived from the one fact that changes per island: which op
+    // KINDS read their operands off the plan.
+    //
+    // Aliases move together or not at all. A value in an alias set whose
+    // other members are still pinned would be given an address its own
+    // chain does not share, which is the failure the owner table exists
+    // to prevent.
+    std::vector<std::uint8_t> movable(plan.value_count(), 1);
+    {
+        const auto converted = [](PieForwardOpKind k) {
+            switch (k) {
+            case PieForwardOpKind::Matmul:
+                return true;
+            default:
+                return false;
+            }
+        };
+        for (std::size_t i = 0; i < plan.op_count(); ++i) {
+            const PieForwardOp& op = plan.op(i);
+            if (converted(op.kind)) continue;
+            for (const std::uint32_t v : plan.inputs(op)) {
+                if (v < movable.size()) movable[v] = 0;
+            }
+            for (const std::uint32_t v : plan.outputs(op)) {
+                if (v < movable.size()) movable[v] = 0;
+            }
+        }
+        // Fold onto the alias owner, both ways: a pinned member pins the
+        // set, and a member with no offset of its own follows its owner.
+        if (flat.value_owners_len >= movable.size()) {
+            std::vector<std::uint8_t> owner_ok(movable.size(), 1);
+            for (std::size_t v = 0; v < movable.size(); ++v) {
+                if (!movable[v]) owner_ok[flat.value_owners[v]] = 0;
+            }
+            for (std::size_t v = 0; v < movable.size(); ++v) {
+                movable[v] = owner_ok[flat.value_owners[v]];
+            }
+        }
+    }
+
+    {
+        const bool host_arena = qwen35_host_arena_enabled();
+        const std::size_t arena_lo = host_arena_lo();
+        const std::size_t arena_hi = host_arena_hi();
+        const std::size_t op_count = plan.op_count();
+        for (std::size_t i = 0; i < op_count; ++i) {
+            const PieForwardOp& op = plan.op(i);
+            const auto outs = plan.outputs(op);
+            if (outs.size == 0) continue;
+            const auto place = [&](std::size_t which, void* ptr) {
+                if (which >= outs.size || ptr == nullptr) return;
+                const std::uint32_t v = outs[which];
+                if (host_arena && v < movable.size() && movable[v] != 0 &&
+                    v < flat.value_offsets_len &&
+                    flat.value_offsets[v] != declared::ValueArena::kNamed) {
+                    const std::size_t owner =
+                        v < flat.value_owners_len
+                            ? static_cast<std::size_t>(flat.value_owners[v])
+                            : static_cast<std::size_t>(v);
+                    if (owner >= arena_lo && owner < arena_hi) return;
+                }
+                values.pin(v, ptr);
+            };
+            switch (op.kind) {
+            case PieForwardOpKind::Embed:
+                place(0, ws.y.data());
+                break;
+            case PieForwardOpKind::Rmsnorm:
+                // All three sites -- attn_norm, mlp_norm, final_norm --
+                // land in `norm_x`. qwen3_5's post-attention norm reads
+                // it where llama_like reads `norm_y`.
+                place(0, ws.norm_x.data());
+                break;
+            case PieForwardOpKind::Matmul: {
+                const ParsedWeightName nm =
+                    parse_weight_name(plan.weight_name(op));
+                if (nm.field == "in_proj_qkv")      place(0, la.mixed_qkv.data());
+                else if (nm.field == "in_proj_z")   place(0, la.z.data());
+                else if (nm.field == "in_proj_a")   place(0, la.a.data());
+                else if (nm.field == "in_proj_b")   place(0, la.b.data());
+                else if (nm.field == "qgkv")        place(0, ws.gate_up_fused.data());
+                else if (nm.field == "q_proj")      place(0, la.fa_qg_packed.data());
+                else if (nm.field == "k_proj")      place(0, ws.k.data());
+                else if (nm.field == "v_proj")      place(0, ws.v.data());
+                else if (nm.field == "o_proj")      place(0, ws.y.data());
+                else if (nm.field == "gate_up")     place(0, ws.gate_up_fused.data());
+                else if (nm.field == "down")        place(0, ws.y.data());
+                else if constexpr (!kIsDense) {
+                    if (moe_ws != nullptr) {
+                        Qwen3_5MoeMlpWorkspace& mw = *moe_ws;
+                        if (nm.field == "router")
+                            place(0, mw.router_logits.data());
+                        else if (nm.field == "shared_expert.gate_up")
+                            place(0, mw.shared_gate_up.data());
+                        else if (nm.field == "shared_expert.down")
+                            place(0, mw.shared_out.data());
+                    }
+                }
+                break;
+            }
+            case PieForwardOpKind::SplitQkv:
+                place(0, la.fa_qg_packed.data());
+                place(1, ws.k.data());
+                place(2, ws.v.data());
+                break;
+            case PieForwardOpKind::SplitGdn:
+                if (op.param0 == static_cast<std::uint32_t>(conv_dim) &&
+                    op.param1 == static_cast<std::uint32_t>(V_dim)) {
+                    place(0, la.mixed_qkv.data());
+                    place(1, la.z.data());
+                } else {
+                    place(0, la.b.data());
+                    place(1, la.a.data());
+                }
+                break;
+            case PieForwardOpKind::GdnPrep:
+                place(0, la.q_pre.data());
+                place(1, la.k_pre.data());
+                place(2, la.v_fp32.data());
+                place(3, la.g_log.data());
+                place(4, la.beta.data());
+                break;
+            case PieForwardOpKind::RmsnormGated:
+                place(0, la.core_out_bf16.data());
+                break;
+            case PieForwardOpKind::SplitQGate:
+                place(0, ws.q.data());
+                place(1, la.fa_gate.data());
+                break;
+            case PieForwardOpKind::RmsnormPerHead:
+            case PieForwardOpKind::Rope:
+                // Both rewrite q and k where they lie; the trace states
+                // the aliases, so these entries name the same buffers
+                // their operands already sit in.
+                place(0, ws.q.data());
+                place(1, ws.k.data());
+                break;
+            case PieForwardOpKind::SigmoidGateMul:
+                place(0, ws.attn_out.data());
+                break;
+            case PieForwardOpKind::Swiglu:
+                place(0, ws.gate.data());
+                break;
+            case PieForwardOpKind::LmHead:
+                place(0, ws.logits.data());
+                break;
+            case PieForwardOpKind::Launch: {
+                switch (resolve_q35_kernel(plan.weight_name(op))) {
+                case Q35Kernel::AttnFlashinferDecode:
+                case Q35Kernel::AttnFlashinferPrefill:
+                    place(0, ws.attn_out.data());
+                    break;
+                case Q35Kernel::Swiglu:
+                case Q35Kernel::ChunkedSwiglu:
+                    // The dense MLP's activation, whichever spelling the
+                    // binding took -- both land in `ws.gate`, which is
+                    // what `down` reads. The routed and shared-expert
+                    // callers of the same kernel write the MoE
+                    // workspace and get entries when that island moves.
+                    if constexpr (kIsDense) {
+                        place(0, ws.gate.data());
+                    }
+                    break;
+                default:
+                    // The GDN recurrence, the conv, the MoE leg and the
+                    // MTP stash still name their own buffers in their own
+                    // arms; they get entries when those islands move.
+                    break;
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+    }
+
     // An arm indexes operands positionally, and a span SHORTER than the
     // arm assumes is not a crash — it reads the next statement's
     // operands and hands the arm a plausible pointer to the wrong
@@ -837,152 +1057,144 @@ bool forward_declared_tmpl(
             break;
         }
         case PieForwardOpKind::Matmul: {
+            // ISLAND (value arena). Fifteen branches keyed on the weight
+            // NAME chose a buffer pair and three extents each; every one
+            // of those is the statement's, and only the WEIGHT side is
+            // not.
+            //
+            // So the name dispatch stays, shrunk to what it is actually
+            // for: this family stores several projections QUANTIZED, and
+            // which quant descriptor a weight carries is a per-field
+            // fact (`fa_q_proj_quant`, `down_proj_quant`, ...) that no
+            // value descriptor states. `M`, `N`, `K` and both buffers
+            // come off the trace -- `conv_dim`, `V_dim`, `V_h`,
+            // `qgkv_dim`, `2 * Hq`, `Hk`, `I` and `H` were the executor
+            // knowing by convention what the values already say.
             const std::string_view name = plan.weight_name(op);
             const ParsedWeightName nm = parse_weight_name(name);
             const auto& layer = layer_of(w, nm, name);
             const float beta = op.param0 != 0 ? 1.f : 0.f;
-            const bool linear =
-                layer.kind == LayerW::Kind::LinearAttn;
-            // ── GDN in-projections (read norm_x, the pre-attn norm) ──
-            if (nm.field == "in_proj_qkv") {
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_x.data(),
-                    wb.require(name),
-                    la.mixed_qkv.data(), N, conv_dim, H);
-            } else if (nm.field == "in_proj_z") {
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_x.data(),
-                    wb.require(name),
-                    la.z.data(), N, V_dim, H);
-            } else if (nm.field == "in_proj_a") {
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_x.data(),
-                    wb.require(name),
-                    la.a.data(), N, V_h, H);
-            } else if (nm.field == "in_proj_b") {
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_x.data(),
-                    wb.require(name),
-                    la.b.data(), N, V_h, H);
-            // ── Full-attention projections ───────────────────────────
-            } else if (nm.field == "qgkv") {
-                // The trace committed to the fused [2q|k|v] bank; the
-                // caller's gate already confirmed the staging buffer holds
-                // N rows (the hand-written `use_fused_qgkv` availability
-                // check), so a missing bank here is drift, not dispatch.
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_x.data(),
-                    WeightView(wb.require(name)),
-                    ws.gate_up_fused.data(), N, qgkv_dim, H);
-            } else if (nm.field == "q_proj") {
-                // 2×-wide gated q → the packed [query | gate] buffer.
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_x.data(),
-                    make_weight_view(&wb.require(name),
-                                     layer.fa_q_proj_quant),
-                    la.fa_qg_packed.data(), N, 2 * Hq, H);
-            } else if (nm.field == "k_proj") {
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_x.data(),
-                    make_weight_view(&wb.require(name),
-                                     layer.fa_k_proj_quant),
-                    ws.k.data(), N, Hk, H);
-            } else if (nm.field == "v_proj") {
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.norm_x.data(),
-                    make_weight_view(&wb.require(name),
-                                     layer.fa_v_proj_quant),
-                    ws.v.data(), N, Hk, H);
-            // ── Output projections (residual folded via beta=1) ──────
-            } else if (nm.field == "o_proj") {
-                if (linear) {
-                    kernels::gemm::act_x_w(cublas.handle(),
-                        la.core_out_bf16.data(),
-                        wb.require(name),
-                        ws.y.data(), N, H, V_dim, beta);
-                } else {
-                    kernels::gemm::act_x_w(cublas.handle(),
-                        ws.attn_out.data(),
-                        make_weight_view(&wb.require(name),
-                                         layer.fa_o_proj_quant),
-                        ws.y.data(), N, H, Hq, beta);
-                }
-            // ── MoE: the router and the shared expert ────────────────
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "matmul inputs");
+            need(outs, 1, "matmul outputs");
+            const int M = N;
+            const int cols = row_width(outs[0]);
+            const int depth = row_width(ins[0]);
+            // `PIE_Q35_MATMUL_DUMP=1`: one line per distinct projection,
+            // its extents off the trace and whether each operand came
+            // from the PIN table or the arena.
             //
-            // The routed experts have no Matmul of their own -- the two
-            // grouped GEMMs are `Launch`es, because a per-expert bank
-            // indexed by a block id is not what `Matmul` means.
-            } else if (nm.field == "router" ||
-                       nm.field == "shared_expert.gate_up" ||
-                       nm.field == "shared_expert.down") {
-                if constexpr (kIsDense) {
-                    throw_unknown_weight(name);
-                } else {
-                    if (moe_ws == nullptr) {
-                        throw_drift("the MoE leg needs its workspace");
-                    }
-                    Qwen3_5MoeMlpWorkspace& mw = *moe_ws;
-                    const int Is = cfg.shared_expert_intermediate_size;
-                    if (nm.field == "router") {
-                        kernels::gemm::act_x_wt_bf16(cublas.handle(),
-                            ws.norm_x.data(), wb.require(name).data(),
-                            mw.router_logits.data(), N, cfg.num_experts, H);
-                    } else if (nm.field == "shared_expert.gate_up") {
-                        kernels::gemm::act_x_wt_bf16(cublas.handle(),
-                            ws.norm_x.data(), wb.require(name).data(),
-                            mw.shared_gate_up.data(), N, 2 * Is, H);
-                    } else {
-                        kernels::gemm::act_x_w(cublas.handle(),
-                            mw.shared_act.data(),
-                            make_weight_view(&wb.require(name),
-                                             layer.shared_down_proj_quant),
-                            mw.shared_out.data(), N, H, Is);
-                    }
+            // The `in_pin` column is the one that earned this: with pins
+            // forced everywhere the island still diverged, and the cause
+            // was `down` reading an operand no pin covered -- the dense
+            // swiglu is a `Launch` in this family, not the semantic
+            // kind, so the pin switch had missed it. An unpinned operand
+            // mid-migration is not a fault; it is a plausible pointer to
+            // bytes no unconverted arm writes, which is why it needs a
+            // column rather than a crash.
+            if (std::getenv("PIE_Q35_MATMUL_DUMP") != nullptr) {
+                static std::set<std::string> seen;
+                std::string key(nm.field);
+                if (seen.insert(key).second) {
+                    std::fprintf(stderr,
+                                 "[q35-matmul] %-24s M=%d cols=%d depth=%d "
+                                 "beta=%.0f in_pin=%d out_pin=%d\n",
+                                 key.c_str(), M, cols, depth, beta,
+                                 values.is_pinned(ins[0]) ? 1 : 0,
+                                 values.is_pinned(outs[0]) ? 1 : 0);
                 }
-            // ── Dense MLP ────────────────────────────────────────────
-            } else if (nm.field == "gate_up") {
-                // One traced matmul; whether the binding materialised it
-                // fused is this emitter's call — the hand-written
-                // qwen35_dense_mlp_block's dispatch, verbatim.
-                //
-                // The fence is inside the arm, not around the chain: a MoE
-                // layer has no dense MLP bank to name, so the arm is simply
-                // unreachable there and the fields it reads do not exist.
+            }
+
+            // The one branch that is NOT a buffer choice, and the reason
+            // it survives: an unfused binding fires TWO gemms for this
+            // one statement, into two buffers the traced value does not
+            // describe. See the note at `values` above -- the fix is a
+            // declaration fix, and until it lands this branch keeps the
+            // convention it was written against.
+            if (nm.field == "gate_up") {
                 if constexpr (kIsDense) {
                 gate_up_used_fused =
                     layer.gate_up_proj_fused != nullptr &&
                     !ws.gate_up_fused.empty();
                 if (gate_up_used_fused) {
                     kernels::gemm::act_x_w(cublas.handle(),
-                        ws.norm_x.data(),
+                        values.slot(ins[0]),
                         WeightView(*layer.gate_up_proj_fused),
-                        ws.gate_up_fused.data(), N, 2 * I, H);
+                        values.slot(outs[0]), M, cols, depth);
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),
-                        ws.norm_x.data(),
+                        values.slot(ins[0]),
                         make_weight_view(
                             &wb.require_field(nm.layer, "gate_proj", name),
                             layer.gate_proj_quant),
-                        ws.gate.data(), N, I, H);
+                        ws.gate.data(), M, cols / 2, depth);
                     kernels::gemm::act_x_w(cublas.handle(),
-                        ws.norm_x.data(),
+                        values.slot(ins[0]),
                         make_weight_view(
                             &wb.require_field(nm.layer, "up_proj", name),
                             layer.up_proj_quant),
-                        ws.up.data(), N, I, H);
+                        ws.up.data(), M, cols / 2, depth);
                 }
                 } else { throw_unknown_weight(name); }
-            } else if (nm.field == "down") {
-                if constexpr (kIsDense) {
-                kernels::gemm::act_x_w(cublas.handle(),
-                    ws.gate.data(),
-                    make_weight_view(&wb.require(name),
-                                     layer.down_proj_quant),
-                    ws.y.data(), N, H, I, beta);
-                } else { throw_unknown_weight(name); }
-            } else {
-                throw_unknown_weight(name);
+                break;
             }
+
+            // Everything else is one gemm; the name says only which
+            // quant descriptor rides with the weight.
+            const WeightView wv = [&]() -> WeightView {
+                if (nm.field == "q_proj")
+                    return make_weight_view(&wb.require(name),
+                                            layer.fa_q_proj_quant);
+                if (nm.field == "k_proj")
+                    return make_weight_view(&wb.require(name),
+                                            layer.fa_k_proj_quant);
+                if (nm.field == "v_proj")
+                    return make_weight_view(&wb.require(name),
+                                            layer.fa_v_proj_quant);
+                if (nm.field == "o_proj") {
+                    // A linear-attention layer's o_proj is never
+                    // quantized in this family; a full-attention one may
+                    // be. `layer.kind` is what tells them apart, exactly
+                    // as it did when the branch also picked the input
+                    // buffer.
+                    return layer.kind == LayerW::Kind::LinearAttn
+                               ? WeightView(wb.require(name))
+                               : make_weight_view(&wb.require(name),
+                                                  layer.fa_o_proj_quant);
+                }
+                // The two layer structs carry DIFFERENT quant fields --
+                // `down_proj_quant` is the dense MLP's, and only a MoE
+                // layer has a shared expert to quantize -- so each is
+                // reached under the fence that makes it exist.
+                if constexpr (kIsDense) {
+                    if (nm.field == "down")
+                        return make_weight_view(&wb.require(name),
+                                                layer.down_proj_quant);
+                } else {
+                    if (nm.field == "shared_expert.down")
+                        return make_weight_view(
+                            &wb.require(name), layer.shared_down_proj_quant);
+                }
+                if (nm.field == "in_proj_qkv" || nm.field == "in_proj_z" ||
+                    nm.field == "in_proj_a" || nm.field == "in_proj_b" ||
+                    nm.field == "qgkv" || nm.field == "router" ||
+                    nm.field == "shared_expert.gate_up") {
+                    return WeightView(wb.require(name));
+                }
+                throw_unknown_weight(name);
+            }();
+            if constexpr (!kIsDense) {
+                if (nm.field == "router" ||
+                    nm.field == "shared_expert.gate_up" ||
+                    nm.field == "shared_expert.down") {
+                    if (moe_ws == nullptr) {
+                        throw_drift("the MoE leg needs its workspace");
+                    }
+                }
+            }
+            kernels::gemm::act_x_w(cublas.handle(), values.slot(ins[0]), wv,
+                                   values.slot(outs[0]), M, cols, depth, beta);
             break;
         }
         case PieForwardOpKind::SplitQkv: {
