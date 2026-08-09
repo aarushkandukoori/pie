@@ -521,9 +521,8 @@ bool gemma4_forward_declared(
             const std::string_view name = plan.weight_name(op);
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
-            kernels::layout::embed_bf16(token_ids, require(w, name).data(),
-                                       values.slot(outs[0]), N,
-                                       row_width(outs[0]), V, stream);
+            declared::arm_embed(plan, op, values, token_ids,
+                                require(w, name).data(), N, V, stream);
             break;
         }
         case PieForwardOpKind::Matmul: {

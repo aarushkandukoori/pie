@@ -1364,9 +1364,9 @@ bool forward_declared_tmpl(
             // it is the fire's, not a traced value.
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
-            kernels::layout::embed_bf16(
-                token_ids, wb.require(name).data(), values.slot(outs[0]),
-                N, row_width(outs[0]), cfg.vocab_size, stream);
+            declared::arm_embed(plan, op, values, token_ids,
+                                wb.require(name).data(), N, cfg.vocab_size,
+                                stream);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {

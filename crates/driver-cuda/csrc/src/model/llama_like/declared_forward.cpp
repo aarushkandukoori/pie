@@ -1370,11 +1370,8 @@ void llama_like_forward_declared(
             const std::string_view name = plan.weight_name(op);
             if (name != "embed") throw_unknown_weight(name);
             // ISLAND (value arena). `token_ids` stays a driver input.
-            kernels::layout::embed_bf16(
-                token_ids, wb.require(name).data(),
-                values.slot(plan.outputs(op)[0],
-                            plan.value(plan.outputs(op)[0])),
-                N, out_w(0), V, stream);
+            declared::arm_embed(plan, op, values, token_ids,
+                                wb.require(name).data(), N, V, stream);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {
@@ -2494,12 +2491,7 @@ void llama_like_forward_declared(
             // on operand 0 — the `kernel!` row aliases the result over
             // it — so the stream is the destination and the sub-layer's
             // normed output is the addend.
-            kernels::norm::residual_add_bf16(
-                values.slot(plan.outputs(op)[0],
-                            plan.value(plan.outputs(op)[0])),
-                values.slot(plan.inputs(op)[1],
-                            plan.value(plan.inputs(op)[1])),
-                static_cast<std::size_t>(N) * out_w(0), stream);
+            declared::arm_residual_add(plan, op, values, N, stream);
             break;
         }
         case PieForwardOpKind::LmHead: {

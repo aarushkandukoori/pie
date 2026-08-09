@@ -23,6 +23,7 @@
 #include "moe/topk_softmax.hpp"
 #include "attn/attention_flashinfer.hpp"
 #include "gemm/gemm.hpp"
+#include "model/declared/arms.hpp"
 #include "model/declared/value_arena.hpp"
 
 namespace pie_cuda_driver::model {
@@ -539,9 +540,9 @@ bool gpt_oss_forward_declared(
             // else the site named is the trace's.
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
-            kernels::layout::embed_bf16(
-                token_ids, require(w, plan.weight_name(op)).data(),
-                values.slot(outs[0]), N, row_width(outs[0]), V, stream);
+            declared::arm_embed(plan, op, values, token_ids,
+                                require(w, plan.weight_name(op)).data(),
+                                N, V, stream);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {
@@ -893,9 +894,7 @@ bool gpt_oss_forward_declared(
                 const auto outs = plan.outputs(op);
                 need(ins, 2, "residual add inputs");
                 need(outs, 1, "residual add outputs");
-                kernels::norm::residual_add_bf16(
-                    values.slot(outs[0]), values.slot(ins[1]),
-                    N * row_width(outs[0]), stream);
+                declared::arm_residual_add(plan, op, values, N, stream);
                 break;
             }
             }

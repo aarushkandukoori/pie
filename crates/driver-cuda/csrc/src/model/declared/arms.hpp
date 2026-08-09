@@ -22,6 +22,8 @@
 #include <string>
 
 #include "attn/split_packed.hpp"
+#include "layout/embed.hpp"
+#include "norm/residual_add.hpp"
 #include "mlp/swiglu.hpp"
 #include "model/declared/value_arena.hpp"
 #include "model/workspace.hpp"
@@ -119,6 +121,47 @@ inline void arm_split_qkv(const pie_forward::ForwardPlan& plan,
         row(values.slot(outs[1]), kv_w),
         row(values.slot(outs[2]), kv_w),
         rows, q_w, kv_w, stream);
+}
+
+// `Embed`: the token table into the residual stream. All four executors
+// hold this identically once their operands come off the plan — only
+// the WEIGHT lookup differs, because each family binds its tensors
+// through its own store, so the resolved pointer is a parameter.
+//
+// `token_ids` stays a driver input: the fire's tokens are not a traced
+// value.
+inline void arm_embed(const pie_forward::ForwardPlan& plan,
+                      const pie_forward::PieForwardOp& op,
+                      ValueArena& values,
+                      const std::int32_t* token_ids,
+                      const void* table,
+                      int rows,
+                      int vocab,
+                      cudaStream_t stream) {
+    const auto outs = plan.outputs(op);
+    need(outs, 1, "embed outputs");
+    kernels::layout::embed_bf16(token_ids, table, values.slot(outs[0]), rows,
+                                row_width(plan, outs[0]), vocab, stream);
+}
+
+// `residual_add`: `x += residual`, landing on operand 0 — the `kernel!`
+// row aliases the result over it, so the destination is the OUTPUT's
+// slot and the addend is operand 1. Both spellings that reach here
+// (llama_like's post-norm landing, gpt-oss's MoE landing) are this.
+inline void arm_residual_add(const pie_forward::ForwardPlan& plan,
+                             const pie_forward::PieForwardOp& op,
+                             ValueArena& values,
+                             int rows,
+                             cudaStream_t stream) {
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 2, "residual add inputs");
+    need(outs, 1, "residual add outputs");
+    kernels::norm::residual_add_bf16(
+        values.slot(outs[0]), values.slot(ins[1]),
+        static_cast<std::size_t>(rows) *
+            static_cast<std::size_t>(row_width(plan, outs[0])),
+        stream);
 }
 
 }  // namespace pie_cuda_driver::model::declared
