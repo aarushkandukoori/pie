@@ -42,7 +42,7 @@ fn elementwise(width: u32) -> Launch {
 #[must_use]
 pub fn build_gptoss_dag(g: &GptOssGeometry, with_argmax: bool) -> Vec<Dispatch> {
     let mut dag: Vec<Dispatch> = Vec::with_capacity(g.n_layers as usize * 21 + 4);
-    let mut emit = |dag: &mut Vec<Dispatch>, kind: Kernel, layer: Option<u32>, launch: Launch| {
+    let emit = |dag: &mut Vec<Dispatch>, kind: Kernel, layer: Option<u32>, launch: Launch| {
         let ordinal = u32::try_from(dag.len()).expect("a DAG is hundreds of dispatches");
         dag.push(Dispatch {
             kind,
