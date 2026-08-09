@@ -156,7 +156,10 @@ impl std::fmt::Debug for PreparedFire {
 #[derive(Debug)]
 pub enum Prepare {
     /// The fire may run; here is everything it binds.
-    Ready(Box<PreparedFire>),
+    ///
+    /// Behind an `Rc` because the placed paths share it: the same prepared
+    /// fire backs an M1 retry, an M2 command and an M3 lane candidate.
+    Ready(Rc<PreparedFire>),
     /// The fire is early — a channel is not in the state it needs, and
     /// waiting is the remedy. Nothing was allocated.
     Retry {
@@ -298,7 +301,7 @@ impl Runtime {
             pending.push(put_cell);
         }
 
-        Ok(Prepare::Ready(Box::new(PreparedFire {
+        Ok(Prepare::Ready(Rc::new(PreparedFire {
             program: Rc::clone(program),
             rings: rings.to_vec(),
             tickets: tickets.to_vec(),

@@ -517,16 +517,49 @@ commit lands, a device-side retry reports as retry with its account, an
 early fire is refused by the host with zero pool allocations, and a
 prepared fire survives re-execution.
 
-## Not yet started
+## The placed path — `src/metal/fused.rs`
 
-Everything below names a Metal type and will land under `src/metal/`. That is
-why the split falls here rather than at a line number in the C++: everything
-above tests on any machine, and everything below needs a device.
+| C++ | Rust | |
+|---|---|---|
+| `prepare_m2_command` | `Runtime::prepare_m2` | ported |
+| `set_m2_logits_row` | `M2Command::set_logits_row` | ported |
+| `encode_m2_pre` / `encode_m2_post` | `M2Command::encode_pre` / `encode_post` | ported |
+| `finish_m2_command` | `M2Command::finish` | ported |
+| `bind_m2_effect` | `M2Command::bind_effect` | ported |
+| `bind_m2_region` | `M2Command::encode_region` | ported |
+| `M2EncodedRegion` | `EncodedRegion` (private) | ported |
+| `M2CommandPlan` | `M2Command` | ported |
+| `M2CommandPlan::target` | — | dropped |
+| the prepare-time effect binds (2208–2235) | — | dropped |
+| — | `M2Command::encoded` | added |
+
+The `RawMetalContext* target` field is dropped: the target's context and
+tables are arguments to the calls that need them, so a command cannot be
+encoded against one context and finished against another through a stale
+pointer. The C++ bound the effect tables twice — once at prepare, again at
+every encode — and the encode is when the tables must be current, so the
+prepare-time copy is gone.
+
+`encoded` is the lesson the C++ M3 path had learned and its M2 path had not:
+a command is prepared before the forward it rides is encoded, and a refused
+forward leaves the status zero-filled, which `finish_m2_command` read back
+as `"Metal M2 fused execution fault 0"`. `finish` here answers
+`NeverDispatched` through the same `Outcome::of` as every other path, and a
+device test holds it.
+
+`finish_m2_command`'s hand-ordered teardown — four recycles, every external
+release, every ordinal forget — reduces to dropping the command; only the
+ordinal forgets stay explicit, because the tables belong to the target.
+Three device tests: a placed fire runs inside the target's step (pre →
+forward gap → post) and commits with the fused region demonstrably run; a
+never-encoded command reports "never encoded"; an unfusable stage is refused
+with the host's own reason.
+
+## Not yet started
 
 | C++ | lines | |
 |---|---|---|
-| `bind_m2_*` / `bind_m3_*` | 654–735 | missing |
-| M2 fused placement | 1982–2411 | missing |
+| `bind_m3_*` | 687–703 | missing |
 | M3 grouped lanes | 2412–3350 | missing |
 
 ## Where this stands

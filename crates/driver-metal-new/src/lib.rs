@@ -62,8 +62,8 @@ pub mod metal;
 pub use metal::{
     Archived, Archives, Arena, ArgumentTable, Budget, CHUNK, Compiled, Compiler, Context,
     DeviceInfo, DeviceInputs, Elastic, Execution, External, Externals, Feedback, Feedbacks,
-    FusedExecutable, Granularity, GroupedExecutable, Handle, Heap, Keepalive, MAX_BINDINGS,
-    MAX_FUSED_CHANNELS, MAX_REGIONS_PER_PROGRAM, MAX_REGIONS_PER_STAGE, MIN_DEPTH,
+    FusedExecutable, Granularity, GroupedExecutable, Handle, Heap, Keepalive, M2Command,
+    MAX_BINDINGS, MAX_FUSED_CHANNELS, MAX_REGIONS_PER_PROGRAM, MAX_REGIONS_PER_STAGE, MIN_DEPTH,
     MIN_THREADGROUPS, Mapped, Math, Memory, Mode, Need, ORDINAL_BASE, PAGE, Pool, PoolStats,
     Prepare, PreparedFire, Pressure, ProgramExecutable, ProgramStage, Pso, RegionExecutable, Ring,
     Runtime, Slot, StageExecutable, StepEncoder, Stepper, THREADS_PER_THREADGROUP, TILE, Tables,

@@ -260,6 +260,16 @@ impl Runtime {
         self.negative.len()
     }
 
+    /// Claim the next argument-table ordinal.
+    ///
+    /// For the placed paths, whose per-command ordinals are allocated at
+    /// prepare time rather than at compile.
+    pub(super) fn next_ordinal(&mut self) -> u32 {
+        let ordinal = self.next_ordinal;
+        self.next_ordinal += 1;
+        ordinal
+    }
+
     /// Compile `plan` into an executable program, through the caches.
     ///
     /// `versions` must come from the registration that shipped the kernels —
