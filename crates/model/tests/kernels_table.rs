@@ -141,7 +141,26 @@ fn the_metal_table_admits_its_rows_and_refuses_the_rest() {
 /// remainder rather than an equality.
 ///
 /// Sorted, because it is compared against a sorted difference.
+/// SORTED, because the assertion compares against a sorted remainder.
 const UNSTATED_ROWS: &[&str] = &[
+    // ── the TP collectives ─────────────────────────────────────────
+    //
+    // `dsl::cuda::all_reduce`, `all_gather` and
+    // `all_reduce_residual_rmsnorm` exist and record these, so the
+    // containment direction above is satisfied; what is missing is a
+    // model TEXT that calls them, because no family has been given a
+    // sharded trace yet.
+    //
+    // Pinned rather than deleted because the hand-written passes
+    // already run exactly these kernels through `tp->` — the fused one
+    // is `llama_like.cpp`'s post-attention landing at T > 1 — so the
+    // work they describe is live today and only its DECLARATION is
+    // missing. The entries come out when the first family states
+    // `tp_size > 1`, which is what closes `DeclineReason::NoPlan`'s TP
+    // term.
+    "comm::all_reduce_residual_rmsnorm_bf16",
+    "dist::all_gather_bf16",
+    "dist::all_reduce_bf16",
     // Live, and hand-written: gemma3n, glm5 and gemma-4's bodies call it
     // directly. No declaration states it because `interleaved` reaches the
     // kernel as an ARGUMENT rather than as a second symbol, and the families

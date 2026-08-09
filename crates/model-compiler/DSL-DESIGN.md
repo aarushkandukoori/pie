@@ -92,9 +92,46 @@ So TP is not a `repr` on a handle. It is:
 A collective is a `Launch` like any other: it has operands, it has a
 result, and it needs a `kernel!` row stating its contract. Two things
 that row must say and no existing row does — it is FIRE-WIDE (`whole =
-true`, for the reason XQA is: the operation is not row-offsettable), and
-it is a synchronisation point, which the graph-capture rules need to
-know.
+true`, and for a stronger reason than XQA's: every rank must enter the
+same collective the same number of times, so a row window that split one
+rank's launch and not another's would DEADLOCK rather than compute the
+wrong answer), and it is a synchronisation point, which the
+graph-capture rules need to know.
+
+### The fused landing is a GUARD, not a driver test
+
+`llama_like.cpp` at `T > 1` already runs a fused collective —
+`all_reduce_residual_rmsnorm_bf16`, which sums the shards, adds the
+residual and norms in one launch — and picks it with a RUNTIME
+predicate:
+
+```cpp
+  if (fused_ar && fused_ar->can_fuse_residual_rmsnorm(N, H, stream)) ...
+```
+
+Three terms, and they separate cleanly. The buffer registration and
+`hidden` are load-time facts, so they resolve into the trace like every
+other fact. What is left is `N` — the fire's token count — and that is
+exactly `GuardPred::TokensLE`, already in the closed predicate
+vocabulary and already used this way by qwen3.5's recurrence for its
+three spellings.
+
+So the text states the fused arm under the predicate and the two-step
+form as the else, and the driver tests nothing:
+
+```
+  regions(t, layer, Some(out_shape),
+    |ctx| ctx.arm(Fire(TokensLE(fuse_max)), || {
+              all_reduce_residual_rmsnorm(&partial, &y, &w.mlp_norm, hidden)
+          }),
+    || { let summed = all_reduce(&partial, hidden);
+         residual_add_rmsnorm(&summed, &y, &w.mlp_norm, hidden) })
+```
+
+The fused statement has TWO results, because the kernel has two effects:
+the residual stream is updated in place (operand 1, which the row
+aliases output 0 over) and the normed activation is written fresh. That
+is the same two-result shape `norm_residual_scale_norm` already has.
 
 `llama_like`'s `DeclineReason::NoPlan` names TP first. It closes when
 these three entries exist.

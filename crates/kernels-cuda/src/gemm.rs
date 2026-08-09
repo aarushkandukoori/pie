@@ -11,6 +11,30 @@ pub static KERNELS: &[KernelSig] = &[
     // The plain x·Wᵀ, which every family fires and which the table had
     // never carried -- invisible to the audit until its launcher regex
     // stopped requiring the return type to start the line (`inline void`).
+    // ── COLLECTIVES ────────────────────────────────────────────────
+    //
+    // A collective is a launch like any other, with two things in its
+    // row that no other row here says.
+    //
+    // `whole`, for a reason stronger than XQA's: every rank must enter
+    // the same collective the same number of times, so a row window
+    // that split one rank's launch and not another's would deadlock
+    // rather than compute the wrong answer. The refusal is not an
+    // optimisation.
+    //
+    // And they are SYNCHRONISATION points. The graph-capture rules have
+    // to know that, which is why they are stated rather than reached
+    // for through `tp->` from inside a hand-written pass.
+    kernel!(all_reduce "dist::all_reduce_bf16", whole = true,
+        in_place = &[(0, 0)]),
+    kernel!(all_gather "dist::all_gather_bf16", whole = true),
+    // The FUSED landing: sum, add the residual, norm. Two results — the
+    // residual stream updated in place (operand 1) and the normed
+    // activation — which is why the row needs a pair list and not a
+    // single alias. Whether a fire takes this or the two-step form is a
+    // GUARD in the text, not a driver test: see `all_reduce_residual_rmsnorm`.
+    kernel!(all_reduce_residual_rmsnorm "comm::all_reduce_residual_rmsnorm_bf16",
+        whole = true, in_place = &[(0, 1)]),
     kernel!(gemm_xwt "gemm::act_x_wt_bf16"),
     // ── the WEIGHT REPRESENTATION axis ─────────────────────────────
     //

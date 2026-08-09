@@ -5409,6 +5409,93 @@ pub mod cuda {
         .expect("the residual add produces its value")
     }
 
+    // ── TENSOR PARALLELISM ─────────────────────────────────────────
+    //
+    // A collective is a STATEMENT. It is real device work with operands
+    // and a result, and the only reason it has not been one is that the
+    // hand-written passes reached for `tp->` directly.
+    //
+    // Sharding itself needs no vocabulary: a rank's trace states ITS
+    // widths, and the text divides by `tp_size` from the facts the way
+    // it already divides by anything else. What needs vocabulary is the
+    // point where the shards are recombined, because that is a launch.
+
+    /// `dist::all_reduce_bf16`: sum this value across ranks, in place.
+    ///
+    /// The in-place form, which is what a post-norm landing takes: the
+    /// partial is summed where it lies and the statement's result is the
+    /// same bytes.
+    pub fn all_reduce(x: &Val, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "dist::all_reduce_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the collective produces its value")
+    }
+
+    /// `dist::all_gather_bf16`: concatenate this value's shards along
+    /// its row width. The result is `parts` times as wide.
+    pub fn all_gather(x: &Val, parts: u32, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "dist::all_gather_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(width * parts)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the collective produces its value")
+    }
+
+    /// `comm::all_reduce_residual_rmsnorm_bf16`: the FUSED landing —
+    /// sum the shards, add the residual, and norm, in one launch.
+    ///
+    /// TWO results, because the kernel has two effects: the residual
+    /// stream is updated IN PLACE (operand 1, which the `kernel!` row
+    /// aliases output 0 over) and the normed activation is written
+    /// fresh. Returned in that order.
+    ///
+    /// WHETHER TO FUSE IS A GUARD, not a driver test. The hand-written
+    /// pass asks `can_fuse_residual_rmsnorm(tokens, hidden, stream)` at
+    /// fire time; `hidden` and the buffer registration are load-time
+    /// facts that resolve into the trace, and what is left —
+    /// `tokens` — is exactly `GuardPred::TokensLE`. So a text states
+    /// the fused arm under that predicate and the two-step form as the
+    /// else, the same shape qwen3.5's recurrence uses for its three
+    /// spellings.
+    pub fn all_reduce_residual_rmsnorm(
+        x: &Val,
+        residual: &Val,
+        weight: &NormW,
+        hidden: u32,
+    ) -> (Val, Val) {
+        let shape = (Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16);
+        let outs = x.t.with(x.layer, |b| {
+            b.launch(
+                "comm::all_reduce_residual_rmsnorm_bf16",
+                vec![weight.name.clone()],
+                None,
+                vec![x.id, residual.id],
+                vec![shape.clone(), shape],
+            )
+        });
+        let mk = |id| Val {
+            t: x.t.clone(),
+            id,
+            layer: x.layer,
+        };
+        (mk(outs[0]), mk(outs[1]))
+    }
+
     /// `kernels::mlp::sigmoid_dot_scalar_gate_add_bf16`: the shared
     /// expert's landing with its gate logit folded in — one launch that
     /// dots `norm_x` with the `[1, H]` gate row, sigmoids the scalar, and
