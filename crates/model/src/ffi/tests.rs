@@ -874,6 +874,8 @@ fn c_cuda_facts_synthetic() -> PieForwardQwen35CudaFacts {
         proj_zero_point: 0,
         proj_group: 0,
         proj_axis: 0,
+        window_left: std::ptr::null(),
+        window_left_len: 0,
     }
 }
 
@@ -1112,6 +1114,10 @@ fn lowered_trace_round_trips_through_the_arena() {
         proj_group: 0,
         proj_axis: 0,
         tp_size: 1,
+        // No window: null pointer, zero length -- what a caller written
+        // before this field states by zero-init.
+        window_left: std::ptr::null(),
+        window_left_len: 0,
     };
     let mut out = PieForwardPlan::default();
     assert_eq!(
@@ -1278,6 +1284,10 @@ fn traced_cuda_decode() -> PieForwardPlan {
         proj_group: 0,
         proj_axis: 0,
         tp_size: 1,
+        // No window: null pointer, zero length -- what a caller written
+        // before this field states by zero-init.
+        window_left: std::ptr::null(),
+        window_left_len: 0,
     };
     let mut out = PieForwardPlan::default();
     assert_eq!(

@@ -908,6 +908,9 @@ fn full_attn_body_cuda(
     class: FireClass,
 ) -> Val {
     let w = FullAttnLayerW::new(t, l, facts, c.proj_repr);
+    // THIS LAYER's sliding window, `-1` for none — a load-time fact the
+    // dispatch statements carry.
+    let window_left = model_compiler::facts::window_left_at(&c.window_left, l);
     let mut y = y.clone();
 
     let x = dsl::cuda::rmsnorm(&y, &w.attn_norm);
@@ -972,19 +975,19 @@ fn full_attn_body_cuda(
                 Some(out_shape),
                 |c| {
                     c.arm(dsl::Region::Fire(GuardPred::TokensLE(1)), || {
-                        cuda::attention_flashinfer_prefill(&q, &w.kv);
+                        cuda::attention_flashinfer_prefill(&q, &w.kv, window_left);
                     });
                 },
                 || {
-                    cuda::attention_flashinfer_decode(&q, &w.kv);
+                    cuda::attention_flashinfer_decode(&q, &w.kv, window_left);
                 },
             )
         }
-        FireClass::Decode => cuda::attention_flashinfer_decode(&q, &w.kv),
+        FireClass::Decode => cuda::attention_flashinfer_decode(&q, &w.kv, window_left),
         FireClass::Prefill | FireClass::StateOnly | FireClass::FrozenVerify => {
             // No dequant statement beside it: qwen3_5's full-attention
             // path gates on a native-bf16 cache.
-            cuda::attention_flashinfer_prefill(&q, &w.kv)
+            cuda::attention_flashinfer_prefill(&q, &w.kv, window_left)
         }
         FireClass::CommitAdvance => {
             unreachable!("CommitAdvance traces its own pass, never the layer body")

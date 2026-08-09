@@ -7,10 +7,10 @@
 // three-way parity gate. One TU per deployment; the `olmo2_1b` suffix
 // keeps the symbols apart and the digest constant names the pair.
 //
-// Emitted from: llama_like/h2048/l16/qh16/kvh16/hd128/i8192/v100352/rope0/nv0/np1/qk2/fq0/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0/hdk0/tp1
+// Emitted from: llama_like/h2048/l16/qh16/kvh16/hd128/i8192/v100352/rope0/nv0/np1/qk2/fq0/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0/hdk0/tp1/wl
 
 constexpr const char* kGeneratedDigest_olmo2_1b =
-    "llama_like/h2048/l16/qh16/kvh16/hd128/i8192/v100352/rope0/nv0/np1/qk2/fq0/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0/hdk0/tp1";
+    "llama_like/h2048/l16/qh16/kvh16/hd128/i8192/v100352/rope0/nv0/np1/qk2/fq0/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0/hdk0/tp1/wl";
 
 inline void generated_llama_like_decode_olmo2_1b(
 const Qwen3Weights& w,
@@ -357,11 +357,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(0);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             0 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[0]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -505,11 +501,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(0);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     0 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[0]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -780,11 +772,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(1);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             1 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[1]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -928,11 +916,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(1);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     1 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[1]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -1203,11 +1187,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(2);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             2 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[2]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -1351,11 +1331,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(2);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     2 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[2]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -1626,11 +1602,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(3);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             3 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[3]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -1774,11 +1746,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(3);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     3 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[3]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -2049,11 +2017,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(4);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             4 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[4]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -2197,11 +2161,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(4);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     4 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[4]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -2472,11 +2432,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(5);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             5 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[5]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -2620,11 +2576,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(5);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     5 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[5]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -2895,11 +2847,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(6);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             6 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[6]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -3043,11 +2991,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(6);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     6 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[6]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -3318,11 +3262,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(7);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             7 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[7]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -3466,11 +3406,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(7);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     7 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[7]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -3741,11 +3677,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(8);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             8 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[8]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -3889,11 +3821,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(8);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     8 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[8]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -4164,11 +4092,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(9);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             9 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[9]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -4312,11 +4236,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(9);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     9 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[9]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -4587,11 +4507,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(10);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             10 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[10]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -4735,11 +4651,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(10);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     10 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[10]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -5010,11 +4922,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(11);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             11 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[11]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -5158,11 +5066,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(11);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     11 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[11]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -5433,11 +5337,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(12);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             12 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[12]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -5581,11 +5481,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(12);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     12 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[12]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -5856,11 +5752,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(13);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             13 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[13]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -6004,11 +5896,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(13);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     13 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[13]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -6279,11 +6167,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(14);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             14 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[14]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -6427,11 +6311,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(14);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     14 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[14]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -6702,11 +6582,7 @@ std::uint32_t declared_full_depth_rows)
                     }
                     {
                         auto kv_view = cache.layer_view(15);
-                        const int layer_window_left =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             15 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[15]
-                                : fwd_cfg.sliding_window;
+                        const int layer_window_left = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.decode_plan,
                             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -6850,11 +6726,7 @@ std::uint32_t declared_full_depth_rows)
             }
             {
                 auto kv_view = cache.layer_view(15);
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     15 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[15]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = -1;
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *depth_dp,
                     ws.q.data(), kv_view, ws.attn_out.data(),
@@ -7235,11 +7107,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             0 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[0]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -7578,11 +7446,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             1 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[1]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -7921,11 +7785,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             2 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[2]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -8264,11 +8124,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             3 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[3]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -8607,11 +8463,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             4 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[4]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -8950,11 +8802,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             5 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[5]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -9293,11 +9141,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             6 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[6]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -9636,11 +9480,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             7 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[7]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -9979,11 +9819,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             8 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[8]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -10322,11 +10158,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             9 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[9]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -10665,11 +10497,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             10 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[10]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -11008,11 +10836,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             11 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[11]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -11351,11 +11175,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             12 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[12]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -11694,11 +11514,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             13 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[13]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -12037,11 +11853,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             14 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[14]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -12380,11 +12192,7 @@ std::uint32_t declared_full_depth_rows)
                         const int mid_P = plan_state.mixed_mid_start;
                         const int mid_row =
                             static_cast<int>(qo_indptr_h[mid_P]);
-                        const int mid_wl =
-                            (!fwd_cfg.per_layer_window_left.empty() &&
-                             15 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                                ? fwd_cfg.per_layer_window_left[15]
-                                : fwd_cfg.sliding_window;
+                        const int mid_wl = -1;
                         kernels::attn::dispatch_attention_flashinfer_decode(
                             *plan_state.mixed_mid_decode_plan,
                             bf16_row(ws.q.data(), mid_row, Hq), kv_view,
@@ -14343,11 +14151,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(0);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             0 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[0]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -14463,11 +14267,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(1);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             1 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[1]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -14583,11 +14383,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(2);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             2 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[2]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -14703,11 +14499,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(3);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             3 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[3]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -14823,11 +14615,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(4);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             4 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[4]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -14943,11 +14731,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(5);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             5 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[5]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -15063,11 +14847,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(6);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             6 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[6]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -15183,11 +14963,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(7);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             7 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[7]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -15303,11 +15079,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(8);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             8 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[8]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -15423,11 +15195,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(9);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             9 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[9]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -15543,11 +15311,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(10);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             10 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[10]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -15663,11 +15427,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(11);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             11 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[11]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -15783,11 +15543,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(12);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             12 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[12]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -15903,11 +15659,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(13);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             13 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[13]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -16023,11 +15775,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(14);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             14 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[14]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
@@ -16143,11 +15891,7 @@ std::uint32_t declared_full_depth_rows,
     }
     {
         auto kv_view = cache.layer_view(15);
-        const int layer_window_left =
-            (!fwd_cfg.per_layer_window_left.empty() &&
-             15 < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                ? fwd_cfg.per_layer_window_left[15]
-                : fwd_cfg.sliding_window;
+        const int layer_window_left = -1;
         kernels::attn::dispatch_attention_flashinfer_decode(
             *plan_state.decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),

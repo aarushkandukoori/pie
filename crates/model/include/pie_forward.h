@@ -562,6 +562,10 @@ struct PieForwardLlamaLikeCudaFacts {
   /// Ranks this deployment shards across (`tp_size`); 0 or 1 is a
   /// single GPU. See `LlamaLikeCudaFacts::tp_size`.
   uint32_t tp_size;
+  /// The per-layer sliding window (`-1` for none), as a pointer and a
+  /// length. Null/0 is "no window". See `read_window_left`.
+  const int32_t *window_left;
+  uint32_t window_left_len;
 };
 
 /// The qwen3_5_moe MLP-block facts, as C states them. Mirrors
@@ -705,6 +709,10 @@ struct PieForwardGemma4CudaFacts {
   /// The KV cache is native bf16, so the fused decode post may write
   /// pages directly.
   uint8_t kv_native_bf16;
+  /// The per-layer sliding window (`-1` for none), as a pointer and a
+  /// length. Null/0 is "no window". See `read_window_left`.
+  const int32_t *window_left;
+  uint32_t window_left_len;
 };
 
 /// gpt-oss's shape, as C states it. Mirrors [`crate::gpt_oss::forward::facts::GptOssFacts`]
@@ -745,6 +753,10 @@ struct PieForwardGptOssCudaFacts {
   /// `mxfp4_decode_max_routes`: the fused leg's admission threshold in
   /// ROUTES (`N * top_k`).
   uint32_t mxfp4_decode_max_routes;
+  /// The per-layer sliding window (`-1` for none), as a pointer and a
+  /// length. Null/0 is "no window". See `read_window_left`.
+  const int32_t *window_left;
+  uint32_t window_left_len;
 };
 
 /// The CUDA backend facts for a LOWERED qwen3_5 hybrid trace, as C
@@ -798,6 +810,10 @@ struct PieForwardQwen35CudaFacts {
   uint8_t proj_zero_point;
   uint32_t proj_group;
   uint32_t proj_axis;
+  /// The per-layer sliding window (`-1` for none), as a pointer and a
+  /// length. Null/0 is "no window". See `read_window_left`.
+  const int32_t *window_left;
+  uint32_t window_left_len;
 };
 
 /// One row of a fire as the engine's seriation ordered them — the input

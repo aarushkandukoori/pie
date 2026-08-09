@@ -348,14 +348,6 @@ bool gpt_oss_forward_declared(
     const auto enter = [&](int l) {
         if (l >= 0) cur_layer = l;
     };
-    // The layer's attention window: a scalar argument, not a kernel, so
-    // the declaration never states it and the executor reads it where
-    // the hand pass does.
-    const auto window_of = [&](int l) {
-        return (l < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                   ? fwd_cfg.per_layer_window_left[static_cast<std::size_t>(l)]
-                   : fwd_cfg.sliding_window;
-    };
 
     // THE ROWS, and the lowering they key. Both moved ahead of the arms:
     // the arms read `values`, `values` reads the placement, and the
@@ -716,7 +708,7 @@ bool gpt_oss_forward_declared(
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
                     N, R, cfg.num_attention_heads, attn_ws.view(), stream,
-                    /*window_left=*/window_of(cur_layer),
+                    /*window_left=*/declared::stated_window_left(plan, op),
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
                     lse);
                 break;
@@ -738,7 +730,7 @@ bool gpt_oss_forward_declared(
                     values.slot(outs[0]),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
                     attn_ws.view(), stream,
-                    /*window_left=*/window_of(cur_layer),
+                    /*window_left=*/declared::stated_window_left(plan, op),
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
                     lse);
                 break;

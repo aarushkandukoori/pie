@@ -92,6 +92,11 @@ pub fn gemma2_cuda(facts: &Gemma2Facts, class: FireClass) -> ForwardPlan {
         let mut y = dsl::cuda::scalar_mul(&embedded, "embed_scale");
 
         for l in 0..facts.layers {
+            // THIS LAYER's sliding window, `-1` for none — a
+            // load-time fact the dispatch statements carry, where four
+            // executors used to re-derive it per launch.
+            let window_left =
+                model_compiler::facts::window_left_at(&facts.window_left, l);
             let w = G2LayerW::new(l, facts);
             let x = rmsnorm(&y, &w.attn_norm);
 
@@ -128,7 +133,7 @@ pub fn gemma2_cuda(facts: &Gemma2Facts, class: FireClass) -> ForwardPlan {
             // The attention logit softcap rides HERE, as a dispatch
             // parameter — see the module doc on why it is not a
             // statement of its own.
-            let o = dsl::cuda::attention_flashinfer_decode(&q, &kv)
+            let o = dsl::cuda::attention_flashinfer_decode(&q, &kv, window_left)
                 .expect("a plain attention statement produces its value");
             dsl::seam(o.trace(), &dsl::seam::ATTN_OUT, &[&o], Some(l));
             let o = matmul(&o, &w.o_proj);

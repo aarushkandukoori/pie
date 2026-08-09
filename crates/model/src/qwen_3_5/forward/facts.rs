@@ -430,6 +430,16 @@ pub struct Qwen35CudaFacts {
     /// discipline).
     #[serde(default)]
     pub proj_repr: WeightRepr,
+    /// The SLIDING WINDOW each layer attends over, `-1` for none —
+    /// read through [`model_compiler::facts::window_left_at`], which is
+    /// where the shape of this list is documented.
+    ///
+    /// The dispatch statements carry it, so no executor reaches into
+    /// `fwd_cfg.per_layer_window_left` for it. Serde-defaulted, and
+    /// empty reads as "no window", which is what every fixture written
+    /// before this field meant.
+    #[serde(default)]
+    pub window_left: Vec<i32>,
 }
 
 impl Qwen35CudaFacts {
@@ -454,6 +464,8 @@ impl Qwen35CudaFacts {
     /// with a real threshold), which the live-default set would erase.
     pub fn qwen3_5_0_8b_synthetic() -> Self {
         Self {
+            // 0.8B attends the whole context.
+            window_left: Vec::new(),
             state_bf16: true,
             warp_tiled: true,
             warp_tiled_max: 64,

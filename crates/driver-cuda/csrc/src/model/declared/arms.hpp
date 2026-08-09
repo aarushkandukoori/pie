@@ -121,6 +121,29 @@ inline int row_width(const pie_forward::ForwardPlan& plan,
     return static_cast<int>(out);
 }
 
+// THIS LAYER'S SLIDING WINDOW, off the statement.
+//
+// Every attention dispatch states it (`dsl::cuda::attn_at`'s params),
+// because it is a load-time fact -- a config's `sliding_window`, or its
+// per-layer list where the architecture alternates -- and a load-time
+// fact is a trace-time constant. What stood here instead was three
+// lines reaching into `fwd_cfg.per_layer_window_left`, an array no
+// statement mentioned, at every dispatch in four executors.
+//
+// Signed through the unsigned channel: `-1` arrives as `0xFFFFFFFF` and
+// casts back, which is the params channel's stated convention.
+inline int stated_window_left(const pie_forward::ForwardPlan& plan,
+                              const pie_forward::PieForwardOp& op) {
+    const auto ps = plan.aux_params(op);
+    if (ps.size != 1) {
+        throw std::runtime_error(
+            "declared arm: an attention dispatch states " +
+            std::to_string(ps.size) +
+            " scalar arguments, wants 1 (window_left)");
+    }
+    return static_cast<int>(static_cast<std::int32_t>(ps[0]));
+}
+
 // `SplitQkv`: one packed bank into three. Identical in gemma-4 and
 // qwen3.5 once both read their operands off the plan; llama_like's is
 // this plus a row WINDOW, which is the rectangle's and so stays a

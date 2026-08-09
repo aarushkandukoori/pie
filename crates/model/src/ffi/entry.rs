@@ -162,6 +162,10 @@ pub struct PieForwardLlamaLikeCudaFacts {
     /// Ranks this deployment shards across (`tp_size`); 0 or 1 is a
     /// single GPU. See `LlamaLikeCudaFacts::tp_size`.
     pub tp_size: u32,
+    /// The per-layer sliding window (`-1` for none), as a pointer and a
+    /// length. Null/0 is "no window". See `read_window_left`.
+    pub window_left: *const i32,
+    pub window_left_len: u32,
 }
 
 /// Mirrors [`model_compiler::dsl::WeightRepr`]'s discriminants, flattened
@@ -187,6 +191,22 @@ pub enum PieForwardWeightRepr {
 /// struct, because more than one family carries the axis and the wire
 /// shape is the same in each — `proj_repr` plus the payload that rides
 /// beside it.
+/// The per-layer sliding-window list a caller states.
+///
+/// A pointer plus a length, which is how every variable-length input
+/// crosses this boundary. Null or zero-length is "no window" — the
+/// reading every caller written before this field already meant.
+///
+/// # Safety
+/// The caller must keep `[ptr, ptr+len)` alive and readable across the
+/// trace call; nothing here retains it (the values are copied out).
+unsafe fn read_window_left(ptr: *const i32, len: u32) -> Vec<i32> {
+    if ptr.is_null() || len == 0 {
+        return Vec::new();
+    }
+    unsafe { std::slice::from_raw_parts(ptr, len as usize) }.to_vec()
+}
+
 fn read_weight_repr(repr: u32, group: u32, axis: u32, zero_point: u8) -> WeightRepr {
     let scaled = |layout| WeightRepr::Scaled {
         layout,
@@ -222,6 +242,9 @@ fn read_cuda_facts(facts: &PieForwardLlamaLikeCudaFacts) -> LlamaLikeCudaFacts {
         proj_repr: read_weight_repr(facts.proj_repr, facts.proj_group,
                                     facts.proj_axis, facts.proj_zero_point),
         tp_size: facts.tp_size,
+        window_left: unsafe {
+            read_window_left(facts.window_left, facts.window_left_len)
+        },
     }
 }
 
@@ -510,6 +533,10 @@ pub struct PieForwardQwen35CudaFacts {
     pub proj_zero_point: u8,
     pub proj_group: u32,
     pub proj_axis: u32,
+    /// The per-layer sliding window (`-1` for none), as a pointer and a
+    /// length. Null/0 is "no window". See `read_window_left`.
+    pub window_left: *const i32,
+    pub window_left_len: u32,
 }
 
 fn read_qwen35_cuda_facts(facts: &PieForwardQwen35CudaFacts) -> Qwen35CudaFacts {
@@ -528,6 +555,9 @@ fn read_qwen35_cuda_facts(facts: &PieForwardQwen35CudaFacts) -> Qwen35CudaFacts 
         gate_up_fused: facts.gate_up_fused != 0,
         proj_repr: read_weight_repr(facts.proj_repr, facts.proj_group,
                                     facts.proj_axis, facts.proj_zero_point),
+        window_left: unsafe {
+            read_window_left(facts.window_left, facts.window_left_len)
+        },
     }
 }
 
@@ -847,6 +877,10 @@ pub struct PieForwardGemma4CudaFacts {
     /// The KV cache is native bf16, so the fused decode post may write
     /// pages directly.
     pub kv_native_bf16: u8,
+    /// The per-layer sliding window (`-1` for none), as a pointer and a
+    /// length. Null/0 is "no window". See `read_window_left`.
+    pub window_left: *const i32,
+    pub window_left_len: u32,
 }
 
 fn read_gemma4_facts(facts: &PieForwardGemma4Facts) -> Gemma4Facts {
@@ -896,6 +930,9 @@ pub unsafe extern "C" fn pie_forward_trace_gemma4_cuda(
             fused_qkv: c.fused_qkv != 0,
             gate_up_fused: c.gate_up_fused != 0,
             kv_native_bf16: c.kv_native_bf16 != 0,
+            window_left: unsafe {
+                read_window_left(c.window_left, c.window_left_len)
+            },
         };
         let class = match class {
             0 => FireClass::Decode,
@@ -950,6 +987,10 @@ pub struct PieForwardGptOssCudaFacts {
     /// `mxfp4_decode_max_routes`: the fused leg's admission threshold in
     /// ROUTES (`N * top_k`).
     pub mxfp4_decode_max_routes: u32,
+    /// The per-layer sliding window (`-1` for none), as a pointer and a
+    /// length. Null/0 is "no window". See `read_window_left`.
+    pub window_left: *const i32,
+    pub window_left_len: u32,
 }
 
 fn read_gpt_oss_facts(facts: &PieForwardGptOssFacts) -> GptOssFacts {
@@ -1003,6 +1044,9 @@ pub unsafe extern "C" fn pie_forward_trace_gpt_oss_cuda(
             mxfp4_decode_gemv: c.mxfp4_decode_gemv != 0,
             mxfp4_decode_max_routes: c.mxfp4_decode_max_routes,
             streamed_experts: c.streamed_experts != 0,
+            window_left: unsafe {
+                read_window_left(c.window_left, c.window_left_len)
+            },
         };
         // The text ASSERTS both of these, and an assert that fires here
         // is a panic across the ABI. Answer them as an argument error

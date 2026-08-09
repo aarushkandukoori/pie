@@ -536,6 +536,8 @@ fn what_gemma_4_e2b_asks_for_at_one_row() {
             // E2B binds no packed banks: the two-gemm MLP pair and the
             // unfused QKV, which is the branch E4B does not take.
             &facts::Gemma4CudaFacts {
+                // Attends the whole context.
+                window_left: Vec::new(),
                 fused_qkv: false,
                 gate_up_fused: false,
                 kv_native_bf16: true,

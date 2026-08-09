@@ -726,6 +726,28 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
     // The WIDTH the pads and the strip state (2c). Zero when the
     // attention runs at the logical head dim, which is what makes
     // `head_dim_padded` exactly `head_dim_kernel != 0`.
+    // THE SLIDING WINDOW, per layer, handed to the declaration so the
+    // dispatch statements can carry it (`dsl::cuda::attn_at`'s params).
+    // What the executors read instead was this same array, at every
+    // dispatch, through a config nothing stated.
+    //
+    // The empty case broadcasts the config's single `sliding_window`:
+    // `window_left_at` reads a one-element list for every layer, which
+    // is exactly what the drivers' `: fwd_cfg.sliding_window` fallback
+    // meant. The vector outlives the trace calls below.
+    std::vector<std::int32_t> window_left(
+        fwd_cfg.per_layer_window_left.begin(),
+        fwd_cfg.per_layer_window_left.end());
+    // A NEGATIVE single window is the same statement as no list at
+    // all, and the two must not print differently: the digest carries
+    // this list, so an empty-vs-`[-1]` disagreement between the two
+    // printers would mean no generated TU ever matched.
+    if (window_left.empty() && fwd_cfg.sliding_window >= 0) {
+        window_left.push_back(
+            static_cast<std::int32_t>(fwd_cfg.sliding_window));
+    }
+    cuda.window_left = window_left.data();
+    cuda.window_left_len = static_cast<std::uint32_t>(window_left.size());
     cuda.tp_size = static_cast<std::uint32_t>(
         fwd_cfg.tp_size > 0 ? fwd_cfg.tp_size : 1);
     cuda.head_dim_kernel =
@@ -816,7 +838,17 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
         "/hdk" + std::to_string(cuda.head_dim_kernel) +
         // The shard count: a rank's text states ITS widths, so a trace
         // taken at one tp_size is a different body at another.
-        "/tp" + std::to_string(cuda.tp_size);
+        "/tp" + std::to_string(cuda.tp_size) +
+        // The SLIDING WINDOW list -- a constant of the emitted text, so
+        // a body emitted against one must not serve another.
+        "/wl" + [&] {
+            std::string out;
+            for (std::uint32_t i = 0; i < cuda.window_left_len; ++i) {
+                if (i != 0) out += ".";
+                out += std::to_string(cuda.window_left[i]);
+            }
+            return out;
+        }();
     return out;
 }
 
@@ -2167,12 +2199,7 @@ void llama_like_forward_declared(
                 // ④ Act 1: a banded tail dispatch pairs the band's
                 // prefix plan with the band's OWN workspace.
                 if (depth_band_index >= 0 && op.depth_role == 2) {
-                    const int layer_window_left_b =
-                        (!fwd_cfg.per_layer_window_left.empty() &&
-                         L < static_cast<int>(
-                                 fwd_cfg.per_layer_window_left.size()))
-                            ? fwd_cfg.per_layer_window_left[L]
-                            : fwd_cfg.sliding_window;
+                    const int layer_window_left_b = declared::stated_window_left(plan, op);
                     auto kv_view_b = cache.layer_view(L);
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.depth_band_plans
@@ -2186,12 +2213,7 @@ void llama_like_forward_declared(
                     break;
                 }
                 if (depth_tail_active && op.depth_role == 2) {
-                    const int layer_window_left_d =
-                        (!fwd_cfg.per_layer_window_left.empty() &&
-                         L < static_cast<int>(
-                                 fwd_cfg.per_layer_window_left.size()))
-                            ? fwd_cfg.per_layer_window_left[L]
-                            : fwd_cfg.sliding_window;
+                    const int layer_window_left_d = declared::stated_window_left(plan, op);
                     auto kv_view_d = cache.layer_view(L);
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.depth_prefix_decode_plan,
@@ -2212,12 +2234,7 @@ void llama_like_forward_declared(
                 // Same per-layer window resolution as the hand-written
                 // body; runtime_window_left is -2 on this path (gate) so
                 // the config-driven values decide.
-                const int layer_window_left =
-                    (!fwd_cfg.per_layer_window_left.empty() &&
-                     L < static_cast<int>(
-                             fwd_cfg.per_layer_window_left.size()))
-                        ? fwd_cfg.per_layer_window_left[L]
-                        : fwd_cfg.sliding_window;
+                const int layer_window_left = declared::stated_window_left(plan, op);
                 if (mask_region == MaskRegion::Prefix) {
                     // The UnmaskedPrefix peel's prefix region (NS-4 in
                     // the IR): the plain rows `[0, split)` against the
@@ -2507,12 +2524,7 @@ void llama_like_forward_declared(
                     // and every CSR's `[0, split]` head is the prefix's
                     // truth (the launcher reads no further).
                     const int split = plan_state.spatial_mask_split;
-                    const int layer_window_left =
-                        (!fwd_cfg.per_layer_window_left.empty() &&
-                         L < static_cast<int>(
-                                 fwd_cfg.per_layer_window_left.size()))
-                            ? fwd_cfg.per_layer_window_left[L]
-                            : fwd_cfg.sliding_window;
+                    const int layer_window_left = declared::stated_window_left(plan, op);
                     auto kv_view = cache.layer_view(L);
                     kernels::attn::attention_flashinfer_prefill(
                         attn_src(), kv_view, attn_dst(),
@@ -2533,12 +2545,7 @@ void llama_like_forward_declared(
                             "flashinfer prefill kernel but prepare built "
                             "no plan for this fire shape");
                     }
-                    const int layer_window_left =
-                        (!fwd_cfg.per_layer_window_left.empty() &&
-                         L < static_cast<int>(
-                                 fwd_cfg.per_layer_window_left.size()))
-                            ? fwd_cfg.per_layer_window_left[L]
-                            : fwd_cfg.sliding_window;
+                    const int layer_window_left = declared::stated_window_left(plan, op);
                     auto kv_view = cache.layer_view(L);
                     kernels::attn::attention_flashinfer_prefill(
                         attn_src(), kv_view, attn_dst(),
@@ -2570,12 +2577,7 @@ void llama_like_forward_declared(
                     const int P = plan_state.mixed_mid_start;
                     const int mid_row =
                         static_cast<int>(qo_indptr_h[P]);
-                    const int layer_window_left_m =
-                        (!fwd_cfg.per_layer_window_left.empty() &&
-                         L < static_cast<int>(
-                                 fwd_cfg.per_layer_window_left.size()))
-                            ? fwd_cfg.per_layer_window_left[L]
-                            : fwd_cfg.sliding_window;
+                    const int layer_window_left_m = declared::stated_window_left(plan, op);
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.mixed_mid_decode_plan,
                         bf16_row(attn_src(), mid_row, in_w(0)), kv_view,

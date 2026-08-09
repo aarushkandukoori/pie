@@ -59,6 +59,16 @@ pub struct Gemma3nFacts {
     pub sparsity_layers: u32,
     pub altup: Gemma3nAltUpFacts,
     pub attn: Gemma3nAttnFacts,
+    /// The SLIDING WINDOW each layer attends over, `-1` for none —
+    /// read through [`model_compiler::facts::window_left_at`], which is
+    /// where the shape of this list is documented.
+    ///
+    /// The dispatch statements carry it, so no executor reaches into
+    /// `fwd_cfg.per_layer_window_left` for it. Serde-defaulted, and
+    /// empty reads as "no window", which is what every fixture written
+    /// before this field meant.
+    #[serde(default)]
+    pub window_left: Vec<i32>,
 }
 
 impl Gemma3nFacts {
@@ -75,6 +85,9 @@ impl Gemma3nFacts {
 
     pub fn gemma3n_synthetic() -> Self {
         Gemma3nFacts {
+            // The 5-layer synthetic attends the whole context; a live
+            // gemma-3n states its per-layer list.
+            window_left: Vec::new(),
             vocab: 262144,
             hidden: 2048,
             per_layer_intermediate: vec![8192; 6],

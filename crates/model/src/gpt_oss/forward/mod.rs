@@ -143,6 +143,11 @@ pub fn gpt_oss_cuda(
         let mut y = dsl::embed_with(t, "embed", hidden);
 
         for l in 0..facts.layers {
+            // THIS LAYER's sliding window, `-1` for none — a
+            // load-time fact the dispatch statements carry, where four
+            // executors used to re-derive it per launch.
+            let window_left =
+                model_compiler::facts::window_left_at(&cuda.window_left, l);
             let w = GptOssLayerW::new(l, facts);
             let kv = dsl::Kv::at(t, l);
             let normed = dsl::cuda::rmsnorm(&y, &w.attn_norm);
@@ -216,8 +221,8 @@ pub fn gpt_oss_cuda(
                 dsl::cuda::attention_sink_rescale(&o, &lse, &w.sinks)
             } else {
                 match class {
-                    FireClass::Decode => dsl::cuda::attention_flashinfer_decode(&q, &kv),
-                    _ => dsl::cuda::attention_flashinfer_prefill_planless(&q, &kv),
+                    FireClass::Decode => dsl::cuda::attention_flashinfer_decode(&q, &kv, window_left),
+                    _ => dsl::cuda::attention_flashinfer_prefill_planless(&q, &kv, window_left),
                 }
                 .expect("the class states its attention")
             };

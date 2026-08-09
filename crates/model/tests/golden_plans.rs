@@ -149,6 +149,8 @@ fn qwen2_5_1_5b_cuda_decode() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             FireClass::Decode,
         ),
@@ -172,6 +174,8 @@ fn qwen2_5_1_5b_cuda_prefill() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             FireClass::Prefill,
         ),
@@ -198,6 +202,8 @@ fn mistral_7b_v03_cuda_tp2_decode() {
             &LlamaLikeFacts::mistral_7b_v03(),
             &LlamaLikeCudaFacts {
                 tp_size: 2,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
                 ..LlamaLikeCudaFacts::qwen3_0_6b_l40s()
             },
             FireClass::Decode,
@@ -226,6 +232,8 @@ fn phi3_mini_cuda_decode() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             FireClass::Decode,
         ),
@@ -249,6 +257,8 @@ fn phi3_mini_cuda_prefill() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             FireClass::Prefill,
         ),
@@ -610,6 +620,8 @@ fn mistral_7b_v03_cuda_decode() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             FireClass::Decode,
         ),
@@ -633,6 +645,8 @@ fn mistral_7b_v03_cuda_prefill() {
                 proj_repr: WeightRepr::Bf16,
                 // Single GPU.
                 tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
             },
             FireClass::Prefill,
         ),
@@ -728,6 +742,8 @@ fn gemma_4_e2b_cuda_decode() {
         &gemma4_cuda(
             &Gemma4Facts::gemma_4_e2b(),
             &Gemma4CudaFacts {
+                // Attends the whole context.
+                window_left: Vec::new(),
                 // LIVE-anchored, and the anchoring is the point: this pair
                 // was GUESSED wrong twice (once from the E4B-shaped
                 // `gemma4_dense_gate_up_fused_enabled` predicate, once from
@@ -752,6 +768,8 @@ fn gemma_4_e2b_cuda_prefill() {
         &gemma4_cuda(
             &Gemma4Facts::gemma_4_e2b(),
             &Gemma4CudaFacts {
+                // Attends the whole context.
+                window_left: Vec::new(),
                 fused_qkv: true,
                 gate_up_fused: true,
                 kv_native_bf16: true,

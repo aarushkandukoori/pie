@@ -555,6 +555,12 @@ fn llama_like_cuda_text(
             // the kernels run wide. The strip below is what brings it
             // back to `q_w`, and it is a statement rather than a
             // driver's parting copy.
+            // THIS LAYER's sliding window, `-1` for none. A load-time
+            // fact, so it erases into the statements below rather than
+            // being re-derived from `fwd_cfg.per_layer_window_left` on
+            // every dispatch -- which is what four executors did, in
+            // eleven copies of the same three lines.
+            let window_left = cuda.window_left_at(l);
             let attn_out_shape = (
                 Shape(vec![
                     Dim::Tokens,
@@ -637,7 +643,7 @@ fn llama_like_cuda_text(
                     // to plan.
                     let masked_attention = |q: &Val| {
                         if c.head_dim_padded || (window_one && c.xqa_decode) {
-                            cuda::attention_flashinfer_prefill_custom(q, &w.kv);
+                            cuda::attention_flashinfer_prefill_custom(q, &w.kv, window_left);
                         } else {
                             dsl::by_rows(m.trace(), Some(l), None, |r| {
                                 r.arm(dsl::RowPred::Unmasked, || {
@@ -668,23 +674,23 @@ fn llama_like_cuda_text(
                                         dsl::guarded(m.trace())
                                             .arm(GuardPred::WantsAttnScore, || {
                                                 cuda::attention_flashinfer_decode_capture(
-                                                    q, &w.kv,
+                                                    q, &w.kv, window_left,
                                                 );
                                             })
                                             .otherwise(|| {
                                                 cuda::attention_flashinfer_decode(
-                                                    q, &w.kv,
+                                                    q, &w.kv, window_left,
                                                 );
                                             });
                                     } else {
                                         cuda::dequant_only(&w.kv);
                                         cuda::attention_flashinfer_prefill(
-                                            q, &w.kv,
+                                            q, &w.kv, window_left,
                                         );
                                     }
                                 });
                                 r.rest(|| {
-                                    cuda::attention_flashinfer_prefill_custom(q, &w.kv);
+                                    cuda::attention_flashinfer_prefill_custom(q, &w.kv, window_left);
                                 });
                             });
                         }
@@ -697,23 +703,23 @@ fn llama_like_cuda_text(
                             cuda::dequant_only(&w.kv);
                             dsl::guarded(m.trace())
                                 .arm(GuardPred::WantsAttnScore, || {
-                                    cuda::attention_flashinfer_prefill_capture(q, &w.kv);
+                                    cuda::attention_flashinfer_prefill_capture(q, &w.kv, window_left);
                                 })
                                 .otherwise(|| {
-                                    cuda::attention_flashinfer_prefill(q, &w.kv);
+                                    cuda::attention_flashinfer_prefill(q, &w.kv, window_left);
                                 });
                         } else if c.xqa_decode {
-                            cuda::attention_xqa_decode(q, &w.kv);
+                            cuda::attention_xqa_decode(q, &w.kv, window_left);
                         } else if c.force_prefill_path {
                             cuda::dequant_only(&w.kv);
-                            cuda::attention_flashinfer_prefill(q, &w.kv);
+                            cuda::attention_flashinfer_prefill(q, &w.kv, window_left);
                         } else {
                             dsl::guarded(m.trace())
                                 .arm(GuardPred::WantsAttnScore, || {
-                                    cuda::attention_flashinfer_decode_capture(q, &w.kv);
+                                    cuda::attention_flashinfer_decode_capture(q, &w.kv, window_left);
                                 })
                                 .otherwise(|| {
-                                    cuda::attention_flashinfer_decode(q, &w.kv);
+                                    cuda::attention_flashinfer_decode(q, &w.kv, window_left);
                                 });
                         }
                         dsl::seam(q.trace(), &dsl::seam::ATTN_OUT, &[q], Some(l));

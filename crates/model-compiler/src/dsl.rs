@@ -1921,6 +1921,40 @@ pub mod cuda {
         })
     }
 
+    /// [`record`], plus the SCALAR ARGUMENTS the symbol takes that no
+    /// operand shape gives ([`crate::trace::OpKind::Launch`]'s params).
+    ///
+    /// Signed values ride as their two's complement: `window_left = -1`
+    /// is `0xFFFFFFFF`, and the executor casts back. The channel is
+    /// untyped on purpose -- what each slot means is the SYMBOL's
+    /// contract, exactly as `aux_names`' slots are.
+    fn record_with_params(
+        t: &Trace,
+        layer: Option<u32>,
+        kernel: &str,
+        weights: Vec<String>,
+        state: Option<StateRef>,
+        params: Vec<u32>,
+        inputs: Vec<crate::trace::ValueId>,
+        out: Option<(Shape, DType)>,
+    ) -> Option<Val> {
+        let ids = t.with(layer, |b| {
+            b.launch_with_params(
+                kernel,
+                weights,
+                state,
+                params,
+                inputs,
+                out.into_iter().collect(),
+            )
+        });
+        ids.first().map(|&id| Val {
+            t: t.clone(),
+            id,
+            layer,
+        })
+    }
+
     fn kv_state(kv: &Kv) -> Option<StateRef> {
         Some(StateRef {
             store: StateStore::KvCache,
@@ -5769,14 +5803,14 @@ pub mod cuda {
     /// `kernels::attn::attention_xqa_decode_bf16_prepared` (whose contract
     /// includes the fire-wide XQA prepare — and which is therefore
     /// declared `whole`; see [`crate::kernels`]).
-    pub fn attention_xqa_decode(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::attention_xqa_decode_bf16_prepared")
+    pub fn attention_xqa_decode(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::attention_xqa_decode_bf16_prepared", window_left)
     }
 
     /// `kernels::attn::dispatch_attention_flashinfer_decode` against the decode
     /// plan its contract obligates.
-    pub fn attention_flashinfer_decode(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_decode")
+    pub fn attention_flashinfer_decode(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_decode", window_left)
     }
 
     /// `kernels::attn::dispatch_attention_flashinfer_prefill_bf16` — the dispatch
@@ -5789,8 +5823,8 @@ pub mod cuda {
     /// and launches only the dispatch. That is not a property of this
     /// kernel — it is a second STATEMENT the text either makes or does
     /// not, so the text makes it ([`dequant_only`] beside this call).
-    pub fn attention_flashinfer_prefill(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_bf16")
+    pub fn attention_flashinfer_prefill(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_bf16", window_left)
     }
 
     /// `kernels::attn::attention_flashinfer_prefill` — the PLAN-FREE
@@ -5804,8 +5838,8 @@ pub mod cuda {
     /// gemma-4's prefill fires this; llama_like's fires the other. The
     /// two are one call apart in C++ and a whole contract apart here,
     /// which is why the table carries both.
-    pub fn attention_flashinfer_prefill_planless(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::attention_flashinfer_prefill")
+    pub fn attention_flashinfer_prefill_planless(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::attention_flashinfer_prefill", window_left)
     }
 
     /// `kernels::attn::dispatch_attention_flashinfer_decode` asked for its LSE.
@@ -6140,8 +6174,8 @@ pub mod cuda {
     /// `NUM_MMA_D_QK=32`. So the deployment states a naive paged kernel
     /// on exactly those layers — a per-layer HEAD DIM fact, erased at
     /// trace time, not a runtime fallback the executor discovers.
-    pub fn attention_naive_paged(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::attention_naive_paged")
+    pub fn attention_naive_paged(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::attention_naive_paged", window_left)
     }
 
     /// `kernels::attn::write_kv_explicit_bf16`: the explicit-descriptor
@@ -6418,14 +6452,14 @@ pub mod cuda {
     /// its contract includes the capture publish against the possibly
     /// page-mask-compacted CSR). Region launch of the WantsAttnScore
     /// guard — output-less; the guard owns the attention output.
-    pub fn attention_flashinfer_decode_capture(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_decode_capture")
+    pub fn attention_flashinfer_decode_capture(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_decode_capture", window_left)
     }
 
     /// `kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16` — the
     /// prefill counterpart, same guard-region contract.
-    pub fn attention_flashinfer_prefill_capture(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_capture_bf16")
+    pub fn attention_flashinfer_prefill_capture(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_capture_bf16", window_left)
     }
 
     /// Output-less [`qkv_decode_qk_norm_rope_write_kv`] for the Peel's
@@ -6459,8 +6493,8 @@ pub mod cuda {
     /// crosses as runtime args of the stated kernel, commit_lens's peer.
     /// Since A1 (the class-collapse amendment) it is stated inside the
     /// `HasCustomMask` guard arm of the Decode/Prefill traces.
-    pub fn attention_flashinfer_prefill_custom(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_custom")
+    pub fn attention_flashinfer_prefill_custom(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_custom", window_left)
     }
 
     /// `"pie_lora_qkv_correction"`: the §5.1 adapter correction — every
@@ -6515,15 +6549,32 @@ pub mod cuda {
     /// The output shape is q's own: these kernels are width-preserving
     /// on the query, which is what the retired `q_width` parameter was
     /// re-stating at each call site.
-    fn attn_at(q: &Val, kv: &Kv, kernel: &str) -> Option<Val> {
+    /// Every FlashInfer/XQA dispatch's shape: one query in, the layer's
+    /// cache as state, and the attention output — or none, inside a
+    /// value-producing guard region, where the guard owns the value.
+    ///
+    /// `window_left` is the SLIDING WINDOW this layer attends over,
+    /// `-1` for none. It is a load-time fact (a config's
+    /// `sliding_window`, or its per-layer list where the architecture
+    /// alternates), and it used to be derived inside every executor:
+    /// eleven copies of the same three lines across four families,
+    /// reaching into `fwd_cfg.per_layer_window_left` — a per-layer array
+    /// no statement mentioned.
+    ///
+    /// It rides the statement's PARAMS because no operand shape gives
+    /// it. What is NOT closed by this is the per-FIRE override
+    /// (`runtime_window_left`), which is a runtime input and wants a
+    /// guard predicate; `DeclineReason::SlidingWindow` still names it.
+    fn attn_at(q: &Val, kv: &Kv, kernel: &str, window_left: i32) -> Option<Val> {
         let out = q.t.inner.borrow().inside_value_region();
         let shape = (!out).then(|| q.t.inner.borrow().value_shape(q.id));
-        record(
+        record_with_params(
             &q.t,
             Some(kv.l),
             kernel,
             vec![],
             kv_state(kv),
+            vec![window_left as u32],
             vec![q.id],
             shape.map(|s| (s, DType::BF16)),
         )
