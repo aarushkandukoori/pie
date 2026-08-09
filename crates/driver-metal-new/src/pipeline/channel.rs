@@ -57,6 +57,23 @@ pub struct ChannelState {
     words: [AtomicU64; 4],
 }
 
+impl std::fmt::Debug for ChannelState {
+    /// The ring's shape and where its head and tail are, not its cells.
+    ///
+    /// Printing the cells would be a megabyte for a logits ring, and the
+    /// question anyone debugging a channel is asking is how full it is.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChannelState")
+            .field("dtype", &self.dtype)
+            .field("numel", &self.numel)
+            .field("capacity", &self.capacity)
+            .field("head", &self.head())
+            .field("tail", &self.tail())
+            .field("closed", &self.closed())
+            .finish()
+    }
+}
+
 impl ChannelState {
     /// Allocate a host-backed ring for `capacity` live cells of `numel` lanes.
     ///
@@ -134,7 +151,29 @@ impl ChannelState {
         self.size() >= self.capacity
     }
 
-    /// The logical capacity (live cells), not the `capacity + 1` slot count.
+    /// Bytes of cell storage, including the extra slot that distinguishes
+    /// full from empty.
+    #[must_use]
+    pub fn cells_len(&self) -> usize {
+        self.cells.borrow().len()
+    }
+
+    /// Bytes of control words: head, tail, poison, closed.
+    #[must_use]
+    pub fn words_len(&self) -> usize {
+        self.words.len() * size_of::<u64>()
+    }
+
+    /// Latch the closed word, so anyone still holding the ring can see that
+    /// nothing more will arrive.
+    ///
+    /// The value it holds is left alone. A reader that already has a cell is
+    /// entitled to finish reading it; closed means no more, not gone.
+    pub fn close(&self) {
+        self.store_word(3, 1);
+    }
+
+    /// How many live cells the ring holds.
     #[must_use]
     pub fn capacity(&self) -> usize {
         self.capacity
@@ -257,7 +296,7 @@ pub fn make_host_channel_state(dtype_byte: u8, dims: &[u32], capacity: u32) -> R
 /// instance is dead and every later `step`/`host_*` call short-circuits. This
 /// is a status bit about the *instance*, kept separate from the per-channel
 /// poison word (which is about one ring an external agent can observe).
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct InterpInstance {
     /// One ring per declared channel, in channel-id order.
     pub channels: Vec<Rc<ChannelState>>,

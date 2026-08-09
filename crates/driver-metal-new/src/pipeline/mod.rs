@@ -33,6 +33,8 @@
 mod channel;
 mod op;
 mod plan;
+mod registry;
+mod resolve;
 mod step;
 mod value;
 
@@ -44,6 +46,11 @@ pub use plan::{
     ConstPortValue, ExecPlan, StagePlan, adopt_launch_package, bounded_mtp_row_base,
     classify_exec_plan, const_port_value, port_consumes,
 };
+pub use registry::{
+    Channel, ChannelSpec, Direction, EmittedKernel, Endpoint, Geometry, HostRole, Instance,
+    Program, Registry, channel_dtype,
+};
+pub use resolve::{Geometry as FireGeometry, Resolution, last_page_len, resolve};
 pub use step::{PassInputs, StepOutcome, step};
 pub use value::{Value, concrete_dtype, decode_wire, encode_wire, value_matches, wire_cell_bytes};
 
