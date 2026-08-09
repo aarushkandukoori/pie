@@ -814,6 +814,39 @@ bool forward_declared_tmpl(
     // to prevent.
     std::vector<std::uint8_t> movable(plan.value_count(), 1);
     {
+        // A `Launch` is converted or not PER SYMBOL, so the predicate
+        // takes the op rather than the kind. Getting this wrong in the
+        // permissive direction is the failure mode: a value would take
+        // an arena address while an arm still wrote a workspace field.
+        const auto converted_launch = [&](const PieForwardOp& op) {
+            switch (resolve_q35_kernel(plan.weight_name(op))) {
+            case Q35Kernel::ConvUpdateBatched:
+            case Q35Kernel::ConvPrefillBatched:
+            case Q35Kernel::WriteKvExplicit:
+            case Q35Kernel::WriteKvToPages:
+                return true;
+            case Q35Kernel::ChunkedSwiglu:
+                // The DENSE caller is converted; the routed and shared
+                // ones still name the MoE workspace.
+                return kIsDense;
+            case Q35Kernel::AttnFlashinferDecode:
+            case Q35Kernel::AttnFlashinferPrefill:
+                // HALF converted, so it counts as unconverted: it reads
+                // its query off the plan but writes `ws.attn_out` by
+                // convention, because the launch DECLARES NO OUTPUT and
+                // there is no id to write to. A half-converted arm has
+                // to hold its whole neighbourhood back -- letting the
+                // query move while the result stays a workspace field
+                // is a chain half in each world.
+                return false;
+            default:
+                // Notably `Swiglu`, the PAIR spelling: it reads
+                // `ws.gate` and `ws.up`, which the single traced
+                // `gate_up` value does not describe, so that value must
+                // not move.
+                return false;
+            }
+        };
         const auto converted = [](PieForwardOpKind k) {
             switch (k) {
             case PieForwardOpKind::Embed:
@@ -833,7 +866,10 @@ bool forward_declared_tmpl(
         };
         for (std::size_t i = 0; i < plan.op_count(); ++i) {
             const PieForwardOp& op = plan.op(i);
-            if (converted(op.kind)) continue;
+            if (op.kind == PieForwardOpKind::Launch ? converted_launch(op)
+                                                    : converted(op.kind)) {
+                continue;
+            }
             for (const std::uint32_t v : plan.inputs(op)) {
                 if (v < movable.size()) movable[v] = 0;
             }
@@ -843,14 +879,37 @@ bool forward_declared_tmpl(
         }
         // Fold onto the alias owner, both ways: a pinned member pins the
         // set, and a member with no offset of its own follows its owner.
-        if (flat.value_owners_len >= movable.size()) {
-            std::vector<std::uint8_t> owner_ok(movable.size(), 1);
-            for (std::size_t v = 0; v < movable.size(); ++v) {
-                if (!movable[v]) owner_ok[flat.value_owners[v]] = 0;
-            }
-            for (std::size_t v = 0; v < movable.size(); ++v) {
-                movable[v] = owner_ok[flat.value_owners[v]];
-            }
+        // A value with no owner entry is its OWN owner, which is the
+        // same rule `slot` uses. Skipping the fold when the table looks
+        // short was the wrong failure direction and cost a bisect: the
+        // gated attention output kept a movable flag its pinned chain
+        // partner did not, so the in-place gate read `ws.attn_out` and
+        // wrote the arena. An alias set moves together or not at all,
+        // and a table this cannot read means NOT.
+        const auto owner_of = [&](std::size_t v) -> std::size_t {
+            return v < flat.value_owners_len
+                       ? static_cast<std::size_t>(flat.value_owners[v])
+                       : v;
+        };
+        std::vector<std::uint8_t> owner_ok(movable.size(), 1);
+        for (std::size_t v = 0; v < movable.size(); ++v) {
+            const std::size_t o = owner_of(v);
+            if (!movable[v] && o < owner_ok.size()) owner_ok[o] = 0;
+        }
+        for (std::size_t v = 0; v < movable.size(); ++v) {
+            const std::size_t o = owner_of(v);
+            movable[v] = (o < owner_ok.size()) ? owner_ok[o] : 0;
+        }
+    }
+
+    if (std::getenv("PIE_Q35_MOVABLE_DUMP") != nullptr) {
+        for (std::size_t v = 60; v < 70 && v < movable.size(); ++v) {
+            std::fprintf(stderr,
+                         "[q35-movable] v%zu movable=%d owner=%u off=%zu\n",
+                         v, static_cast<int>(movable[v]),
+                         v < flat.value_owners_len ? flat.value_owners[v] : 0u,
+                         v < flat.value_offsets_len ? flat.value_offsets[v]
+                                                    : 0u);
         }
     }
 
@@ -1615,23 +1674,35 @@ case PieForwardOpKind::Launch: {
             switch (resolve_q35_kernel(plan.weight_name(op))) {
             case Q35Kernel::ConvUpdateBatched: {
                 const auto& layer = conv_weight();
+                // ISLAND (value arena). The conv state, the slot ids
+                // and the stride stay the CACHE's -- a per-request
+                // recurrent slot is not a traced value.
+                const auto ins = plan.inputs(op);
+                const auto outs = plan.outputs(op);
+                need(ins, 1, "conv inputs");
+                need(outs, 1, "conv outputs");
                 kernels::ssm::causal_conv1d_update_batched_bf16(
-                    la.mixed_qkv.data(), layer.la_conv1d_w->data(),
+                    values.slot(ins[0]), layer.la_conv1d_w->data(),
                     layer.la_conv1d_b ? layer.la_conv1d_b->data() : nullptr,
                     state_cache.conv_state(SL, /*slot=*/0),
                     slot_ids_d,
                     static_cast<long long>(state_cache.conv_kernel()) *
                         state_cache.conv_dim(),
-                    la.mixed_qkv_post.data(),
+                    values.slot(outs[0]),
                     R, conv_dim, conv_K, stream);
                 break;
             }
             case Q35Kernel::ConvPrefillBatched: {
                 const auto& layer = conv_weight();
+                // ISLAND (value arena).
+                const auto ins = plan.inputs(op);
+                const auto outs = plan.outputs(op);
+                need(ins, 1, "conv inputs");
+                need(outs, 1, "conv outputs");
                 kernels::ssm::causal_conv1d_prefill_batched_bf16(
-                    la.mixed_qkv.data(), layer.la_conv1d_w->data(),
+                    values.slot(ins[0]), layer.la_conv1d_w->data(),
                     layer.la_conv1d_b ? layer.la_conv1d_b->data() : nullptr,
-                    la.mixed_qkv_post.data(),
+                    values.slot(outs[0]),
                     state_cache.conv_state(SL, /*slot=*/0),
                     slot_ids_d, qo_indptr,
                     static_cast<long long>(state_cache.conv_kernel()) *
@@ -1784,9 +1855,16 @@ case PieForwardOpKind::Launch: {
                                 "kernel but prepare built no decode plan");
                 }
                 auto kv_view = kv_view_of(SL);
+                // ISLAND (value arena), HALF of one. The query is the
+                // statement's operand. The RESULT is not: this launch
+                // declares no outputs, so the attention output has no id
+                // to write to and `ws.attn_out` stays -- see the guard
+                // note in the pin pass.
+                const auto ins = plan.inputs(op);
+                need(ins, 1, "decode attention inputs");
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *decode_plan,
-                    ws.q.data(), kv_view, ws.attn_out.data(),
+                    values.slot(ins[0]), kv_view, ws.attn_out.data(),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
                     attn_ws.view(), stream);
                 break;
@@ -1797,9 +1875,14 @@ case PieForwardOpKind::Launch: {
                                 "kernel but prepare built no prefill plan");
                 }
                 auto kv_view = kv_view_of(SL);
+                // ISLAND (value arena), half of one -- see the decode
+                // arm above for what the other half is waiting on.
+                const auto ins = plan.inputs(op);
+                need(ins, 1, "prefill attention inputs");
                 kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *prefill_plan,
-                    ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
+                    values.slot(ins[0]), kv_view.k_bf16_pages,
+                    kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, attn_ws.view(), stream);
@@ -1807,15 +1890,22 @@ case PieForwardOpKind::Launch: {
             }
             case Q35Kernel::WriteKvExplicit: {
                 auto kv_view = kv_view_of(SL);
+                // ISLAND (value arena). The pages are the SINK and stay
+                // the cache's; k and v are the statement's operands.
+                const auto ins = plan.inputs(op);
+                need(ins, 2, "write_kv inputs");
                 kernels::attn::write_kv_explicit_bf16(
-                    kv_view, ws.k.data(), ws.v.data(),
+                    kv_view, values.slot(ins[0]), values.slot(ins[1]),
                     w_page_d, w_off_d, N, stream, row_valid_d);
                 break;
             }
             case Q35Kernel::WriteKvToPages: {
                 auto kv_view = kv_view_of(SL);
+                // ISLAND (value arena).
+                const auto ins = plan.inputs(op);
+                need(ins, 2, "write_kv inputs");
                 kernels::attn::write_kv_to_pages(
-                    kv_view, ws.k.data(), ws.v.data(),
+                    kv_view, values.slot(ins[0]), values.slot(ins[1]),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, N, R, stream);
                 break;
@@ -1860,8 +1950,14 @@ case PieForwardOpKind::Launch: {
                         break;
                     }
                 }
+                // ISLAND (value arena). The dense caller; the routed
+                // and shared-expert callers of the same kernel are
+                // above, on the MoE workspace.
+                const auto outs = plan.outputs(op);
+                need(outs, 1, "swiglu outputs");
                 kernels::mlp::chunked_swiglu_bf16(
-                    ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
+                    values.slot(ins[0]), values.slot(outs[0]), N,
+                    row_width(outs[0]), stream);
                 break;
             }
             // ── The aligned MoE leg ──────────────────────────────────
@@ -2036,11 +2132,19 @@ case PieForwardOpKind::Launch: {
                 }
                 break;
             }
-            case Q35Kernel::Swiglu:
+            case Q35Kernel::Swiglu: {
+                // The PAIR spelling, which an unfused gate_up binding
+                // takes. Its two operands are `ws.gate` and `ws.up`,
+                // which the single traced `gate_up` value does not
+                // describe -- the same gap the Matmul arm stops at, and
+                // it stops here too.
+                const auto outs = plan.outputs(op);
+                need(outs, 1, "swiglu outputs");
                 kernels::mlp::swiglu_bf16(
-                    ws.gate.data(), ws.up.data(), ws.gate.data(),
-                    N * I, stream);
+                    ws.gate.data(), ws.up.data(), values.slot(outs[0]),
+                    N * row_width(outs[0]), stream);
                 break;
+            }
             }
             break;
         }
