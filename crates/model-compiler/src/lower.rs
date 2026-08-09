@@ -655,10 +655,10 @@ impl Lowerer<'_> {
         }
         let out = 0..sampled;
         if sampled < window.len() as u32 {
-            self.emit(at, "launch_gather_bf16_rows", op, &out)?;
+            self.emit(at, "layout::gather_bf16_rows", op, &out)?;
         }
-        self.emit(at, "launch_rmsnorm_bf16", op, &out)?;
-        self.emit(at, "gemm_act_x_w", op, &out)?;
+        self.emit(at, "norm::rmsnorm_bf16", op, &out)?;
+        self.emit(at, "gemm::act_x_w", op, &out)?;
         Ok(())
     }
 
@@ -808,9 +808,9 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // table kernel. Stating that bracket is what `seam!` is for.
         HookSite { .. } => Semantic::Structural,
 
-        Embed { .. } => Semantic::Kernels(&["launch_embed_bf16"]),
-        AddBias { .. } => Semantic::Kernels(&["launch_add_bias_bf16"]),
-        ResidualAdd => Semantic::Kernels(&["launch_residual_add_bf16"]),
+        Embed { .. } => Semantic::Kernels(&["layout::embed_bf16"]),
+        AddBias { .. } => Semantic::Kernels(&["norm::add_bias_bf16"]),
+        ResidualAdd => Semantic::Kernels(&["norm::residual_add_bf16"]),
 
         // The GDN and full-attention kinds. Each is ONE kernel with no
         // branch — no fact to read, no variant to dispatch on, nothing
@@ -821,10 +821,10 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // Their operand plumbing (the per-layer `la.*` scratch, the fp32
         // parameter banks) is the EMITTER's, exactly as it is for the
         // kinds above — naming the symbol is what the lowering owes.
-        GdnPrep { .. } => Semantic::Kernels(&["launch_qwen_gdn_post_conv_prep_bf16"]),
-        RmsnormGated { .. } => Semantic::Kernels(&["launch_rmsnorm_gated_fp32_in_bf16"]),
-        SplitQGate { .. } => Semantic::Kernels(&["launch_split_q_gate_bf16"]),
-        SigmoidGateMul => Semantic::Kernels(&["launch_sigmoid_gate_inplace_bf16"]),
+        GdnPrep { .. } => Semantic::Kernels(&["ssm::qwen_gdn_post_conv_prep_bf16"]),
+        RmsnormGated { .. } => Semantic::Kernels(&["norm::rmsnorm_gated_fp32_in_bf16"]),
+        SplitQGate { .. } => Semantic::Kernels(&["layout::split_q_gate_bf16"]),
+        SigmoidGateMul => Semantic::Kernels(&["mlp::sigmoid_gate_inplace_bf16"]),
 
         // Gemma folds `(1 + w)` — different arithmetic, so a different
         // kernel, but the same signature and the same row space. The
@@ -838,9 +838,9 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // both kinds fan onto the same pair.
         Rmsnorm { variant, .. } | RmsnormPerHead { variant, .. } => {
             Semantic::Kernels(if variant.is_plain() {
-                &["launch_rmsnorm_bf16"]
+                &["norm::rmsnorm_bf16"]
             } else {
-                &["launch_rmsnorm_gemma_bf16"]
+                &["norm::rmsnorm_gemma_bf16"]
             })
         }
 
@@ -849,9 +849,9 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // what asks for it, so the lowering states it rather than the
         // driver deriving it from a window pointer.
         SplitQkv { .. } => Semantic::Kernels(if peel_tail {
-            &["launch_split_qkv_bf16_devwin"]
+            &["attn::split_qkv_bf16_devwin"]
         } else {
-            &["launch_split_qkv_bf16"]
+            &["attn::split_qkv_bf16"]
         }),
 
         // Partial rope IS a different kernel, and the trace already says
@@ -863,9 +863,9 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
             if !matches!(kind, crate::trace::RopeKind::Standard) {
                 Semantic::Unlowered("only standard rope is emitted")
             } else if partial.is_some() {
-                Semantic::Kernels(&["launch_rope_partial_bf16"])
+                Semantic::Kernels(&["rope::rope_partial_bf16"])
             } else {
-                Semantic::Kernels(&["launch_rope_bf16"])
+                Semantic::Kernels(&["rope::rope_bf16"])
             }
         }
 
@@ -874,13 +874,13 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // shape, chosen per fire.
         Matmul { selector, .. } => {
             if selector.is_none() {
-                Semantic::Kernels(&["gemm_act_x_w"])
+                Semantic::Kernels(&["gemm::act_x_w"])
             } else {
                 // A selector makes the weight per-token, and the grouped
                 // GEMM is that op's lowering. It used to be a refusal
                 // because no text stated the kernel; `moe_mlp_body_cuda`'s
                 // general leg does now.
-                Semantic::Kernels(&["launch_moe_grouped_gemm_bf16"])
+                Semantic::Kernels(&["moe::moe_grouped_gemm_bf16"])
             }
         }
 
@@ -912,16 +912,16 @@ fn semantic(kind: &OpKind, peel_tail: bool) -> Semantic {
         // The router. One launch, and the semantic reading takes the
         // softmax form -- a text that wants the sigmoid or sqrt-softplus
         // router states it as a `Launch` instead.
-        TopK { .. } => Semantic::Kernels(&["launch_topk_softmax_bf16"]),
+        TopK { .. } => Semantic::Kernels(&["moe::topk_softmax_bf16"]),
         // The combine, in its TOKEN-BATCHED form. The two other forms --
         // the per-expert scatter-add and the fused +residual -- are what a
         // CUDA text states as launches when its binding takes them; this
         // is the reading a SEMANTIC trace gets, the same way `Swiglu`'s
         // unpacked form is.
-        WeightedSum { .. } => Semantic::Kernels(&["launch_token_batched_weighted_sum_bf16"]),
+        WeightedSum { .. } => Semantic::Kernels(&["moe::token_batched_weighted_sum_bf16"]),
         // The shared expert's landing: `sigmoid(x·g)` scaling the shared
         // output onto the routed sum, one launch.
-        SigmoidGateAdd => Semantic::Kernels(&["launch_sigmoid_dot_scalar_gate_add_bf16"]),
+        SigmoidGateAdd => Semantic::Kernels(&["mlp::sigmoid_dot_scalar_gate_add_bf16"]),
 
         // Handled by `Lowerer::epilogue`, which needs the row counts and
         // so cannot answer from the kind alone.

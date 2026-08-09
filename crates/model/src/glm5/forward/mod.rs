@@ -5,7 +5,7 @@
 //! things about the reading are worth stating before the body, because
 //! each is a place a transcription could go wrong quietly:
 //!
-//! * **The MLA prepare is FUSED.** `launch_mla_prepare_bf16` does what
+//! * **The MLA prepare is FUSED.** `kernels::attn::mla_prepare_bf16` does what
 //!   the four launches beside it do (`kimi_split_kv_a_norm`,
 //!   `kimi_split_q_b`, `rope`, `write_mla_to_pages`), and the driver
 //!   takes it whenever `mla_prepare_supported(q_rope)` holds. This text
@@ -166,7 +166,7 @@ pub fn glm5_cuda(facts: &Glm5Facts, class: FireClass) -> ForwardPlan {
             let m = rmsnorm(&y, &w.mlp_norm);
             if !facts.is_moe_layer(l) {
                 // The pair form: glm5 binds gate and up separately and
-                // fires `launch_swiglu_bf16` over the two buffers.
+                // fires `kernels::mlp::swiglu_bf16` over the two buffers.
                 let gate = matmul(&m, &w.dense_gate);
                 let _up = matmul(&m, &w.dense_up);
                 let act = dsl::cuda::swiglu(&gate, facts.dense_intermediate, false);

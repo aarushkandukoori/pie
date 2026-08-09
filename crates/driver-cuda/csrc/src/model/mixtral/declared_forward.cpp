@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/mixtral/declared_forward.hpp"
 
 #include <atomic>
@@ -6,21 +7,21 @@
 #include <string>
 #include <vector>
 
-#include "kernels/add_bias.hpp"
-#include "kernels/attn_sink.hpp"
-#include "kernels/dequant_fp4.hpp"
-#include "kernels/dequant_wna16.hpp"
-#include "kernels/embed.hpp"
-#include "kernels/gather_rows.hpp"
-#include "kernels/kv_paged.hpp"
-#include "kernels/moe_dispatch.hpp"
-#include "kernels/residual_add.hpp"
-#include "kernels/rmsnorm.hpp"
-#include "kernels/rope.hpp"
-#include "kernels/swiglu.hpp"
-#include "kernels/topk_softmax.hpp"
-#include "ops/attention_flashinfer.hpp"
-#include "ops/gemm.hpp"
+#include "norm/add_bias.hpp"
+#include "attn/attn_sink.hpp"
+#include "quant/dequant_fp4.hpp"
+#include "quant/dequant_wna16.hpp"
+#include "layout/embed.hpp"
+#include "layout/gather_rows.hpp"
+#include "attn/kv_paged.hpp"
+#include "moe/moe_dispatch.hpp"
+#include "norm/residual_add.hpp"
+#include "norm/rmsnorm.hpp"
+#include "rope/rope.hpp"
+#include "mlp/swiglu.hpp"
+#include "moe/topk_softmax.hpp"
+#include "attn/attention_flashinfer.hpp"
+#include "gemm/gemm.hpp"
 
 namespace pie_cuda_driver::model {
 
@@ -50,24 +51,24 @@ enum class GoKernel {
 };
 
 GoKernel resolve_go_kernel(std::string_view k) {
-    if (k == "ops::gemm_act_x_wt_bias_bf16") return GoKernel::GemmBias;
-    if (k == "launch_write_kv_to_pages") return GoKernel::WriteKvToPages;
-    if (k == "dispatch_attention_flashinfer_decode")
+    if (k == "gemm::act_x_wt_bias_bf16") return GoKernel::GemmBias;
+    if (k == "attn::write_kv_to_pages") return GoKernel::WriteKvToPages;
+    if (k == "attn::dispatch_attention_flashinfer_decode")
         return GoKernel::AttnFlashinferDecode;
-    if (k == "ops::launch_attention_flashinfer_prefill")
+    if (k == "attn::attention_flashinfer_prefill")
         return GoKernel::AttnFlashinferPrefill;
-    if (k == "launch_attention_sink_rescale_bf16")
+    if (k == "attn::attention_sink_rescale_bf16")
         return GoKernel::AttnSinkRescale;
-    if (k == "launch_rope_yarn_original_bf16") return GoKernel::RopeYarnOriginal;
-    if (k == "launch_topk_softmax_bf16") return GoKernel::TopkSoftmax;
-    if (k == "launch_bf16_to_fp16") return GoKernel::Bf16ToFp16;
-    if (k == "launch_mxfp4_moe_gate_up_decode_bf16")
+    if (k == "rope::rope_yarn_original_bf16") return GoKernel::RopeYarnOriginal;
+    if (k == "moe::topk_softmax_bf16") return GoKernel::TopkSoftmax;
+    if (k == "quant::bf16_to_fp16") return GoKernel::Bf16ToFp16;
+    if (k == "quant::mxfp4_moe_gate_up_decode_bf16")
         return GoKernel::Mxfp4GateUp;
-    if (k == "launch_mxfp4_moe_down_decode_bf16") return GoKernel::Mxfp4Down;
-    if (k == "launch_gpt_oss_glu_bf16") return GoKernel::GptOssGlu;
-    if (k == "launch_token_batched_weighted_sum_bf16")
+    if (k == "quant::mxfp4_moe_down_decode_bf16") return GoKernel::Mxfp4Down;
+    if (k == "mlp::gpt_oss_glu_bf16") return GoKernel::GptOssGlu;
+    if (k == "moe::token_batched_weighted_sum_bf16")
         return GoKernel::WeightedSum;
-    if (k == "launch_residual_add_bf16") return GoKernel::ResidualAdd;
+    if (k == "norm::residual_add_bf16") return GoKernel::ResidualAdd;
     throw std::runtime_error(
         "declared gptoss: stated kernel '" + std::string(k) +
         "' is not in this executor's registry (the trace and the driver "
@@ -212,7 +213,7 @@ bool gpt_oss_forward_declared(
     Workspace& ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,
@@ -286,13 +287,13 @@ bool gpt_oss_forward_declared(
     // full/sliding split the way gemma-4 has).
     // The prefill dispatch builds its own plan on the way in, so only the
     // decode class owes one.
-    ops::DecodePlanCachePtr decode_plan;
+    kernels::attn::DecodePlanCachePtr decode_plan;
     if (decode_class) {
-    decode_plan = ops::make_decode_plan();
-    ops::plan_attention_flashinfer_decode(
+    decode_plan = kernels::attn::make_decode_plan();
+    kernels::attn::plan_attention_flashinfer_decode(
         *decode_plan, kv_page_indptr_h, R,
         cfg.num_attention_heads, cfg.num_key_value_heads, d,
-        cache.page_size(), attn_ws, stream,
+        cache.page_size(), attn_ws.view(), stream,
         /*enable_cuda_graph=*/true,
         /*full_attention_variant=*/false,
         cache.hnd_layout());
@@ -316,7 +317,7 @@ bool gpt_oss_forward_declared(
         enter(op.layer);
         switch (op.kind) {
         case PieForwardOpKind::Embed:
-            kernels::launch_embed_bf16(
+            kernels::layout::embed_bf16(
                 token_ids, require(w, plan.weight_name(op)).data(),
                 ws.y.data(), N, H, V, stream);
             break;
@@ -333,7 +334,7 @@ bool gpt_oss_forward_declared(
                 nm.field != "final_norm") {
                 throw_drift("rmsnorm on '" + std::string(name) + "'");
             }
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 ws.y.data(), require(w, name).data(), out, N, H, eps, stream);
             break;
         }
@@ -343,7 +344,7 @@ bool gpt_oss_forward_declared(
             if (nm.field == "o_proj") {
                 // beta=1: the residual folds into the projection, which
                 // is why `o_bias` is a separate add and q/k/v's are not.
-                ops::gemm_act_x_wt_bf16(
+                kernels::gemm::act_x_wt_bf16(
                     cublas.handle(), ws.attn_out.data(),
                     require(w, name).data(), ws.y.data(), N, H, Hq,
                     /*beta=*/1.f);
@@ -358,12 +359,12 @@ bool gpt_oss_forward_declared(
             if (nm.field != "o_bias") {
                 throw_drift("add_bias on '" + std::string(name) + "'");
             }
-            kernels::launch_add_bias_bf16(
+            kernels::norm::add_bias_bf16(
                 ws.y.data(), require(w, name).data(), N, H, stream);
             break;
         }
         case PieForwardOpKind::Rope:
-            kernels::launch_rope_bf16(
+            kernels::rope::rope_bf16(
                 ws.q.data(), ws.k.data(), positions, N,
                 cfg.num_attention_heads, cfg.num_key_value_heads, d,
                 cfg.rope_theta, stream);
@@ -374,7 +375,7 @@ bool gpt_oss_forward_declared(
             int rows = N;
             if (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
                 num_logit_rows < N) {
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.norm_x.data()),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_y.data()),
@@ -384,7 +385,7 @@ bool gpt_oss_forward_declared(
             }
             lm_head_rows = rows;
             (void)lm_head_rows;
-            ops::gemm_act_x_wt_bf16(
+            kernels::gemm::act_x_wt_bf16(
                 cublas.handle(), input, require(w, name).data(),
                 ws.logits.data(), rows, V, H, /*beta=*/0.f);
             break;
@@ -420,14 +421,14 @@ bool gpt_oss_forward_declared(
                 } else {
                     throw_drift("biased projection on '" + std::string(proj) + "'");
                 }
-                ops::gemm_act_x_wt_bias_bf16(
+                kernels::gemm::act_x_wt_bias_bf16(
                     cublas.handle(), in, require(w, proj).data(),
                     require(w, aux(1)).data(), out, N, cols, H, stream);
                 break;
             }
             case GoKernel::WriteKvToPages: {
                 auto kv_view = cache.layer_view(cur_layer);
-                kernels::launch_write_kv_to_pages(
+                kernels::attn::write_kv_to_pages(
                     kv_view, ws.k.data(), ws.v.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, N, R, stream, row_valid_d);
@@ -437,11 +438,11 @@ bool gpt_oss_forward_declared(
                 auto kv_view = cache.layer_view(cur_layer);
                 // The plan-free wrapper, and it takes the LSE in the same
                 // last slot the decode dispatch does.
-                ops::launch_attention_flashinfer_prefill(
+                kernels::attn::attention_flashinfer_prefill(
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
-                    N, R, cfg.num_attention_heads, attn_ws, stream,
+                    N, R, cfg.num_attention_heads, attn_ws.view(), stream,
                     /*window_left=*/window_of(cur_layer),
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
                     d_lse.data());
@@ -452,17 +453,17 @@ bool gpt_oss_forward_declared(
                 // The LSE is the second OUTPUT, and asking for it is the
                 // whole difference between this call and the one every
                 // other family makes.
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *decode_plan, ws.q.data(), kv_view, ws.attn_out.data(),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     /*window_left=*/window_of(cur_layer),
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
                     d_lse.data());
                 break;
             }
             case GoKernel::AttnSinkRescale:
-                kernels::launch_attention_sink_rescale_bf16(
+                kernels::attn::attention_sink_rescale_bf16(
                     ws.attn_out.data(), d_lse.data(),
                     require(w, aux(0)).data(), N, cfg.num_attention_heads, d,
                     stream);
@@ -471,7 +472,7 @@ bool gpt_oss_forward_declared(
                 // Argument for argument the hand pass's `apply_rope`
                 // arm; the params come off the shared cfg, which had
                 // resolved them all along.
-                kernels::launch_rope_yarn_original_bf16(
+                kernels::rope::rope_yarn_original_bf16(
                     ws.q.data(), ws.k.data(), positions, N,
                     cfg.num_attention_heads, cfg.num_key_value_heads, d,
                     cfg.rope_theta, fwd_cfg.yarn_factor,
@@ -480,7 +481,7 @@ bool gpt_oss_forward_declared(
                     fwd_cfg.yarn_original_max_position, stream);
                 break;
             case GoKernel::TopkSoftmax:
-                kernels::launch_topk_softmax_bf16(
+                kernels::moe::topk_softmax_bf16(
                     ws.gate.data(), d_topk_idx.data(), d_topk_w.data(),
                     N, num_experts, top_k, stream);
                 break;
@@ -494,17 +495,17 @@ bool gpt_oss_forward_declared(
                 // silently wrong the day a layer states one of them
                 // twice.
                 if (plan.value(plan.outputs(op)[0]).rank == 2) {
-                    kernels::launch_bf16_to_fp16(
+                    kernels::quant::bf16_to_fp16(
                         ws.norm_y.data(), d_act_fp16.data(),
                         static_cast<std::size_t>(N) * H, stream);
                 } else {
-                    kernels::launch_bf16_to_fp16(
+                    kernels::quant::bf16_to_fp16(
                         d_route_gate.data(), d_route_act_fp16.data(),
                         static_cast<std::size_t>(routes) * I, stream);
                 }
                 break;
             case GoKernel::Mxfp4GateUp:
-                kernels::launch_mxfp4_moe_gate_up_decode_bf16(
+                kernels::quant::mxfp4_moe_gate_up_decode_bf16(
                     d_act_fp16.data(), d_topk_idx.data(),
                     layer.expert_gate_up_packed_ptrs.data(),
                     layer.expert_gate_up_scale_ptrs.data(),
@@ -514,14 +515,14 @@ bool gpt_oss_forward_declared(
                     N, top_k, H, I, stream);
                 break;
             case GoKernel::GptOssGlu:
-                kernels::launch_gpt_oss_glu_bf16(
+                kernels::mlp::gpt_oss_glu_bf16(
                     d_route_gate.data(), d_route_up.data(),
                     d_route_gate.data(),
                     static_cast<int>(static_cast<std::size_t>(routes) * I),
                     stream, /*limit=*/cfg.swiglu_limit);
                 break;
             case GoKernel::Mxfp4Down:
-                kernels::launch_mxfp4_moe_down_decode_bf16(
+                kernels::quant::mxfp4_moe_down_decode_bf16(
                     d_route_act_fp16.data(), d_topk_idx.data(),
                     layer.expert_down_packed_ptrs.data(),
                     layer.expert_down_scale_ptrs.data(),
@@ -529,13 +530,13 @@ bool gpt_oss_forward_declared(
                     d_route_out.data(), N, top_k, H, I, stream);
                 break;
             case GoKernel::WeightedSum:
-                kernels::launch_token_batched_weighted_sum_bf16(
+                kernels::moe::token_batched_weighted_sum_bf16(
                     d_moe_out.data(), d_route_out.data(),
                     static_cast<const float*>(d_topk_w.data()),
                     N, top_k, H, stream);
                 break;
             case GoKernel::ResidualAdd:
-                kernels::launch_residual_add_bf16(
+                kernels::norm::residual_add_bf16(
                     ws.y.data(), d_moe_out.data(), N * H, stream);
                 break;
             }

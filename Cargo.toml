@@ -53,6 +53,14 @@ members = [
     # native shells build their own `csrc/` and are OS-exclusive.
     "crates/driver",
     "crates/driver-cuda",
+    # The Rust rewrite of the CUDA shell, grown beside the C++ one on the same
+    # terms `driver-metal-new` is. Unlike either C++ shell it builds ANYWHERE:
+    # `cudarc` is pinned to a named CUDA version with `fallback-dynamic-loading`,
+    # so there is no link line and no toolkit probe, and the host logic this
+    # crate is mostly made of stays testable on a box with no GPU. It is
+    # outside `default-members` all the same -- linking a CUDA shell into a
+    # sweep should be a choice, and that is the rule the siblings follow.
+    "crates/driver-cuda-new",
     "crates/driver-metal",
     # The Rust rewrite of the Metal shell, grown beside the C++ one rather
     # than inside it. A member so it shares this lockfile and so a workspace
@@ -68,13 +76,11 @@ members = [
 
     # -- model-*: what a model IS, and how it gets onto a device ------------
     # The two registries (`model_type` -> load-contract author, `arch_name` ->
-    # chat template), the twenty generations they dispatch to, and the
-    # vocabulary those share -- one crate, module per generation.
+    # chat template), the twenty generations they dispatch to, the vocabulary
+    # those share, and the `pie.model/1` descriptor (`config`, ex
+    # `model-config`) that every one of them is parameterized by -- one crate,
+    # module per generation, feature per aspect.
     "crates/model",
-    # HF `config.json` normalization -> the `pie.model/1` descriptor. A
-    # deliberate serde-only leaf — no driver, no runtime — so `pie model
-    # convert` runs without dragging in the kernels table.
-    "crates/model-config",
     # Forward-pass declarations: a tracing eDSL whose static control flow runs
     # at model-load time; the traced form is what a driver executes.
     "crates/model-compiler",
@@ -146,7 +152,6 @@ default-members = [
     "crates/driver",
     "crates/driver-dummy",
     "crates/model",
-    "crates/model-config",
     "crates/model-compiler",
     "crates/model-cbindgen",
     "crates/model-loader",
@@ -247,7 +252,6 @@ tokenizer = { path = "crates/tokenizer" }
 # The HF `config.json` normalizer — `pie model convert` runs it once and
 # writes the result as the `pie.model/1` descriptor, so the runtime and the
 # driver stop re-deriving it from HF quirks at every boot.
-model-config = { path = "crates/model-config" }
 # Client edge for `pie config tune`: the sweep generates load through
 # the same websocket path a deployment is reached by, because measuring an
 # in-process shortcut would measure something nobody runs.

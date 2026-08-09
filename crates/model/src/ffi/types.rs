@@ -522,7 +522,7 @@ pub struct PieForwardIdRange {
 /// both rest at 0 on every trace that predates them, so a pre-qwen3.5
 /// consumer reading only param0 still reads what it always did. A partial
 /// `Rope` (param1 != 0) rotates only the first param1 channels of each
-/// head (`launch_rope_partial_bf16`'s `rotary_dim`).
+/// head (`kernels::rope::rope_partial_bf16`'s `rotary_dim`).
 ///
 /// `KvAppend`/`Attention` restate the layer their kind addresses even though
 /// `layer` carries the bracketing layer, because the trace states both

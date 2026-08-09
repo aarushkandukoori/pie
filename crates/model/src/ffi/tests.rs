@@ -902,7 +902,7 @@ fn lowered_qwen3_5_trace_round_trips_through_the_arena() {
         .find(|op| {
             op.layer == 0
                 && op.kind == PieForwardOpKind::Launch
-                && view::name(&out, op.weight_name) == "launch_causal_conv1d_update_batched_bf16"
+                && view::name(&out, op.weight_name) == "ssm::causal_conv1d_update_batched_bf16"
         })
         .expect("decode class states the batched conv update");
     let aux = view::ids(&out, conv.aux_names);
@@ -920,7 +920,7 @@ fn lowered_qwen3_5_trace_round_trips_through_the_arena() {
             op.layer == 0
                 && op.kind == PieForwardOpKind::Launch
                 && view::name(&out, op.weight_name)
-                    == "launch_recurrent_gated_delta_step_batched_state_bf16"
+                    == "ssm::recurrent_gated_delta_step_batched_state_bf16"
         })
         .expect("decode class states the batched recurrence step");
     assert_eq!(step.param0, 2);
@@ -943,7 +943,7 @@ fn lowered_qwen3_5_trace_round_trips_through_the_arena() {
         .find(|op| {
             op.layer == 3
                 && op.kind == PieForwardOpKind::Launch
-                && view::name(&out, op.weight_name) == "launch_write_kv_explicit_bf16"
+                && view::name(&out, op.weight_name) == "attn::write_kv_explicit_bf16"
         })
         .expect("the guard's then-region states the explicit write");
     assert_eq!(write.param0, 1); // kv-cache state...
@@ -953,7 +953,7 @@ fn lowered_qwen3_5_trace_round_trips_through_the_arena() {
         .find(|op| {
             op.layer == 3
                 && op.kind == PieForwardOpKind::Launch
-                && view::name(&out, op.weight_name) == "dispatch_attention_flashinfer_decode"
+                && view::name(&out, op.weight_name) == "attn::dispatch_attention_flashinfer_decode"
         })
         .expect("decode class states the FlashInfer decode dispatch");
     assert_eq!(attn.param0, 1);
@@ -1126,7 +1126,7 @@ fn lowered_trace_round_trips_through_the_arena() {
     assert_eq!(launches.len(), 449);
 
     let table = launches[0];
-    assert_eq!(view::name(&out, table.weight_name), "launch_rope_standard_table");
+    assert_eq!(view::name(&out, table.weight_name), "rope::rope_standard_table");
     assert_eq!(table.param0, 0); // no implicit state
     assert_eq!(table.aux_names.len, 0);
     let table_out = view::ids(&out, table.outputs)[0];
@@ -1134,7 +1134,7 @@ fn lowered_trace_round_trips_through_the_arena() {
     let posts: Vec<_> = launches
         .iter()
         .filter(|op| {
-            view::name(&out, op.weight_name) == "launch_qkv_decode_qk_norm_rope_write_kv_bf16"
+            view::name(&out, op.weight_name) == "attn::qkv_decode_qk_norm_rope_write_kv_bf16"
         })
         .collect();
     assert_eq!(posts.len(), 28);
@@ -1152,7 +1152,7 @@ fn lowered_trace_round_trips_through_the_arena() {
     let attn = launches
         .iter()
         .find(|op| {
-            view::name(&out, op.weight_name) == "launch_attention_xqa_decode_bf16_prepared"
+            view::name(&out, op.weight_name) == "attn::attention_xqa_decode_bf16_prepared"
         })
         .expect("decode class states XQA");
     assert_eq!(attn.param0, 1);
@@ -1280,9 +1280,9 @@ fn the_lowering_crosses_the_abi() {
     assert!(view.iter().all(|(_, _, lo, hi)| *lo == 0 && *hi == 4));
     // Both the stated kernels and the semantic statements' launchers are
     // named — the list is what the fire RUNS, not what it states.
-    assert!(view.iter().any(|(k, ..)| k == "dispatch_attention_flashinfer_decode"));
-    assert!(view.iter().any(|(k, ..)| k == "launch_chunked_swiglu_bf16"));
-    assert!(view.iter().any(|(k, ..)| k == "gemm_act_x_w"));
+    assert!(view.iter().any(|(k, ..)| k == "attn::dispatch_attention_flashinfer_decode"));
+    assert!(view.iter().any(|(k, ..)| k == "mlp::chunked_swiglu_bf16"));
+    assert!(view.iter().any(|(k, ..)| k == "gemm::act_x_w"));
     // Every rectangle points at a real statement.
     let ops = view::ops(&plan).len() as u32;
     assert!(view.iter().all(|(_, at, ..)| *at < ops));

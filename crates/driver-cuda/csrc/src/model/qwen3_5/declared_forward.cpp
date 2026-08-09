@@ -1,9 +1,10 @@
+#include "attention_workspace.hpp"
 #include "model/qwen3_5/declared_forward.hpp"
 #include "model/qwen3_5/qwen3_5_moe.hpp"
 #include "model/qwen3_5/qwen3_5_moe_forward.hpp"
-#include "kernels/moe_dispatch.hpp"
-#include "kernels/moe_grouped_gemm.hpp"
-#include "kernels/topk_softmax.hpp"
+#include "moe/moe_dispatch.hpp"
+#include "moe/moe_grouped_gemm.hpp"
+#include "moe/topk_softmax.hpp"
 #include <type_traits>
 #include "model/declared/arms.hpp"
 #include "model/declared/weights.hpp"
@@ -19,19 +20,19 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels/causal_conv1d.hpp"
-#include "kernels/deinterleave.hpp"
-#include "kernels/embed.hpp"
-#include "kernels/gated_delta_net.hpp"
-#include "kernels/gather_rows.hpp"
-#include "kernels/kv_paged.hpp"
-#include "kernels/rmsnorm.hpp"
-#include "kernels/rope.hpp"
-#include "kernels/split_packed.hpp"
-#include "kernels/swiglu.hpp"
-#include "ops/attention_flashinfer.hpp"
-#include "ops/attention_naive_paged.hpp"
-#include "ops/gemm.hpp"
+#include "ssm/causal_conv1d.hpp"
+#include "layout/deinterleave.hpp"
+#include "layout/embed.hpp"
+#include "ssm/gated_delta_net.hpp"
+#include "layout/gather_rows.hpp"
+#include "attn/kv_paged.hpp"
+#include "norm/rmsnorm.hpp"
+#include "rope/rope.hpp"
+#include "attn/split_packed.hpp"
+#include "mlp/swiglu.hpp"
+#include "attn/attention_flashinfer.hpp"
+#include "attn/attention_naive_paged.hpp"
+#include "gemm/gemm.hpp"
 
 namespace pie_cuda_driver::model {
 
@@ -228,7 +229,7 @@ enum class Q35Kernel {
     ChunkedSwiglu,
     Swiglu,
     // The aligned MoE leg. Eight launches, in the order the traced form
-    // states them; `launch_chunked_swiglu_bf16` is shared with the dense
+    // states them; `kernels::mlp::chunked_swiglu_bf16` is shared with the dense
     // leg and already above.
     TopkSoftmax,
     MoeAlignDecode,
@@ -241,35 +242,35 @@ enum class Q35Kernel {
 };
 
 Q35Kernel resolve_q35_kernel(std::string_view k) {
-    if (k == "launch_causal_conv1d_update_batched_bf16") return Q35Kernel::ConvUpdateBatched;
-    if (k == "launch_causal_conv1d_prefill_batched_bf16") return Q35Kernel::ConvPrefillBatched;
-    if (k == "launch_recurrent_gated_delta_step_batched") return Q35Kernel::StepBatched;
-    if (k == "launch_recurrent_gated_delta_step_batched_state_bf16") return Q35Kernel::StepBatchedBf16;
-    if (k == "launch_recurrent_gated_delta_step_batched_gqa") return Q35Kernel::StepBatchedGqa;
-    if (k == "launch_recurrent_gated_delta_step_batched_gqa_state_bf16") return Q35Kernel::StepBatchedGqaBf16;
-    if (k == "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa") return Q35Kernel::PrefillWarpTiledGqa;
-    if (k == "launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16") return Q35Kernel::PrefillWarpTiledGqaBf16;
-    if (k == "launch_chunk_gated_delta_prefill_batched_cached") return Q35Kernel::PrefillCached;
-    if (k == "launch_chunk_gated_delta_prefill_batched_cached_state_bf16") return Q35Kernel::PrefillCachedBf16;
-    if (k == "launch_chunk_gated_delta_prefill_batched") return Q35Kernel::PrefillFla;
-    if (k == "launch_chunk_gated_delta_prefill_batched_state_bf16") return Q35Kernel::PrefillFlaBf16;
-    if (k == "launch_repeat_interleave_heads_fp32") return Q35Kernel::RepeatInterleave;
+    if (k == "ssm::causal_conv1d_update_batched_bf16") return Q35Kernel::ConvUpdateBatched;
+    if (k == "ssm::causal_conv1d_prefill_batched_bf16") return Q35Kernel::ConvPrefillBatched;
+    if (k == "ssm::recurrent_gated_delta_step_batched") return Q35Kernel::StepBatched;
+    if (k == "ssm::recurrent_gated_delta_step_batched_state_bf16") return Q35Kernel::StepBatchedBf16;
+    if (k == "ssm::recurrent_gated_delta_step_batched_gqa") return Q35Kernel::StepBatchedGqa;
+    if (k == "ssm::recurrent_gated_delta_step_batched_gqa_state_bf16") return Q35Kernel::StepBatchedGqaBf16;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa") return Q35Kernel::PrefillWarpTiledGqa;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16") return Q35Kernel::PrefillWarpTiledGqaBf16;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_cached") return Q35Kernel::PrefillCached;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_cached_state_bf16") return Q35Kernel::PrefillCachedBf16;
+    if (k == "ssm::chunk_gated_delta_prefill_batched") return Q35Kernel::PrefillFla;
+    if (k == "ssm::chunk_gated_delta_prefill_batched_state_bf16") return Q35Kernel::PrefillFlaBf16;
+    if (k == "ssm::repeat_interleave_heads_fp32") return Q35Kernel::RepeatInterleave;
     if (k == "qwen35_verify_stash_load") return Q35Kernel::VerifyStashLoad;
     if (k == "qwen35_verify_stash_store") return Q35Kernel::VerifyStashStore;
-    if (k == "dispatch_attention_flashinfer_decode") return Q35Kernel::AttnFlashinferDecode;
-    if (k == "dispatch_attention_flashinfer_prefill_bf16") return Q35Kernel::AttnFlashinferPrefill;
-    if (k == "launch_write_kv_explicit_bf16") return Q35Kernel::WriteKvExplicit;
-    if (k == "launch_write_kv_to_pages") return Q35Kernel::WriteKvToPages;
-    if (k == "launch_chunked_swiglu_bf16") return Q35Kernel::ChunkedSwiglu;
-    if (k == "launch_swiglu_bf16") return Q35Kernel::Swiglu;
-    if (k == "launch_topk_softmax_bf16") return Q35Kernel::TopkSoftmax;
-    if (k == "launch_moe_align_decode") return Q35Kernel::MoeAlignDecode;
-    if (k == "launch_gather_moe_aligned_inputs_bf16") return Q35Kernel::MoeGatherAligned;
-    if (k == "launch_build_moe_ptrs_aligned_bf16") return Q35Kernel::MoeBuildPtrsAligned;
-    if (k == "launch_moe_grouped_gemm_bf16") return Q35Kernel::MoeGroupedGemm;
-    if (k == "launch_reorder_moe_aligned_output_bf16") return Q35Kernel::MoeReorderAligned;
-    if (k == "launch_token_batched_weighted_sum_add_bf16") return Q35Kernel::MoeWeightedSum;
-    if (k == "launch_sigmoid_dot_scalar_gate_add_bf16") return Q35Kernel::SigmoidDotScalarGateAdd;
+    if (k == "attn::dispatch_attention_flashinfer_decode") return Q35Kernel::AttnFlashinferDecode;
+    if (k == "attn::dispatch_attention_flashinfer_prefill_bf16") return Q35Kernel::AttnFlashinferPrefill;
+    if (k == "attn::write_kv_explicit_bf16") return Q35Kernel::WriteKvExplicit;
+    if (k == "attn::write_kv_to_pages") return Q35Kernel::WriteKvToPages;
+    if (k == "mlp::chunked_swiglu_bf16") return Q35Kernel::ChunkedSwiglu;
+    if (k == "mlp::swiglu_bf16") return Q35Kernel::Swiglu;
+    if (k == "moe::topk_softmax_bf16") return Q35Kernel::TopkSoftmax;
+    if (k == "moe::moe_align_decode") return Q35Kernel::MoeAlignDecode;
+    if (k == "moe::gather_moe_aligned_inputs_bf16") return Q35Kernel::MoeGatherAligned;
+    if (k == "moe::build_moe_ptrs_aligned_bf16") return Q35Kernel::MoeBuildPtrsAligned;
+    if (k == "moe::moe_grouped_gemm_bf16") return Q35Kernel::MoeGroupedGemm;
+    if (k == "moe::reorder_moe_aligned_output_bf16") return Q35Kernel::MoeReorderAligned;
+    if (k == "moe::token_batched_weighted_sum_add_bf16") return Q35Kernel::MoeWeightedSum;
+    if (k == "mlp::sigmoid_dot_scalar_gate_add_bf16") return Q35Kernel::SigmoidDotScalarGateAdd;
     throw std::runtime_error(
         "declared qwen3_5: stated kernel '" + std::string(k) +
         "' is not in this executor's registry (the trace and the driver "
@@ -334,7 +335,7 @@ bool forward_declared_tmpl(
     KvCache& cache,
     RecurrentStateCache& state_cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,
@@ -594,9 +595,9 @@ bool forward_declared_tmpl(
 
     // Attention plan pointers, read exactly as qwen3_5_forward_paged reads
     // them (prepare hoisted the host-side planning out of the body).
-    const ops::DecodePlanCache* decode_plan =
+    const kernels::attn::DecodePlanCache* decode_plan =
         plan_state.decode_plan ? plan_state.decode_plan.get() : nullptr;
-    const ops::PrefillPlanCache* prefill_plan =
+    const kernels::attn::PrefillPlanCache* prefill_plan =
         (plan_state.use_prefill_plan && plan_state.prefill_plan)
             ? plan_state.prefill_plan.get()
             : nullptr;
@@ -669,7 +670,7 @@ bool forward_declared_tmpl(
         case PieForwardOpKind::Embed: {
             const std::string_view name = plan.weight_name(op);
             if (name != "embed") throw_unknown_weight(name);
-            kernels::launch_embed_bf16(
+            kernels::layout::embed_bf16(
                 token_ids, wb.require(name).data(), ws.y.data(),
                 N, H, cfg.vocab_size, stream);
             break;
@@ -686,14 +687,14 @@ bool forward_declared_tmpl(
             const ParsedWeightName nm = parse_weight_name(name);
             if (nm.field == "attn_norm") {
                 const auto& layer = layer_of(w, nm, name);
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.y.data(), wb.require(name).data(),
                     ws.norm_x.data(), N, H, eps, stream);
             } else if (nm.field == "mlp_norm") {
                 // The qwen3_5 MLP reads norm_x (not llama_like's norm_y):
                 // qwen3_5_forward_paged's post-attention norm, verbatim.
                 const auto& layer = layer_of(w, nm, name);
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.y.data(), wb.require(name).data(),
                     ws.norm_x.data(), N, H, eps, stream);
             } else if (nm.layer < 0 && nm.field == "final_norm") {
@@ -702,7 +703,7 @@ bool forward_declared_tmpl(
                 // compact-logit rows afterwards (norm-then-gather — the
                 // opposite interleave from llama_like's epilogue), so the
                 // LmHead arm below only gathers and multiplies.
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.y.data(), wb.require(name).data(),
                     ws.norm_x.data(), N, H, eps, stream);
             } else {
@@ -719,22 +720,22 @@ bool forward_declared_tmpl(
                 layer.kind == LayerW::Kind::LinearAttn;
             // ── GDN in-projections (read norm_x, the pre-attn norm) ──
             if (nm.field == "in_proj_qkv") {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(),
                     wb.require(name),
                     la.mixed_qkv.data(), N, conv_dim, H);
             } else if (nm.field == "in_proj_z") {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(),
                     wb.require(name),
                     la.z.data(), N, V_dim, H);
             } else if (nm.field == "in_proj_a") {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(),
                     wb.require(name),
                     la.a.data(), N, V_h, H);
             } else if (nm.field == "in_proj_b") {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(),
                     wb.require(name),
                     la.b.data(), N, V_h, H);
@@ -744,25 +745,25 @@ bool forward_declared_tmpl(
                 // caller's gate already confirmed the staging buffer holds
                 // N rows (the hand-written `use_fused_qgkv` availability
                 // check), so a missing bank here is drift, not dispatch.
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(),
-                    ops::WeightView(wb.require(name)),
+                    WeightView(wb.require(name)),
                     ws.gate_up_fused.data(), N, qgkv_dim, H);
             } else if (nm.field == "q_proj") {
                 // 2×-wide gated q → the packed [query | gate] buffer.
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(),
                     make_weight_view(&wb.require(name),
                                      layer.fa_q_proj_quant),
                     la.fa_qg_packed.data(), N, 2 * Hq, H);
             } else if (nm.field == "k_proj") {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(),
                     make_weight_view(&wb.require(name),
                                      layer.fa_k_proj_quant),
                     ws.k.data(), N, Hk, H);
             } else if (nm.field == "v_proj") {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(),
                     make_weight_view(&wb.require(name),
                                      layer.fa_v_proj_quant),
@@ -770,12 +771,12 @@ bool forward_declared_tmpl(
             // ── Output projections (residual folded via beta=1) ──────
             } else if (nm.field == "o_proj") {
                 if (linear) {
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         la.core_out_bf16.data(),
                         wb.require(name),
                         ws.y.data(), N, H, V_dim, beta);
                 } else {
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         ws.attn_out.data(),
                         make_weight_view(&wb.require(name),
                                          layer.fa_o_proj_quant),
@@ -798,15 +799,15 @@ bool forward_declared_tmpl(
                     Qwen3_5MoeMlpWorkspace& mw = *moe_ws;
                     const int Is = cfg.shared_expert_intermediate_size;
                     if (nm.field == "router") {
-                        ops::gemm_act_x_wt_bf16(cublas.handle(),
+                        kernels::gemm::act_x_wt_bf16(cublas.handle(),
                             ws.norm_x.data(), wb.require(name).data(),
                             mw.router_logits.data(), N, cfg.num_experts, H);
                     } else if (nm.field == "shared_expert.gate_up") {
-                        ops::gemm_act_x_wt_bf16(cublas.handle(),
+                        kernels::gemm::act_x_wt_bf16(cublas.handle(),
                             ws.norm_x.data(), wb.require(name).data(),
                             mw.shared_gate_up.data(), N, 2 * Is, H);
                     } else {
-                        ops::gemm_act_x_w(cublas.handle(),
+                        kernels::gemm::act_x_w(cublas.handle(),
                             mw.shared_act.data(),
                             make_weight_view(&wb.require(name),
                                              layer.shared_down_proj_quant),
@@ -827,18 +828,18 @@ bool forward_declared_tmpl(
                     layer.gate_up_proj_fused != nullptr &&
                     !ws.gate_up_fused.empty();
                 if (gate_up_used_fused) {
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         ws.norm_x.data(),
-                        ops::WeightView(*layer.gate_up_proj_fused),
+                        WeightView(*layer.gate_up_proj_fused),
                         ws.gate_up_fused.data(), N, 2 * I, H);
                 } else {
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         ws.norm_x.data(),
                         make_weight_view(
                             &wb.require_field(nm.layer, "gate_proj", name),
                             layer.gate_proj_quant),
                         ws.gate.data(), N, I, H);
-                    ops::gemm_act_x_w(cublas.handle(),
+                    kernels::gemm::act_x_w(cublas.handle(),
                         ws.norm_x.data(),
                         make_weight_view(
                             &wb.require_field(nm.layer, "up_proj", name),
@@ -848,7 +849,7 @@ bool forward_declared_tmpl(
                 } else { throw_unknown_weight(name); }
             } else if (nm.field == "down") {
                 if constexpr (kIsDense) {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.gate.data(),
                     make_weight_view(&wb.require(name),
                                      layer.down_proj_quant),
@@ -862,8 +863,8 @@ bool forward_declared_tmpl(
         case PieForwardOpKind::SplitQkv: {
             // Fused full-attn bank split: the "q" leg is the 2×-wide
             // [query | gate] pack (`use_fused_qgkv` in the hand-written
-            // body: launch_split_qkv_bf16(packed, qg, k, v, N, 2*Hq, Hk)).
-            kernels::launch_split_qkv_bf16(
+            // body: kernels::attn::split_qkv_bf16(packed, qg, k, v, N, 2*Hq, Hk)).
+            kernels::attn::split_qkv_bf16(
                 ws.gate_up_fused.data(),
                 la.fa_qg_packed.data(), ws.k.data(), ws.v.data(),
                 N, 2 * Hq, Hk, stream);
@@ -875,12 +876,12 @@ bool forward_declared_tmpl(
             // ([V_h | V_h]) — family.rs's fused gdn body.
             if (op.param0 == static_cast<std::uint32_t>(conv_dim) &&
                 op.param1 == static_cast<std::uint32_t>(V_dim)) {
-                kernels::launch_split_bf16_rows(
+                kernels::layout::split_bf16_rows(
                     la.mixed_qkvz.data(), la.mixed_qkv.data(), la.z.data(),
                     N, conv_dim, V_dim, stream);
             } else if (op.param0 == static_cast<std::uint32_t>(V_h) &&
                        op.param1 == static_cast<std::uint32_t>(V_h)) {
-                kernels::launch_split_qwen_gdn_ba_bf16(
+                kernels::layout::split_qwen_gdn_ba_bf16(
                     la.ba.data(), la.b.data(), la.a.data(), N, V_h, stream);
             } else {
                 throw_drift("SplitGdn widths (" +
@@ -909,7 +910,7 @@ bool forward_declared_tmpl(
             }
             const auto& layer = layer_of(w, nm, name);
             if (layer.la_A_log_fp32 == nullptr) throw_unknown_weight(name);
-            kernels::launch_qwen_gdn_post_conv_prep_bf16(
+            kernels::ssm::qwen_gdn_post_conv_prep_bf16(
                 la.mixed_qkv_post.data(), la.a.data(), la.b.data(),
                 layer.la_A_log_fp32,
                 require(layer.la_dt_bias, dt_name)->data(),
@@ -941,7 +942,7 @@ bool forward_declared_tmpl(
             if (nm.field != "gate_norm") throw_unknown_weight(name);
             const auto& layer = layer_of(w, nm, name);
             if (layer.la_norm_w_fp32 == nullptr) throw_unknown_weight(name);
-            kernels::launch_rmsnorm_gated_fp32_in_bf16(
+            kernels::norm::rmsnorm_gated_fp32_in_bf16(
                 la.core_out.data(), la.z.data(), layer.la_norm_w_fp32,
                 la.core_out_bf16.data(),
                 N * V_h, V_d, /*eps=*/eps, stream);
@@ -957,14 +958,14 @@ bool forward_declared_tmpl(
                             std::to_string(op.param1) +
                             ") != config's heads/head_dim");
             }
-            kernels::launch_split_q_gate_bf16(
+            kernels::layout::split_q_gate_bf16(
                 la.fa_qg_packed.data(), ws.q.data(), la.fa_gate.data(),
                 N, num_q_heads, d, stream);
             break;
         }
         case PieForwardOpKind::RmsnormPerHead: {
             // Gemma fold, in place, one row per head — the hand-written
-            // q/k norms (`launch_rmsnorm_gemma_bf16` over N·heads rows).
+            // q/k norms (`kernels::norm::rmsnorm_gemma_bf16` over N·heads rows).
             if (op.param1 !=
                 static_cast<std::uint32_t>(PieForwardNormVariant::Gemma)) {
                 throw_drift("only the Gemma per-head norm is emitted");
@@ -973,11 +974,11 @@ bool forward_declared_tmpl(
             const ParsedWeightName nm = parse_weight_name(name);
             const auto& layer = layer_of(w, nm, name);
             if (nm.field == "q_norm") {
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.q.data(), wb.require(name).data(),
                     ws.q.data(), N * num_q_heads, d, eps, stream);
             } else if (nm.field == "k_norm") {
-                kernels::launch_rmsnorm_gemma_bf16(
+                kernels::norm::rmsnorm_gemma_bf16(
                     ws.k.data(), wb.require(name).data(),
                     ws.k.data(), N * num_kv_heads, d, eps, stream);
             } else {
@@ -993,7 +994,7 @@ bool forward_declared_tmpl(
                 op.param1 == 0) {
                 throw_drift("only the partial standard rope is emitted");
             }
-            kernels::launch_rope_partial_bf16(
+            kernels::rope::rope_partial_bf16(
                 ws.q.data(), ws.k.data(), positions,
                 N, num_q_heads, num_kv_heads,
                 d, static_cast<int>(op.param1), cfg.rope_theta, stream);
@@ -1013,7 +1014,7 @@ bool forward_declared_tmpl(
         }
         case PieForwardOpKind::SigmoidGateMul: {
             // attn_out *= sigmoid(gate) — the full-attention output gate.
-            kernels::launch_sigmoid_gate_inplace_bf16(
+            kernels::mlp::sigmoid_gate_inplace_bf16(
                 ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
             break;
         }
@@ -1059,7 +1060,7 @@ case PieForwardOpKind::Launch: {
             switch (resolve_q35_kernel(plan.weight_name(op))) {
             case Q35Kernel::ConvUpdateBatched: {
                 const auto& layer = conv_weight();
-                kernels::launch_causal_conv1d_update_batched_bf16(
+                kernels::ssm::causal_conv1d_update_batched_bf16(
                     la.mixed_qkv.data(), layer.la_conv1d_w->data(),
                     layer.la_conv1d_b ? layer.la_conv1d_b->data() : nullptr,
                     state_cache.conv_state(SL, /*slot=*/0),
@@ -1072,7 +1073,7 @@ case PieForwardOpKind::Launch: {
             }
             case Q35Kernel::ConvPrefillBatched: {
                 const auto& layer = conv_weight();
-                kernels::launch_causal_conv1d_prefill_batched_bf16(
+                kernels::ssm::causal_conv1d_prefill_batched_bf16(
                     la.mixed_qkv.data(), layer.la_conv1d_w->data(),
                     layer.la_conv1d_b ? layer.la_conv1d_b->data() : nullptr,
                     la.mixed_qkv_post.data(),
@@ -1085,35 +1086,35 @@ case PieForwardOpKind::Launch: {
                 break;
             }
             case Q35Kernel::StepBatched:
-                kernels::launch_recurrent_gated_delta_step_batched(
+                kernels::ssm::recurrent_gated_delta_step_batched(
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
                     la.core_out.data(), R, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedBf16:
-                kernels::launch_recurrent_gated_delta_step_batched_state_bf16(
+                kernels::ssm::recurrent_gated_delta_step_batched_state_bf16(
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, slot_stride,
                     la.core_out.data(), R, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedGqa:
-                kernels::launch_recurrent_gated_delta_step_batched_gqa(
+                kernels::ssm::recurrent_gated_delta_step_batched_gqa(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
                     la.core_out.data(), R, K_h, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedGqaBf16:
-                kernels::launch_recurrent_gated_delta_step_batched_gqa_state_bf16(
+                kernels::ssm::recurrent_gated_delta_step_batched_gqa_state_bf16(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, slot_stride,
                     la.core_out.data(), R, K_h, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::PrefillWarpTiledGqa:
-                kernels::launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa(
+                kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
@@ -1121,7 +1122,7 @@ case PieForwardOpKind::Launch: {
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillWarpTiledGqaBf16:
-                kernels::launch_chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
+                kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, qo_indptr,
@@ -1129,7 +1130,7 @@ case PieForwardOpKind::Launch: {
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillCached:
-                kernels::launch_chunk_gated_delta_prefill_batched_cached(
+                kernels::ssm::chunk_gated_delta_prefill_batched_cached(
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
@@ -1137,7 +1138,7 @@ case PieForwardOpKind::Launch: {
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillCachedBf16:
-                kernels::launch_chunk_gated_delta_prefill_batched_cached_state_bf16(
+                kernels::ssm::chunk_gated_delta_prefill_batched_cached_state_bf16(
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, qo_indptr,
@@ -1145,7 +1146,7 @@ case PieForwardOpKind::Launch: {
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillFla:
-                kernels::launch_chunk_gated_delta_prefill_batched(
+                kernels::ssm::chunk_gated_delta_prefill_batched(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
@@ -1154,7 +1155,7 @@ case PieForwardOpKind::Launch: {
                     commit_lens);
                 break;
             case Q35Kernel::PrefillFlaBf16:
-                kernels::launch_chunk_gated_delta_prefill_batched_state_bf16(
+                kernels::ssm::chunk_gated_delta_prefill_batched_state_bf16(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, qo_indptr,
@@ -1169,7 +1170,7 @@ case PieForwardOpKind::Launch: {
                                                     : la.q_pre.data();
                 float* dst = repeat_next_is_k ? la.k_norm.data()
                                               : la.q_norm.data();
-                kernels::launch_repeat_interleave_heads_fp32(
+                kernels::ssm::repeat_interleave_heads_fp32(
                     src, dst, N, K_h, V_h, K_d, stream);
                 repeat_next_is_k = !repeat_next_is_k;
                 break;
@@ -1228,11 +1229,11 @@ case PieForwardOpKind::Launch: {
                                 "kernel but prepare built no decode plan");
                 }
                 auto kv_view = kv_view_of(SL);
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
                 break;
             }
             case Q35Kernel::AttnFlashinferPrefill: {
@@ -1241,24 +1242,24 @@ case PieForwardOpKind::Launch: {
                                 "kernel but prepare built no prefill plan");
                 }
                 auto kv_view = kv_view_of(SL);
-                ops::dispatch_attention_flashinfer_prefill_bf16(
+                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *prefill_plan,
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream);
+                    kv_last_page_lens, attn_ws.view(), stream);
                 break;
             }
             case Q35Kernel::WriteKvExplicit: {
                 auto kv_view = kv_view_of(SL);
-                kernels::launch_write_kv_explicit_bf16(
+                kernels::attn::write_kv_explicit_bf16(
                     kv_view, ws.k.data(), ws.v.data(),
                     w_page_d, w_off_d, N, stream, row_valid_d);
                 break;
             }
             case Q35Kernel::WriteKvToPages: {
                 auto kv_view = kv_view_of(SL);
-                kernels::launch_write_kv_to_pages(
+                kernels::attn::write_kv_to_pages(
                     kv_view, ws.k.data(), ws.v.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, N, R, stream);
@@ -1291,20 +1292,20 @@ case PieForwardOpKind::Launch: {
                         const int aligned_rows =
                             ((routes + cap * (block - 1) + block - 1) / block) *
                             block;
-                        kernels::launch_chunked_swiglu_bf16(
+                        kernels::mlp::chunked_swiglu_bf16(
                             mw.aligned_gate_up.data(), mw.aligned_act.data(),
                             aligned_rows, Im, stream);
                         break;
                     }
                     if (moe_ws != nullptr) {
-                        kernels::launch_chunked_swiglu_bf16(
+                        kernels::mlp::chunked_swiglu_bf16(
                             moe_ws->shared_gate_up.data(),
                             moe_ws->shared_act.data(),
                             N, cfg.shared_expert_intermediate_size, stream);
                         break;
                     }
                 }
-                kernels::launch_chunked_swiglu_bf16(
+                kernels::mlp::chunked_swiglu_bf16(
                     ws.gate_up_fused.data(), ws.gate.data(), N, I, stream);
                 break;
             }
@@ -1345,12 +1346,12 @@ case PieForwardOpKind::Launch: {
                     constexpr int shared_row_begin = -1;
                     switch (resolve_q35_kernel(plan.weight_name(op))) {
                     case Q35Kernel::TopkSoftmax:
-                        kernels::launch_topk_softmax_bf16(
+                        kernels::moe::topk_softmax_bf16(
                             mw.router_logits.data(), mw.topk_idx.data(),
                             mw.topk_weights.data(), N, E, Ktop, stream);
                         break;
                     case Q35Kernel::MoeAlignDecode:
-                        kernels::launch_moe_align_decode(
+                        kernels::moe::moe_align_decode(
                             mw.topk_idx.data(), mw.aligned_route_ids.data(),
                             mw.aligned_expert_ids.data(),
                             /*route_to_aligned_row=*/nullptr,
@@ -1358,7 +1359,7 @@ case PieForwardOpKind::Launch: {
                             /*num_tokens_past_padded=*/nullptr, stream);
                         break;
                     case Q35Kernel::MoeGatherAligned:
-                        kernels::launch_gather_moe_aligned_inputs_bf16(
+                        kernels::moe::gather_moe_aligned_inputs_bf16(
                             ws.norm_x.data(), mw.aligned_route_ids.data(),
                             mw.aligned_expert_in.data(),
                             routes, aligned_rows, Ktop, H,
@@ -1371,7 +1372,7 @@ case PieForwardOpKind::Launch: {
                                         std::to_string(aux.size) +
                                         " banks, wants 2");
                         }
-                        kernels::launch_build_moe_ptrs_aligned_bf16(
+                        kernels::moe::build_moe_ptrs_aligned_bf16(
                             mw.aligned_expert_ids.data(),
                             wb.require(plan.name(aux[0])).data(),
                             wb.require(plan.name(aux[1])).data(),
@@ -1412,9 +1413,9 @@ case PieForwardOpKind::Launch: {
                         std::uint16_t* dst =
                             is_gate_up ? mw.aligned_gate_up.data()
                                        : mw.aligned_out.data();
-                        if (kernels::moe_grouped_gemm_bf16_supported(
+                        if (kernels::moe::moe_grouped_gemm_bf16_supported(
                                 block, out_w, in_w)) {
-                            kernels::launch_moe_grouped_gemm_bf16(
+                            kernels::moe::moe_grouped_gemm_bf16(
                                 src, wb.require(bank).data(), dst,
                                 mw.aligned_expert_ids.data(),
                                 max_blocks, block, out_w, in_w, stream);
@@ -1422,7 +1423,7 @@ case PieForwardOpKind::Launch: {
                             // The batched-cuBLAS fallback the hand path
                             // takes when the grouped kernel refuses the
                             // shape; the pointer arrays are already built.
-                            ops::gemm_batched_act_x_wt_bf16(cublas.handle(),
+                            kernels::gemm::batched_act_x_wt_bf16(cublas.handle(),
                                 reinterpret_cast<const void* const*>(
                                     is_gate_up ? mw.b_gu_ptrs.data()
                                                : mw.b_dn_ptrs.data()),
@@ -1437,7 +1438,7 @@ case PieForwardOpKind::Launch: {
                         break;
                     }
                     case Q35Kernel::MoeReorderAligned:
-                        kernels::launch_reorder_moe_aligned_output_bf16(
+                        kernels::moe::reorder_moe_aligned_output_bf16(
                             mw.aligned_out.data(), mw.aligned_route_ids.data(),
                             mw.expert_out.data(), routes, aligned_rows, H,
                             shared_row_begin, N,
@@ -1453,7 +1454,7 @@ case PieForwardOpKind::Launch: {
                         // the hand body sets `add_to_residual` and `moe_out`
                         // IS the residual stream. The declaration says the
                         // same thing, so there is no trailing add to make.
-                        kernels::launch_token_batched_weighted_sum_add_bf16(
+                        kernels::moe::token_batched_weighted_sum_add_bf16(
                             ws.y.data(), mw.expert_out.data(),
                             mw.topk_weights.data(), N, Ktop, H, stream);
                         break;
@@ -1467,7 +1468,7 @@ case PieForwardOpKind::Launch: {
                         // (x, gate_weight, ACCUMULATOR, addend) -- the
                         // hand call's order. Reversing the last two lands
                         // the gate on the wrong buffer and still compiles.
-                        kernels::launch_sigmoid_dot_scalar_gate_add_bf16(
+                        kernels::mlp::sigmoid_dot_scalar_gate_add_bf16(
                             ws.norm_x.data(),
                             wb.require(plan.name(aux[0])).data(),
                             ws.y.data(), mw.shared_out.data(),
@@ -1481,7 +1482,7 @@ case PieForwardOpKind::Launch: {
                 break;
             }
             case Q35Kernel::Swiglu:
-                kernels::launch_swiglu_bf16(
+                kernels::mlp::swiglu_bf16(
                     ws.gate.data(), ws.up.data(), ws.gate.data(),
                     N * I, stream);
                 break;
@@ -1515,16 +1516,16 @@ case PieForwardOpKind::Launch: {
             if (logit_row_indices_d != nullptr &&
                 num_logit_rows > 0 &&
                 num_logit_rows < N) {
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(ws.norm_x.data()),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_y.data()),
                     num_logit_rows, H, stream);
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_y.data(), *lm_head,
                     ws.logits.data(), num_logit_rows, V, H);
             } else {
-                ops::gemm_act_x_w(cublas.handle(),
+                kernels::gemm::act_x_w(cublas.handle(),
                     ws.norm_x.data(), *lm_head,
                     ws.logits.data(), N, V, H);
             }
@@ -1653,7 +1654,7 @@ bool qwen3_5_forward_declared(
     Qwen3_5MoeMlpWorkspace* moe_ws,
     Qwen3_5LinearAttnWorkspace& la, KvCache& cache,
     RecurrentStateCache& state_cache, AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids, const std::int32_t* positions,
     const std::uint32_t* qo_indptr, const std::uint32_t* kv_page_indices,
     const std::uint32_t* kv_page_indptr, const std::uint32_t* kv_last_page_lens,
@@ -1683,7 +1684,7 @@ bool qwen3_5_forward_declared(
     Qwen3_5MoeMlpWorkspace* moe_ws,
     Qwen3_5LinearAttnWorkspace& la, KvCache& cache,
     RecurrentStateCache& state_cache, AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids, const std::int32_t* positions,
     const std::uint32_t* qo_indptr, const std::uint32_t* kv_page_indices,
     const std::uint32_t* kv_page_indptr, const std::uint32_t* kv_last_page_lens,

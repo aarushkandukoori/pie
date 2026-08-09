@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/gemma4/declared_forward.hpp"
 
 #include <algorithm>
@@ -8,19 +9,20 @@
 #include <stdexcept>
 #include <vector>
 
-#include "kernels/gather_rows.hpp"
-#include "kernels/residual_add.hpp"
-#include "kernels/rmsnorm.hpp"
-#include "kernels/rope.hpp"
-#include "kernels/scalar_mul.hpp"
-#include "kernels/softcap.hpp"
-#include "kernels/split_packed.hpp"
-#include "kernels/swiglu.hpp"
-#include "kernels/embed.hpp"
-#include "kernels/kv_paged.hpp"
-#include "ops/attention_flashinfer.hpp"
-#include "ops/attention_naive_paged.hpp"
-#include "ops/gemm.hpp"
+#include "layout/gather_rows.hpp"
+#include "norm/residual_add.hpp"
+#include "norm/rmsnorm.hpp"
+#include "rope/rope.hpp"
+#include "norm/scalar_mul.hpp"
+#include "attn/softcap.hpp"
+#include "attn/qkv_fused.hpp"
+#include "attn/split_packed.hpp"
+#include "mlp/swiglu.hpp"
+#include "layout/embed.hpp"
+#include "attn/kv_paged.hpp"
+#include "attn/attention_flashinfer.hpp"
+#include "attn/attention_naive_paged.hpp"
+#include "gemm/gemm.hpp"
 #include "model/declared/value_arena.hpp"
 #include <string>
 #include <string_view>
@@ -63,34 +65,34 @@ enum class G4Kernel {
 };
 
 G4Kernel resolve_g4_kernel(std::string_view k) {
-    if (k == "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16")
+    if (k == "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16")
         return G4Kernel::QkvPackedPost;
-    if (k == "launch_qk_rmsnorm_rope_bf16_rounded")
+    if (k == "rope::qk_rmsnorm_rope_bf16_rounded")
         return G4Kernel::QkRmsnormRopeRounded;
-    if (k == "launch_rope_bf16") return G4Kernel::RopeQOnly;
-    if (k == "launch_rope_partial_bf16") return G4Kernel::RopeQOnlyPartial;
-    if (k == "launch_rmsnorm_no_scale_bf16") return G4Kernel::RmsnormNoScale;
-    if (k == "launch_write_kv_to_pages") return G4Kernel::WriteKvToPages;
-    if (k == "dispatch_attention_flashinfer_decode")
+    if (k == "rope::rope_bf16") return G4Kernel::RopeQOnly;
+    if (k == "rope::rope_partial_bf16") return G4Kernel::RopeQOnlyPartial;
+    if (k == "norm::rmsnorm_no_scale_bf16") return G4Kernel::RmsnormNoScale;
+    if (k == "attn::write_kv_to_pages") return G4Kernel::WriteKvToPages;
+    if (k == "attn::dispatch_attention_flashinfer_decode")
         return G4Kernel::AttnFlashinferDecode;
     // gemma-4's prefill fires the PLAN-FREE wrapper, not the dispatch
     // llama_like states — one call apart in C++, a whole contract apart
     // in the declaration, so the symbols differ and this registry has
     // only the one gemma-4 actually says.
-    if (k == "ops::launch_attention_flashinfer_prefill")
+    if (k == "attn::attention_flashinfer_prefill")
         return G4Kernel::AttnFlashinferPrefill;
-    if (k == "ops::launch_attention_naive_paged")
+    if (k == "attn::attention_naive_paged")
         return G4Kernel::AttnNaivePaged;
-    if (k == "launch_geglu_tanh_bf16") return G4Kernel::GegluTanh;
-    if (k == "launch_chunked_geglu_tanh_bf16") return G4Kernel::ChunkedGegluTanh;
-    if (k == "launch_rmsnorm_residual_add_scale_rmsnorm_bf16")
+    if (k == "mlp::geglu_tanh_bf16") return G4Kernel::GegluTanh;
+    if (k == "mlp::chunked_geglu_tanh_bf16") return G4Kernel::ChunkedGegluTanh;
+    if (k == "norm::rmsnorm_residual_add_scale_rmsnorm_bf16")
         return G4Kernel::NormResidualScaleNorm;
-    if (k == "launch_rmsnorm_residual_add_bf16") return G4Kernel::NormResidualAdd;
-    if (k == "launch_scalar_mul_bf16") return G4Kernel::ScalarMul;
-    if (k == "launch_transpose_bf16_nld_to_lnd")
+    if (k == "norm::rmsnorm_residual_add_bf16") return G4Kernel::NormResidualAdd;
+    if (k == "norm::scalar_mul_bf16") return G4Kernel::ScalarMul;
+    if (k == "layout::transpose_bf16_nld_to_lnd")
         return G4Kernel::TransposeNldToLnd;
-    if (k == "launch_logit_softcap_bf16") return G4Kernel::LogitSoftcap;
-    if (k == "launch_residual_add_bf16") return G4Kernel::ResidualAdd;
+    if (k == "attn::logit_softcap_bf16") return G4Kernel::LogitSoftcap;
+    if (k == "norm::residual_add_bf16") return G4Kernel::ResidualAdd;
     if (k == "pie_lora_qkv_correction") return G4Kernel::LoraQkvCorrection;
     throw std::runtime_error(
         "declared gemma4: stated kernel '" + std::string(k) +
@@ -340,7 +342,7 @@ bool gemma4_forward_declared(
     Gemma4MoeMlpWorkspace& moe_ws,
     KvCache& cache,
     AttentionWorkspace& attn_ws,
-    ops::CublasHandle& cublas,
+    kernels::gemm::CublasHandle& cublas,
     const std::int32_t* token_ids,
     const std::int32_t* positions,
     const std::uint32_t* qo_indptr,
@@ -446,7 +448,7 @@ bool gemma4_forward_declared(
 
     const auto gemm = [&](const void* act, std::string_view weight, void* out,
                           int m, int n, int k, float beta) {
-        ops::gemm_act_x_wt_bf16(cublas.handle(), act, require(w, weight).data(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(), act, require(w, weight).data(),
                                 out, m, n, k, beta);
     };
 
@@ -501,7 +503,7 @@ bool gemma4_forward_declared(
             const std::string_view name = plan.weight_name(op);
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
-            kernels::launch_embed_bf16(token_ids, require(w, name).data(),
+            kernels::layout::embed_bf16(token_ids, require(w, name).data(),
                                        values.slot(outs[0]), N,
                                        row_width(outs[0]), V, stream);
             break;
@@ -548,7 +550,7 @@ bool gemma4_forward_declared(
             const auto outs = plan.outputs(op);
             need(ins, 1, "rmsnorm inputs");
             need(outs, 1, "rmsnorm outputs");
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 values.slot(ins[0]), require(w, name).data(),
                 values.slot(outs[0]), N, row_width(ins[0]), eps, stream);
             break;
@@ -572,7 +574,7 @@ bool gemma4_forward_declared(
                 throw_drift("per-head norm on '" + std::string(name) +
                             "' states no head width");
             }
-            kernels::launch_rmsnorm_bf16(
+            kernels::norm::rmsnorm_bf16(
                 values.slot(ins[0]), require(w, name).data(),
                 values.slot(outs[0]), N * (row_width(ins[0]) / head), head,
                 eps, stream);
@@ -583,7 +585,7 @@ bool gemma4_forward_declared(
             const auto outs = plan.outputs(op);
             need(ins, 1, "split_qkv inputs");
             need(outs, 3, "split_qkv outputs");
-            kernels::launch_split_qkv_bf16(
+            kernels::attn::split_qkv_bf16(
                 values.slot(ins[0]), values.slot(outs[0]),
                 values.slot(outs[1]), values.slot(outs[2]),
                 N, row_width(outs[0]), row_width(outs[1]), stream);
@@ -600,7 +602,7 @@ bool gemma4_forward_declared(
             // the trace's, which is the half that was convention.
             const auto outs = plan.outputs(op);
             need(outs, 2, "rope outputs");
-            kernels::launch_rope_partial_bf16(
+            kernels::rope::rope_partial_bf16(
                 values.slot(outs[0]), values.slot(outs[1]), positions, N,
                 cfg.num_attention_heads, cur_hk / cur_d, cur_d,
                 static_cast<int>(op.param1),
@@ -625,7 +627,7 @@ bool gemma4_forward_declared(
                 // ask for. It becomes one when the epilogue states its
                 // gather, which is `Lowerer::epilogue`'s job and not an
                 // arm's.
-                kernels::launch_gather_bf16_rows(
+                kernels::layout::gather_bf16_rows(
                     static_cast<const std::uint16_t*>(input),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_y.data()),
@@ -664,7 +666,7 @@ bool gemma4_forward_declared(
                 } else {
                     throw_drift("scale '" + std::string(which) + "'");
                 }
-                kernels::launch_scalar_mul_bf16(
+                kernels::norm::scalar_mul_bf16(
                     values.slot(outs[0]), by,
                     static_cast<std::size_t>(N) * row_width(outs[0]), stream);
                 break;
@@ -684,7 +686,7 @@ bool gemma4_forward_declared(
                     const auto outs = plan.outputs(op);
                     need(ins, 2, "residual_add inputs");
                     need(outs, 1, "residual_add outputs");
-                    kernels::launch_residual_add_bf16(
+                    kernels::norm::residual_add_bf16(
                         values.slot(outs[0]), values.slot(ins[1]),
                         static_cast<std::size_t>(N) * row_width(outs[0]),
                         stream);
@@ -701,7 +703,7 @@ bool gemma4_forward_declared(
                     const auto outs = plan.outputs(op);
                     need(ins, 1, "transpose inputs");
                     need(outs, 1, "transpose outputs");
-                    kernels::launch_transpose_bf16_nld_to_lnd(
+                    kernels::layout::transpose_bf16_nld_to_lnd(
                         static_cast<const std::uint16_t*>(values.slot(ins[0])),
                         static_cast<std::uint16_t*>(values.slot(outs[0])),
                         N, L, ple_dim, stream);
@@ -709,7 +711,7 @@ bool gemma4_forward_declared(
                 break;
             case G4Kernel::QkvPackedPost: {
                 auto kv_view = cache.layer_view(cur_layer);
-                kernels::launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
+                kernels::attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
                     values.slot(plan.inputs(op)[0]),
                     values.slot(plan.outputs(op)[0]),
                     kv_view.k_pages, kv_view.v_pages,
@@ -726,7 +728,7 @@ bool gemma4_forward_declared(
                 const bool q_only = names.size == 1;
                 const auto outs_r = plan.outputs(op);
                 need(outs_r, 1, "rounded qk-norm-rope outputs");
-                kernels::launch_qk_rmsnorm_rope_bf16_rounded(
+                kernels::rope::qk_rmsnorm_rope_bf16_rounded(
                     values.slot(outs_r[0]),
                     // Q-ONLY states one value, so there is no k to ask
                     // for; the kernel is told `num_kv_heads = 0` below
@@ -741,7 +743,7 @@ bool gemma4_forward_declared(
                 break;
             }
             case G4Kernel::RopeQOnlyPartial:
-                kernels::launch_rope_partial_bf16(
+                kernels::rope::rope_partial_bf16(
                     values.slot(plan.outputs(op)[0]),
                     values.slot(plan.outputs(op)[0]), positions, N,
                     cfg.num_attention_heads, /*num_kv_heads=*/0, cur_d,
@@ -753,7 +755,7 @@ bool gemma4_forward_declared(
                 {
                     const auto outs = plan.outputs(op);
                     need(outs, 1, "v-norm outputs");
-                    kernels::launch_rmsnorm_no_scale_bf16(
+                    kernels::norm::rmsnorm_no_scale_bf16(
                         values.slot(outs[0]), values.slot(outs[0]),
                         N * (row_width(outs[0]) / cur_d), cur_d, eps, stream);
                 }
@@ -764,7 +766,7 @@ bool gemma4_forward_declared(
                 // It was passed as nullptr on an assumption, and the
                 // kernel dereferenced it — the illegal access this
                 // drive faulted with on its first live fire.
-                kernels::launch_write_kv_to_pages(
+                kernels::attn::write_kv_to_pages(
                     kv_view, values.slot(plan.inputs(op)[0]),
                     values.slot(plan.inputs(op)[1]),
                     qo_indptr, kv_page_indices, kv_page_indptr,
@@ -773,25 +775,25 @@ bool gemma4_forward_declared(
             }
             case G4Kernel::AttnFlashinferDecode: {
                 auto kv_view = cache.layer_view(cur_layer);
-                ops::DecodePlanCache* p =
+                kernels::attn::DecodePlanCache* p =
                     (cur_full ? moe_ws.decode_plan_full
                               : moe_ws.decode_plan_sliding).get();
-                ops::DecodePlanCachePtr owned;
+                kernels::attn::DecodePlanCachePtr owned;
                 if (p == nullptr) {
-                    owned = ops::make_decode_plan();
+                    owned = kernels::attn::make_decode_plan();
                     p = owned.get();
-                    ops::plan_attention_flashinfer_decode(
+                    kernels::attn::plan_attention_flashinfer_decode(
                         *p, kv_page_indptr_h, R, cfg.num_attention_heads,
-                        cur_hk / cur_d, cur_d, cache.page_size(), attn_ws,
+                        cur_hk / cur_d, cur_d, cache.page_size(), attn_ws.view(),
                         stream, /*enable_cuda_graph=*/true,
                         /*full_attention_variant=*/cur_full,
                         cache.hnd_layout());
                 }
-                ops::dispatch_attention_flashinfer_decode(
+                kernels::attn::dispatch_attention_flashinfer_decode(
                     *p, values.slot(plan.inputs(op)[0]), kv_view,
                     values.slot(plan.outputs(op)[0]),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
                 break;
@@ -802,7 +804,7 @@ bool gemma4_forward_declared(
                     const auto outs = plan.outputs(op);
                     need(ins, 1, "chunked geglu inputs");
                     need(outs, 1, "chunked geglu outputs");
-                    kernels::launch_chunked_geglu_tanh_bf16(
+                    kernels::mlp::chunked_geglu_tanh_bf16(
                         values.slot(ins[0]), values.slot(outs[0]), N,
                         row_width(outs[0]), stream);
                 }
@@ -836,13 +838,13 @@ bool gemma4_forward_declared(
                     const auto* signal =
                         static_cast<const std::uint16_t*>(values.slot(ins[1])) +
                         static_cast<std::size_t>(cur_layer) * N * ple_dim;
-                    kernels::launch_geglu_tanh_bf16(
+                    kernels::mlp::geglu_tanh_bf16(
                         values.slot(ins[0]), signal,
                         values.slot(out[0]), N * ple_dim, stream);
                 } else {
                     const auto ins = plan.inputs(op);
                     need(ins, 2, "geglu pair inputs");
-                    kernels::launch_geglu_tanh_bf16(
+                    kernels::mlp::geglu_tanh_bf16(
                         values.slot(ins[0]), values.slot(ins[1]),
                         values.slot(out[0]), N * row_width(out[0]), stream);
                 }
@@ -871,7 +873,7 @@ bool gemma4_forward_declared(
                 // activation. The `ple ? norm_y : norm_x` input choice
                 // goes with them -- it was this family naming which
                 // scratch the previous statement had landed in.
-                kernels::launch_rmsnorm_residual_add_scale_rmsnorm_bf16(
+                kernels::norm::rmsnorm_residual_add_scale_rmsnorm_bf16(
                     values.slot(ins[0]), require(w, first).data(),
                     values.slot(outs[0]), scale,
                     require(w, aux(1)).data(), values.slot(outs[1]),
@@ -887,25 +889,25 @@ bool gemma4_forward_declared(
                 const auto outs = plan.outputs(op);
                 need(ins, 1, "norm-residual-add inputs");
                 need(outs, 1, "norm-residual-add outputs");
-                kernels::launch_rmsnorm_residual_add_bf16(
+                kernels::norm::rmsnorm_residual_add_bf16(
                     values.slot(ins[0]), require(w, first).data(),
                     values.slot(outs[0]), N, H, eps, stream);
                 break;
             }
             case G4Kernel::LogitSoftcap:
-                kernels::launch_logit_softcap_bf16(
+                kernels::attn::logit_softcap_bf16(
                     values.slot(plan.outputs(op)[0]),
                     fwd_cfg.final_logit_softcap,
                     static_cast<std::size_t>(lm_head_rows) * V, stream);
                 break;
             case G4Kernel::AttnFlashinferPrefill: {
                 auto kv_view = cache.layer_view(cur_layer);
-                ops::launch_attention_flashinfer_prefill(
+                kernels::attn::attention_flashinfer_prefill(
                     values.slot(plan.inputs(op)[0]), kv_view,
                     values.slot(plan.outputs(op)[0]),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
-                    N, R, cfg.num_attention_heads, attn_ws, stream,
+                    N, R, cfg.num_attention_heads, attn_ws.view(), stream,
                     w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
                 break;
@@ -915,7 +917,7 @@ bool gemma4_forward_declared(
                 // `num_pages_in_batch` is the host indptr's LAST entry —
                 // the fire's page count, not the layer's and not the
                 // cache's.
-                ops::launch_attention_naive_paged(
+                kernels::attn::attention_naive_paged(
                     values.slot(plan.inputs(op)[0]), kv_view,
                     values.slot(plan.outputs(op)[0]),
                     qo_indptr, kv_page_indices, kv_page_indptr,

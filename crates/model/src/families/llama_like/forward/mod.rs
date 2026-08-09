@@ -42,7 +42,7 @@ use model_compiler::trace::{
 /// * `Post` (olmo2) — the sub-layer reads the stream raw, its output
 ///   projection lands in scratch (`beta=0`), the norm applies to THAT, and
 ///   a separate `ResidualAdd` lands it — the hand-written post-norm walk's
-///   gemm → `launch_rmsnorm_bf16` → `launch_residual_add_bf16` triplet.
+///   gemm → `kernels::norm::rmsnorm_bf16` → `kernels::norm::residual_add_bf16` triplet.
 pub fn llama_like(facts: &LlamaLikeFacts) -> ForwardPlan {
     dsl::trace_semantic("llama_like", &facts.shape(), |m| {
         dsl::seam(m.trace(), &dsl::seam::IN, &[], None);
@@ -715,17 +715,17 @@ mod tests {
     ///
     /// | trace op            | hand-written kernel(s)                          |
     /// |---------------------|-------------------------------------------------|
-    /// | Rmsnorm(attn_norm)  | launch_rmsnorm_bf16                              |
-    /// | Matmul(qkv)         | ops::gemm_act_x_w (qkv_proj_fused)               |
-    /// | SplitQkv            | launch_split_qkv_bf16                            |
-    /// | RmsnormPerHead x2 + Rope | launch_qk_rmsnorm_rope_bf16 (fused pair)    |
-    /// | KvAppend            | launch_write_kv_to_pages                         |
+    /// | Rmsnorm(attn_norm)  | kernels::norm::rmsnorm_bf16                              |
+    /// | Matmul(qkv)         | kernels::gemm::act_x_w (qkv_proj_fused)               |
+    /// | SplitQkv            | kernels::attn::split_qkv_bf16                            |
+    /// | RmsnormPerHead x2 + Rope | kernels::rope::qk_rmsnorm_rope_bf16 (fused pair)    |
+    /// | KvAppend            | kernels::attn::write_kv_to_pages                         |
     /// | Attention           | dispatch_attention_flashinfer_{decode,prefill}   |
-    /// | Matmul(o_proj)+res  | ops::gemm_act_x_w beta=1                         |
-    /// | Rmsnorm(mlp_norm)   | launch_rmsnorm_bf16                              |
-    /// | Matmul(gate_up)     | ops::gemm_act_x_w                                |
+    /// | Matmul(o_proj)+res  | kernels::gemm::act_x_w beta=1                         |
+    /// | Rmsnorm(mlp_norm)   | kernels::norm::rmsnorm_bf16                              |
+    /// | Matmul(gate_up)     | kernels::gemm::act_x_w                                |
     /// | Swiglu              | (silu-and-mul kernel)                            |
-    /// | Matmul(down)+res    | ops::gemm_act_x_w beta=1                         |
+    /// | Matmul(down)+res    | kernels::gemm::act_x_w beta=1                         |
     #[test]
     fn qwen3_layer_op_sequence() {
         let plan = llama_like(&LlamaLikeFacts::qwen3_0_6b());

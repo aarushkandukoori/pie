@@ -281,7 +281,7 @@ fn qwen3_6_27b_cuda_prefill() {
 /// argument: the selector's two `matmul_per_token`s, the routed swiglu
 /// and the `WeightedSum` collapse into ONE launch that produces
 /// `[Tokens, hidden]`, and the trailing `ResidualAdd` becomes an
-/// explicit `launch_residual_add_bf16` because the fused runner
+/// explicit `kernels::norm::residual_add_bf16` because the fused runner
 /// overwrites its output rather than accumulating.
 #[test]
 fn qwen3_5_moe_mlp_35b_a3b_cuda() {
@@ -443,10 +443,10 @@ fn qwen3_5_hybrid_0_8b_cuda_commit_advance() {
             names,
             [
                 "qwen35_verify_stash_load",
-                "launch_causal_conv1d_prefill_batched_bf16",
+                "ssm::causal_conv1d_prefill_batched_bf16",
                 "GdnPrep",
                 "HookSite(OnAttnProj)",
-                "launch_chunk_gated_delta_prefill_batched_state_bf16",
+                "ssm::chunk_gated_delta_prefill_batched_state_bf16",
                 "HookSite(OnAttn)",
             ],
             "layer {l}"

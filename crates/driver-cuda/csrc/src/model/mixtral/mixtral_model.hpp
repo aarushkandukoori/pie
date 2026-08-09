@@ -1,5 +1,6 @@
 #pragma once
 
+#include "attention_workspace.hpp"
 #include "model/imodel.hpp"
 #include "model/llama_like/llama_like.hpp"
 #include "model/mixtral/declared_forward.hpp"
@@ -22,7 +23,7 @@ public:
     void body(Workspace& ws,
               KvCache& kv,
               AttentionWorkspace& attn_ws,
-              ops::CublasHandle& cublas,
+              kernels::gemm::CublasHandle& cublas,
               const ForwardFn::ForwardInputs& in) override;
 
     ModelCapabilities capabilities() const override { return caps_; }

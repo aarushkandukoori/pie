@@ -11,14 +11,14 @@
 //! * **MLA with no rope.** The full-attention half is MLA, and the text
 //!   states no rope on it. That is not an omission: `kimi_k3_forward.cpp`
 //!   says so in its own words ("there is deliberately no
-//!   `launch_rope_bf16` here"), because this family's positional
+//!   `kernels::rope::rope_bf16` here"), because this family's positional
 //!   information rides the KDA layers instead.
 //!
-//! * **SITU, not swiglu.** Every MLP activation here is `launch_situ_bf16`
+//! * **SITU, not swiglu.** Every MLP activation here is `kernels::mlp::situ_bf16`
 //!   / its chunked twin.
 //!
 //! * **An attention-residual BLOCK that spans layers.**
-//!   `launch_attn_res_blend_bf16` blends a block's accumulated prefix
+//!   `kernels::attn::attn_res_blend_bf16` blends a block's accumulated prefix
 //!   back in every `attn_res_block` layers. It is the one statement here
 //!   whose operands are not this layer's — and the reason the block size
 //!   is a fact rather than a loop bound.
@@ -141,7 +141,7 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
                 let q_b = matmul(&q_a_n, &w.q_b_proj);
                 let kv_a = matmul(&x, &w.kv_a_proj);
                 // The split pair, NOT the fused prepare: this family's
-                // MLA carries no rope, and `launch_mla_prepare_bf16` does
+                // MLA carries no rope, and `kernels::attn::mla_prepare_bf16` does
                 // the rope as part of what it fuses.
                 let (kv_c, k_pe) = dsl::cuda::kimi_split_kv_a_norm(
                     &kv_a,
@@ -178,7 +178,7 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
                 // projection produces `[Tokens, width]`. Same elements
                 // per token, different rank, and the DSL has no rank-3
                 // projection and no `cuda::` twin for
-                // `launch_sigmoid_gate_inplace_bf16` (it is an EMITTED
+                // `kernels::mlp::sigmoid_gate_inplace_bf16` (it is an EMITTED
                 // symbol, produced by the lowering from the semantic op,
                 // so it is deliberately not a `kernel!` row either).
                 //

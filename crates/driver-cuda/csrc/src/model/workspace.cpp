@@ -2,7 +2,7 @@
 #include <cstdlib>
 #include "model/workspace.hpp"
 
-#include "kernels/argmax.hpp"
+#include "sample/argmax.hpp"
 
 #include <algorithm>
 
@@ -80,10 +80,10 @@ Workspace Workspace::allocate_full(
         DType::INT32, {logits_rows, 1});
     ws.argmax_acc_val = DeviceTensor::allocate(
         DType::FP32,
-        {logits_rows, kernels::kArgmaxAccumSlots});
+        {logits_rows, kernels::sample::kArgmaxAccumSlots});
     ws.argmax_acc_idx = DeviceTensor::allocate(
         DType::INT32,
-        {logits_rows, kernels::kArgmaxAccumSlots});
+        {logits_rows, kernels::sample::kArgmaxAccumSlots});
     // Padded q/k/v/attn_out only when head_dim != head_dim_kernel
     // (currently only Phi-3 at 96 → 128). Empty allocations otherwise
     // — the forward path detects the empty-state and aliases the
@@ -156,8 +156,8 @@ std::size_t workspace_bytes(const HfConfig& cfg,
         const std::size_t logits_rows = static_cast<std::size_t>(
             workspace_logits_rows(N, max_mtp_draft_rows));
         bytes += i32(logits_rows);
-        bytes += fp32(logits_rows * kernels::kArgmaxAccumSlots);
-        bytes += i32(logits_rows * kernels::kArgmaxAccumSlots);
+        bytes += fp32(logits_rows * kernels::sample::kArgmaxAccumSlots);
+        bytes += i32(logits_rows * kernels::sample::kArgmaxAccumSlots);
     }
     if (cfg.head_dim != cfg.head_dim_kernel) {
         const int q_heads = max_Hq / std::max(1, cfg.head_dim);

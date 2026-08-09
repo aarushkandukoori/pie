@@ -49,8 +49,8 @@ impl Gemma4LayerW {
             layer: Some(l),
         };
         // PLAIN, despite the family name: `gemma4.cpp` fires
-        // `launch_rmsnorm_bf16` at all fourteen of its norm sites and
-        // `launch_rmsnorm_gemma_bf16` at none. The `(1 + w)` fold is
+        // `kernels::norm::rmsnorm_bf16` at all fourteen of its norm sites and
+        // `kernels::norm::rmsnorm_gemma_bf16` at none. The `(1 + w)` fold is
         // done to the tensors at LOAD for this family, so a declaration
         // that stated Gemma would be stating a second fold.
         let norm = |name: &str| NormW {
@@ -97,7 +97,7 @@ impl Gemma4LayerW {
 ///
 /// **The input norm is missing from every layer but the first.** That is
 /// not an omission: layer `l`'s PLE epilogue fires
-/// `launch_rmsnorm_residual_add_scale_rmsnorm_bf16`, whose FOURTH
+/// `kernels::norm::rmsnorm_residual_add_scale_rmsnorm_bf16`, whose FOURTH
 /// statement is layer `l+1`'s `attn_norm`. The fusion crosses the layer
 /// boundary, so the declaration does too — `gemma4.cpp:1999` produces
 /// it and `:1529` is the guard that skips re-computing it.

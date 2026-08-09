@@ -67,12 +67,231 @@ pub enum Prepare {
     /// XQA's fire-wide prepare — R-shaped, so it cannot be built per row
     /// window. This is why `xqa_decode` is also `whole`.
     FireWide,
-    /// MLA's plan (`ops::plan_attention_mla_bf16`), which is its own kind
+    /// MLA's plan (`kernels::attn::plan_attention_mla_bf16`), which is its own kind
     /// rather than a FlashInfer plan under another name: it is built from
     /// `kv_lora_rank` and `qk_rope_head_dim` — a latent KV geometry no other
     /// prepare here has a field for — and it is cached in an `MlaPlanCache`
     /// the dispatch borrows, not in the shared attention workspace.
     MlaPlan,
+}
+
+/// One point of one instantiation axis, and the text it contributes to a name.
+///
+/// See [`KernelSig::axes`] for why a row has these at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Axis {
+    /// What varies. Prose, for a reader of the table; the matcher never reads
+    /// it.
+    pub what: &'static str,
+    /// The suffixes this axis can contribute, in the order a name spells them.
+    /// Exactly one is present in any entrypoint the axis reaches.
+    ///
+    /// A point MAY be `""`, for an axis whose default specialisation adds no
+    /// text — `sdpa_paged_decode<…, 0, false, 32>` is spelled
+    /// `sdpa_paged_decode_bfloat16_d_128` and the two others are `…_p32` and
+    /// `…_p32_sg8`, off ONE template. Two rules follow and both are checked by
+    /// [`KernelSig::covers`]'s ordering rather than asserted:
+    ///
+    /// * the empty point goes LAST, because matching is first-wins and an
+    ///   empty suffix matches everything;
+    /// * a longer point goes before a shorter one it ends with (`_p32_sg8`
+    ///   before `_p32`), for the same reason.
+    pub points: &'static [&'static str],
+}
+
+/// What one operand of a launcher is, in words neither backend owns.
+///
+/// This is deliberately a SMALL vocabulary. It is not a type system and it is
+/// not trying to describe what a buffer contains — `q`, `k` and `k_pages` are
+/// all [`Ty::BufMut`], because how a kernel reads its own tensor is the
+/// kernel's business. What it has to describe is exactly what a CALLER must
+/// know to place an argument: how wide the word is, whether the callee may
+/// write through it, and whether it may be absent.
+///
+/// The element-typed array kinds exist because the C++ spells them
+/// (`const std::uint32_t*` for a CSR array, `const std::int32_t*` for
+/// positions) and losing that would make the generated declaration a `void*`
+/// that no longer proves anything — see [`crate`]'s note on why the shim is
+/// generated rather than written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ty {
+    /// An opaque device buffer the launcher may WRITE through (`void*`).
+    BufMut,
+    /// An opaque device buffer the launcher only reads (`const void*`).
+    Buf,
+    /// A read-only device array of `i32` — positions, and the like.
+    I32s,
+    /// A read-only device array of `u32` — the CSR/indptr family.
+    U32s,
+    /// A read-only device array of `u8` — the per-row validity masks.
+    U8s,
+    /// A device array of `f32` the launcher WRITES — the built tables.
+    F32sMut,
+    /// A read-only device array of `f32` — softmax scales, sinks, biases.
+    F32s,
+    /// A device array of `i32` the launcher WRITES.
+    I32sMut,
+    /// A device array of `u32` the launcher WRITES — the indptrs a plan
+    /// builds, as opposed to the ones a dispatch reads.
+    U32sMut,
+    /// A device array of `u8` the launcher WRITES — the packed masks.
+    U8sMut,
+    /// A host scalar.
+    I32,
+    /// A host scalar. Distinct from [`Ty::I32`] because the headers spell it
+    /// `std::uint32_t`, and a mirror that guessed `i32` would be a silent
+    /// sign bug on any value above 2^31 rather than a compile error.
+    U32,
+    /// A host byte count, spelled `std::size_t`. Its width is the platform's,
+    /// which is why it is not [`Ty::U32`] widened by hand.
+    Usize,
+    /// A host scalar.
+    F32,
+    /// A host flag. Spelled `bool` in C++, so it is ONE byte and not `i32`;
+    /// a binding that gets this wrong is a silent stack-layout bug rather
+    /// than a compile error, which is why it is its own kind.
+    Bool,
+    /// The stream the launch is ordered on.
+    Stream,
+    /// The cuBLAS handle a library-issued launch is ordered through.
+    ///
+    /// A launcher is "anything that issues device work", so the MLA absorb
+    /// pair are launchers even though the work is `cublasGemmStridedBatchedEx`
+    /// and not a kernel of ours. This is what they take instead of a stream —
+    /// the stream is set on the handle.
+    CublasHandle,
+
+    // ---- The struct-shaped operands. ----
+    //
+    // Four passing modes, and the mode is the launcher's choice rather than
+    // the row author's, so it is recorded here in `cpp()` rather than spelled
+    // at each use. What separates them is what the RUST side can say:
+    //
+    //   by value, POD     a `#[repr(C)]` mirror, its layout proven by
+    //                     `emit_layout_assertions`
+    //   by const ref/ptr, POD    the same mirror, behind a `*const`
+    //   by const ref, INCOMPLETE the C++ never defines the type, so Rust
+    //                     has nothing to mirror and gets `*const c_void`
+    //
+    // A row cannot pick the wrong one by accident: the shim initialises a
+    // function pointer, and a function pointer takes no conversions.
+    /// The attention scratch, by value — [`Ty::Usize`]-sized buffers the
+    /// driver owns and the kernels only read out of. Five words, so it is
+    /// cheaper to copy than to chase.
+    AttentionWorkspaceView,
+    /// One layer's paged KV, by value.
+    KvCacheLayerView,
+    /// One layer's paged MLA cache, by value.
+    MlaCacheLayerView,
+    /// FlashInfer's decode plan, by `const&`. **Incomplete** in the header —
+    /// `struct DecodePlanCache;` and nothing more — so this is a handle the
+    /// driver holds and hands back, never a layout.
+    DecodePlanCache,
+    /// FlashInfer's prefill plan, by `const&`. Incomplete, as above.
+    PrefillPlanCache,
+    /// The MLA plan, by `const&`. Incomplete, as above.
+    MlaPlanCache,
+    /// The sm90 prefill schedule, by `const&`. Unlike the plan caches this
+    /// one IS defined — a POD of offsets and extents — so Rust can mirror it.
+    HopperPrefillPlan,
+    /// Original-YaRN scaling, by `const*`. POD, and a pointer rather than a
+    /// reference because it is optional: see `nullable`.
+    YarnOriginalParams,
+}
+
+impl Ty {
+    /// How C++ spells this, for a generated declaration.
+    ///
+    /// The pointer kinds are spelled with the fixed-width `std::` names the
+    /// headers use, not `int`/`unsigned`, so the generated text is the same
+    /// text a reader finds in the header it is checked against.
+    pub const fn cpp(self) -> &'static str {
+        match self {
+            Ty::BufMut => "void*",
+            Ty::Buf => "const void*",
+            Ty::I32s => "const ::std::int32_t*",
+            Ty::U32s => "const ::std::uint32_t*",
+            Ty::U8s => "const ::std::uint8_t*",
+            Ty::F32sMut => "float*",
+            Ty::F32s => "const float*",
+            Ty::I32sMut => "::std::int32_t*",
+            Ty::U32sMut => "::std::uint32_t*",
+            Ty::U8sMut => "::std::uint8_t*",
+            Ty::I32 => "int",
+            Ty::U32 => "::std::uint32_t",
+            Ty::Usize => "::std::size_t",
+            Ty::F32 => "float",
+            Ty::Bool => "bool",
+            Ty::Stream => "cudaStream_t",
+            Ty::CublasHandle => "cublasHandle_t",
+            Ty::AttentionWorkspaceView => "::pie_cuda_driver::AttentionWorkspaceView",
+            Ty::KvCacheLayerView => "::pie_cuda_driver::KvCacheLayerView",
+            Ty::MlaCacheLayerView => "::pie_cuda_driver::MlaCacheLayerView",
+            Ty::DecodePlanCache => "const ::pie_cuda_driver::kernels::attn::DecodePlanCache&",
+            Ty::PrefillPlanCache => "const ::pie_cuda_driver::kernels::attn::PrefillPlanCache&",
+            Ty::MlaPlanCache => "const ::pie_cuda_driver::kernels::attn::MlaPlanCache&",
+            Ty::HopperPrefillPlan => "const ::pie_cuda_driver::kernels::attn::HopperPrefillPlan&",
+            Ty::YarnOriginalParams => "const ::pie_cuda_driver::kernels::attn::YarnOriginalParams*",
+        }
+    }
+
+    /// How Rust spells this on an `extern "C"` declaration.
+    ///
+    /// `Stream` lands as a plain opaque pointer rather than any driver type:
+    /// `cudaStream_t` is `CUstream_st*` and `CUstream` is the same pointer,
+    /// so a driver-side binding can pass its own handle without a conversion,
+    /// and this crate does not have to name either API to say so.
+    pub const fn rust(self) -> &'static str {
+        match self {
+            Ty::BufMut => "*mut ::core::ffi::c_void",
+            Ty::Buf => "*const ::core::ffi::c_void",
+            Ty::I32s => "*const i32",
+            Ty::U32s => "*const u32",
+            Ty::U8s => "*const u8",
+            Ty::F32sMut => "*mut f32",
+            Ty::F32s => "*const f32",
+            Ty::I32sMut => "*mut i32",
+            Ty::U32sMut => "*mut u32",
+            Ty::U8sMut => "*mut u8",
+            Ty::I32 => "::core::ffi::c_int",
+            Ty::U32 => "u32",
+            Ty::Usize => "usize",
+            Ty::F32 => "f32",
+            Ty::Bool => "bool",
+            Ty::Stream | Ty::CublasHandle => "*mut ::core::ffi::c_void",
+            // Unqualified on purpose: a generated binding is placed in a
+            // module that has the mirrors in scope, and this crate does not
+            // know — and must not have to know — which module that is.
+            Ty::AttentionWorkspaceView => "AttentionWorkspaceView",
+            Ty::KvCacheLayerView => "KvCacheLayerView",
+            Ty::MlaCacheLayerView => "MlaCacheLayerView",
+            // Incomplete in the C++, so there is no layout to mirror and the
+            // honest Rust type is the pointer a `const&` already is.
+            Ty::DecodePlanCache | Ty::PrefillPlanCache | Ty::MlaPlanCache => {
+                "*const ::core::ffi::c_void"
+            }
+            Ty::HopperPrefillPlan => "*const HopperPrefillPlan",
+            Ty::YarnOriginalParams => "*const YarnOriginalParams",
+        }
+    }
+}
+
+/// One operand of a launcher, in the position the launcher takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Operand {
+    /// The C++ parameter's name. Prose — nothing matches on it — but it is
+    /// what makes a row diffable against the header by eye, and what a
+    /// generated binding names its argument.
+    pub name: &'static str,
+    /// What has to be placed here.
+    pub ty: Ty,
+    /// The launcher accepts a null here and means something by it.
+    ///
+    /// Not checkable by the C++ compiler — every pointer accepts null — which
+    /// is exactly why it belongs in the table. `rope_write_kv_bf16`'s
+    /// `row_valid` says "may be null" in a comment today, and a comment is
+    /// not something a binding can be generated from.
+    pub nullable: bool,
 }
 
 /// One kernel's contract.
@@ -126,12 +345,136 @@ pub struct KernelSig {
     /// trace, restating a fact about the KERNEL. Migration step 5 moved it
     /// here.
     pub depth_prefix_plan: bool,
+    /// The operands `symbol` takes, in order — the launch ABI, as data.
+    ///
+    /// Empty means UNSTATED, not "takes nothing": a launcher that genuinely
+    /// took no operands would still take a stream. Rows are being filled in a
+    /// family at a time (`rope` is the pilot), so an empty list is how a row
+    /// says it has not been done yet, and nothing may infer a nullary call
+    /// from one.
+    ///
+    /// Stating this is what lets the DECLARATION be generated from the row
+    /// instead of written beside it. That turns the crate's own invariant —
+    /// every symbol resolves to exactly one declaration, every declaration
+    /// has exactly one row — from a check into a tautology, the same way
+    /// deriving `symbol` from the module path did for names. It is also the
+    /// only way this contract can be PROVEN: a generated shim that calls the
+    /// real function makes a wrong row a C++ compile error, so the compiler
+    /// is the oracle and no golden can drift.
+    ///
+    /// Default arguments are not representable and that is deliberate. A row
+    /// lists every operand the callee has, defaulted or not, because a
+    /// caller that is not C++ cannot omit one — and because a default is a
+    /// choice the table should be able to see.
+    pub operands: &'static [Operand],
+    /// The axes `symbol` is instantiated over, if it names a FAMILY of
+    /// entrypoints rather than one.
+    ///
+    /// Empty is the CUDA case and the default: a launcher there is an authored
+    /// C++ function, so one row is one symbol and [`sig_in`] matches it whole.
+    ///
+    /// Metal's are generated. `quantized_qmm_t.metal` holds one template body
+    /// and a macro that stamps it over `(group, bits) × (bm, bn)`, so `54` of
+    /// its entrypoints are one kernel evaluated at 54 points. Enumerating them
+    /// as 54 rows would state the macro's job a second time, by hand, and
+    /// `.wiki/kernel-refactor.md` §5's own rule — *would the two share one C++
+    /// definition?* — says they are not distinct kernels. So the row is the
+    /// base and the axes are declared beside it.
+    ///
+    /// This is not a Metal-only idea. CUDA writes the same product into
+    /// FILENAMES (`attn/flashinfer_hd{64,128,256,512}.cu`,
+    /// `attn/xqa_gqa{2,4,8}.cu`) and cannot state it, because each of those is
+    /// separately authored. When that changes, the axis is already spelled
+    /// here.
+    pub axes: &'static [Axis],
 }
 
-/// Declare one kernel. The syntax is `.wiki/tart/dsl.md` ②'s, minus the
-/// operand shapes: those stay with the emitter until the launch ABI flattens,
-/// and stating them twice would be the duplication this redesign exists to
-/// remove.
+impl KernelSig {
+    /// Does `symbol` name this row at one point of its axes?
+    ///
+    /// Order matters and is the whole implementation: the axes are declared in
+    /// the order a name spells them, so this peels suffixes from the END, one
+    /// axis at a time, and what must remain is the base. That refuses
+    /// `qmm_t_bfloat16_gs_64_b_4` (a `bm`/`bn` short of a real entrypoint) and
+    /// refuses a permuted spelling, both of which a "contains all the points"
+    /// test would wave through.
+    /// Does `symbol` name this row — as the kernel itself, or at one point of
+    /// its axes?
+    ///
+    /// Both are legitimate and they come from different places. **A model text
+    /// states the KERNEL**, because the axis point is a deployment fact: which
+    /// affine format a checkpoint is, how wide its heads are. `dsl::metal`
+    /// records `affine_qmv_fast` and the driver resolves
+    /// `affine_qmv_fast_bfloat16_gs_64_b_4` at load, from `AffineFormat`. **The
+    /// driver and the audit name the POINT**, because that is what a pipeline
+    /// is built from.
+    ///
+    /// So the base resolves, and so does every point. What does not resolve is
+    /// anything between them: [`Self::covers_point`] peels the axes from the
+    /// END in declaration order, so a half-spelled name is refused rather than
+    /// rounded to the nearest row.
+    pub fn covers(&self, symbol: &str) -> bool {
+        self.symbol == symbol || self.covers_point(symbol)
+    }
+
+    /// `symbol` is this row at one point of its axes — not the bare base.
+    ///
+    /// Order is the whole implementation: the axes are declared in the order a
+    /// name spells them, so this peels suffixes from the end, one axis at a
+    /// time, and what must remain is the base. That refuses
+    /// `qmm_t_bfloat16_gs_64_b_4` (a tile short of a real entrypoint) and
+    /// refuses a permuted spelling, both of which a "contains all the points"
+    /// test would wave through.
+    pub fn covers_point(&self, symbol: &str) -> bool {
+        if self.axes.is_empty() {
+            return false;
+        }
+        let mut rest = symbol;
+        for axis in self.axes.iter().rev() {
+            match axis
+                .points
+                .iter()
+                .find(|point| rest.len() > point.len() && rest.ends_with(**point))
+            {
+                Some(point) => rest = &rest[..rest.len() - point.len()],
+                None => return false,
+            }
+        }
+        rest == self.symbol
+    }
+
+    /// Every entrypoint this row names: the product of its axes, appended in
+    /// declaration order. One element (the symbol itself) when there are none.
+    ///
+    /// This is the other half of [`KernelSig::covers`], and the reason both
+    /// exist: `covers` answers "is this name mine", `entrypoints` answers
+    /// "what are all of mine", and `scripts/metal-kernel-audit.py` compares
+    /// the second against the shader tree. A row that generates a name no
+    /// shader instantiates, or misses one that exists, fails there — which is
+    /// the invariant `.wiki/kernel-metal-refactor.md` §6 (1) states.
+    pub fn entrypoints(&self) -> Vec<String> {
+        let mut out = vec![self.symbol.to_string()];
+        for axis in self.axes {
+            out = out
+                .iter()
+                .flat_map(|stem| {
+                    axis.points.iter().map(move |point| format!("{stem}{point}"))
+                })
+                .collect();
+        }
+        out
+    }
+}
+
+/// Declare one kernel. The syntax is `.wiki/tart/dsl.md` ②'s.
+///
+/// Operand shapes used to be excluded from this on the grounds that they
+/// stayed with the emitter until the launch ABI flattened, and that stating
+/// them here would duplicate it. They are admitted now, through
+/// [`KernelSig::operands`] and the [`operands!`] macro, because flattening
+/// the ABI is precisely what a stated operand list DOES: once the row carries
+/// the signature, the C++ declaration and every non-C++ binding are generated
+/// from it, and the emitter reads the row rather than knowing a second copy.
 ///
 /// Exported so the two backend tables can declare rows in the same words. It
 /// names [`KernelSig`], [`Prepare`] and [`Cap`] through `$crate`, so a table
@@ -152,15 +495,181 @@ macro_rules! kernel {
                 sink: None,
                 in_place: &[],
                 depth_prefix_plan: false,
+                operands: &[],
+                axes: &[],
             }
         }
     };
 }
 
+/// An operand list, spelled the way the C++ declaration reads.
+///
+/// `name: Ty`, in the callee's parameter order, with `| null` on the ones
+/// that accept an absent pointer:
+///
+/// ```ignore
+/// operands![
+///     q: BufMut, k: BufMut,
+///     positions: I32s,
+///     row_valid: U8s | null,
+///     num_tokens: I32, theta: F32,
+///     stream: Stream,
+/// ]
+/// ```
+///
+/// `| null` rather than a `?` suffix on purpose: `?` is a token a `tt` would
+/// swallow ahead of the `,` separating two operands, and the arm would then
+/// depend on macro lookahead rather than on anything a reader can see.
+#[macro_export]
+macro_rules! operands {
+    ($($name:ident : $ty:ident $(| $null:ident)?),* $(,)?) => {
+        &[$($crate::Operand {
+            name: stringify!($name),
+            ty: $crate::Ty::$ty,
+            nullable: $crate::operands!(@nullable $($null)?),
+        }),*]
+    };
+    (@nullable) => { false };
+    (@nullable null) => { true };
+}
+
 /// The contract for one symbol, in `table`.
 ///
-/// A linear scan: the tables are ~100 and ~20 rows, and the call sites are
+/// A linear scan: the tables are ~100 and ~90 rows, and the call sites are
 /// load-time (a declaration is traced when the model loads), not per-fire.
+///
+/// Exact matches on the symbol are tried first and across the WHOLE table,
+/// before any row is allowed to claim `symbol` as a point of its axes. Without
+/// that two-pass order a row could swallow a sibling whose base happens to end
+/// in one of its points, and which row won would depend on declaration order.
+///
+/// CUDA's rows carry no axes, so for them the second pass never fires and this
+/// is the same linear scan it always was.
 pub fn sig_in(table: &'static [KernelSig], symbol: &str) -> Option<&'static KernelSig> {
-    table.iter().find(|k| k.symbol == symbol)
+    table
+        .iter()
+        .find(|k| k.symbol == symbol)
+        .or_else(|| table.iter().find(|k| k.covers_point(symbol)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const AFFINE: Axis = Axis {
+        what: "affine group and width",
+        points: &["_gs_32_b_4", "_gs_64_b_4", "_gs_128_b_4",
+                  "_gs_32_b_8", "_gs_64_b_8", "_gs_128_b_8"],
+    };
+    const TILE: Axis = Axis {
+        what: "routed GEMM tile",
+        points: &["_bm_16_bn_16", "_bm_32_bn_32", "_bm_64_bn_64"],
+    };
+    const DTYPE: Axis = Axis { what: "activation dtype", points: &["_bfloat16"] };
+
+    static TABLE: &[KernelSig] = &[
+        kernel!(qmv "affine_qmv_fast", axes = &[DTYPE, AFFINE]),
+        kernel!(qmm_t "affine_qmm_t", axes = &[DTYPE, AFFINE, TILE]),
+        // A base that is ALSO a legal entrypoint, next to its dtyped form.
+        kernel!(route_sort "moe_route_sort"),
+        kernel!(router "router_topk", axes = &[DTYPE]),
+    ];
+
+    fn named(symbol: &str) -> Option<&'static str> {
+        sig_in(TABLE, symbol).map(|k| k.name)
+    }
+
+    #[test]
+    fn a_row_covers_every_point_of_its_axes() {
+        assert_eq!(named("affine_qmv_fast_bfloat16_gs_64_b_4"), Some("qmv"));
+        assert_eq!(named("affine_qmv_fast_bfloat16_gs_128_b_8"), Some("qmv"));
+        assert_eq!(
+            named("affine_qmm_t_bfloat16_gs_32_b_4_bm_64_bn_64"),
+            Some("qmm_t")
+        );
+    }
+
+    /// The axes are peeled from the END in declaration order, so a name that
+    /// stops short of a full point set is NOT covered. This is the case a
+    /// "contains all the points" test would wave through, and it is exactly
+    /// the shape of the bug the table exists to catch: `decode_psos.cpp`
+    /// building `"affine_qmm_t" + q` and forgetting the tile.
+    #[test]
+    fn a_partial_or_permuted_spelling_is_refused() {
+        assert_eq!(named("affine_qmm_t_bfloat16_gs_64_b_4"), None); // no tile
+        assert_eq!(named("affine_qmm_t_bm_16_bn_16"), None); // no dtype/affine
+        // Right points, wrong order.
+        assert_eq!(named("affine_qmm_t_bfloat16_bm_16_bn_16_gs_64_b_4"), None);
+        // A point that is not on the axis.
+        assert_eq!(named("affine_qmv_fast_bfloat16_gs_16_b_4"), None);
+    }
+
+    /// A row whose base is itself an entrypoint keeps it, and does not get
+    /// eaten by a sibling that could peel to the same text.
+    #[test]
+    fn a_row_resolves_by_its_base_and_by_every_point() {
+        assert_eq!(named("moe_route_sort"), Some("route_sort"));
+        assert_eq!(named("router_topk_bfloat16"), Some("router"));
+        // The BASE resolves too, and this is not a convenience: a model text
+        // states the kernel, not the instantiation, because the affine format
+        // is a checkpoint fact the lowering does not have. `dsl::metal` records
+        // `affine_qmv_fast`; the driver resolves the point at load.
+        assert_eq!(named("router_topk"), Some("router"));
+        assert_eq!(named("affine_qmm_t"), Some("qmm_t"));
+    }
+
+    /// CUDA's rows carry no axes, and this is the assertion that the addition
+    /// changed nothing for them: an axisless row matches its symbol and
+    /// nothing else, prefix or suffix.
+    #[test]
+    fn an_axisless_row_is_unchanged_by_the_axis_machinery() {
+        assert_eq!(named("moe_route_sort_bfloat16"), None);
+        assert_eq!(named("moe_route_sor"), None);
+        assert_eq!(named("xmoe_route_sort"), None);
+    }
+
+    /// The `sdpa_paged_decode` case, and the reason `points` may hold `""`.
+    ///
+    /// Three macros in `sdpa_paged.metal` stamp ONE template —
+    /// `sdpa_paged_decode<itype, d, v, sink, PAGES, FIXED, SG>` — at
+    /// `<…, 0, false, 32>`, `<…, 32, true, 32>` and `<…, 32, true, 8>`. Same
+    /// body, three points, and the first contributes no text.
+    #[test]
+    fn an_axis_may_have_a_point_that_adds_no_text() {
+        const DIM: Axis = Axis { what: "head dim", points: &["_d_64", "_d_128"] };
+        // Longest first, empty last: both orderings are load-bearing.
+        const PAGE: Axis = Axis {
+            what: "page table width and simdgroup count",
+            points: &["_p32_sg8", "_p32", ""],
+        };
+        static T: &[KernelSig] =
+            &[kernel!(sdpa_paged "sdpa_paged_decode", axes = &[DTYPE, DIM, PAGE])];
+
+        for name in [
+            "sdpa_paged_decode_bfloat16_d_128",
+            "sdpa_paged_decode_bfloat16_d_128_p32",
+            "sdpa_paged_decode_bfloat16_d_64_p32_sg8",
+        ] {
+            assert!(sig_in(T, name).is_some(), "{name}");
+        }
+        // Still not a licence to match anything.
+        assert!(sig_in(T, "sdpa_paged_decode_bfloat16_d_256").is_none());
+        assert!(sig_in(T, "sdpa_paged_decode_bfloat16").is_none());
+        assert_eq!(T[0].entrypoints().len(), 1 * 2 * 3);
+    }
+
+    /// `covers` and `entrypoints` are two directions on one relation, and the
+    /// audit script trusts both. Round-trip them.
+    #[test]
+    fn everything_a_row_generates_is_something_it_covers() {
+        for row in TABLE {
+            for name in row.entrypoints() {
+                assert_eq!(
+                    sig_in(TABLE, &name).map(|k| k.name),
+                    Some(row.name),
+                    "{name}"
+                );
+            }
+        }
+    }
 }

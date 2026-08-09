@@ -146,7 +146,7 @@ pub fn gpt_oss_cuda(
             let normed = rmsnorm(&y, &w.attn_norm);
 
             // The q/k/v biases FOLD INTO the projection's epilogue
-            // (`gemm_act_x_wt_bias_bf16`): at decode these route to the
+            // (`kernels::gemm::act_x_wt_bias_bf16`): at decode these route to the
             // warp-per-row GEMV, which absorbs the bias for free. Stating
             // them as separate AddBias ops — which this text did until a
             // census of its own golden was read against the driver — is
@@ -169,7 +169,7 @@ pub fn gpt_oss_cuda(
             // `attn.qv`'s position rule is that the correction lands on the
             // BASE projection, not on base + bias. When `attention_bias` is
             // set this family folds the bias into the GEMM's own epilogue
-            // (`gemm_act_x_wt_bias_bf16`), so there is no point in the trace
+            // (`kernels::gemm::act_x_wt_bias_bf16`), so there is no point in the trace
             // where the base projection exists as a value: the first thing
             // that exists is already base + bias.
             //
@@ -186,7 +186,7 @@ pub fn gpt_oss_cuda(
             // gpt-oss scales, and the driver had to be TAUGHT to: this
             // family shares llama_like's cfg, where `apply_rope_config`
             // had already resolved the scaling, and `mixtral.cpp` spelled
-            // a plain `launch_rope_bf16` anyway. The declaration states
+            // a plain `kernels::rope::rope_bf16` anyway. The declaration states
             // the kernel the fixed pass fires.
             let (q, k) = if facts.rope_yarn_original {
                 dsl::cuda::rope_yarn_original(&q, &k)
@@ -227,7 +227,7 @@ pub fn gpt_oss_cuda(
 
             // o_proj folds the RESIDUAL (beta=1) and not its bias: the
             // hand-written tp=1 arm calls the plain gemm and then
-            // `launch_add_bias_bf16`. The one place in this layer where
+            // `kernels::norm::add_bias_bf16`. The one place in this layer where
             // the split spelling is the truthful one.
             y += matmul(&a, &w.o_proj);
             if facts.attention_bias {
@@ -248,7 +248,7 @@ pub fn gpt_oss_cuda(
                 facts.intermediate,
             );
             // The clamp is the whole fork, and a checkpoint without one
-            // takes `launch_swiglu_bf16`'s PAIR form — a spelling no
+            // takes `kernels::mlp::swiglu_bf16`'s PAIR form — a spelling no
             // statement carries yet. Refused by name rather than guessed:
             // every gpt-oss release so far clamps, so an unclamped one
             // would be the first thing this text had never seen.
