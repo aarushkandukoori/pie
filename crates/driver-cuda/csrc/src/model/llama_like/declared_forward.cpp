@@ -164,6 +164,20 @@ void pin_llama_like_values(const pie_forward::ForwardPlan& plan,
             }
             break;
         }
+        case PieForwardOpKind::Peel:
+            // A PEEL produces a value the same way a guard does: its two
+            // regions run over complementary row ranges and BOTH write
+            // the one result, so the peel is the single producer and its
+            // regions record no outputs of their own.
+            //
+            // llama_like's is the hook split over the QUERY -- the
+            // attention dispatches and the hook sites downstream read
+            // the peel's value, not the fused rope's -- and nothing
+            // bound it, which is what "value 17 ... no pin pass bound
+            // it" was. The regions write `ws.q`, so that is where the
+            // result lives.
+            if (outs.size > 0) values.pin(outs[0], ws.q.data());
+            break;
         case PieForwardOpKind::Launch: {
             // The FUSED qk-norm+rope rewrites q and k where they lie,
             // exactly as the semantic rope below does, and its results
@@ -1236,25 +1250,23 @@ void llama_like_forward_declared(
         // the staging IS `ws.k`/`ws.v` and the write reads the values
         // directly. qwen3-0.6b is unpadded, so the gate checks that leg
         // and not this one.
-        // THE ATTENTION'S QUERY DOES NOT MOVE YET, and the reason is
-        // recorded because the obvious change fails.
+        // The attention's QUERY. Its dispatches declare no output --
+        // `out []` on every one -- so only this half moves; the result
+        // stays `attn_out_buf`, the same shape qwen3.5's attention has.
         //
-        // Its dispatches declare no output -- `out []` on every one,
-        // checked against the gate model's golden -- so only the query
-        // could move, the way qwen3.5's did. Taking it from
-        // `plan.inputs(op)[0]` instead of `attn_q` fails at LOAD:
+        // What it reads is the PEEL's value, not the fused rope's: the
+        // hook split is a phi over the query and the dispatches are
+        // inside it. That is pinned now (see the pass), which is what
+        // the load-time refusal was asking for.
         //
-        //   declared value arena: value 17 is one the lowering left to
-        //   the backend, and no pin pass bound it
-        //
-        // Before the first fire, so it is not a placement question. The
-        // KV writes below make the same move and are green, which rules
-        // out the arena wiring and the pin pass in general. Adding an
-        // arity guard did not change it, so it is not a short operand
-        // span either. Left as it is rather than pinned into silence: a
-        // pin that made this go away would bind a value whose identity
-        // is not yet understood, and that is how a plausible pointer to
-        // the wrong buffer gets made.
+        // Padded, the query is the pad staging, which is scratch for the
+        // reason `kv_src` gives below.
+        const auto attn_src = [&]() -> const void* {
+            if (head_dim_padded) return attn_q;
+            const auto ins = plan.inputs(op);
+            if (ins.size == 0) return attn_q;
+            return values.slot(ins[0], plan.value(ins[0]));
+        };
         const auto kv_src = [&](std::size_t i, void* staged) -> const void* {
             if (head_dim_padded) return staged;
             return values.slot(plan.inputs(op)[i],
@@ -1865,7 +1877,7 @@ void llama_like_forward_declared(
                 resolve_masked_pages(/*takes_paged_decode=*/false);
                 auto kv_view = cache.layer_view(L);
                 kernels::attn::attention_xqa_decode_bf16_prepared(
-                    attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
+                    attn_src(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     R, num_q_heads, num_kv_heads, dk,
                     cache.page_size(), plan_state.xqa_max_pages_per_seq,
@@ -1889,7 +1901,7 @@ void llama_like_forward_declared(
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.depth_band_plans
                              [static_cast<std::size_t>(depth_band_index)],
-                        attn_q, kv_view_b, attn_out_buf,
+                        attn_src(), kv_view_b, attn_out_buf,
                         kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         depth_band_attn_ws_public(depth_band_index).view(),
@@ -1907,7 +1919,7 @@ void llama_like_forward_declared(
                     auto kv_view_d = cache.layer_view(L);
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.depth_prefix_decode_plan,
-                        attn_q, kv_view_d, attn_out_buf,
+                        attn_src(), kv_view_d, attn_out_buf,
                         kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         spatial_suffix_attn_ws().view(), stream,
@@ -1940,7 +1952,7 @@ void llama_like_forward_declared(
                     resolve_masked_pages(/*takes_paged_decode=*/true);
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *decode_plan,
-                        attn_q, kv_view, attn_out_buf,
+                        attn_src(), kv_view, attn_out_buf,
                         attn_page_indices, attn_page_indptr,
                         attn_last_page_lens,
                         attn_ws.view(), stream, layer_window_left,
@@ -1950,7 +1962,7 @@ void llama_like_forward_declared(
                 resolve_masked_pages(/*takes_paged_decode=*/true);
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *decode_plan,
-                    attn_q, kv_view, attn_out_buf,
+                    attn_src(), kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
                     attn_ws.view(), stream, layer_window_left,
@@ -1972,7 +1984,7 @@ void llama_like_forward_declared(
                 auto kv_view = cache.layer_view(L);
                 kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *decode_plan,
-                    attn_q, kv_view, attn_out_buf,
+                    attn_src(), kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
                     attn_ws.view(), stream,
@@ -2002,7 +2014,7 @@ void llama_like_forward_declared(
                 auto kv_view = cache.layer_view(L);
                 kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *pp,
-                    attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
+                    attn_src(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, attn_ws.view(), stream,
@@ -2082,7 +2094,7 @@ void llama_like_forward_declared(
                     }
                     kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                         *tail_plan,
-                        bf16_row(attn_q, split_rows, Hq), kv_view,
+                        bf16_row(attn_src(), split_rows, in_w(0)), kv_view,
                         bf16_row(attn_out_buf, split_rows, Hq),
                         mask_suffix_qo_indptr_d,
                         kv_page_indices,
@@ -2098,7 +2110,7 @@ void llama_like_forward_declared(
                 }
                 kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *mask_plan,
-                    attn_q, kv_view, attn_out_buf,
+                    attn_src(), kv_view, attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                     attn_ws.view(), stream);
@@ -2246,7 +2258,7 @@ void llama_like_forward_declared(
                             : fwd_cfg.sliding_window;
                     auto kv_view = cache.layer_view(L);
                     kernels::attn::attention_flashinfer_prefill(
-                        attn_q, kv_view, attn_out_buf,
+                        attn_src(), kv_view, attn_out_buf,
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         qo_indptr_h, kv_page_indptr_h,
@@ -2272,7 +2284,7 @@ void llama_like_forward_declared(
                             : fwd_cfg.sliding_window;
                     auto kv_view = cache.layer_view(L);
                     kernels::attn::attention_flashinfer_prefill(
-                        attn_q, kv_view, attn_out_buf,
+                        attn_src(), kv_view, attn_out_buf,
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         qo_indptr_h, kv_page_indptr_h,
@@ -2284,7 +2296,7 @@ void llama_like_forward_declared(
                 auto kv_view = cache.layer_view(L);
                 kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *pp,
-                    attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
+                    attn_src(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
@@ -2309,7 +2321,7 @@ void llama_like_forward_declared(
                             : fwd_cfg.sliding_window;
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.mixed_mid_decode_plan,
-                        bf16_row(attn_q, mid_row, Hq), kv_view,
+                        bf16_row(attn_src(), mid_row, in_w(0)), kv_view,
                         bf16_row(attn_out_buf, mid_row, Hq),
                         kv_page_indices,
                         kv_page_indptr + P,

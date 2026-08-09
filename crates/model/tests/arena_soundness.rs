@@ -1078,3 +1078,60 @@ fn which_op_kinds_each_family_states() {
         println!("{name:12} {class:?}: {}", line.join(" "));
     }
 }
+
+/// WHICH VALUES A PIN PASS OWES, and what produces them.
+///
+/// `Buffers::assign` leaves a value NAMED when a seam exposes it (plus
+/// everything sharing its buffer). Those are exactly the values a
+/// driver's pin pass must bind: the arena refuses to invent an address
+/// for them, loudly, at load —
+///
+///   declared value arena: value 17 is one the lowering left to the
+///   backend, and no pin pass bound it
+///
+/// which is what llama_like's attention-query conversion hit. Reading
+/// that error requires knowing what value 17 IS, and nothing said so.
+/// This does: per family, the NAMED values and the op kind that writes
+/// each, which is the key a pin pass switches on.
+#[test]
+fn which_values_a_pin_pass_owes() {
+    use std::collections::BTreeMap;
+    for (name, class, plan) in families() {
+        let rows = plain(8);
+        let buffers = Buffers::assign(&plan, &rows);
+        let mut producer: BTreeMap<ValueId, String> = BTreeMap::new();
+        for op in &plan.ops {
+            for &v in &op.outputs {
+                producer.entry(v).or_insert_with(|| match &op.kind {
+                    OpKind::Launch { kernel, .. } => format!("Launch:{kernel}"),
+                    other => format!("{other:?}")
+                        .split(|c: char| !c.is_alphanumeric())
+                        .next()
+                        .unwrap_or("?")
+                        .to_string(),
+                });
+            }
+        }
+        let mut by_kind: BTreeMap<String, Vec<ValueId>> = BTreeMap::new();
+        for (v, &at) in buffers.offset.iter().enumerate() {
+            if at != Buffers::NAMED {
+                continue;
+            }
+            let v = v as ValueId;
+            let who = producer
+                .get(&v)
+                .cloned()
+                .unwrap_or_else(|| "(no producer)".to_string());
+            by_kind.entry(who).or_default().push(v);
+        }
+        let summary: Vec<String> = by_kind
+            .iter()
+            .map(|(k, vs)| {
+                let head: Vec<String> =
+                    vs.iter().take(4).map(|v| format!("v{v}")).collect();
+                format!("{k}x{} [{}...]", vs.len(), head.join(","))
+            })
+            .collect();
+        println!("{name:12} {class:?}: {}", summary.join("  "));
+    }
+}
