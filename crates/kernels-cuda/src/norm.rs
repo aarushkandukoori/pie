@@ -24,6 +24,22 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(add_bias_strided "norm::add_bias_bf16_strided"),
     // The fp16 copy is what the MXFP4 grouped GEMM consumes; producing it
     // here rather than casting afterwards is the binding.
+    // ── the two the SEMANTIC `Rmsnorm` fans to ─────────────────────
+    //
+    // Rows because they had none, and they had none because nothing
+    // STATES them: `OpKind::Rmsnorm` carries a variant and each driver
+    // picks between these two from it. That makes them the only pair in
+    // the tree whose operand contract was written nowhere — every other
+    // kernel a semantic kind fans to is also stated by something, so it
+    // has a row already.
+    //
+    // Adding the rows is what lets a text name them directly, which is
+    // step 2 of DSL-DESIGN.md: the fold is a fact of the STATEMENT, and
+    // a driver that reads it off a param is a driver choosing a kernel.
+    kernel!(rmsnorm "norm::rmsnorm_bf16"),
+    // Gemma folds `(1 + w)` instead of `w` — different arithmetic, same
+    // signature, same row space.
+    kernel!(rmsnorm_gemma "norm::rmsnorm_gemma_bf16"),
     kernel!(rmsnorm_with_fp16 "norm::rmsnorm_bf16_with_fp16"),
     // The SECOND rank-K residual scheme here, and not AltUp's. gemma-3n
     // predicts each stream from a learned combination and corrects from one

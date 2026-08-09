@@ -165,6 +165,20 @@ const UNSTATED_ROWS: &[&str] = &[
     // directly. No declaration states it because `interleaved` reaches the
     // kernel as an ARGUMENT rather than as a second symbol, and the families
     // that pass it true are not declared.
+    // ── the semantic `Rmsnorm`'s two ───────────────────────────────
+    //
+    // No text states these because `OpKind::Rmsnorm` does not name a
+    // symbol — each driver picks between them from the variant on the
+    // wire. That is exactly the choosing DSL-DESIGN.md removes, and
+    // these entries come out when `dsl::rmsnorm` states the fold
+    // instead of carrying it as a param.
+    //
+    // Until then they are pinned rather than absent, so that
+    // `the_kernels_a_semantic_kind_fans_to_are_declared` has a contract
+    // to point at: a kernel reachable only through a driver's fan is
+    // reachable, and its operands are a real thing to get wrong.
+    "norm::rmsnorm_bf16",
+    "norm::rmsnorm_gemma_bf16",
     "rope::rope_bf16",
     // Nothing calls this one — not a declaration, not a driver body, not a
     // test. It is in the table because `rope.hpp` declares it and the header
@@ -503,4 +517,52 @@ fn a_weight_representation_states_its_kernel() {
             "{symbol} needs a kernel! row or `check_plan` refuses it at load"
         );
     }
+}
+
+/// Every kernel a SEMANTIC op kind can fan to has a row.
+///
+/// A semantic kind names no symbol, so the driver picks one — and the
+/// table's coverage rule cannot see those picks, because `check_plan`
+/// only walks `OpKind::Launch`. That is the hole this closes: a kernel
+/// reachable only through a driver's fan has no operand contract
+/// anywhere, and nothing notices.
+///
+/// It found exactly one pair when written — `norm::rmsnorm_bf16` and
+/// `norm::rmsnorm_gemma_bf16`, the two `OpKind::Rmsnorm` chooses
+/// between from its variant. Every other fan target is also stated by
+/// some `dsl::cuda` wrapper, so it already had a row for that reason.
+///
+/// The list is written by hand because there is no machine-readable
+/// link from a kind to the kernels its arms call; a kind that grows a
+/// third spelling has to be added here, and that is the point — the
+/// addition is where someone notices the driver is choosing.
+#[test]
+fn the_kernels_a_semantic_kind_fans_to_are_declared() {
+    // (kind, the symbols its driver arms pick between)
+    const FANS: &[(&str, &[&str])] = &[
+        ("Rmsnorm", &["norm::rmsnorm_bf16", "norm::rmsnorm_gemma_bf16"]),
+        (
+            "RmsnormPerHead",
+            &["norm::rmsnorm_bf16", "norm::rmsnorm_gemma_bf16"],
+        ),
+        ("Rope", &["rope::rope_bf16", "rope::rope_partial_bf16"]),
+        (
+            "SplitGdn",
+            &["layout::split_bf16_rows", "layout::split_qwen_gdn_ba_bf16"],
+        ),
+    ];
+    let mut missing: Vec<String> = Vec::new();
+    for (kind, symbols) in FANS {
+        for s in *symbols {
+            if sig_in(Backend::Cuda, s).is_none() {
+                missing.push(format!("{kind} -> {s}"));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "a semantic kind fans to kernels with no `kernel!` row, so their \
+         operand contract is written nowhere and `check_plan` cannot see \
+         them (it walks Launch only): {missing:?}"
+    );
 }
