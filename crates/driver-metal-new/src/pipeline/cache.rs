@@ -194,6 +194,17 @@ impl<K: Eq + Hash + Clone, V> Bounded<K, V> {
         evicted
     }
 
+    /// Drop one named entry, wherever it sits in the order.
+    ///
+    /// This is not what a cache does on its own — an LRU map chooses its own
+    /// victim. It exists for the caller that has learned the entry is *wrong*,
+    /// which is a different fact from the entry being cold: the stage cache's
+    /// collision guard finds the right key holding the wrong stage, and the
+    /// entry has to go regardless of how recently it was used.
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.entries.remove(key).map(|entry| entry.value)
+    }
+
     /// Drop the least recently used entry.
     fn evict(&mut self) -> Option<(K, V)> {
         let coldest = self

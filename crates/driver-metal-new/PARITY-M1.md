@@ -213,6 +213,44 @@ human reads it". The table exists; the driver may as well read it. The mirror
 is checked against `tensor_compiler::codegen::fault::CLASSES` in a test, with
 the compiler as a dev-dependency only, so the copy cannot drift.
 
+## Stage cache and its collision guard — `src/pipeline/stage_cache.rs`
+
+| C++ | Rust | |
+|---|---|---|
+| `Impl::stage_cache` | `Stages` | ported |
+| `pending_stages` | `Stages` pending half | ported |
+| the guard against `stage_cache` | `Stages::lookup` | ported |
+| the guard against `pending_stages` | `Stages::lookup` | dropped |
+| `M1StageExecutable::stage_identity` | `Entry::identity` | ported |
+| `identity_bytes` | — | dropped |
+| `default_m1_cache_dir` | `metal::Archives::discover` | dropped |
+
+Keying a stage on a hash and storing a second, independent identity beside it
+to check after a hit is the right design and the C++ had it. What it did with a
+detected collision is the defect: `reject_deterministic`, which is the
+classification that says *this program* cannot compile and never will, and is
+the classification the negative cache remembers. A collision is not a property
+of the program being compiled — it is a property of which other program holds
+the slot. The C++ blamed a program for a collision it did not cause and then
+wrote the verdict down. A collision here evicts the incumbent and returns a
+miss, and `Stages::collisions` counts it so the rate stays visible.
+
+The guard was written out twice, identically, once for each map; the pending
+map exists so a compile that fails partway leaves the cache untouched, which is
+`commit`/`abandon` here rather than a second map with a second copy of the
+guard. `stage_identity` was a `std::vector<std::uint8_t>` holding a `u64`'s
+eight bytes, heap-allocated per entry to compare a number.
+
+The capacity check was the program cache's mistake again — `size() + pending >=
+max` returning a retryable failure — and is gone for the same reason.
+
+`default_m1_cache_dir` is dropped because `metal::Archives::discover` already
+does it, and does it better: the C++'s last resort was
+`return ".pie-metal-ptir-cache"`, a *relative* path, so a process started
+without `HOME` scattered a compile cache into whatever directory it happened to
+be launched from. `Archives` has no cache at all in that case, which is the
+honest answer.
+
 ## Not yet started
 
 | C++ | lines | |
