@@ -19,6 +19,7 @@ mod consts;
 mod dataflow;
 mod dispatch;
 mod dispatch_gptoss;
+mod dispatch_llama;
 mod dispatch_mb;
 mod geometry;
 mod geometry_facts;
@@ -61,6 +62,7 @@ pub use dispatch_gptoss::{
     gptoss_mb_kind, gptoss_moe_qmm_bn, gptoss_moe_sorted_rows, gptoss_qmm_bn, gptoss_qmm_min_batch,
     gptoss_qmm_pool_rows, gptoss_qmm_rows, gptoss_scratch_elems_mb,
 };
+pub use dispatch_llama::{LlamaDagStats, build_llama_dag, llama_dag_stats};
 pub use dispatch_mb::{
     PREFILL_ORDINAL_BASE, PREFILL_ORDINAL_STRIDE, ROUTED_DECODE_BATCHED, SDPA_QUERY_TILE,
     build_decode_dag_mb, build_decode_prefill_dags, fp16_format, mb_geometry, mb_kind, qmm_bm,

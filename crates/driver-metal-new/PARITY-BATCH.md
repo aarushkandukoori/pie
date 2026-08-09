@@ -538,7 +538,7 @@ piece of new arithmetic.
 | C++ | Rust | |
 |---|---|---|
 | `geometry.hpp` | `batch/llama.rs` | ported; the refusal ladder intact, including `norm_topk_prob: false` (softmax-over-all weights sum below one — same tokens, quietly wrong magnitudes) and the `factor` split (llama3's divides FREQUENCIES in the table, linear's divides POSITIONS; one field meaning both applies it twice) |
-| `decode_step.hpp`: the DAG | — | missing — next: the builder in the shared vocabulary |
+| `decode_step.hpp`: the DAG | `batch/dispatch_llama.rs::build_llama_dag` + `llama_dag_stats` | ported; NOT the shared builder under a flag — that walk is qwen3.5's (2×-wide q\|gate, QSplit, AttnGate, structural QK-norm), and one builder trying to be both would carry every difference as a branch the other family dodges. The mixture is the shared nine dispatches minus the shared expert; `RowGather` deliberately absent at M=1, as with gpt-oss |
 | `kernels.cpp`: `llama3_inv_freq` + the compile list | — | missing |
 | `decode_consts.cpp` / `bind.cpp` / `encode.cpp` | — | missing |
 | device smoke | — | missing; local checkpoints: Qwen3.6-35B-A3B-4bit (routed), gemma-4 pair for the sibling family |
