@@ -5088,7 +5088,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_scalar_mul_bf16",
+          "kernel": "norm::scalar_mul_bf16",
           "weights": [
             "scale.sqrt_hidden"
           ]
@@ -5117,7 +5117,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_scalar_mul_bf16",
+          "kernel": "norm::scalar_mul_bf16",
           "weights": [
             "scale.sqrt_ple_dim"
           ]
@@ -5149,7 +5149,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_scalar_mul_bf16",
+          "kernel": "norm::scalar_mul_bf16",
           "weights": [
             "scale.rsqrt_hidden"
           ]
@@ -5181,7 +5181,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_residual_add_bf16"
+          "kernel": "norm::residual_add_bf16"
         }
       },
       "inputs": [
@@ -5196,7 +5196,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_scalar_mul_bf16",
+          "kernel": "norm::scalar_mul_bf16",
           "weights": [
             "scale.rsqrt_2"
           ]
@@ -5213,7 +5213,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_transpose_bf16_nld_to_lnd"
+          "kernel": "layout::transpose_bf16_nld_to_lnd"
         }
       },
       "inputs": [
@@ -5257,7 +5257,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.0.q_norm",
             "layer.0.k_norm"
@@ -5292,7 +5292,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 0
@@ -5338,7 +5338,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.0.post_attn_norm",
             "layer.0.pre_ffw_norm"
@@ -5373,7 +5373,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -5402,7 +5402,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.0.post_ffw_norm"
           ]
@@ -5435,7 +5435,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -5465,7 +5465,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.0.ple_norm",
             "layer.1.attn_norm"
@@ -5500,7 +5500,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.1.q_norm",
             "layer.1.k_norm"
@@ -5535,7 +5535,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 1
@@ -5581,7 +5581,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.1.post_attn_norm",
             "layer.1.pre_ffw_norm"
@@ -5616,7 +5616,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -5645,7 +5645,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.1.post_ffw_norm"
           ]
@@ -5678,7 +5678,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -5708,7 +5708,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.1.ple_norm",
             "layer.2.attn_norm"
@@ -5743,7 +5743,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.2.q_norm",
             "layer.2.k_norm"
@@ -5778,7 +5778,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 2
@@ -5824,7 +5824,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.2.post_attn_norm",
             "layer.2.pre_ffw_norm"
@@ -5859,7 +5859,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -5888,7 +5888,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.2.post_ffw_norm"
           ]
@@ -5921,7 +5921,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -5951,7 +5951,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.2.ple_norm",
             "layer.3.attn_norm"
@@ -5986,7 +5986,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.3.q_norm",
             "layer.3.k_norm"
@@ -6021,7 +6021,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 3
@@ -6067,7 +6067,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.3.post_attn_norm",
             "layer.3.pre_ffw_norm"
@@ -6102,7 +6102,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -6131,7 +6131,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.3.post_ffw_norm"
           ]
@@ -6164,7 +6164,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -6194,7 +6194,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.3.ple_norm",
             "layer.4.attn_norm"
@@ -6275,7 +6275,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_no_scale_bf16"
+          "kernel": "norm::rmsnorm_no_scale_bf16"
         }
       },
       "inputs": [
@@ -6336,7 +6336,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 4
@@ -6366,7 +6366,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 4
@@ -6412,7 +6412,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.4.post_attn_norm",
             "layer.4.pre_ffw_norm"
@@ -6447,7 +6447,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -6476,7 +6476,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.4.post_ffw_norm"
           ]
@@ -6509,7 +6509,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -6539,7 +6539,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.4.ple_norm",
             "layer.5.attn_norm"
@@ -6574,7 +6574,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.5.q_norm",
             "layer.5.k_norm"
@@ -6609,7 +6609,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 5
@@ -6655,7 +6655,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.5.post_attn_norm",
             "layer.5.pre_ffw_norm"
@@ -6690,7 +6690,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -6719,7 +6719,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.5.post_ffw_norm"
           ]
@@ -6752,7 +6752,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -6782,7 +6782,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.5.ple_norm",
             "layer.6.attn_norm"
@@ -6817,7 +6817,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.6.q_norm",
             "layer.6.k_norm"
@@ -6852,7 +6852,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 6
@@ -6898,7 +6898,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.6.post_attn_norm",
             "layer.6.pre_ffw_norm"
@@ -6933,7 +6933,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -6962,7 +6962,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.6.post_ffw_norm"
           ]
@@ -6995,7 +6995,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -7025,7 +7025,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.6.ple_norm",
             "layer.7.attn_norm"
@@ -7060,7 +7060,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.7.q_norm",
             "layer.7.k_norm"
@@ -7095,7 +7095,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 7
@@ -7141,7 +7141,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.7.post_attn_norm",
             "layer.7.pre_ffw_norm"
@@ -7176,7 +7176,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -7205,7 +7205,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.7.post_ffw_norm"
           ]
@@ -7238,7 +7238,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -7268,7 +7268,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.7.ple_norm",
             "layer.8.attn_norm"
@@ -7303,7 +7303,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.8.q_norm",
             "layer.8.k_norm"
@@ -7338,7 +7338,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 8
@@ -7384,7 +7384,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.8.post_attn_norm",
             "layer.8.pre_ffw_norm"
@@ -7419,7 +7419,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -7448,7 +7448,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.8.post_ffw_norm"
           ]
@@ -7481,7 +7481,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -7511,7 +7511,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.8.ple_norm",
             "layer.9.attn_norm"
@@ -7592,7 +7592,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_no_scale_bf16"
+          "kernel": "norm::rmsnorm_no_scale_bf16"
         }
       },
       "inputs": [
@@ -7653,7 +7653,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 9
@@ -7683,7 +7683,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 9
@@ -7729,7 +7729,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.9.post_attn_norm",
             "layer.9.pre_ffw_norm"
@@ -7764,7 +7764,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -7793,7 +7793,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.9.post_ffw_norm"
           ]
@@ -7826,7 +7826,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -7856,7 +7856,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.9.ple_norm",
             "layer.10.attn_norm"
@@ -7891,7 +7891,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.10.q_norm",
             "layer.10.k_norm"
@@ -7926,7 +7926,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 10
@@ -7972,7 +7972,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.10.post_attn_norm",
             "layer.10.pre_ffw_norm"
@@ -8007,7 +8007,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -8036,7 +8036,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.10.post_ffw_norm"
           ]
@@ -8069,7 +8069,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -8099,7 +8099,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.10.ple_norm",
             "layer.11.attn_norm"
@@ -8134,7 +8134,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.11.q_norm",
             "layer.11.k_norm"
@@ -8169,7 +8169,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 11
@@ -8215,7 +8215,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.11.post_attn_norm",
             "layer.11.pre_ffw_norm"
@@ -8250,7 +8250,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -8279,7 +8279,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.11.post_ffw_norm"
           ]
@@ -8312,7 +8312,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -8342,7 +8342,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.11.ple_norm",
             "layer.12.attn_norm"
@@ -8377,7 +8377,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.12.q_norm",
             "layer.12.k_norm"
@@ -8412,7 +8412,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 12
@@ -8458,7 +8458,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.12.post_attn_norm",
             "layer.12.pre_ffw_norm"
@@ -8493,7 +8493,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -8522,7 +8522,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.12.post_ffw_norm"
           ]
@@ -8555,7 +8555,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -8585,7 +8585,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.12.ple_norm",
             "layer.13.attn_norm"
@@ -8620,7 +8620,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
+          "kernel": "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
           "weights": [
             "layer.13.q_norm",
             "layer.13.k_norm"
@@ -8655,7 +8655,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -8701,7 +8701,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.13.post_attn_norm",
             "layer.13.pre_ffw_norm"
@@ -8736,7 +8736,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -8765,7 +8765,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.13.post_ffw_norm"
           ]
@@ -8798,7 +8798,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -8828,7 +8828,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.13.ple_norm",
             "layer.14.attn_norm"
@@ -8909,7 +8909,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_no_scale_bf16"
+          "kernel": "norm::rmsnorm_no_scale_bf16"
         }
       },
       "inputs": [
@@ -8970,7 +8970,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -9000,7 +9000,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -9046,7 +9046,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.14.post_attn_norm",
             "layer.14.pre_ffw_norm"
@@ -9081,7 +9081,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -9110,7 +9110,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.14.post_ffw_norm"
           ]
@@ -9143,7 +9143,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -9173,7 +9173,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.14.ple_norm",
             "layer.15.attn_norm"
@@ -9208,7 +9208,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.15.q_norm"
           ]
@@ -9238,7 +9238,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9284,7 +9284,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.15.post_attn_norm",
             "layer.15.pre_ffw_norm"
@@ -9319,7 +9319,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -9348,7 +9348,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.15.post_ffw_norm"
           ]
@@ -9381,7 +9381,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -9411,7 +9411,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.15.ple_norm",
             "layer.16.attn_norm"
@@ -9446,7 +9446,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.16.q_norm"
           ]
@@ -9476,7 +9476,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9522,7 +9522,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.16.post_attn_norm",
             "layer.16.pre_ffw_norm"
@@ -9557,7 +9557,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -9586,7 +9586,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.16.post_ffw_norm"
           ]
@@ -9619,7 +9619,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -9649,7 +9649,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.16.ple_norm",
             "layer.17.attn_norm"
@@ -9684,7 +9684,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.17.q_norm"
           ]
@@ -9714,7 +9714,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9760,7 +9760,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.17.post_attn_norm",
             "layer.17.pre_ffw_norm"
@@ -9795,7 +9795,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -9824,7 +9824,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.17.post_ffw_norm"
           ]
@@ -9857,7 +9857,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -9887,7 +9887,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.17.ple_norm",
             "layer.18.attn_norm"
@@ -9922,7 +9922,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.18.q_norm"
           ]
@@ -9952,7 +9952,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9998,7 +9998,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.18.post_attn_norm",
             "layer.18.pre_ffw_norm"
@@ -10033,7 +10033,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -10062,7 +10062,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.18.post_ffw_norm"
           ]
@@ -10095,7 +10095,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -10125,7 +10125,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.18.ple_norm",
             "layer.19.attn_norm"
@@ -10175,7 +10175,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rope_partial_bf16"
+          "kernel": "rope::rope_partial_bf16"
         }
       },
       "inputs": [
@@ -10202,7 +10202,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -10248,7 +10248,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.19.post_attn_norm",
             "layer.19.pre_ffw_norm"
@@ -10283,7 +10283,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -10312,7 +10312,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.19.post_ffw_norm"
           ]
@@ -10345,7 +10345,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -10375,7 +10375,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.19.ple_norm",
             "layer.20.attn_norm"
@@ -10410,7 +10410,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.20.q_norm"
           ]
@@ -10440,7 +10440,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -10486,7 +10486,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.20.post_attn_norm",
             "layer.20.pre_ffw_norm"
@@ -10521,7 +10521,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -10550,7 +10550,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.20.post_ffw_norm"
           ]
@@ -10583,7 +10583,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -10613,7 +10613,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.20.ple_norm",
             "layer.21.attn_norm"
@@ -10648,7 +10648,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.21.q_norm"
           ]
@@ -10678,7 +10678,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -10724,7 +10724,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.21.post_attn_norm",
             "layer.21.pre_ffw_norm"
@@ -10759,7 +10759,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -10788,7 +10788,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.21.post_ffw_norm"
           ]
@@ -10821,7 +10821,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -10851,7 +10851,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.21.ple_norm",
             "layer.22.attn_norm"
@@ -10886,7 +10886,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.22.q_norm"
           ]
@@ -10916,7 +10916,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -10962,7 +10962,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.22.post_attn_norm",
             "layer.22.pre_ffw_norm"
@@ -10997,7 +10997,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -11026,7 +11026,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.22.post_ffw_norm"
           ]
@@ -11059,7 +11059,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -11089,7 +11089,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.22.ple_norm",
             "layer.23.attn_norm"
@@ -11124,7 +11124,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.23.q_norm"
           ]
@@ -11154,7 +11154,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -11200,7 +11200,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.23.post_attn_norm",
             "layer.23.pre_ffw_norm"
@@ -11235,7 +11235,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -11264,7 +11264,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.23.post_ffw_norm"
           ]
@@ -11297,7 +11297,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -11327,7 +11327,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.23.ple_norm",
             "layer.24.attn_norm"
@@ -11377,7 +11377,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rope_partial_bf16"
+          "kernel": "rope::rope_partial_bf16"
         }
       },
       "inputs": [
@@ -11404,7 +11404,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -11450,7 +11450,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.24.post_attn_norm",
             "layer.24.pre_ffw_norm"
@@ -11485,7 +11485,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -11514,7 +11514,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.24.post_ffw_norm"
           ]
@@ -11547,7 +11547,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -11577,7 +11577,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.24.ple_norm",
             "layer.25.attn_norm"
@@ -11612,7 +11612,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.25.q_norm"
           ]
@@ -11642,7 +11642,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -11688,7 +11688,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.25.post_attn_norm",
             "layer.25.pre_ffw_norm"
@@ -11723,7 +11723,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -11752,7 +11752,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.25.post_ffw_norm"
           ]
@@ -11785,7 +11785,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -11815,7 +11815,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.25.ple_norm",
             "layer.26.attn_norm"
@@ -11850,7 +11850,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.26.q_norm"
           ]
@@ -11880,7 +11880,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -11926,7 +11926,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.26.post_attn_norm",
             "layer.26.pre_ffw_norm"
@@ -11961,7 +11961,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -11990,7 +11990,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.26.post_ffw_norm"
           ]
@@ -12023,7 +12023,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -12053,7 +12053,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.26.ple_norm",
             "layer.27.attn_norm"
@@ -12088,7 +12088,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.27.q_norm"
           ]
@@ -12118,7 +12118,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -12164,7 +12164,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.27.post_attn_norm",
             "layer.27.pre_ffw_norm"
@@ -12199,7 +12199,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -12228,7 +12228,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.27.post_ffw_norm"
           ]
@@ -12261,7 +12261,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -12291,7 +12291,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.27.ple_norm",
             "layer.28.attn_norm"
@@ -12326,7 +12326,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.28.q_norm"
           ]
@@ -12356,7 +12356,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -12402,7 +12402,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.28.post_attn_norm",
             "layer.28.pre_ffw_norm"
@@ -12437,7 +12437,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -12466,7 +12466,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.28.post_ffw_norm"
           ]
@@ -12499,7 +12499,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -12529,7 +12529,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.28.ple_norm",
             "layer.29.attn_norm"
@@ -12579,7 +12579,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rope_partial_bf16"
+          "kernel": "rope::rope_partial_bf16"
         }
       },
       "inputs": [
@@ -12606,7 +12606,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -12652,7 +12652,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.29.post_attn_norm",
             "layer.29.pre_ffw_norm"
@@ -12687,7 +12687,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -12716,7 +12716,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.29.post_ffw_norm"
           ]
@@ -12749,7 +12749,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -12779,7 +12779,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.29.ple_norm",
             "layer.30.attn_norm"
@@ -12814,7 +12814,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.30.q_norm"
           ]
@@ -12844,7 +12844,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -12890,7 +12890,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.30.post_attn_norm",
             "layer.30.pre_ffw_norm"
@@ -12925,7 +12925,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -12954,7 +12954,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.30.post_ffw_norm"
           ]
@@ -12987,7 +12987,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -13017,7 +13017,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.30.ple_norm",
             "layer.31.attn_norm"
@@ -13052,7 +13052,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.31.q_norm"
           ]
@@ -13082,7 +13082,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -13128,7 +13128,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.31.post_attn_norm",
             "layer.31.pre_ffw_norm"
@@ -13163,7 +13163,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -13192,7 +13192,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.31.post_ffw_norm"
           ]
@@ -13225,7 +13225,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -13255,7 +13255,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.31.ple_norm",
             "layer.32.attn_norm"
@@ -13290,7 +13290,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.32.q_norm"
           ]
@@ -13320,7 +13320,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -13366,7 +13366,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.32.post_attn_norm",
             "layer.32.pre_ffw_norm"
@@ -13401,7 +13401,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -13430,7 +13430,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.32.post_ffw_norm"
           ]
@@ -13463,7 +13463,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -13493,7 +13493,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.32.ple_norm",
             "layer.33.attn_norm"
@@ -13528,7 +13528,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_qk_rmsnorm_rope_bf16_rounded",
+          "kernel": "rope::qk_rmsnorm_rope_bf16_rounded",
           "weights": [
             "layer.33.q_norm"
           ]
@@ -13558,7 +13558,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -13604,7 +13604,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.33.post_attn_norm",
             "layer.33.pre_ffw_norm"
@@ -13639,7 +13639,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -13668,7 +13668,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.33.post_ffw_norm"
           ]
@@ -13701,7 +13701,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -13731,7 +13731,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.33.ple_norm",
             "layer.34.attn_norm"
@@ -13781,7 +13781,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rope_partial_bf16"
+          "kernel": "rope::rope_partial_bf16"
         }
       },
       "inputs": [
@@ -13808,7 +13808,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_decode",
+          "kernel": "attn::dispatch_attention_flashinfer_decode",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -13854,7 +13854,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
+          "kernel": "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
           "weights": [
             "layer.34.post_attn_norm",
             "layer.34.pre_ffw_norm"
@@ -13889,7 +13889,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_geglu_tanh_bf16"
+          "kernel": "mlp::chunked_geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -13918,7 +13918,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.34.post_ffw_norm"
           ]
@@ -13951,7 +13951,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_geglu_tanh_bf16"
+          "kernel": "mlp::geglu_tanh_bf16"
         }
       },
       "inputs": [
@@ -13981,7 +13981,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_rmsnorm_residual_add_bf16",
+          "kernel": "norm::rmsnorm_residual_add_bf16",
           "weights": [
             "layer.34.ple_norm"
           ]
@@ -14028,7 +14028,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_logit_softcap_bf16"
+          "kernel": "attn::logit_softcap_bf16"
         }
       },
       "inputs": [

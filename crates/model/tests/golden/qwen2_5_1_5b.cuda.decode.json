@@ -4227,7 +4227,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 0
@@ -4244,7 +4244,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 0
@@ -4304,7 +4304,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 0
@@ -4318,7 +4318,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 0
@@ -4334,7 +4334,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 0
@@ -4376,7 +4376,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 0
@@ -4390,7 +4390,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 0
@@ -4465,7 +4465,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -4645,7 +4645,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 1
@@ -4662,7 +4662,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 1
@@ -4722,7 +4722,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 1
@@ -4736,7 +4736,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 1
@@ -4752,7 +4752,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 1
@@ -4794,7 +4794,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 1
@@ -4808,7 +4808,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 1
@@ -4883,7 +4883,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -5063,7 +5063,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 2
@@ -5080,7 +5080,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 2
@@ -5140,7 +5140,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 2
@@ -5154,7 +5154,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 2
@@ -5170,7 +5170,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 2
@@ -5212,7 +5212,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 2
@@ -5226,7 +5226,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 2
@@ -5301,7 +5301,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -5481,7 +5481,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 3
@@ -5498,7 +5498,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 3
@@ -5558,7 +5558,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 3
@@ -5572,7 +5572,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 3
@@ -5588,7 +5588,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 3
@@ -5630,7 +5630,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 3
@@ -5644,7 +5644,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 3
@@ -5719,7 +5719,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -5899,7 +5899,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 4
@@ -5916,7 +5916,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 4
@@ -5976,7 +5976,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 4
@@ -5990,7 +5990,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 4
@@ -6006,7 +6006,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 4
@@ -6048,7 +6048,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 4
@@ -6062,7 +6062,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 4
@@ -6137,7 +6137,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -6317,7 +6317,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 5
@@ -6334,7 +6334,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 5
@@ -6394,7 +6394,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 5
@@ -6408,7 +6408,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 5
@@ -6424,7 +6424,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 5
@@ -6466,7 +6466,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 5
@@ -6480,7 +6480,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 5
@@ -6555,7 +6555,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -6735,7 +6735,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 6
@@ -6752,7 +6752,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 6
@@ -6812,7 +6812,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 6
@@ -6826,7 +6826,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 6
@@ -6842,7 +6842,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 6
@@ -6884,7 +6884,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 6
@@ -6898,7 +6898,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 6
@@ -6973,7 +6973,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -7153,7 +7153,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 7
@@ -7170,7 +7170,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 7
@@ -7230,7 +7230,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 7
@@ -7244,7 +7244,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 7
@@ -7260,7 +7260,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 7
@@ -7302,7 +7302,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 7
@@ -7316,7 +7316,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 7
@@ -7391,7 +7391,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -7571,7 +7571,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 8
@@ -7588,7 +7588,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 8
@@ -7648,7 +7648,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 8
@@ -7662,7 +7662,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 8
@@ -7678,7 +7678,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 8
@@ -7720,7 +7720,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 8
@@ -7734,7 +7734,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 8
@@ -7809,7 +7809,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -7989,7 +7989,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 9
@@ -8006,7 +8006,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 9
@@ -8066,7 +8066,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 9
@@ -8080,7 +8080,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 9
@@ -8096,7 +8096,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 9
@@ -8138,7 +8138,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 9
@@ -8152,7 +8152,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 9
@@ -8227,7 +8227,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -8407,7 +8407,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 10
@@ -8424,7 +8424,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 10
@@ -8484,7 +8484,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 10
@@ -8498,7 +8498,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 10
@@ -8514,7 +8514,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 10
@@ -8556,7 +8556,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 10
@@ -8570,7 +8570,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 10
@@ -8645,7 +8645,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -8825,7 +8825,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 11
@@ -8842,7 +8842,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 11
@@ -8902,7 +8902,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 11
@@ -8916,7 +8916,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 11
@@ -8932,7 +8932,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 11
@@ -8974,7 +8974,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 11
@@ -8988,7 +8988,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 11
@@ -9063,7 +9063,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -9243,7 +9243,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 12
@@ -9260,7 +9260,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 12
@@ -9320,7 +9320,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 12
@@ -9334,7 +9334,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 12
@@ -9350,7 +9350,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 12
@@ -9392,7 +9392,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 12
@@ -9406,7 +9406,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 12
@@ -9481,7 +9481,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -9661,7 +9661,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9678,7 +9678,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9738,7 +9738,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9752,7 +9752,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9768,7 +9768,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9810,7 +9810,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9824,7 +9824,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 13
@@ -9899,7 +9899,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -10079,7 +10079,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -10096,7 +10096,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -10156,7 +10156,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -10170,7 +10170,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -10186,7 +10186,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -10228,7 +10228,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -10242,7 +10242,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 14
@@ -10317,7 +10317,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -10497,7 +10497,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 15
@@ -10514,7 +10514,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 15
@@ -10574,7 +10574,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 15
@@ -10588,7 +10588,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 15
@@ -10604,7 +10604,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 15
@@ -10646,7 +10646,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 15
@@ -10660,7 +10660,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 15
@@ -10735,7 +10735,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -10915,7 +10915,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 16
@@ -10932,7 +10932,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 16
@@ -10992,7 +10992,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 16
@@ -11006,7 +11006,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 16
@@ -11022,7 +11022,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 16
@@ -11064,7 +11064,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 16
@@ -11078,7 +11078,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 16
@@ -11153,7 +11153,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -11333,7 +11333,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 17
@@ -11350,7 +11350,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 17
@@ -11410,7 +11410,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 17
@@ -11424,7 +11424,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 17
@@ -11440,7 +11440,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 17
@@ -11482,7 +11482,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 17
@@ -11496,7 +11496,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 17
@@ -11571,7 +11571,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -11751,7 +11751,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 18
@@ -11768,7 +11768,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 18
@@ -11828,7 +11828,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 18
@@ -11842,7 +11842,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 18
@@ -11858,7 +11858,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 18
@@ -11900,7 +11900,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 18
@@ -11914,7 +11914,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 18
@@ -11989,7 +11989,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -12169,7 +12169,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 19
@@ -12186,7 +12186,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 19
@@ -12246,7 +12246,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 19
@@ -12260,7 +12260,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 19
@@ -12276,7 +12276,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 19
@@ -12318,7 +12318,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 19
@@ -12332,7 +12332,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 19
@@ -12407,7 +12407,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -12587,7 +12587,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 20
@@ -12604,7 +12604,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 20
@@ -12664,7 +12664,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 20
@@ -12678,7 +12678,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 20
@@ -12694,7 +12694,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 20
@@ -12736,7 +12736,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 20
@@ -12750,7 +12750,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 20
@@ -12825,7 +12825,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -13005,7 +13005,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 21
@@ -13022,7 +13022,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 21
@@ -13082,7 +13082,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 21
@@ -13096,7 +13096,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 21
@@ -13112,7 +13112,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 21
@@ -13154,7 +13154,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 21
@@ -13168,7 +13168,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 21
@@ -13243,7 +13243,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -13423,7 +13423,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 22
@@ -13440,7 +13440,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 22
@@ -13500,7 +13500,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 22
@@ -13514,7 +13514,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 22
@@ -13530,7 +13530,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 22
@@ -13572,7 +13572,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 22
@@ -13586,7 +13586,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 22
@@ -13661,7 +13661,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -13841,7 +13841,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 23
@@ -13858,7 +13858,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 23
@@ -13918,7 +13918,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 23
@@ -13932,7 +13932,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 23
@@ -13948,7 +13948,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 23
@@ -13990,7 +13990,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 23
@@ -14004,7 +14004,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 23
@@ -14079,7 +14079,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -14259,7 +14259,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 24
@@ -14276,7 +14276,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 24
@@ -14336,7 +14336,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 24
@@ -14350,7 +14350,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 24
@@ -14366,7 +14366,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 24
@@ -14408,7 +14408,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 24
@@ -14422,7 +14422,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 24
@@ -14497,7 +14497,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -14677,7 +14677,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 25
@@ -14694,7 +14694,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 25
@@ -14754,7 +14754,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 25
@@ -14768,7 +14768,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 25
@@ -14784,7 +14784,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 25
@@ -14826,7 +14826,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 25
@@ -14840,7 +14840,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 25
@@ -14915,7 +14915,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -15095,7 +15095,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 26
@@ -15112,7 +15112,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 26
@@ -15172,7 +15172,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 26
@@ -15186,7 +15186,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 26
@@ -15202,7 +15202,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 26
@@ -15244,7 +15244,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 26
@@ -15258,7 +15258,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 26
@@ -15333,7 +15333,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
@@ -15513,7 +15513,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_explicit_bf16",
+          "kernel": "attn::write_kv_explicit_bf16",
           "state": {
             "store": "KvCache",
             "layer": 27
@@ -15530,7 +15530,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_write_kv_to_pages",
+          "kernel": "attn::write_kv_to_pages",
           "state": {
             "store": "KvCache",
             "layer": 27
@@ -15590,7 +15590,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 27
@@ -15604,7 +15604,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 27
@@ -15620,7 +15620,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_custom",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_custom",
           "state": {
             "store": "KvCache",
             "layer": 27
@@ -15662,7 +15662,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_dequant_kv_cache_layer_to_bf16_active",
+          "kernel": "attn::dequant_kv_cache_layer_to_bf16_active",
           "state": {
             "store": "KvCache",
             "layer": 27
@@ -15676,7 +15676,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "dispatch_attention_flashinfer_prefill_bf16",
+          "kernel": "attn::dispatch_attention_flashinfer_prefill_bf16",
           "state": {
             "store": "KvCache",
             "layer": 27
@@ -15751,7 +15751,7 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "launch_chunked_swiglu_bf16"
+          "kernel": "mlp::chunked_swiglu_bf16"
         }
       },
       "inputs": [
