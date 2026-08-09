@@ -63,11 +63,16 @@ pub use dispatch_gptoss::{
     gptoss_mb_kind, gptoss_moe_qmm_bn, gptoss_moe_sorted_rows, gptoss_qmm_bn, gptoss_qmm_min_batch,
     gptoss_qmm_pool_rows, gptoss_qmm_rows, gptoss_scratch_elems_mb,
 };
-pub use dispatch_llama::{LlamaDagStats, build_llama_dag, llama_dag_stats};
+pub use dispatch_llama::{
+    LlamaDagStats, build_llama_dag, build_llama_dag_mb, llama_dag_stats, llama_dense_qmm_bm,
+    llama_fp16_format, llama_is_dense_proj, llama_moe_qmm_bn, llama_moe_sorted_rows, llama_qmm_bn,
+    llama_qmm_min_batch, llama_qmm_pool_rows, llama_qmm_rows,
+};
 pub use dispatch_mb::{
     PREFILL_ORDINAL_BASE, PREFILL_ORDINAL_STRIDE, ROUTED_DECODE_BATCHED, SDPA_QUERY_TILE,
-    build_decode_dag_mb, build_decode_prefill_dags, fp16_format, mb_geometry, mb_kind, qmm_bm,
-    qmm_bm_slot, qmm_bn, qmm_bn_unsplit, qmm_mb_rows, qmv_out_size, uses_alt_quant,
+    build_decode_dag_mb, build_decode_prefill_dags, elementwise_mb, fp16_format, mb_geometry,
+    mb_kind, qmm_bm, qmm_bm_slot, qmm_bn, qmm_bn_unsplit, qmm_mb_rows, qmm_t, qmv_mb, qmv_out_size,
+    rms_mb, uses_alt_quant,
 };
 pub use geometry::{AffineFormat, DecodeGeometry};
 pub use geometry_facts::{

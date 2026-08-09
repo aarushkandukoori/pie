@@ -155,7 +155,9 @@ pub fn qmm_mb_rows(n: u32, max_tokens: u32, min_batch: u32) -> u32 {
     }
 }
 
-fn rms_mb(row_size: u32, n_rows: u32, n: u32) -> Launch {
+/// `rms_single_row` over `n_rows × n` stacked rows.
+#[must_use]
+pub fn rms_mb(row_size: u32, n_rows: u32, n: u32) -> Launch {
     let t = row_size.div_ceil(4).min(1024);
     Launch {
         grid: [t * n_rows * n, 1, 1],
@@ -163,21 +165,27 @@ fn rms_mb(row_size: u32, n_rows: u32, n: u32) -> Launch {
     }
 }
 
-fn elementwise_mb(width: u32, n: u32) -> Launch {
+/// Flat elementwise over `width × n`.
+#[must_use]
+pub fn elementwise_mb(width: u32, n: u32) -> Launch {
     Launch {
         grid: [width * n, 1, 1],
         tg: [256, 1, 1],
     }
 }
 
-fn qmv_mb(out_vec: u32, n: u32) -> Launch {
+/// The matvec with rows on the first grid axis.
+#[must_use]
+pub fn qmv_mb(out_vec: u32, n: u32) -> Launch {
     Launch {
         grid: [32 * n, out_vec.div_ceil(4), 1],
         tg: [32, 2, 1],
     }
 }
 
-fn qmm_t(out_vec: u32, n: u32, bn: u32, bm: u32) -> Launch {
+/// The GEMM grid for `n` rows at a `(bm, bn)` tile.
+#[must_use]
+pub fn qmm_t(out_vec: u32, n: u32, bn: u32, bm: u32) -> Launch {
     Launch {
         grid: [32 * (out_vec / bn), 2 * (n / bm), 2],
         tg: [32, 2, 2],
