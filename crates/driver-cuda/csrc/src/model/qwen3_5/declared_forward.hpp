@@ -49,6 +49,7 @@
 
 #include <cstdint>
 
+#include "attention_workspace.hpp"
 #include "model/qwen3_5/declared_facts.hpp"
 #include "model/qwen3_5/qwen3_5_moe.hpp"
 

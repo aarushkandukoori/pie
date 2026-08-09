@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/llama_like/llama_like.hpp"
 
 #include <algorithm>
@@ -974,7 +975,7 @@ void prepare_llama_like_decode_plan(
             // ALSO the concurrency precondition: the suffix custom
             // dispatch now overlaps the prefix decode on the side
             // stream, so their scratch must be disjoint.
-            spatial_suffix_ws(),
+            spatial_suffix_ws().view(),
             /*stream=*/nullptr,
             fwd_cfg.decode_plan_cuda_graph,
             /*window_left=*/-1,
@@ -1052,7 +1053,7 @@ void prepare_llama_like_decode_plan(
                 num_kv_heads_local,
                 cfg.head_dim_kernel,
                 cache.page_size(),
-                attn_ws,
+                attn_ws.view(),
                 /*stream=*/nullptr,
                 fwd_cfg.decode_plan_cuda_graph,
                 fwd_cfg.sliding_window,
@@ -1106,7 +1107,7 @@ void prepare_llama_like_decode_plan(
                     kernels::attn::plan_attention_flashinfer_decode(
                         *state.mixed_mid_decode_plan, kvpp_mid.data(),
                         mid, num_q_heads_local, num_kv_heads_local,
-                        cfg.head_dim_kernel, cache.page_size(), attn_ws,
+                        cfg.head_dim_kernel, cache.page_size(), attn_ws.view(),
                         /*stream=*/nullptr,
                         fwd_cfg.decode_plan_cuda_graph,
                         decode_full_attention_variant_enabled() &&
@@ -1128,7 +1129,7 @@ void prepare_llama_like_decode_plan(
                         num_kv_heads_local,
                         cfg.head_dim_kernel,
                         cache.page_size(),
-                        attn_ws,
+                        attn_ws.view(),
                         /*stream=*/nullptr,
                         fwd_cfg.decode_plan_cuda_graph,
                         fwd_cfg.sliding_window,
@@ -1180,7 +1181,7 @@ void prepare_llama_like_decode_plan(
                 num_kv_heads_local,
                 cfg.head_dim_kernel,
                 cache.page_size(),
-                spatial_suffix_ws(),
+                spatial_suffix_ws().view(),
                 /*stream=*/nullptr,
                 fwd_cfg.decode_plan_cuda_graph,
                 /*window_left=*/-1,
@@ -1218,7 +1219,7 @@ void prepare_llama_like_decode_plan(
             num_kv_heads_local,
             cfg.head_dim_kernel,
             cache.page_size(),
-            attn_ws,
+            attn_ws.view(),
             /*stream=*/nullptr,
             fwd_cfg.decode_plan_cuda_graph,
             /*window_left=*/-1,
@@ -1298,7 +1299,7 @@ void prepare_llama_like_decode_plan(
                 num_kv_heads_local,
                 cfg.head_dim_kernel,
                 cache.page_size(),
-                attn_ws,
+                attn_ws.view(),
                 /*stream=*/nullptr,
                 // `graph_mode_plan` marks the plan CUDA-graph capturable
                 // (`PrefillPlanCache::graph_capturable`), which is what
@@ -1418,7 +1419,7 @@ void prepare_llama_like_decode_plan(
             kv_last_page_lens_h,
             /*total_tokens=*/num_requests, num_requests,
             num_q_heads_local, num_kv_heads_local, cfg.head_dim_kernel,
-            cache.page_size(), attn_ws, /*stream=*/nullptr,
+            cache.page_size(), attn_ws.view(), /*stream=*/nullptr,
             fwd_cfg.decode_plan_cuda_graph, fwd_cfg.sliding_window,
             full_attention_variant, cache.hnd_layout(),
             /*causal_mask=*/false);
@@ -1445,7 +1446,7 @@ void prepare_llama_like_decode_plan(
                     static_cast<int>(rows),
                     num_q_heads_local, num_kv_heads_local,
                     cfg.head_dim_kernel, cache.page_size(),
-                    depth_band_ws(static_cast<int>(j)),
+                    depth_band_ws(static_cast<int>(j)).view(),
                     /*stream=*/nullptr,
                     fwd_cfg.decode_plan_cuda_graph, fwd_cfg.sliding_window,
                     full_attention_variant, cache.hnd_layout(),
@@ -1469,7 +1470,7 @@ void prepare_llama_like_decode_plan(
     kernels::attn::plan_attention_flashinfer_decode(
         *state.decode_plan, kv_page_indptr_h, num_requests,
         num_q_heads_local, num_kv_heads_local, cfg.head_dim_kernel,
-        cache.page_size(), attn_ws, /*stream=*/nullptr,
+        cache.page_size(), attn_ws.view(), /*stream=*/nullptr,
         fwd_cfg.decode_plan_cuda_graph,
         decode_full_attention_variant_enabled() &&
             fwd_cfg.sliding_window < 0 && fwd_cfg.per_layer_window_left.empty(),
@@ -1491,7 +1492,7 @@ void prepare_llama_like_decode_plan(
             *state.depth_prefix_decode_plan, kv_page_indptr_h,
             static_cast<int>(full_depth_rows),
             num_q_heads_local, num_kv_heads_local, cfg.head_dim_kernel,
-            cache.page_size(), spatial_suffix_attn_ws(),
+            cache.page_size(), spatial_suffix_attn_ws().view(),
             /*stream=*/nullptr,
             fwd_cfg.decode_plan_cuda_graph,
             decode_full_attention_variant_enabled() &&
@@ -1526,7 +1527,7 @@ void prepare_llama_like_decode_plan(
                 *state.depth_band_plans[j], kv_page_indptr_h,
                 static_cast<int>(rows),
                 num_q_heads_local, num_kv_heads_local, cfg.head_dim_kernel,
-                cache.page_size(), depth_band_ws(static_cast<int>(j)),
+                cache.page_size(), depth_band_ws(static_cast<int>(j)).view(),
                 /*stream=*/nullptr,
                 fwd_cfg.decode_plan_cuda_graph,
                 decode_full_attention_variant_enabled() &&
@@ -1812,7 +1813,7 @@ void llama_like_forward_paged(
             R,
             cache.page_size(),
             plan_state.xqa_max_pages_per_seq,
-            attn_ws,
+            attn_ws.view(),
             stream);
     }
 
@@ -2324,7 +2325,7 @@ void llama_like_forward_paged(
                 attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages, attn_out_buf,
                 R, num_q_heads_local, num_kv_heads_local, dk,
                 cache.page_size(), plan_state.xqa_max_pages_per_seq,
-                attn_ws, stream, sm_scale_override);
+                attn_ws.view(), stream, sm_scale_override);
         } else if (use_prefill_decode_path) {
             const int num_pages_in_batch = kv_page_indptr_h[R];
             kernels::attn::dequant_kv_cache_layer_to_bf16_active(
@@ -2334,14 +2335,14 @@ void llama_like_forward_paged(
                                                    : prefill_decode_plan),
                 attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                attn_ws, stream, /*logits_soft_cap=*/0.f, sm_scale_override);
+                attn_ws.view(), stream, /*logits_soft_cap=*/0.f, sm_scale_override);
         } else if (use_decode_path) {
             if (score_capture.active()) {
                 kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *decode_plan,
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr, attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture.raw(), score_capture.indptr_d(),
                     layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -2356,7 +2357,7 @@ void llama_like_forward_paged(
                     *decode_plan,
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr, attn_last_page_lens,
-                    attn_ws, stream, layer_window_left,
+                    attn_ws.view(), stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             }
         } else if (custom_mask_d) {
@@ -2419,7 +2420,7 @@ void llama_like_forward_paged(
                             qo_indptr, kv_page_indices, kv_page_indptr,
                             kv_last_page_lens,
                             qo_indptr_h, kv_page_indptr_h,
-                            split, split, num_q_heads_local, attn_ws,
+                            split, split, num_q_heads_local, attn_ws.view(),
                             stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, sm_scale_override);
                     } else if (decode_plan == nullptr) {
@@ -2442,7 +2443,7 @@ void llama_like_forward_paged(
                                 attn_q, kv_view, attn_out_buf,
                                 attn_page_indices, attn_page_indptr,
                                 attn_last_page_lens,
-                                attn_ws, stream,
+                                attn_ws.view(), stream,
                                 score_capture.raw(),
                                 score_capture.indptr_d(),
                                 layer_window_left,
@@ -2456,7 +2457,7 @@ void llama_like_forward_paged(
                                 attn_q, kv_view, attn_out_buf,
                                 attn_page_indices, attn_page_indptr,
                                 attn_last_page_lens,
-                                attn_ws, stream, layer_window_left,
+                                attn_ws.view(), stream, layer_window_left,
                                 /*logits_soft_cap=*/0.f, sm_scale_override);
                         }
                     }
@@ -2480,7 +2481,7 @@ void llama_like_forward_paged(
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_ws(), suffix_stream2);
+                    spatial_suffix_ws().view(), suffix_stream2);
                 if (side_on2) {
                     CUDA_CHECK(cudaEventRecord(ss2->join, ss2->stream));
                     CUDA_CHECK(cudaStreamWaitEvent(stream, ss2->join, 0));
@@ -2558,7 +2559,7 @@ void llama_like_forward_paged(
                     kv_page_indptr + split_req,
                     kv_last_page_lens + split_req,
                     custom_mask_d, custom_mask_indptr_d + split_req,
-                    spatial_suffix_ws(), custom_stream);
+                    spatial_suffix_ws().view(), custom_stream);
                 // The prefix causal dispatch on the main stream — the
                 // bf16 view needs the prefix pages staged (no-op on
                 // native-bf16 caches; the custom dispatch takes the
@@ -2572,7 +2573,7 @@ void llama_like_forward_paged(
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
                 // NO-DEMOTION: the plain-decode middle takes the DECODE
                 // kernel (its own plan over requests [P, split_req),
@@ -2605,7 +2606,7 @@ void llama_like_forward_paged(
                         kv_page_indices,
                         kv_page_indptr + P,
                         kv_last_page_lens + P,
-                        attn_ws, mid_stream, layer_window_left,
+                        attn_ws.view(), mid_stream, layer_window_left,
                         /*logits_soft_cap=*/0.f, sm_scale_override);
                     if (side_on && ss != nullptr) {
                         CUDA_CHECK(cudaEventRecord(
@@ -2636,7 +2637,7 @@ void llama_like_forward_paged(
                     attn_q, kv_view, attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         } else if (plan_state.use_prefill_plan && prefill_plan != nullptr) {
             const int num_pages_in_batch = kv_page_indptr_h[R];
@@ -2648,7 +2649,7 @@ void llama_like_forward_paged(
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture.raw(),
                     prefill_score_capture.folded(),
                     prefill_score_capture.indptr_d(),
@@ -2662,14 +2663,14 @@ void llama_like_forward_paged(
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f, sm_scale_override);
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f, sm_scale_override);
             }
         } else {
             kernels::attn::attention_flashinfer_prefill(
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 qo_indptr_h, kv_page_indptr_h,
-                N, R, num_q_heads_local, attn_ws, stream, layer_window_left,
+                N, R, num_q_heads_local, attn_ws.view(), stream, layer_window_left,
                 /*logits_soft_cap=*/0.f, sm_scale_override);
         }
         invoke_stage_hook(

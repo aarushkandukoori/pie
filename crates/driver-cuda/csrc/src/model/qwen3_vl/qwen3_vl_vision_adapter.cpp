@@ -95,7 +95,7 @@ void qwen3vl_vis_attn(const void* q, void* k, void* v, void* o,
         up(&st.qo_d, qo); up(&st.kvpi_d, kvpi); up(&st.kvidx_d, kvidx); up(&st.klpl_d, klpl);
         kernels::attn::plan_attention_flashinfer_prefill_bf16(
             *st.plan, qo.data(), kvpi.data(), klpl.data(), /*total_tokens=*/total, num_seqs,
-            NH, NH, HEAD, ps, st.ws, S, /*enable_cuda_graph=*/false, /*window_left=*/-1,
+            NH, NH, HEAD, ps, st.ws.view(), S, /*enable_cuda_graph=*/false, /*window_left=*/-1,
             /*full_attention_variant=*/false, /*hnd_layout=*/false, /*causal_mask=*/false);
         st.sig_seqs = num_seqs; st.sig_total = total; st.sig_len0 = len0;
         st.sig_NH = NH; st.sig_HD = HEAD;
@@ -103,7 +103,7 @@ void qwen3vl_vis_attn(const void* q, void* k, void* v, void* o,
     const float sm_scale = 1.0f / std::sqrt((float)HEAD);
     kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
         *st.plan, q, k, v, o, st.qo_d, st.kvidx_d, st.kvpi_d, st.klpl_d,
-        st.ws, S, /*logits_soft_cap=*/0.f, sm_scale, /*lse_out=*/nullptr);
+        st.ws.view(), S, /*logits_soft_cap=*/0.f, sm_scale, /*lse_out=*/nullptr);
 }
 
 namespace {

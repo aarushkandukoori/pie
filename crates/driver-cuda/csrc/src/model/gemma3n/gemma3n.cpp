@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/gemma3n/gemma3n.hpp"
 #include "model/stage_hooks.hpp"
 
@@ -419,7 +420,7 @@ void gemma3n_forward_paged(
         kernels::attn::plan_attention_flashinfer_decode(
             *decode_plan, kv_page_indptr_h, R,
             num_q_heads_local, num_kv_heads_local, d,
-            cache.page_size(), attn_ws, stream,
+            cache.page_size(), attn_ws.view(), stream,
             /*enable_cuda_graph=*/true,
             /*full_attention_variant=*/false,
             cache.hnd_layout());
@@ -558,7 +559,7 @@ void gemma3n_forward_paged(
                 *decode_plan,
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                attn_ws, stream, layer_window,
+                attn_ws.view(), stream, layer_window,
                 /*logits_soft_cap=*/0.f, gemma3n_sm_scale);
         } else if (custom_mask_d) {
             kernels::attn::attention_flashinfer_prefill_custom(
@@ -566,14 +567,14 @@ void gemma3n_forward_paged(
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 custom_mask_d, custom_mask_indptr_d,
                 qo_indptr_h, kv_page_indptr_h,
-                N, R, num_q_heads_local, attn_ws, stream,
+                N, R, num_q_heads_local, attn_ws.view(), stream,
                 /*window_left=*/-1, /*logits_soft_cap=*/0.f, gemma3n_sm_scale);
         } else {
             kernels::attn::attention_flashinfer_prefill(
                 ws.q.data(), kv_view, ws.attn_out.data(),
                 qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 qo_indptr_h, kv_page_indptr_h,
-                N, R, num_q_heads_local, attn_ws, stream, layer_window,
+                N, R, num_q_heads_local, attn_ws.view(), stream, layer_window,
                 /*logits_soft_cap=*/0.f, gemma3n_sm_scale);
         }
         invoke_stage_hook(

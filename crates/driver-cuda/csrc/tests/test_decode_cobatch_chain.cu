@@ -23,6 +23,7 @@
 
 #include <cuda_runtime.h>
 
+#include "attention_workspace.hpp"
 #include "attn/qkv_fused.hpp"
 #include "attn/attention_flashinfer.hpp"
 
@@ -187,9 +188,9 @@ ChainResult run_chain(const std::vector<Req>& reqs, int first, int R, int num_st
     auto ws = AttentionWorkspace::allocate(256ull*1024*1024, 32ull*1024*1024);
     auto plan = kernels::attn::make_decode_plan();
     kernels::attn::plan_attention_flashinfer_decode(*plan, kv_page_indptr_h.data(), R, HQ, HKV, D, PAGE,
-        ws, nullptr, false, /*full_attention_variant=*/true, false);
+        ws.view(), nullptr, false, /*full_attention_variant=*/true, false);
     kernels::attn::dispatch_attention_flashinfer_decode_bf16(
-        *plan, d_qout, d_k, d_v, d_o, d_kpi, d_kpp, d_klpl, ws, nullptr);
+        *plan, d_qout, d_k, d_v, d_o, d_kpi, d_kpp, d_klpl, ws.view(), nullptr);
     RT(cudaDeviceSynchronize());
 
     // Download the KV pool + o; extract each request's LAST decode-slot K/V + attn_out.

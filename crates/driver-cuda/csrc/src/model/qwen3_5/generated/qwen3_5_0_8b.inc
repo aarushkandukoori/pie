@@ -398,7 +398,7 @@ const StageHooks* hooks)
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
-              kv_last_page_lens, attn_ws, stream); }
+              kv_last_page_lens, attn_ws.view(), stream); }
     } else {
         if (decode_plan == nullptr) {
             throw std::runtime_error(
@@ -409,7 +409,7 @@ const StageHooks* hooks)
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
-              attn_ws, stream); }
+              attn_ws.view(), stream); }
     }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
@@ -726,7 +726,7 @@ const StageHooks* hooks)
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
-              kv_last_page_lens, attn_ws, stream); }
+              kv_last_page_lens, attn_ws.view(), stream); }
     } else {
         if (decode_plan == nullptr) {
             throw std::runtime_error(
@@ -737,7 +737,7 @@ const StageHooks* hooks)
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
-              attn_ws, stream); }
+              attn_ws.view(), stream); }
     }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
@@ -1054,7 +1054,7 @@ const StageHooks* hooks)
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
-              kv_last_page_lens, attn_ws, stream); }
+              kv_last_page_lens, attn_ws.view(), stream); }
     } else {
         if (decode_plan == nullptr) {
             throw std::runtime_error(
@@ -1065,7 +1065,7 @@ const StageHooks* hooks)
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
-              attn_ws, stream); }
+              attn_ws.view(), stream); }
     }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
@@ -1382,7 +1382,7 @@ const StageHooks* hooks)
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
-              kv_last_page_lens, attn_ws, stream); }
+              kv_last_page_lens, attn_ws.view(), stream); }
     } else {
         if (decode_plan == nullptr) {
             throw std::runtime_error(
@@ -1393,7 +1393,7 @@ const StageHooks* hooks)
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
-              attn_ws, stream); }
+              attn_ws.view(), stream); }
     }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
@@ -1710,7 +1710,7 @@ const StageHooks* hooks)
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
-              kv_last_page_lens, attn_ws, stream); }
+              kv_last_page_lens, attn_ws.view(), stream); }
     } else {
         if (decode_plan == nullptr) {
             throw std::runtime_error(
@@ -1721,7 +1721,7 @@ const StageHooks* hooks)
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
-              attn_ws, stream); }
+              attn_ws.view(), stream); }
     }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
@@ -2038,7 +2038,7 @@ const StageHooks* hooks)
               ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
               ws.attn_out.data(),
               qo_indptr, kv_page_indices, kv_page_indptr,
-              kv_last_page_lens, attn_ws, stream); }
+              kv_last_page_lens, attn_ws.view(), stream); }
     } else {
         if (decode_plan == nullptr) {
             throw std::runtime_error(
@@ -2049,7 +2049,7 @@ const StageHooks* hooks)
               *decode_plan,
               ws.q.data(), kv_view, ws.attn_out.data(),
               kv_page_indices, kv_page_indptr, kv_last_page_lens,
-              attn_ws, stream); }
+              attn_ws.view(), stream); }
     }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
@@ -2533,7 +2533,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -2887,7 +2887,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -3241,7 +3241,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -3595,7 +3595,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -3949,7 +3949,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -4303,7 +4303,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -4786,7 +4786,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -5140,7 +5140,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -5494,7 +5494,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -5848,7 +5848,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -6202,7 +6202,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -6556,7 +6556,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -7093,7 +7093,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -7528,7 +7528,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -7963,7 +7963,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -8398,7 +8398,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -8833,7 +8833,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {
@@ -9268,7 +9268,7 @@ const StageHooks* hooks)
           ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
           ws.attn_out.data(),
           qo_indptr, kv_page_indices, kv_page_indptr,
-          kv_last_page_lens, attn_ws, stream); }
+          kv_last_page_lens, attn_ws.view(), stream); }
     kernels::mlp::sigmoid_gate_inplace_bf16(
         ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
     if (hooks != nullptr) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "attention_workspace.hpp"
 #include "model/gemma/gemma2.hpp"
 #include "model/imodel.hpp"
 

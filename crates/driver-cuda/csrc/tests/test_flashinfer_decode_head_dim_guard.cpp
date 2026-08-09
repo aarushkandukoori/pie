@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "attention_workspace.hpp"
 #include "attn/attention_flashinfer.hpp"
 
 int main() {
@@ -21,7 +22,7 @@ int main() {
             /*num_kv_heads=*/1,
             /*head_dim=*/80,
             /*page_size=*/16,
-            workspace,
+            workspace.view(),
             /*stream=*/nullptr,
             /*enable_cuda_graph=*/false);
     } catch (const std::runtime_error& e) {

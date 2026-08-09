@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/nemotron_h/nemotron_h_model.hpp"
 
 #include <cstdlib>

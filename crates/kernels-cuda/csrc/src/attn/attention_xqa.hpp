@@ -4,7 +4,7 @@
 
 #include <cuda_runtime.h>
 
-#include "attention_workspace.hpp"
+#include "attention_workspace_view.hpp"
 
 namespace pie_cuda_driver::kernels::attn {
 
@@ -50,7 +50,7 @@ void attention_xqa_decode_bf16(
     int head_dim,
     int page_size,
     int max_pages_per_seq,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float sm_scale = -1.f);
 
@@ -61,7 +61,7 @@ void prepare_attention_xqa_decode_bf16(
     int num_requests,
     int page_size,
     int max_pages_per_seq,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream);
 
 void attention_xqa_decode_bf16_prepared(
@@ -75,7 +75,7 @@ void attention_xqa_decode_bf16_prepared(
     int head_dim,
     int page_size,
     int max_pages_per_seq,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float sm_scale = -1.f);
 

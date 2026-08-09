@@ -810,7 +810,7 @@ fn emit_launch(
             b.stmt("      *decode_plan,");
             b.stmt("      ws.q.data(), kv_view, ws.attn_out.data(),");
             b.stmt("      kv_page_indices, kv_page_indptr, kv_last_page_lens,");
-            b.stmt("      attn_ws, stream); }");
+            b.stmt("      attn_ws.view(), stream); }");
         }
         "attn::dispatch_attention_flashinfer_prefill_bf16" => {
             b.stmt("if (prefill_plan == nullptr) {");
@@ -823,7 +823,7 @@ fn emit_launch(
             b.stmt("      ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,");
             b.stmt("      ws.attn_out.data(),");
             b.stmt("      qo_indptr, kv_page_indices, kv_page_indptr,");
-            b.stmt("      kv_last_page_lens, attn_ws, stream); }");
+            b.stmt("      kv_last_page_lens, attn_ws.view(), stream); }");
         }
         "attn::write_kv_explicit_bf16" => {
             kv_view_pre(b);

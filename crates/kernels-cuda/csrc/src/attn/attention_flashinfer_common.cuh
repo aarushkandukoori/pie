@@ -411,7 +411,7 @@ struct AttnHd {
         const std::vector<IdType>& indptr_h_buf,
         uint32_t num_requests, uint32_t num_q_heads, uint32_t page_size,
         int gqa_group_size,
-        AttentionWorkspace& workspace,
+        AttentionWorkspaceView workspace,
         cudaStream_t stream,
         bool enable_cuda_graph,
         bool full_attention_variant);
@@ -426,7 +426,7 @@ struct AttnHd {
         const std::uint32_t* kv_page_indices_d,
         const std::uint32_t* kv_page_indptr_d,
         const std::uint32_t* kv_last_page_lens_d,
-        AttentionWorkspace& workspace,
+        AttentionWorkspaceView workspace,
         cudaStream_t stream,
         int window_left,
         float logits_soft_cap,
@@ -445,7 +445,7 @@ struct AttnHd {
         const std::uint32_t* kv_page_indices_d,
         const std::uint32_t* kv_page_indptr_d,
         const std::uint32_t* kv_last_page_lens_d,
-        AttentionWorkspace& workspace,
+        AttentionWorkspaceView workspace,
         cudaStream_t stream,
         int window_left,
         float logits_soft_cap,
@@ -493,7 +493,7 @@ private:
         const std::uint32_t* kv_page_indices_d,
         const std::uint32_t* kv_page_indptr_d,
         const std::uint32_t* kv_last_page_lens_d,
-        AttentionWorkspace& workspace,
+        AttentionWorkspaceView workspace,
         cudaStream_t stream,
         int window_left,
         float logits_soft_cap,
@@ -513,7 +513,7 @@ cudaError_t AttnHd<HEAD_DIM>::plan_decode(
     const std::vector<IdType>& indptr_h_buf,
     uint32_t num_requests, uint32_t num_q_heads, uint32_t page_size,
     int gqa_group_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     bool enable_cuda_graph,
     bool full_attention_variant)
@@ -522,9 +522,9 @@ cudaError_t AttnHd<HEAD_DIM>::plan_decode(
         if (full_attention_variant) {
             return ::flashinfer::DecodePlan<
                 HEAD_DIM, POS_ENC, AttnVariantFull, DecodeParams>(
-                workspace.float_buffer(), workspace.float_bytes(),
-                workspace.int_buffer(), workspace.page_locked_int(),
-                workspace.int_bytes(),
+                workspace.float_buffer, workspace.float_bytes,
+                workspace.int_buffer, workspace.page_locked_int,
+                workspace.int_bytes,
                 cache.plan_info,
                 const_cast<IdType*>(indptr_h_buf.data()),
                 num_requests, num_q_heads, page_size,
@@ -533,9 +533,9 @@ cudaError_t AttnHd<HEAD_DIM>::plan_decode(
         }
         return ::flashinfer::DecodePlan<
             HEAD_DIM, POS_ENC, AttnVariant, DecodeParams>(
-                workspace.float_buffer(), workspace.float_bytes(),
-                workspace.int_buffer(), workspace.page_locked_int(),
-                workspace.int_bytes(),
+                workspace.float_buffer, workspace.float_bytes,
+                workspace.int_buffer, workspace.page_locked_int,
+                workspace.int_bytes,
                 cache.plan_info,
                 const_cast<IdType*>(indptr_h_buf.data()),
                 num_requests, num_q_heads, page_size,
@@ -570,7 +570,7 @@ cudaError_t AttnHd<HEAD_DIM>::run_decode(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     int window_left,
     float logits_soft_cap,
@@ -628,9 +628,9 @@ cudaError_t AttnHd<HEAD_DIM>::run_decode(
         params.score_indptr = sink->indptr;
     }
 
-    void* int_buf = static_cast<std::uint8_t*>(workspace.int_buffer()) +
+    void* int_buf = static_cast<std::uint8_t*>(workspace.int_buffer) +
                     cache.int_base_bytes;
-    void* float_buf = workspace.float_buffer();
+    void* float_buf = workspace.float_buffer;
     params.request_indices    = offset_ptr<IdType>(int_buf, cache.plan_info.request_indices_offset);
     params.kv_tile_indices    = offset_ptr<IdType>(int_buf, cache.plan_info.kv_tile_indices_offset);
     params.o_indptr           = offset_ptr<IdType>(int_buf, cache.plan_info.o_indptr_offset);
@@ -690,7 +690,7 @@ cudaError_t AttnHd<HEAD_DIM>::dispatch_decode(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     int window_left,
     float logits_soft_cap,
@@ -726,7 +726,7 @@ cudaError_t AttnHd<HEAD_DIM>::dispatch_decode_capture(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     int window_left,
     float logits_soft_cap,

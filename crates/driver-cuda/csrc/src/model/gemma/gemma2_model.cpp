@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/gemma/gemma2_model.hpp"
 
 #include <utility>

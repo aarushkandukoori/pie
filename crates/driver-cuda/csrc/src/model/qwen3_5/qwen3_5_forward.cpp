@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/qwen3_5/qwen3_5_forward.hpp"
 #include "model/act_dump.hpp"
 #include "model/stage_hooks.hpp"
@@ -1432,14 +1433,14 @@ void full_attn_layer_body(
             *decode_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             kv_page_indices, kv_page_indptr, kv_last_page_lens,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     } else if (prefill_plan) {
         kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
             *prefill_plan,
             ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
             ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     } else if (use_small_prefill_naive) {
         kernels::attn::attention_naive_paged_bf16(
             ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
@@ -1452,7 +1453,7 @@ void full_attn_layer_body(
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
             qo_indptr_h, kv_page_indptr_h,
-            N, R, num_q_heads_local, attn_ws, stream);
+            N, R, num_q_heads_local, attn_ws.view(), stream);
     }
     // ── Output gate: attn_out *= sigmoid(gate) ────────────────────
     kernels::mlp::sigmoid_gate_inplace_bf16(
@@ -1528,7 +1529,7 @@ void prepare_qwen3_5_decode_plan(
                 cfg.num_key_value_heads / T,
                 cfg.head_dim,
                 cache.page_size(),
-                attn_ws,
+                attn_ws.view(),
                 stream,
                 enable_graph,
                 /*window_left=*/-1,
@@ -1566,7 +1567,7 @@ void prepare_qwen3_5_decode_plan(
             *state.prefill_plan, qo_indptr_h, kv_page_indptr_h,
             kv_last_page_lens_h, total_tokens, num_requests,
             cfg.num_attention_heads / Tp, cfg.num_key_value_heads / Tp,
-            cfg.head_dim, cache.page_size(), attn_ws, stream,
+            cfg.head_dim, cache.page_size(), attn_ws.view(), stream,
             /*enable_cuda_graph=*/true, /*window_left=*/-1,
             /*full_attention_variant=*/false, cache.hnd_layout(),
             /*causal_mask=*/true);
@@ -1592,7 +1593,7 @@ void prepare_qwen3_5_decode_plan(
         cfg.num_attention_heads / T,
         cfg.num_key_value_heads / T,
         cfg.head_dim,
-        cache.page_size(), attn_ws, stream,
+        cache.page_size(), attn_ws.view(), stream,
         /*enable_cuda_graph=*/true,
         /*full_attention_variant=*/false,
         cache.hnd_layout());

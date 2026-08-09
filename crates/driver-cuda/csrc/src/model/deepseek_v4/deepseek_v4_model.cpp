@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/deepseek_v4/deepseek_v4_model.hpp"
 
 #include "loader/group_stream_cache.hpp"
@@ -92,7 +93,7 @@ void DsV4Model::prepare(AttentionWorkspace& attn_ws,
         // with each other on the wrong number.
         hf_config_.num_attention_heads,
         /*num_kv_heads=*/1, hf_config_.head_dim,
-        kv_cache_.page_size(), attn_ws, /*stream=*/nullptr,
+        kv_cache_.page_size(), attn_ws.view(), /*stream=*/nullptr,
         fwd_cfg_.decode_plan_cuda_graph, window_left,
         /*full_attention_variant=*/false, /*hnd_layout=*/false,
         /*causal_mask=*/true);

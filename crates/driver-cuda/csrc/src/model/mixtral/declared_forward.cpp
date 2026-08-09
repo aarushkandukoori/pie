@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/mixtral/declared_forward.hpp"
 
 #include <atomic>
@@ -292,7 +293,7 @@ bool gpt_oss_forward_declared(
     kernels::attn::plan_attention_flashinfer_decode(
         *decode_plan, kv_page_indptr_h, R,
         cfg.num_attention_heads, cfg.num_key_value_heads, d,
-        cache.page_size(), attn_ws, stream,
+        cache.page_size(), attn_ws.view(), stream,
         /*enable_cuda_graph=*/true,
         /*full_attention_variant=*/false,
         cache.hnd_layout());
@@ -441,7 +442,7 @@ bool gpt_oss_forward_declared(
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
-                    N, R, cfg.num_attention_heads, attn_ws, stream,
+                    N, R, cfg.num_attention_heads, attn_ws.view(), stream,
                     /*window_left=*/window_of(cur_layer),
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
                     d_lse.data());
@@ -455,7 +456,7 @@ bool gpt_oss_forward_declared(
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *decode_plan, ws.q.data(), kv_view, ws.attn_out.data(),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     /*window_left=*/window_of(cur_layer),
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
                     d_lse.data());

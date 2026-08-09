@@ -285,7 +285,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -330,7 +330,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -350,7 +350,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -364,7 +364,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -478,7 +478,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -528,8 +528,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -702,7 +702,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -752,8 +752,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -928,7 +928,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -973,7 +973,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -993,7 +993,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -1007,7 +1007,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -1121,7 +1121,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -1171,8 +1171,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -1345,7 +1345,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -1395,8 +1395,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -1571,7 +1571,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -1616,7 +1616,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -1636,7 +1636,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -1650,7 +1650,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -1764,7 +1764,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -1814,8 +1814,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -1988,7 +1988,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -2038,8 +2038,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -2214,7 +2214,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -2259,7 +2259,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -2279,7 +2279,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -2293,7 +2293,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -2407,7 +2407,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -2457,8 +2457,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -2631,7 +2631,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -2681,8 +2681,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -2857,7 +2857,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -2902,7 +2902,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -2922,7 +2922,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -2936,7 +2936,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -3050,7 +3050,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -3100,8 +3100,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -3274,7 +3274,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -3324,8 +3324,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -3500,7 +3500,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -3545,7 +3545,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -3565,7 +3565,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -3579,7 +3579,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -3693,7 +3693,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -3743,8 +3743,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -3917,7 +3917,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -3967,8 +3967,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -4143,7 +4143,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -4188,7 +4188,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -4208,7 +4208,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -4222,7 +4222,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -4336,7 +4336,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -4386,8 +4386,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -4560,7 +4560,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -4610,8 +4610,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -4786,7 +4786,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -4831,7 +4831,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -4851,7 +4851,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -4865,7 +4865,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -4979,7 +4979,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -5029,8 +5029,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -5203,7 +5203,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -5253,8 +5253,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -5429,7 +5429,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -5474,7 +5474,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -5494,7 +5494,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -5508,7 +5508,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -5622,7 +5622,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -5672,8 +5672,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -5846,7 +5846,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -5896,8 +5896,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -6072,7 +6072,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -6117,7 +6117,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -6137,7 +6137,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -6151,7 +6151,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -6265,7 +6265,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -6315,8 +6315,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -6489,7 +6489,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -6539,8 +6539,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -6715,7 +6715,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -6760,7 +6760,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -6780,7 +6780,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -6794,7 +6794,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -6908,7 +6908,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -6958,8 +6958,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -7132,7 +7132,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -7182,8 +7182,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -7358,7 +7358,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -7403,7 +7403,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -7423,7 +7423,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -7437,7 +7437,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -7551,7 +7551,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -7601,8 +7601,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -7775,7 +7775,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -7825,8 +7825,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -8001,7 +8001,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -8046,7 +8046,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -8066,7 +8066,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -8080,7 +8080,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -8194,7 +8194,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -8244,8 +8244,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -8418,7 +8418,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -8468,8 +8468,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -8644,7 +8644,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -8689,7 +8689,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -8709,7 +8709,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -8723,7 +8723,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -8837,7 +8837,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -8887,8 +8887,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -9061,7 +9061,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -9111,8 +9111,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -9287,7 +9287,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -9332,7 +9332,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -9352,7 +9352,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -9366,7 +9366,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -9480,7 +9480,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -9530,8 +9530,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -9704,7 +9704,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -9754,8 +9754,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -9930,7 +9930,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -9975,7 +9975,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -9995,7 +9995,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -10009,7 +10009,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -10123,7 +10123,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -10173,8 +10173,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -10347,7 +10347,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -10397,8 +10397,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -10573,7 +10573,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -10618,7 +10618,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -10638,7 +10638,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -10652,7 +10652,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -10766,7 +10766,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -10816,8 +10816,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -10990,7 +10990,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -11040,8 +11040,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -11216,7 +11216,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -11261,7 +11261,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -11281,7 +11281,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -11295,7 +11295,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -11409,7 +11409,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -11459,8 +11459,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -11633,7 +11633,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -11683,8 +11683,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -11859,7 +11859,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -11904,7 +11904,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -11924,7 +11924,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -11938,7 +11938,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -12052,7 +12052,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -12102,8 +12102,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -12276,7 +12276,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -12326,8 +12326,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -12502,7 +12502,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -12547,7 +12547,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -12567,7 +12567,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -12581,7 +12581,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -12695,7 +12695,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -12745,8 +12745,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -12919,7 +12919,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -12969,8 +12969,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -13145,7 +13145,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -13190,7 +13190,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -13210,7 +13210,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -13224,7 +13224,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -13338,7 +13338,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -13388,8 +13388,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -13562,7 +13562,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -13612,8 +13612,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -13788,7 +13788,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -13833,7 +13833,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -13853,7 +13853,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -13867,7 +13867,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -13981,7 +13981,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -14031,8 +14031,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -14205,7 +14205,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -14255,8 +14255,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -14431,7 +14431,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -14476,7 +14476,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -14496,7 +14496,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -14510,7 +14510,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -14624,7 +14624,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -14674,8 +14674,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -14848,7 +14848,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -14898,8 +14898,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -15074,7 +15074,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -15119,7 +15119,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -15139,7 +15139,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -15153,7 +15153,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -15267,7 +15267,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -15317,8 +15317,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -15491,7 +15491,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -15541,8 +15541,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -15717,7 +15717,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -15762,7 +15762,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -15782,7 +15782,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -15796,7 +15796,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -15910,7 +15910,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -15960,8 +15960,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -16134,7 +16134,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -16184,8 +16184,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -16360,7 +16360,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -16405,7 +16405,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -16425,7 +16425,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -16439,7 +16439,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -16553,7 +16553,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -16603,8 +16603,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -16777,7 +16777,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -16827,8 +16827,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -17003,7 +17003,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -17048,7 +17048,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -17068,7 +17068,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -17082,7 +17082,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -17196,7 +17196,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -17246,8 +17246,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -17420,7 +17420,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -17470,8 +17470,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -17646,7 +17646,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream,
+                            attn_ws.view(), stream,
                             score_capture->raw(), score_capture->indptr_d(),
                             /*window_left=*/-1,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -17691,7 +17691,7 @@ std::uint32_t declared_full_depth_rows)
                             ws.q.data(), kv_view, ws.attn_out.data(),
                             attn_page_indices, attn_page_indptr,
                             attn_last_page_lens,
-                            attn_ws, stream, layer_window_left,
+                            attn_ws.view(), stream, layer_window_left,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -17711,7 +17711,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.mask_decode_plan) {
@@ -17725,7 +17725,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -17839,7 +17839,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -17889,8 +17889,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -18063,7 +18063,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
@@ -18113,8 +18113,8 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
             }
@@ -18469,7 +18469,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -18488,7 +18488,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -18508,7 +18508,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -18522,7 +18522,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -18580,7 +18580,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -18601,7 +18601,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -18800,7 +18800,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -18819,7 +18819,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -18839,7 +18839,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -18853,7 +18853,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -18911,7 +18911,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -18932,7 +18932,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -19131,7 +19131,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -19150,7 +19150,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -19170,7 +19170,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -19184,7 +19184,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -19242,7 +19242,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -19263,7 +19263,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -19462,7 +19462,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -19481,7 +19481,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -19501,7 +19501,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -19515,7 +19515,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -19573,7 +19573,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -19594,7 +19594,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -19793,7 +19793,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -19812,7 +19812,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -19832,7 +19832,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -19846,7 +19846,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -19904,7 +19904,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -19925,7 +19925,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -20124,7 +20124,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -20143,7 +20143,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -20163,7 +20163,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -20177,7 +20177,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -20235,7 +20235,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -20256,7 +20256,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -20455,7 +20455,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -20474,7 +20474,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -20494,7 +20494,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -20508,7 +20508,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -20566,7 +20566,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -20587,7 +20587,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -20786,7 +20786,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -20805,7 +20805,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -20825,7 +20825,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -20839,7 +20839,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -20897,7 +20897,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -20918,7 +20918,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -21117,7 +21117,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -21136,7 +21136,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -21156,7 +21156,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -21170,7 +21170,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -21228,7 +21228,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -21249,7 +21249,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -21448,7 +21448,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -21467,7 +21467,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -21487,7 +21487,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -21501,7 +21501,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -21559,7 +21559,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -21580,7 +21580,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -21779,7 +21779,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -21798,7 +21798,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -21818,7 +21818,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -21832,7 +21832,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -21890,7 +21890,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -21911,7 +21911,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -22110,7 +22110,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -22129,7 +22129,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -22149,7 +22149,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -22163,7 +22163,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -22221,7 +22221,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -22242,7 +22242,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -22441,7 +22441,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -22460,7 +22460,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -22480,7 +22480,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -22494,7 +22494,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -22552,7 +22552,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -22573,7 +22573,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -22772,7 +22772,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -22791,7 +22791,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -22811,7 +22811,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -22825,7 +22825,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -22883,7 +22883,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -22904,7 +22904,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -23103,7 +23103,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -23122,7 +23122,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -23142,7 +23142,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -23156,7 +23156,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -23214,7 +23214,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -23235,7 +23235,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -23434,7 +23434,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -23453,7 +23453,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -23473,7 +23473,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -23487,7 +23487,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -23545,7 +23545,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -23566,7 +23566,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -23765,7 +23765,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -23784,7 +23784,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -23804,7 +23804,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -23818,7 +23818,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -23876,7 +23876,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -23897,7 +23897,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -24096,7 +24096,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -24115,7 +24115,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -24135,7 +24135,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -24149,7 +24149,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -24207,7 +24207,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -24228,7 +24228,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -24427,7 +24427,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -24446,7 +24446,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -24466,7 +24466,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -24480,7 +24480,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -24538,7 +24538,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -24559,7 +24559,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -24758,7 +24758,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -24777,7 +24777,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -24797,7 +24797,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -24811,7 +24811,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -24869,7 +24869,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -24890,7 +24890,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -25089,7 +25089,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -25108,7 +25108,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -25128,7 +25128,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -25142,7 +25142,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -25200,7 +25200,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -25221,7 +25221,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -25420,7 +25420,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -25439,7 +25439,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -25459,7 +25459,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -25473,7 +25473,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -25531,7 +25531,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -25552,7 +25552,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -25751,7 +25751,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -25770,7 +25770,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -25790,7 +25790,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -25804,7 +25804,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -25862,7 +25862,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -25883,7 +25883,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -26082,7 +26082,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -26101,7 +26101,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -26121,7 +26121,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -26135,7 +26135,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -26193,7 +26193,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -26214,7 +26214,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -26413,7 +26413,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -26432,7 +26432,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -26452,7 +26452,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -26466,7 +26466,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -26524,7 +26524,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -26545,7 +26545,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -26744,7 +26744,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -26763,7 +26763,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -26783,7 +26783,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -26797,7 +26797,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -26855,7 +26855,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -26876,7 +26876,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -27075,7 +27075,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -27094,7 +27094,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -27114,7 +27114,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -27128,7 +27128,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -27186,7 +27186,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -27207,7 +27207,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -27406,7 +27406,7 @@ std::uint32_t declared_full_depth_rows)
                         ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale_override=*/-1.f);
                     if (plan_state.mixed_mid_decode_plan &&
                         plan_state.mixed_mid_start >= 0) {
@@ -27425,7 +27425,7 @@ std::uint32_t declared_full_depth_rows)
                             kv_page_indices,
                             kv_page_indptr + mid_P,
                             kv_last_page_lens + mid_P,
-                            attn_ws, stream, mid_wl,
+                            attn_ws.view(), stream, mid_wl,
                             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
                     }
                 }
@@ -27445,7 +27445,7 @@ std::uint32_t declared_full_depth_rows)
                     kv_page_indptr + split,
                     kv_last_page_lens + split,
                     custom_mask_d, custom_mask_indptr_d + split,
-                    spatial_suffix_attn_ws(), stream);
+                    spatial_suffix_attn_ws().view(), stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -27459,7 +27459,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
             }
         }
         if (hooks != nullptr) {
@@ -27517,7 +27517,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -27538,7 +27538,7 @@ std::uint32_t declared_full_depth_rows)
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     /*sm_scale_override=*/-1.f);
             }
         }
@@ -27799,7 +27799,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -27882,7 +27882,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -27965,7 +27965,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28048,7 +28048,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28131,7 +28131,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28214,7 +28214,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28297,7 +28297,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28380,7 +28380,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28463,7 +28463,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28546,7 +28546,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28629,7 +28629,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28712,7 +28712,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28795,7 +28795,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28878,7 +28878,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -28961,7 +28961,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29044,7 +29044,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29127,7 +29127,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29210,7 +29210,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29293,7 +29293,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29376,7 +29376,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29459,7 +29459,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29542,7 +29542,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29625,7 +29625,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29708,7 +29708,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29791,7 +29791,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29874,7 +29874,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -29957,7 +29957,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -30040,7 +30040,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -30187,7 +30187,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -30288,7 +30288,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -30389,7 +30389,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -30490,7 +30490,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -30591,7 +30591,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -30692,7 +30692,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -30793,7 +30793,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -30894,7 +30894,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -30995,7 +30995,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -31096,7 +31096,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -31197,7 +31197,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -31298,7 +31298,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -31399,7 +31399,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -31500,7 +31500,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -31601,7 +31601,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -31702,7 +31702,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -31803,7 +31803,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -31904,7 +31904,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32005,7 +32005,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32106,7 +32106,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32207,7 +32207,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32308,7 +32308,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32409,7 +32409,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32510,7 +32510,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32611,7 +32611,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32712,7 +32712,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32813,7 +32813,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {
@@ -32914,7 +32914,7 @@ std::uint32_t declared_full_depth_rows,
             ws.q.data(), kv_view, ws.attn_out.data(),
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, /*sm_scale_override=*/-1.f);
     }
     if (hooks != nullptr) {

@@ -175,8 +175,17 @@ jobs:
       # No CUDA toolkit and no GPU are needed for either: cudarc is pinned to a
       # named version with `fallback-dynamic-loading`, so nothing is linked,
       # and the GPU tests skip themselves when no device is present. What runs
-      # is the host logic the crate is mostly made of -- including the four
+      # is the host logic the crate is mostly made of -- including the
       # differential goldens pinned against the C++ in `tests/oracle/`.
+      #
+      # `launch_abi` is the exception to "pure Rust" and NOT an exception to the
+      # line above: it shells out to g++ (present on every ubuntu runner) to
+      # compile a shim generated from `kernels-cuda`'s table against the real
+      # `rope.hpp`, which is how a wrong operand row becomes a build error
+      # rather than a golden nobody can regenerate. It takes `cudaStream_t`
+      # from `tests/oracle/launch_abi/stub/`, so it still asks for no toolkit --
+      # deliberately, since a proof whose answer depends on which CUDA is
+      # installed is not one.
       - name: cargo test (driver-cuda-new, both CUDA ABIs)
         run: |
           cargo test -p driver-cuda-new --features cuda-12

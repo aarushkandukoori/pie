@@ -1,5 +1,6 @@
 #pragma once
 
+#include "attention_workspace.hpp"
 #include "distributed.hpp"
 #include "model/imodel.hpp"
 #include "model/deepseek_v4/deepseek_v4.hpp"

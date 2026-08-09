@@ -7,7 +7,7 @@
 #include <cuda_runtime.h>
 
 #include "attn/mla_cache_view.hpp"
-#include "attention_workspace.hpp"
+#include "attention_workspace_view.hpp"
 
 namespace pie_cuda_driver::kernels::attn {
 
@@ -30,7 +30,7 @@ void plan_attention_mla_bf16(
     int kv_lora_rank,
     int qk_rope_head_dim,
     int page_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     bool causal,
     float sm_scale);
@@ -42,7 +42,7 @@ void dispatch_attention_mla_bf16(
     MlaCacheLayerView layer,
     void* o,                                       // [total_tokens, heads, kv_lora_rank]
     const std::uint32_t* kv_page_indices_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float* lse_out = nullptr,
     // Device indptr/lens for the naive (Blackwell / sm100) MLA fallback path.

@@ -8,7 +8,6 @@
 #include <cuda_runtime.h>
 
 #include "cuda_check.hpp"
-#include "kernels_manifest.hpp"
 
 namespace pie_cuda_driver {
 
@@ -150,10 +149,5 @@ void AttentionWorkspace::end_plan_update(cudaStream_t stream) {
     staging.upload_pending = true;
 }
 
-bool flashinfer_decode_supports_gqa(int gqa) {
-    return attn_decode_gqa_instantiated(gqa);
-}
-
-bool xqa_decode_enabled_by_env() { return true; }
 
 }  // namespace pie_cuda_driver

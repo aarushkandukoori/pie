@@ -292,7 +292,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -358,7 +358,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -411,8 +411,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -602,7 +602,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -668,7 +668,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -721,8 +721,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -912,7 +912,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -978,7 +978,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -1031,8 +1031,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -1222,7 +1222,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -1288,7 +1288,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -1341,8 +1341,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -1532,7 +1532,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -1598,7 +1598,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -1651,8 +1651,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -1842,7 +1842,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -1908,7 +1908,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -1961,8 +1961,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -2152,7 +2152,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -2218,7 +2218,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -2271,8 +2271,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -2462,7 +2462,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -2528,7 +2528,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -2581,8 +2581,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -2772,7 +2772,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -2838,7 +2838,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -2891,8 +2891,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -3082,7 +3082,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -3148,7 +3148,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -3201,8 +3201,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -3392,7 +3392,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -3458,7 +3458,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -3511,8 +3511,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -3702,7 +3702,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -3768,7 +3768,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -3821,8 +3821,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -4012,7 +4012,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -4078,7 +4078,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -4131,8 +4131,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -4322,7 +4322,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -4388,7 +4388,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -4441,8 +4441,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -4632,7 +4632,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -4698,7 +4698,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -4751,8 +4751,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -4942,7 +4942,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -5008,7 +5008,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -5061,8 +5061,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -5252,7 +5252,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -5318,7 +5318,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -5371,8 +5371,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -5562,7 +5562,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -5628,7 +5628,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -5681,8 +5681,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -5872,7 +5872,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -5938,7 +5938,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -5991,8 +5991,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -6182,7 +6182,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -6248,7 +6248,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -6301,8 +6301,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -6492,7 +6492,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -6558,7 +6558,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -6611,8 +6611,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -6802,7 +6802,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -6868,7 +6868,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -6921,8 +6921,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -7112,7 +7112,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -7178,7 +7178,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -7231,8 +7231,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -7422,7 +7422,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -7488,7 +7488,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -7541,8 +7541,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -7732,7 +7732,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -7798,7 +7798,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -7851,8 +7851,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -8042,7 +8042,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -8108,7 +8108,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -8161,8 +8161,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -8352,7 +8352,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -8418,7 +8418,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -8471,8 +8471,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -8662,7 +8662,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -8728,7 +8728,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -8781,8 +8781,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -8972,7 +8972,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -9038,7 +9038,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -9091,8 +9091,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -9282,7 +9282,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -9348,7 +9348,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -9401,8 +9401,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -9592,7 +9592,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -9658,7 +9658,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -9711,8 +9711,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -9902,7 +9902,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -9968,7 +9968,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -10021,8 +10021,8 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    band_j >= 0 ? depth_band_attn_ws_public(band_j)
-                    : depth_tail ? spatial_suffix_attn_ws() : attn_ws,
+                    (band_j >= 0 ? depth_band_attn_ws_public(band_j)
+                     : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
@@ -10372,7 +10372,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -10432,7 +10432,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -10456,7 +10456,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -10647,7 +10647,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -10707,7 +10707,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -10731,7 +10731,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -10922,7 +10922,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -10982,7 +10982,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -11006,7 +11006,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -11197,7 +11197,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -11257,7 +11257,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -11281,7 +11281,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -11472,7 +11472,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -11532,7 +11532,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -11556,7 +11556,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -11747,7 +11747,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -11807,7 +11807,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -11831,7 +11831,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -12022,7 +12022,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -12082,7 +12082,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -12106,7 +12106,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -12297,7 +12297,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -12357,7 +12357,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -12381,7 +12381,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -12572,7 +12572,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -12632,7 +12632,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -12656,7 +12656,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -12847,7 +12847,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -12907,7 +12907,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -12931,7 +12931,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -13122,7 +13122,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -13182,7 +13182,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -13206,7 +13206,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -13397,7 +13397,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -13457,7 +13457,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -13481,7 +13481,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -13672,7 +13672,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -13732,7 +13732,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -13756,7 +13756,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -13947,7 +13947,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -14007,7 +14007,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -14031,7 +14031,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -14222,7 +14222,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -14282,7 +14282,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -14306,7 +14306,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -14497,7 +14497,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -14557,7 +14557,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -14581,7 +14581,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -14772,7 +14772,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -14832,7 +14832,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -14856,7 +14856,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -15047,7 +15047,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -15107,7 +15107,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -15131,7 +15131,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -15322,7 +15322,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -15382,7 +15382,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -15406,7 +15406,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -15597,7 +15597,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -15657,7 +15657,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -15681,7 +15681,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -15872,7 +15872,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -15932,7 +15932,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -15956,7 +15956,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -16147,7 +16147,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -16207,7 +16207,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -16231,7 +16231,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -16422,7 +16422,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -16482,7 +16482,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -16506,7 +16506,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -16697,7 +16697,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -16757,7 +16757,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -16781,7 +16781,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -16972,7 +16972,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -17032,7 +17032,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -17056,7 +17056,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -17247,7 +17247,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -17307,7 +17307,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -17331,7 +17331,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -17522,7 +17522,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -17582,7 +17582,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -17606,7 +17606,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -17797,7 +17797,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -17857,7 +17857,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -17881,7 +17881,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -18072,7 +18072,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -18132,7 +18132,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -18156,7 +18156,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -18347,7 +18347,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -18407,7 +18407,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -18431,7 +18431,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -18622,7 +18622,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -18682,7 +18682,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -18706,7 +18706,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -18897,7 +18897,7 @@ std::uint32_t declared_full_depth_rows)
                 attn_q, kv_view, attn_out_buf,
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                attn_ws, stream);
+                attn_ws.view(), stream);
         kernels::attn::strip_head_dim_bf16(
             attn_out_buf, ws.attn_out.data(),
             N, num_q_heads, d, dk, stream);
@@ -18957,7 +18957,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -18981,7 +18981,7 @@ std::uint32_t declared_full_depth_rows)
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
             kernels::attn::strip_head_dim_bf16(
                 attn_out_buf, ws.attn_out.data(),
@@ -19246,7 +19246,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -19338,7 +19338,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -19430,7 +19430,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -19522,7 +19522,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -19614,7 +19614,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -19706,7 +19706,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -19798,7 +19798,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -19890,7 +19890,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -19982,7 +19982,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20074,7 +20074,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20166,7 +20166,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20258,7 +20258,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20350,7 +20350,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20442,7 +20442,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20534,7 +20534,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20626,7 +20626,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20718,7 +20718,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20810,7 +20810,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20902,7 +20902,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -20994,7 +20994,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21086,7 +21086,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21178,7 +21178,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21270,7 +21270,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21362,7 +21362,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21454,7 +21454,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21546,7 +21546,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21638,7 +21638,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21730,7 +21730,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21822,7 +21822,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -21914,7 +21914,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -22006,7 +22006,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -22098,7 +22098,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
         N, num_q_heads, d, dk, stream);
@@ -22253,7 +22253,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -22370,7 +22370,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -22487,7 +22487,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -22604,7 +22604,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -22721,7 +22721,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -22838,7 +22838,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -22955,7 +22955,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -23072,7 +23072,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -23189,7 +23189,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -23306,7 +23306,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -23423,7 +23423,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -23540,7 +23540,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -23657,7 +23657,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -23774,7 +23774,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -23891,7 +23891,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -24008,7 +24008,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -24125,7 +24125,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -24242,7 +24242,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -24359,7 +24359,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -24476,7 +24476,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -24593,7 +24593,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -24710,7 +24710,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -24827,7 +24827,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -24944,7 +24944,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -25061,7 +25061,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -25178,7 +25178,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -25295,7 +25295,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -25412,7 +25412,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -25529,7 +25529,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -25646,7 +25646,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -25763,7 +25763,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),
@@ -25880,7 +25880,7 @@ std::uint32_t declared_full_depth_rows,
             attn_q, kv_view, attn_out_buf,
             attn_page_indices, attn_page_indptr,
             attn_last_page_lens,
-            attn_ws, stream, layer_window_left,
+            attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
     kernels::attn::strip_head_dim_bf16(
         attn_out_buf, ws.attn_out.data(),

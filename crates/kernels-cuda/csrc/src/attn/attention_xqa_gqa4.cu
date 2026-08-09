@@ -97,7 +97,7 @@ void launch_attention_xqa_decode_bf16_gqa4_prepared(
     int head_dim,
     int page_size,
     int max_pages_per_seq,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float sm_scale);
 
@@ -115,7 +115,7 @@ void launch_attention_xqa_decode_bf16_gqa4(
     int head_dim,
     int page_size,
     int max_pages_per_seq,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float sm_scale)
 {
@@ -166,7 +166,7 @@ void launch_attention_xqa_decode_bf16_gqa4_prepared(
     int head_dim,
     int page_size,
     int max_pages_per_seq,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float sm_scale)
 {
@@ -189,15 +189,15 @@ void launch_attention_xqa_decode_bf16_gqa4_prepared(
     const std::size_t seq_lens_bytes =
         static_cast<std::size_t>(num_requests) * sizeof(std::uint32_t);
     std::uintptr_t base =
-        reinterpret_cast<std::uintptr_t>(workspace.float_buffer());
+        reinterpret_cast<std::uintptr_t>(workspace.float_buffer);
     std::uintptr_t p_page_table = align_up_ptr(base, alignof(std::int32_t));
     std::uintptr_t p_seq_lens =
         align_up_ptr(p_page_table + page_table_bytes, alignof(std::uint32_t));
     std::uintptr_t p_scratch =
         align_up_ptr(p_seq_lens + seq_lens_bytes, kSemaphoreAlignment);
     const std::uintptr_t end =
-        reinterpret_cast<std::uintptr_t>(workspace.float_buffer()) +
-        workspace.float_bytes();
+        reinterpret_cast<std::uintptr_t>(workspace.float_buffer) +
+        workspace.float_bytes;
     if (p_scratch >= end) {
         throw std::runtime_error("xqa gqa4 decode: attention workspace too small");
     }
@@ -208,11 +208,11 @@ void launch_attention_xqa_decode_bf16_gqa4_prepared(
 
     const int semaphore_count = num_requests * num_kv_heads;
     if (static_cast<std::size_t>(semaphore_count) * sizeof(std::uint32_t) >
-        workspace.int_bytes()) {
+        workspace.int_bytes) {
         throw std::runtime_error("xqa gqa4 decode: semaphore workspace too small");
     }
     auto* semaphores =
-        reinterpret_cast<std::uint32_t*>(workspace.int_buffer());
+        reinterpret_cast<std::uint32_t*>(workspace.int_buffer);
     CUDA_CHECK(cudaMemsetAsync(
         semaphores, 0,
         static_cast<std::size_t>(semaphore_count) * sizeof(std::uint32_t),

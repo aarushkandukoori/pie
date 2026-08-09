@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/kimi_k3/kimi_k3_model.hpp"
 
 #include <utility>

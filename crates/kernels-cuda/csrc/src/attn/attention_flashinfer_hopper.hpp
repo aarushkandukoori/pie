@@ -5,7 +5,7 @@
 
 #include <cuda_runtime.h>
 
-#include "attention_workspace.hpp"
+#include "attention_workspace_view.hpp"
 
 namespace pie_cuda_driver::kernels::attn {
 
@@ -48,7 +48,7 @@ void plan_attention_flashinfer_prefill_sm90_bf16(
     int num_kv_heads,
     int head_dim,
     int page_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     bool enable_cuda_graph,
     bool causal,
@@ -62,7 +62,7 @@ void dispatch_attention_flashinfer_prefill_sm90_bf16(
     void* v_pages,
     void* o,
     const std::uint32_t* kv_page_indices_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float logits_soft_cap = 0.f,
     float sm_scale = -1.f,

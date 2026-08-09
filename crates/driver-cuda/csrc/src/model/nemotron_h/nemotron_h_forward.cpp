@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/nemotron_h/nemotron_h_forward.hpp"
 #include "model/nemotron_h/nemotron_h.hpp"
 #include "model/stage_hooks.hpp"
@@ -251,7 +252,7 @@ void attention_layer(
         kernels::attn::dispatch_attention_flashinfer_decode(
             *decode_plan, ws.q.data(), kv_view, ws.attn_out.data(),
             kv_page_indices, kv_page_indptr, kv_last_page_lens,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     } else if (custom_mask_d) {
         if (!plan_state.use_prefill_plan || prefill_plan == nullptr) {
             throw std::runtime_error(
@@ -261,7 +262,7 @@ void attention_layer(
             *prefill_plan,
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
-            custom_mask_d, custom_mask_indptr_d, attn_ws, stream);
+            custom_mask_d, custom_mask_indptr_d, attn_ws.view(), stream);
     } else if (plan_state.use_prefill_plan && prefill_plan != nullptr) {
         const int num_pages_in_batch = kv_page_indptr_h[R];
         kernels::attn::dequant_kv_cache_layer_to_bf16_active(
@@ -270,13 +271,13 @@ void attention_layer(
             *prefill_plan, ws.q.data(), kv_view.k_bf16_pages,
             kv_view.v_bf16_pages, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
-            attn_ws, stream);
+            attn_ws.view(), stream);
     } else {
         kernels::attn::attention_flashinfer_prefill(
             ws.q.data(), kv_view, ws.attn_out.data(),
             qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
             qo_indptr_h, kv_page_indptr_h,
-            N, R, num_q_heads_local, attn_ws, stream);
+            N, R, num_q_heads_local, attn_ws.view(), stream);
     }
     invoke_stage_hook(
         hooks,

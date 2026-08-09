@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "batch/tp.hpp"
 
 #include "batch/forward.hpp"

@@ -1967,7 +1967,7 @@ pub mod cuda {
     /// there are two ways to do that here.
     pub fn mla_absorb_q_to_latent(q_nope: &Val, w: &str, heads: u32, kv_lora_rank: u32) -> Val {
         record(
-            &q_nope.t, q_nope.layer, "mla_absorb_q_to_latent_bf16",
+            &q_nope.t, q_nope.layer, "gemm::mla_absorb_q_to_latent_bf16",
             vec![w.to_string()], None, vec![q_nope.id],
             Some((
                 Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(kv_lora_rank)]),
@@ -1981,7 +1981,7 @@ pub mod cuda {
     /// output back to the value space.
     pub fn mla_absorb_latent_to_v(latent: &Val, w: &str, heads: u32, v_head_dim: u32) -> Val {
         record(
-            &latent.t, latent.layer, "mla_absorb_latent_to_v_bf16",
+            &latent.t, latent.layer, "gemm::mla_absorb_latent_to_v_bf16",
             vec![w.to_string()], None, vec![latent.id],
             Some((
                 Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(v_head_dim)]),

@@ -3,37 +3,157 @@
 //! One row per launcher symbol. The words a row is written in —
 //! [`KernelSig`], `whole`, `needs`, `lacks`, `sink` — are `kernels`'.
 
-use kernels::kernel;
 use kernels::KernelSig;
+use kernels::{kernel, operands};
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
-    kernel!(rope_standard_table "rope::rope_standard_table"),
-    kernel!(qk_rmsnorm_rope "rope::qk_rmsnorm_rope_bf16"),
+    kernel!(rope_standard_table "rope::rope_standard_table",
+        operands = operands![
+            positions: I32s, table: F32sMut,
+            num_tokens: I32, head_dim: I32, theta: F32,
+            stream: Stream,
+        ]),
+    // Not in the table until the ABI pilot; the vocabulary audit has been
+    // counting it as undeclared. `interleaved` is where GLM and the MLA rope
+    // dims differ from Llama/Qwen -- a load-time checkpoint fact reaching the
+    // kernel as an argument rather than as a second symbol, which is the one
+    // place this family does it that way.
+    kernel!(rope "rope::rope_bf16",
+        operands = operands![
+            q: BufMut, k: BufMut,
+            positions: I32s,
+            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
+            theta: F32,
+            stream: Stream,
+            interleaved: Bool,
+        ]),
+    kernel!(qk_rmsnorm_rope "rope::qk_rmsnorm_rope_bf16",
+        operands = operands![
+            q: BufMut, k: BufMut,
+            q_weight: Buf, k_weight: Buf,
+            positions: I32s,
+            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
+            theta: F32, eps: F32,
+            stream: Stream,
+        ]),
     // A hooked pure-decode fire is graph-CAPTURED and its hook split rides a
     // DEVICE word (`win_d`), not a host row range. All four are `whole`, and
     // for a reason no other `whole` row here gives: the window is not a
     // number the lowering knows, so it cannot be a rectangle at all.
-    kernel!(qk_rmsnorm_rope_devwin "rope::qk_rmsnorm_rope_bf16_devwin", whole = true),
+    kernel!(qk_rmsnorm_rope_devwin "rope::qk_rmsnorm_rope_bf16_devwin", whole = true,
+        operands = operands![
+            q: BufMut, k: BufMut,
+            q_weight: Buf, k_weight: Buf,
+            positions: I32s,
+            win_d: U32s,
+            n_max: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
+            theta: F32, eps: F32,
+            stream: Stream,
+        ]),
     // YaRN and original-YaRN interpolate frequencies differently; which a
     // checkpoint wants is a load-time fact, so they are two rows.
-    kernel!(rope_yarn "rope::rope_yarn_bf16"),
+    kernel!(rope_yarn "rope::rope_yarn_bf16",
+        operands = operands![
+            q: BufMut, k: BufMut,
+            positions: I32s,
+            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
+            theta: F32,
+            factor: F32, low_freq_factor: F32, high_freq_factor: F32,
+            original_max_position: I32,
+            stream: Stream,
+        ]),
     // MROPE takes `[num_tokens, 3]` positions -- a (t, h, w) triple, because
     // a vision model's tokens sit in a grid. Not the plain qk_rmsnorm_rope
     // with a different theta.
-    kernel!(qk_rmsnorm_mrope "rope::qk_rmsnorm_mrope_bf16"),
+    kernel!(qk_rmsnorm_mrope "rope::qk_rmsnorm_mrope_bf16",
+        operands = operands![
+            q: BufMut, k: BufMut,
+            q_weight: Buf, k_weight: Buf,
+            positions: I32s,
+            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
+            theta: F32, eps: F32,
+            mrope_section_t: I32, mrope_section_h: I32, mrope_section_w: I32,
+            stream: Stream,
+        ]),
     // Ropes the LAST `rope_dim` channels rather than the first. A different
     // statement from `rope_partial_q_only`, not a flag on it: which end of
     // the channel axis carries position is a property of the checkpoint.
-    kernel!(rope_partial_last "rope::rope_partial_last_bf16"),
+    kernel!(rope_partial_last "rope::rope_partial_last_bf16",
+        operands = operands![
+            q: BufMut, k: BufMut,
+            positions: I32s,
+            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32,
+            head_dim: I32, rotary_dim: I32,
+            theta: F32,
+            stream: Stream,
+            inverse: Bool, interleaved: Bool,
+            yarn_factor: F32, yarn_beta_fast: F32, yarn_beta_slow: F32,
+            yarn_original_max_position: I32,
+        ]),
     // Q-only rotation: a KV-shared layer's K was rotated at its source
     // layer. One operand is the statement.
-    kernel!(rope_partial_q_only "rope::rope_partial_bf16"),
+    kernel!(rope_partial_q_only "rope::rope_partial_bf16",
+        operands = operands![
+            q: BufMut, k: BufMut,
+            positions: I32s,
+            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32,
+            head_dim: I32, rotary_dim: I32,
+            theta: F32,
+            stream: Stream,
+        ]),
+    // The other row the audit was counting as undeclared. It is `rope_partial`
+    // with `positions` shifted by a host constant, and the delta sits between
+    // `positions` and the extents rather than at the end -- which is exactly
+    // the kind of fact a hand-written binding gets wrong and a generated one
+    // cannot.
+    kernel!(rope_partial_position_delta "rope::rope_partial_bf16_position_delta",
+        operands = operands![
+            q: BufMut, k: BufMut,
+            positions: I32s,
+            position_delta: I32,
+            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32,
+            head_dim: I32, rotary_dim: I32,
+            theta: F32,
+            stream: Stream,
+        ]),
     // gemma-4 rounds where qwen3_5 does not, and bf16 rounding is which
     // numbers come out — so the symbol IS the statement.
-    kernel!(qk_rmsnorm_rope_rounded "rope::qk_rmsnorm_rope_bf16_rounded"),
+    kernel!(qk_rmsnorm_rope_rounded "rope::qk_rmsnorm_rope_bf16_rounded",
+        operands = operands![
+            q: BufMut, k: BufMut,
+            q_weight: Buf, k_weight: Buf,
+            positions: I32s,
+            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
+            theta: F32, eps: F32,
+            stream: Stream,
+        ]),
     // YaRN, as its paper spells it. A deployment's scaling is a load-time
     // config answer, so it picks a kernel here rather than an argument.
-    kernel!(rope_yarn_original "rope::rope_yarn_original_bf16"),
-    kernel!(rope_write_kv "rope::rope_write_kv_bf16", whole = true, sink = Some("kv.pages")),
+    kernel!(rope_yarn_original "rope::rope_yarn_original_bf16",
+        operands = operands![
+            q: BufMut, k: BufMut,
+            positions: I32s,
+            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
+            theta: F32,
+            factor: F32, beta_fast: F32, beta_slow: F32, attention_factor: F32,
+            original_max_position: I32,
+            stream: Stream,
+            interleaved: Bool,
+        ]),
+    kernel!(rope_write_kv "rope::rope_write_kv_bf16", whole = true, sink = Some("kv.pages"),
+        operands = operands![
+            q: BufMut, k: BufMut, v: Buf,
+            positions: I32s,
+            k_pages: BufMut, v_pages: BufMut,
+            qo_indptr: U32s,
+            kv_page_indices: U32s, kv_page_indptr: U32s, kv_last_page_lens: U32s,
+            row_valid: U8s | null,
+            num_tokens: I32, num_requests: I32, page_size: I32,
+            num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
+            theta: F32,
+            hnd_layout: Bool,
+            stream: Stream,
+            interleaved: Bool,
+        ]),
 ];

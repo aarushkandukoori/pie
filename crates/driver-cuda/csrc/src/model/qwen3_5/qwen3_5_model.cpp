@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/qwen3_5/qwen3_5_model.hpp"
 
 #include <cstdio>

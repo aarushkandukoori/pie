@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/mixtral/mixtral_model.hpp"
 
 #include <utility>

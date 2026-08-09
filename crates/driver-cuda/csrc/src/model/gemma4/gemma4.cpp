@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/gemma4/gemma4.hpp"
 #include "model/precomputed_embeddings.hpp"
 #include "model/stage_hooks.hpp"
@@ -463,7 +464,7 @@ void prepare_gemma4_plan_for_layer(
     kernels::attn::plan_attention_flashinfer_decode(
         *plan, kv_page_indptr_h, num_requests,
         num_q_heads_local, num_kv_heads_local, layer.head_dim,
-        page_size, attn_ws, stream,
+        page_size, attn_ws.view(), stream,
         /*enable_cuda_graph=*/true,
         /*full_attention_variant=*/layer.is_full,
         hnd_layout,
@@ -564,7 +565,7 @@ void prepare_gemma4_hopper_decode_plan(
         moe_ws.hopper_split_last_h.data(),
         /*total_tokens=*/splits, splits,
         q_heads, kv_heads, sliding->head_dim, page_size,
-        attn_ws, /*stream=*/nullptr,
+        attn_ws.view(), /*stream=*/nullptr,
         /*enable_cuda_graph=*/true, /*causal=*/true,
         (skip > 0 && window_left >= 0) ? split_window : -1,
         // Clear of the decode plans, which start at offset 0.
@@ -724,7 +725,7 @@ void prepare_gemma4_sliding_prefill_plan(
         *moe_ws.sliding_prefill_plan, moe_ws.sliding_qo_indptr_h.data(),
         kv_page_indptr_h, kv_last_page_lens_h,
         /*total_tokens=*/num_requests, num_requests, q_heads, kv_heads,
-        sliding->head_dim, page_size, attn_ws, /*stream=*/nullptr,
+        sliding->head_dim, page_size, attn_ws.view(), /*stream=*/nullptr,
         /*enable_cuda_graph=*/true, window_left,
         /*full_attention_variant=*/false, hnd_layout, /*causal_mask=*/true);
     moe_ws.sliding_prefill_ready = true;
@@ -743,7 +744,7 @@ void prepare_gemma4_sliding_prefill_plan(
             *moe_ws.full_prefill_plan, moe_ws.sliding_qo_indptr_h.data(),
             kv_page_indptr_h, kv_last_page_lens_h,
             /*total_tokens=*/num_requests, num_requests, q_heads,
-            full->num_kv_heads / T, full->head_dim, page_size, attn_ws,
+            full->num_kv_heads / T, full->head_dim, page_size, attn_ws.view(),
             /*stream=*/nullptr, /*enable_cuda_graph=*/true,
             /*window_left=*/-1, /*full_attention_variant=*/true, hnd_layout,
             /*causal_mask=*/true);
@@ -902,7 +903,7 @@ void prepare_gemma4_sliding_split_plan(
     }
     kernels::attn::plan_attention_flashinfer_decode(
         *moe_ws.sliding_split_plan, moe_ws.sliding_split_kv_indptr_h.data(),
-        splits, q_heads, kv_heads, sliding->head_dim, page_size, attn_ws,
+        splits, q_heads, kv_heads, sliding->head_dim, page_size, attn_ws.view(),
         /*stream=*/nullptr, /*enable_cuda_graph=*/true,
         /*full_attention_variant=*/false, hnd_layout);
 
@@ -990,7 +991,7 @@ void prepare_gemma4_full_split_plan(
     if (!moe_ws.full_split_plan) moe_ws.full_split_plan = kernels::attn::make_decode_plan();
     kernels::attn::plan_attention_flashinfer_decode(
         *moe_ws.full_split_plan, moe_ws.full_split_kv_indptr_h.data(), splits,
-        q_heads, kv_heads, full->head_dim, page_size, attn_ws,
+        q_heads, kv_heads, full->head_dim, page_size, attn_ws.view(),
         /*stream=*/nullptr, /*enable_cuda_graph=*/true,
         /*full_attention_variant=*/true, hnd_layout);
 
@@ -2511,7 +2512,7 @@ void gemma4_forward_paged(
                     kernels::attn::dispatch_attention_flashinfer_prefill_sm90_bf16(
                         hplan, ws.q.data(), kv_view.k_pages, kv_view.v_pages,
                         moe_ws.hopper_split_partial.data(), kv_page_indices,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale=*/1.0f, moe_ws.hopper_split_lse.data(),
                         /*broadcast_q=*/true);
                     kernels::attn::merge_attention_states_bf16(
@@ -2523,7 +2524,7 @@ void gemma4_forward_paged(
                 } else if (use_hopper_decode) {
                     kernels::attn::dispatch_attention_flashinfer_prefill_sm90_bf16(
                         hplan, ws.q.data(), kv_view.k_pages, kv_view.v_pages,
-                        ws.attn_out.data(), kv_page_indices, attn_ws, stream,
+                        ws.attn_out.data(), kv_page_indices, attn_ws.view(), stream,
                         // Gemma-4 folds `query_pre_attn_scalar` into Q before
                         // attention, so the kernel must not apply the usual
                         // 1/sqrt(head_dim) again -- the decode path beside
@@ -2540,7 +2541,7 @@ void gemma4_forward_paged(
                         kv_view.k_pages, kv_view.v_pages, ws.attn_out.data(),
                         moe_ws.sliding_qo_indptr_d.data(), kv_page_indices,
                         kv_page_indptr, kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale=*/1.0f, /*lse_out=*/nullptr);
                 } else if (use_decode_path && !layer.is_full &&
                            moe_ws.sliding_prefill_ready &&
@@ -2554,7 +2555,7 @@ void gemma4_forward_paged(
                         kv_view.k_pages, kv_view.v_pages, ws.attn_out.data(),
                         moe_ws.sliding_qo_indptr_d.data(), kv_page_indices,
                         kv_page_indptr, kv_last_page_lens,
-                        attn_ws, stream, /*logits_soft_cap=*/0.f,
+                        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                         /*sm_scale=*/1.0f, /*lse_out=*/nullptr);
                 } else if (use_decode_path && !layer.is_full &&
                            moe_ws.sliding_splits > 1 &&
@@ -2580,7 +2581,7 @@ void gemma4_forward_paged(
                         moe_ws.sliding_split_partial.data(), kv_page_indices,
                         moe_ws.sliding_split_kv_indptr_d.data(),
                         moe_ws.sliding_split_last_d.data(),
-                        attn_ws, stream,
+                        attn_ws.view(), stream,
                         /*window_left=*/moe_ws.sliding_split_window,
                         /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f,
                         moe_ws.sliding_split_lse.data(), /*broadcast_q=*/true);
@@ -2598,7 +2599,7 @@ void gemma4_forward_paged(
                         moe_ws.hopper_split_partial.data(), kv_page_indices,
                         moe_ws.full_split_kv_indptr_d.data(),
                         moe_ws.full_split_last_d.data(),
-                        attn_ws, stream, /*window_left=*/-1,
+                        attn_ws.view(), stream, /*window_left=*/-1,
                         /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f,
                         moe_ws.hopper_split_lse.data(), /*broadcast_q=*/true);
                     kernels::attn::merge_attention_states_bf16(
@@ -2618,7 +2619,7 @@ void gemma4_forward_paged(
                         kernels::attn::plan_attention_flashinfer_decode(
                             *plan, kv_page_indptr_h, R,
                             num_q_heads_local, num_kv_heads_local, d,
-                            cache.page_size(), attn_ws, stream,
+                            cache.page_size(), attn_ws.view(), stream,
                             /*enable_cuda_graph=*/true,
                             /*full_attention_variant=*/layer.is_full,
                             cache.hnd_layout());
@@ -2627,7 +2628,7 @@ void gemma4_forward_paged(
                         *plan,
                         ws.q.data(), kv_view, ws.attn_out.data(),
                         kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                        attn_ws, stream,
+                        attn_ws.view(), stream,
                         /*window_left=*/w.per_layer_window_left[l],
                         /*logits_soft_cap=*/0.f,
                         /*sm_scale=*/1.0f);
@@ -2646,7 +2647,7 @@ void gemma4_forward_paged(
                             *plan,
                             moe_ws.h_row_decode_kv_page_indptr.data(), N,
                             num_q_heads_local, num_kv_heads_local, d,
-                            cache.page_size(), attn_ws, stream,
+                            cache.page_size(), attn_ws.view(), stream,
                             /*enable_cuda_graph=*/true,
                             /*full_attention_variant=*/layer.is_full,
                             cache.hnd_layout());
@@ -2657,7 +2658,7 @@ void gemma4_forward_paged(
                         moe_ws.row_decode_kv_page_indices.data(),
                         moe_ws.row_decode_kv_page_indptr.data(),
                         moe_ws.row_decode_kv_last_page_lens.data(),
-                        attn_ws, stream,
+                        attn_ws.view(), stream,
                         /*window_left=*/w.per_layer_window_left[l],
                         /*logits_soft_cap=*/0.f,
                         /*sm_scale=*/1.0f);
@@ -2676,7 +2677,7 @@ void gemma4_forward_paged(
                         ws.q.data(), kv_view, ws.attn_out.data(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
-                        N, R, num_q_heads_local, attn_ws, stream,
+                        N, R, num_q_heads_local, attn_ws.view(), stream,
                         /*window_left=*/w.per_layer_window_left[l],
                         /*logits_soft_cap=*/0.f,
                         /*sm_scale=*/1.0f);

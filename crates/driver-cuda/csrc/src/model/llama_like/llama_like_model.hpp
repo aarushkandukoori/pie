@@ -1,5 +1,6 @@
 #pragma once
 
+#include "attention_workspace.hpp"
 #include "model/imodel.hpp"
 #include "model/llama_like/declared_forward.hpp"
 #include "model/llama_like/llama_like.hpp"

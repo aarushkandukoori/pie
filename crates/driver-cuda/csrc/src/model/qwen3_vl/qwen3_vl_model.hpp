@@ -4,6 +4,7 @@
 #include <optional>
 #include <span>
 
+#include "attention_workspace.hpp"
 #include "device_buffer.hpp"
 #include "model/imodel.hpp"
 #include "model/llama_like/llama_like.hpp"

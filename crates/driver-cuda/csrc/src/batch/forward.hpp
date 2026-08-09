@@ -17,6 +17,7 @@
 #include <map>
 #include <unordered_map>
 
+#include "attention_workspace.hpp"
 #include "cuda_check.hpp"
 #include "distributed.hpp"
 #include "batch/forward_graph.hpp"

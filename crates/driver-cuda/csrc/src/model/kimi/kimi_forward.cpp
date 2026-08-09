@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/kimi/kimi_forward.hpp"
 #include "model/stage_hooks.hpp"
 
@@ -477,7 +478,7 @@ void prepare_kimi_mla_plan(
         cfg.kv_lora_rank,
         cfg.qk_rope_head_dim,
         cache.page_size(),
-        attn_ws,
+        attn_ws.view(),
         0,
         causal,
         (1.0f / std::sqrt(static_cast<float>(
@@ -748,7 +749,7 @@ void kimi_forward_paged(
                 layer_view,
                 kimi_ws.attn_latent.data(),
                 kv_page_indices,
-                attn_ws,
+                attn_ws.view(),
                 stream,
                 /*lse_out=*/nullptr,
                 qo_indptr, kv_page_indptr, kv_last_page_lens);

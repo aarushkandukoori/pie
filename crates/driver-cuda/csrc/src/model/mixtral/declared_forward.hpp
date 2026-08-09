@@ -10,6 +10,7 @@
 
 #include <string>
 
+#include "attention_workspace.hpp"
 #include "model/config.hpp"
 #include "model/llama_like/llama_like.hpp"
 #include "model/mixtral/mixtral.hpp"

@@ -89,6 +89,7 @@
 #include <cstdint>
 #include <string>
 
+#include "attention_workspace.hpp"
 #include "model/llama_like/llama_like.hpp"
 #include "pie_forward/plan.hpp"
 

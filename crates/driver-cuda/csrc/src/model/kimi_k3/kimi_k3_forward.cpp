@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/kimi_k3/kimi_k3_forward.hpp"
 
 #include "model/act_dump.hpp"
@@ -671,7 +672,7 @@ void kimi_k3_forward_paged(
             }
             kernels::attn::dispatch_attention_mla_bf16(
                 *mla_plan.mla_plan, ws.q_nope_latent.data(), ws.q_pe.data(),
-                layer_view, ws.attn_latent.data(), kv_page_indices, attn_ws,
+                layer_view, ws.attn_latent.data(), kv_page_indices, attn_ws.view(),
                 stream, /*lse_out=*/nullptr, qo_indptr, kv_page_indptr,
                 kv_last_page_lens);
             kernels::gemm::mla_absorb_latent_to_v_bf16(

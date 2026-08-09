@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/glm5/glm5_model.hpp"
 
 #include <algorithm>

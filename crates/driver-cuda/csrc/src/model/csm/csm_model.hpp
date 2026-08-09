@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "attention_workspace.hpp"
 #include "model/csm/csm.hpp"
 #include "model/imodel.hpp"
 

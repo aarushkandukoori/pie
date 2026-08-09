@@ -81,7 +81,7 @@ void plan_attention_mla_bf16(
     int kv_lora_rank,
     int qk_rope_head_dim,
     int page_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     bool causal,
     float sm_scale)
@@ -114,9 +114,9 @@ void plan_attention_mla_bf16(
         }
 
         CUDA_CHECK(::flashinfer::MLAPlan<IdType>(
-            workspace.float_buffer(), workspace.float_bytes(),
-            workspace.int_buffer(), workspace.page_locked_int(),
-            workspace.int_bytes(),
+            workspace.float_buffer, workspace.float_bytes,
+            workspace.int_buffer, workspace.page_locked_int,
+            workspace.int_bytes,
             cache.plan_info,
             cache.qo_h_buf.data(),
             cache.kv_h_buf.data(),
@@ -151,14 +151,14 @@ void dispatch_mla_512_64(
     MlaCacheLayerView layer,
     void* o,
     const std::uint32_t* kv_page_indices_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float* lse_out)
 {
     using Params = ::flashinfer::MLAParams<DTypeQ, DTypeKV, DTypeO, IdType>;
     Params params;
-    void* int_buf = workspace.int_buffer();
-    void* float_buf = workspace.float_buffer();
+    void* int_buf = workspace.int_buffer;
+    void* float_buf = workspace.float_buffer;
     const auto& p = cache.plan_info;
 
     params.q_nope = const_cast<DTypeQ*>(static_cast<const DTypeQ*>(q_nope));
@@ -270,7 +270,7 @@ void dispatch_attention_mla_bf16(
     MlaCacheLayerView layer,
     void* o,
     const std::uint32_t* kv_page_indices_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float* lse_out,
     const std::uint32_t* qo_indptr_d,

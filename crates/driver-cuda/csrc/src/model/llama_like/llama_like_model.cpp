@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/llama_like/llama_like_model.hpp"
 
 #include "model/stage_hooks.hpp"

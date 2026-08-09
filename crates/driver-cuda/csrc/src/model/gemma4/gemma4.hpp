@@ -37,6 +37,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "attention_workspace.hpp"
 #include "device_buffer.hpp"
 #include "distributed.hpp"
 #include "model/config.hpp"

@@ -99,6 +99,201 @@ pub struct Axis {
     pub points: &'static [&'static str],
 }
 
+/// What one operand of a launcher is, in words neither backend owns.
+///
+/// This is deliberately a SMALL vocabulary. It is not a type system and it is
+/// not trying to describe what a buffer contains — `q`, `k` and `k_pages` are
+/// all [`Ty::BufMut`], because how a kernel reads its own tensor is the
+/// kernel's business. What it has to describe is exactly what a CALLER must
+/// know to place an argument: how wide the word is, whether the callee may
+/// write through it, and whether it may be absent.
+///
+/// The element-typed array kinds exist because the C++ spells them
+/// (`const std::uint32_t*` for a CSR array, `const std::int32_t*` for
+/// positions) and losing that would make the generated declaration a `void*`
+/// that no longer proves anything — see [`crate`]'s note on why the shim is
+/// generated rather than written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ty {
+    /// An opaque device buffer the launcher may WRITE through (`void*`).
+    BufMut,
+    /// An opaque device buffer the launcher only reads (`const void*`).
+    Buf,
+    /// A read-only device array of `i32` — positions, and the like.
+    I32s,
+    /// A read-only device array of `u32` — the CSR/indptr family.
+    U32s,
+    /// A read-only device array of `u8` — the per-row validity masks.
+    U8s,
+    /// A device array of `f32` the launcher WRITES — the built tables.
+    F32sMut,
+    /// A read-only device array of `f32` — softmax scales, sinks, biases.
+    F32s,
+    /// A device array of `i32` the launcher WRITES.
+    I32sMut,
+    /// A device array of `u32` the launcher WRITES — the indptrs a plan
+    /// builds, as opposed to the ones a dispatch reads.
+    U32sMut,
+    /// A device array of `u8` the launcher WRITES — the packed masks.
+    U8sMut,
+    /// A host scalar.
+    I32,
+    /// A host scalar. Distinct from [`Ty::I32`] because the headers spell it
+    /// `std::uint32_t`, and a mirror that guessed `i32` would be a silent
+    /// sign bug on any value above 2^31 rather than a compile error.
+    U32,
+    /// A host byte count, spelled `std::size_t`. Its width is the platform's,
+    /// which is why it is not [`Ty::U32`] widened by hand.
+    Usize,
+    /// A host scalar.
+    F32,
+    /// A host flag. Spelled `bool` in C++, so it is ONE byte and not `i32`;
+    /// a binding that gets this wrong is a silent stack-layout bug rather
+    /// than a compile error, which is why it is its own kind.
+    Bool,
+    /// The stream the launch is ordered on.
+    Stream,
+    /// The cuBLAS handle a library-issued launch is ordered through.
+    ///
+    /// A launcher is "anything that issues device work", so the MLA absorb
+    /// pair are launchers even though the work is `cublasGemmStridedBatchedEx`
+    /// and not a kernel of ours. This is what they take instead of a stream —
+    /// the stream is set on the handle.
+    CublasHandle,
+
+    // ---- The struct-shaped operands. ----
+    //
+    // Four passing modes, and the mode is the launcher's choice rather than
+    // the row author's, so it is recorded here in `cpp()` rather than spelled
+    // at each use. What separates them is what the RUST side can say:
+    //
+    //   by value, POD     a `#[repr(C)]` mirror, its layout proven by
+    //                     `emit_layout_assertions`
+    //   by const ref/ptr, POD    the same mirror, behind a `*const`
+    //   by const ref, INCOMPLETE the C++ never defines the type, so Rust
+    //                     has nothing to mirror and gets `*const c_void`
+    //
+    // A row cannot pick the wrong one by accident: the shim initialises a
+    // function pointer, and a function pointer takes no conversions.
+    /// The attention scratch, by value — [`Ty::Usize`]-sized buffers the
+    /// driver owns and the kernels only read out of. Five words, so it is
+    /// cheaper to copy than to chase.
+    AttentionWorkspaceView,
+    /// One layer's paged KV, by value.
+    KvCacheLayerView,
+    /// One layer's paged MLA cache, by value.
+    MlaCacheLayerView,
+    /// FlashInfer's decode plan, by `const&`. **Incomplete** in the header —
+    /// `struct DecodePlanCache;` and nothing more — so this is a handle the
+    /// driver holds and hands back, never a layout.
+    DecodePlanCache,
+    /// FlashInfer's prefill plan, by `const&`. Incomplete, as above.
+    PrefillPlanCache,
+    /// The MLA plan, by `const&`. Incomplete, as above.
+    MlaPlanCache,
+    /// The sm90 prefill schedule, by `const&`. Unlike the plan caches this
+    /// one IS defined — a POD of offsets and extents — so Rust can mirror it.
+    HopperPrefillPlan,
+    /// Original-YaRN scaling, by `const*`. POD, and a pointer rather than a
+    /// reference because it is optional: see `nullable`.
+    YarnOriginalParams,
+}
+
+impl Ty {
+    /// How C++ spells this, for a generated declaration.
+    ///
+    /// The pointer kinds are spelled with the fixed-width `std::` names the
+    /// headers use, not `int`/`unsigned`, so the generated text is the same
+    /// text a reader finds in the header it is checked against.
+    pub const fn cpp(self) -> &'static str {
+        match self {
+            Ty::BufMut => "void*",
+            Ty::Buf => "const void*",
+            Ty::I32s => "const ::std::int32_t*",
+            Ty::U32s => "const ::std::uint32_t*",
+            Ty::U8s => "const ::std::uint8_t*",
+            Ty::F32sMut => "float*",
+            Ty::F32s => "const float*",
+            Ty::I32sMut => "::std::int32_t*",
+            Ty::U32sMut => "::std::uint32_t*",
+            Ty::U8sMut => "::std::uint8_t*",
+            Ty::I32 => "int",
+            Ty::U32 => "::std::uint32_t",
+            Ty::Usize => "::std::size_t",
+            Ty::F32 => "float",
+            Ty::Bool => "bool",
+            Ty::Stream => "cudaStream_t",
+            Ty::CublasHandle => "cublasHandle_t",
+            Ty::AttentionWorkspaceView => "::pie_cuda_driver::AttentionWorkspaceView",
+            Ty::KvCacheLayerView => "::pie_cuda_driver::KvCacheLayerView",
+            Ty::MlaCacheLayerView => "::pie_cuda_driver::MlaCacheLayerView",
+            Ty::DecodePlanCache => "const ::pie_cuda_driver::kernels::attn::DecodePlanCache&",
+            Ty::PrefillPlanCache => "const ::pie_cuda_driver::kernels::attn::PrefillPlanCache&",
+            Ty::MlaPlanCache => "const ::pie_cuda_driver::kernels::attn::MlaPlanCache&",
+            Ty::HopperPrefillPlan => "const ::pie_cuda_driver::kernels::attn::HopperPrefillPlan&",
+            Ty::YarnOriginalParams => "const ::pie_cuda_driver::kernels::attn::YarnOriginalParams*",
+        }
+    }
+
+    /// How Rust spells this on an `extern "C"` declaration.
+    ///
+    /// `Stream` lands as a plain opaque pointer rather than any driver type:
+    /// `cudaStream_t` is `CUstream_st*` and `CUstream` is the same pointer,
+    /// so a driver-side binding can pass its own handle without a conversion,
+    /// and this crate does not have to name either API to say so.
+    pub const fn rust(self) -> &'static str {
+        match self {
+            Ty::BufMut => "*mut ::core::ffi::c_void",
+            Ty::Buf => "*const ::core::ffi::c_void",
+            Ty::I32s => "*const i32",
+            Ty::U32s => "*const u32",
+            Ty::U8s => "*const u8",
+            Ty::F32sMut => "*mut f32",
+            Ty::F32s => "*const f32",
+            Ty::I32sMut => "*mut i32",
+            Ty::U32sMut => "*mut u32",
+            Ty::U8sMut => "*mut u8",
+            Ty::I32 => "::core::ffi::c_int",
+            Ty::U32 => "u32",
+            Ty::Usize => "usize",
+            Ty::F32 => "f32",
+            Ty::Bool => "bool",
+            Ty::Stream | Ty::CublasHandle => "*mut ::core::ffi::c_void",
+            // Unqualified on purpose: a generated binding is placed in a
+            // module that has the mirrors in scope, and this crate does not
+            // know — and must not have to know — which module that is.
+            Ty::AttentionWorkspaceView => "AttentionWorkspaceView",
+            Ty::KvCacheLayerView => "KvCacheLayerView",
+            Ty::MlaCacheLayerView => "MlaCacheLayerView",
+            // Incomplete in the C++, so there is no layout to mirror and the
+            // honest Rust type is the pointer a `const&` already is.
+            Ty::DecodePlanCache | Ty::PrefillPlanCache | Ty::MlaPlanCache => {
+                "*const ::core::ffi::c_void"
+            }
+            Ty::HopperPrefillPlan => "*const HopperPrefillPlan",
+            Ty::YarnOriginalParams => "*const YarnOriginalParams",
+        }
+    }
+}
+
+/// One operand of a launcher, in the position the launcher takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Operand {
+    /// The C++ parameter's name. Prose — nothing matches on it — but it is
+    /// what makes a row diffable against the header by eye, and what a
+    /// generated binding names its argument.
+    pub name: &'static str,
+    /// What has to be placed here.
+    pub ty: Ty,
+    /// The launcher accepts a null here and means something by it.
+    ///
+    /// Not checkable by the C++ compiler — every pointer accepts null — which
+    /// is exactly why it belongs in the table. `rope_write_kv_bf16`'s
+    /// `row_valid` says "may be null" in a comment today, and a comment is
+    /// not something a binding can be generated from.
+    pub nullable: bool,
+}
+
 /// One kernel's contract.
 pub struct KernelSig {
     /// The dsl-side name (what a model text spells).
@@ -126,6 +321,28 @@ pub struct KernelSig {
     /// trace, restating a fact about the KERNEL. Migration step 5 moved it
     /// here.
     pub depth_prefix_plan: bool,
+    /// The operands `symbol` takes, in order — the launch ABI, as data.
+    ///
+    /// Empty means UNSTATED, not "takes nothing": a launcher that genuinely
+    /// took no operands would still take a stream. Rows are being filled in a
+    /// family at a time (`rope` is the pilot), so an empty list is how a row
+    /// says it has not been done yet, and nothing may infer a nullary call
+    /// from one.
+    ///
+    /// Stating this is what lets the DECLARATION be generated from the row
+    /// instead of written beside it. That turns the crate's own invariant —
+    /// every symbol resolves to exactly one declaration, every declaration
+    /// has exactly one row — from a check into a tautology, the same way
+    /// deriving `symbol` from the module path did for names. It is also the
+    /// only way this contract can be PROVEN: a generated shim that calls the
+    /// real function makes a wrong row a C++ compile error, so the compiler
+    /// is the oracle and no golden can drift.
+    ///
+    /// Default arguments are not representable and that is deliberate. A row
+    /// lists every operand the callee has, defaulted or not, because a
+    /// caller that is not C++ cannot omit one — and because a default is a
+    /// choice the table should be able to see.
+    pub operands: &'static [Operand],
     /// The axes `symbol` is instantiated over, if it names a FAMILY of
     /// entrypoints rather than one.
     ///
@@ -225,10 +442,15 @@ impl KernelSig {
     }
 }
 
-/// Declare one kernel. The syntax is `.wiki/tart/dsl.md` ②'s, minus the
-/// operand shapes: those stay with the emitter until the launch ABI flattens,
-/// and stating them twice would be the duplication this redesign exists to
-/// remove.
+/// Declare one kernel. The syntax is `.wiki/tart/dsl.md` ②'s.
+///
+/// Operand shapes used to be excluded from this on the grounds that they
+/// stayed with the emitter until the launch ABI flattened, and that stating
+/// them here would duplicate it. They are admitted now, through
+/// [`KernelSig::operands`] and the [`operands!`] macro, because flattening
+/// the ABI is precisely what a stated operand list DOES: once the row carries
+/// the signature, the C++ declaration and every non-C++ binding are generated
+/// from it, and the emitter reads the row rather than knowing a second copy.
 ///
 /// Exported so the two backend tables can declare rows in the same words. It
 /// names [`KernelSig`], [`Prepare`] and [`Cap`] through `$crate`, so a table
@@ -248,10 +470,42 @@ macro_rules! kernel {
                 lacks: &[],
                 sink: None,
                 depth_prefix_plan: false,
+                operands: &[],
                 axes: &[],
             }
         }
     };
+}
+
+/// An operand list, spelled the way the C++ declaration reads.
+///
+/// `name: Ty`, in the callee's parameter order, with `| null` on the ones
+/// that accept an absent pointer:
+///
+/// ```ignore
+/// operands![
+///     q: BufMut, k: BufMut,
+///     positions: I32s,
+///     row_valid: U8s | null,
+///     num_tokens: I32, theta: F32,
+///     stream: Stream,
+/// ]
+/// ```
+///
+/// `| null` rather than a `?` suffix on purpose: `?` is a token a `tt` would
+/// swallow ahead of the `,` separating two operands, and the arm would then
+/// depend on macro lookahead rather than on anything a reader can see.
+#[macro_export]
+macro_rules! operands {
+    ($($name:ident : $ty:ident $(| $null:ident)?),* $(,)?) => {
+        &[$($crate::Operand {
+            name: stringify!($name),
+            ty: $crate::Ty::$ty,
+            nullable: $crate::operands!(@nullable $($null)?),
+        }),*]
+    };
+    (@nullable) => { false };
+    (@nullable null) => { true };
 }
 
 /// The contract for one symbol, in `table`.

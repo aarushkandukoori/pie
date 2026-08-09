@@ -19,6 +19,7 @@
 
 pub use kernels::{Cap, KernelSig, Prepare};
 
+pub mod abi;
 pub mod adapter;
 pub mod attn;
 pub mod gemm;
@@ -81,13 +82,13 @@ const fn total() -> usize {
 
 const EMPTY: KernelSig = KernelSig {
     name: "", symbol: "", whole: false, needs: Prepare::None,
-    lacks: &[], sink: None, depth_prefix_plan: false, axes: &[],
+    lacks: &[], sink: None, depth_prefix_plan: false, operands: &[], axes: &[],
 };
 
 const fn copy_sig(k: &KernelSig) -> KernelSig {
     KernelSig {
         name: k.name, symbol: k.symbol, whole: k.whole, needs: k.needs,
         lacks: k.lacks, sink: k.sink, depth_prefix_plan: k.depth_prefix_plan,
-        axes: k.axes,
+        operands: k.operands, axes: k.axes,
     }
 }

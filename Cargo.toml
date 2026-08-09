@@ -53,7 +53,25 @@ members = [
     # native shells build their own `csrc/` and are OS-exclusive.
     "crates/driver",
     "crates/driver-cuda",
+    # The Rust rewrite of the CUDA shell, grown beside the C++ one on the same
+    # terms `driver-metal-new` is. Unlike either C++ shell it builds ANYWHERE:
+    # `cudarc` is pinned to a named CUDA version with `fallback-dynamic-loading`,
+    # so there is no link line and no toolkit probe, and the host logic this
+    # crate is mostly made of stays testable on a box with no GPU. It is
+    # outside `default-members` all the same -- linking a CUDA shell into a
+    # sweep should be a choice, and that is the rule the siblings follow.
+    "crates/driver-cuda-new",
     "crates/driver-metal",
+    # The Rust rewrite of the Metal shell, grown beside the C++ one rather
+    # than inside it. A member so it shares this lockfile and so a workspace
+    # sweep on a Mac sees it; outside `default-members` for the same reason
+    # `driver-metal` is -- selecting it on a Linux box should be a choice.
+    #
+    # Unlike `driver-metal` it does BUILD on a non-Apple host: everything that
+    # names a Metal type is behind `cfg(target_vendor = "apple")`, and what is
+    # left is the shader-include splicer and the tuning table, which are the
+    # two parts with logic worth testing and no reason to need a GPU.
+    "crates/driver-metal-new",
     "crates/driver-dummy",
 
     # -- model-*: what a model IS, and how it gets onto a device ------------

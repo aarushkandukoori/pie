@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/gemma4/gemma4_model.hpp"
 
 #include <cstdlib>

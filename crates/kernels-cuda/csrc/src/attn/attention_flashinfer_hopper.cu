@@ -187,7 +187,7 @@ void plan_attention_flashinfer_prefill_sm90_bf16(
     int num_kv_heads,
     int head_dim,
     int page_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     bool enable_cuda_graph,
     bool causal,
@@ -223,21 +223,21 @@ void plan_attention_flashinfer_prefill_sm90_bf16(
     // is NOT true of this one. `int_base_bytes` moves this plan's descriptor
     // clear of them; the offsets flashinfer returns are relative to the base
     // it was handed, so they are re-biased below to stay meaningful against
-    // `workspace.int_buffer()`.
-    if (int_base_bytes >= workspace.int_bytes()) {
+    // `workspace.int_buffer`.
+    if (int_base_bytes >= workspace.int_bytes) {
         throw std::runtime_error("flashinfer sm90 prefill: int base past end");
     }
     auto* int_base =
-        static_cast<std::uint8_t*>(workspace.int_buffer()) + int_base_bytes;
+        static_cast<std::uint8_t*>(workspace.int_buffer) + int_base_bytes;
     auto* host_base =
-        static_cast<std::uint8_t*>(workspace.page_locked_int()) + int_base_bytes;
+        static_cast<std::uint8_t*>(workspace.page_locked_int) + int_base_bytes;
     ::flashinfer::PrefillPlanSM90Info plan_info;
     CUDA_CHECK(::flashinfer::PrefillSM90Plan<IdType>(
-        workspace.float_buffer(),
-        workspace.float_bytes(),
+        workspace.float_buffer,
+        workspace.float_bytes,
         int_base,
         host_base,
-        workspace.int_bytes() - int_base_bytes,
+        workspace.int_bytes - int_base_bytes,
         plan_info,
         qo_h.data(),
         kv_h.data(),
@@ -282,7 +282,7 @@ void dispatch_attention_flashinfer_prefill_sm90_bf16(
     void* v_pages,
     void* o,
     const std::uint32_t* kv_page_indices_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float logits_soft_cap,
     float sm_scale,
@@ -299,7 +299,7 @@ void dispatch_attention_flashinfer_prefill_sm90_bf16(
     params.o_ptr = static_cast<DTypeO*>(o);
     params.lse_ptr = lse_out;
 
-    void* int_buf = workspace.int_buffer();
+    void* int_buf = workspace.int_buffer;
     params.qo_tile_indices =
         offset_ptr<IdType>(int_buf, plan.qo_tile_indices_offset);
     params.qo_indptr = offset_ptr<IdType>(int_buf, plan.qo_indptr_offset);

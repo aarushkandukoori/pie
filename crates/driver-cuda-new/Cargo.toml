@@ -1,0 +1,165 @@
+[package]
+name = "driver-cuda-new"
+version = "0.4.0"
+edition = "2024"
+authors = ["In Gim <in.gim@yale.edu>"]
+description = "The CUDA execution shell, in Rust: streams, capture-safe allocation, graphs (incl. conditional nodes) and the elastic VMM arena. Grows beside driver-cuda until it replaces it."
+license = "Apache-2.0"
+repository = "https://github.com/pie-project/pie"
+publish = false
+
+# Deliberately no `links` key, for the reason `driver-metal-new` states: the
+# C++ shell publishes `pie_driver_cuda_lib`, and two packages in one workspace
+# claiming one `links` value is a RESOLUTION error, not a link error -- it
+# would break `cargo metadata` for everyone rather than just for whoever
+# selected this crate.
+
+[lib]
+name = "driver_cuda_new"
+path = "src/lib.rs"
+
+# NOT `[lints] workspace = true`. That table sets `unsafe_code = "forbid"`,
+# which every `cudarc::*::sys` call violates by construction. The rest of it
+# (`missing_docs`, the clippy ratchets) is worth having and is set in
+# `lib.rs`, where `unsafe_code` can be left out of the list.
+
+[features]
+# Exactly one of these must be on, and it must match the CUDA runtime that
+# will be *loaded*, not merely the one available at build time. See
+# `src/cuda/graph.rs`'s `add_node` for what goes wrong otherwise: the symbol
+# `cudaGraphAddNode` has five parameters in `libcudart.so.12` and six in
+# `libcudart.so.13`, so a mismatched build segfaults inside the driver rather
+# than returning an error. `Device::bind` checks at startup so the failure is
+# a message instead of a crash.
+#
+# There is deliberately NO `default`. A default would have to be a guess about
+# someone else's machine, and the cost of guessing wrong is a segfault in the
+# driver rather than a build error -- so the honest thing is to refuse to
+# build until a human says which runtime this binary will meet. `lib.rs`
+# turns the omission into a compile_error that says so.
+cuda-12 = ["_cuda", "cudarc/cuda-12080"]
+cuda-13 = ["_cuda", "cudarc/cuda-13000"]
+
+# Private: "some CUDA version was chosen". Modules are gated on this so that a
+# build with no version selected emits one actionable error instead of burying
+# it under every use of `cudarc`. It also gates the test targets, which keeps
+# `cargo test` with no features on the same single error.
+_cuda = ["dep:cudarc"]
+
+[dependencies]
+# The CUDA version is pinned EXPLICITLY rather than through
+# `cuda-version-from-build-system`, and that is the whole reason this crate
+# compiles on a machine with no CUDA at all: the build-system feature probes
+# `nvcc` and fails without one, while a named version plus
+# `fallback-dynamic-loading` emits no link line and resolves every symbol
+# through `dlopen` on first call. `csrc/CMakeLists.txt` looks for
+# `/usr/local/cuda-12.8`, so 12080 is the toolkit this tree is written
+# against; conditional graph nodes need >= 12030 and would silently vanish
+# from `sys` below that.
+#
+# `default-features = false` drops cublas/cublaslt/curand/nvrtc for now. They
+# come back one at a time, as the subsystem that needs them lands -- the
+# feature list is meant to read as the API surface this shell actually uses.
+#
+# `optional = true` is not about the dependency being optional -- there is no
+# build of this crate without it. It exists so that selecting no CUDA feature
+# leaves cudarc out of the graph entirely, and the build then fails on
+# `lib.rs`'s `compile_error!`, which names the two features. Without it, the
+# first thing to fail is cudarc's own build script, which panics about a
+# missing CUDA version and says nothing about how to fix it.
+cudarc = { version = "0.19.8", optional = true, default-features = false, features = [
+    "std",
+    "driver",
+    "runtime",
+    "fallback-dynamic-loading",
+] }
+
+# The shell is a library loaded into someone else's process, so a degraded
+# path (a peer that turns out not to be reachable, say) has to be reported
+# through the host's subscriber rather than printed. The C++ writes those to
+# `std::cerr`, which is the behaviour being replaced, not preserved.
+tracing = "0.1"
+
+# The planner profile cache is a JSON document shared with the C++, which
+# parses it with nlohmann. Only the READER is serde_json: the writer is
+# `store::json`, hand-written so that key order and float formatting match
+# nlohmann exactly.
+#
+# `preserve_order` is requested DELIBERATELY, even though this crate does not
+# need insertion order. Four other crates in this workspace already enable it
+# (`engine`, `grammar`, `model`, `tokenizer`) and Cargo unifies features, so
+# the real build gets an `IndexMap` whatever this line says. Asking for it here
+# means the isolated `cargo test -p driver-cuda-new` build sees the same map
+# type as the workspace build -- without it, `Map` falls back to a `BTreeMap`
+# that is already sorted, `store::json`'s explicit key sort becomes dead code
+# in the tests, and the parity proof stops covering the one thing that sort
+# exists to prevent.
+serde_json = { version = "1.0", features = ["preserve_order"] }
+
+# `flock` and `open`. The cache's read -> merge -> rename has to be atomic
+# against another process calibrating a different GPU under the same $HOME,
+# and an advisory whole-file lock is what the C++ uses.
+libc = "0.2"
+
+# The launch ABI pilot reads the kernel table and generates both halves of the
+# flat entry points from it (`kernels_cuda::abi`). A dev-dependency rather
+# than a dependency: nothing in the library calls a launcher yet, and the
+# generated Rust bindings are only compiled by `tests/rope_abi.rs`. This moves
+# to `[dependencies]` when the first launcher is actually called.
+#
+# `default-features = false` is the point of the split in that crate -- it
+# leaves `native` off, so reading the table costs no nvcc.
+[dev-dependencies]
+kernels = { path = "../kernels" }
+kernels-cuda = { path = "../kernels-cuda", default-features = false }
+
+# `required-features` keeps `cargo test` with no CUDA feature reporting the
+# same one error the library does, instead of additionally failing to compile
+# test targets whose imports have all been cfg'd away.
+[[test]]
+name = "gpu_smoke"
+required-features = ["_cuda"]
+
+[[test]]
+name = "gpu_vmm"
+required-features = ["_cuda"]
+
+[[test]]
+name = "gpu_graph"
+required-features = ["_cuda"]
+
+[[test]]
+name = "kv_format_parity"
+required-features = ["_cuda"]
+
+[[test]]
+name = "kv_geometry_parity"
+required-features = ["_cuda"]
+
+[[test]]
+name = "planner_policy_parity"
+required-features = ["_cuda"]
+
+[[test]]
+name = "store_parity"
+required-features = ["_cuda"]
+
+[[test]]
+name = "memory_planner_parity"
+required-features = ["_cuda"]
+
+[[test]]
+name = "kv_cache_parity"
+required-features = ["_cuda"]
+
+[[test]]
+name = "recurrent_parity"
+required-features = ["_cuda"]
+
+[[test]]
+name = "caches_parity"
+required-features = ["_cuda"]
+
+[[test]]
+name = "launch_abi"
+required-features = ["_cuda"]

@@ -2,6 +2,7 @@
 
 #include <optional>
 
+#include "attention_workspace.hpp"
 #include "model/gemma4/declared_forward.hpp"
 #include "model/gemma4/gemma4.hpp"
 #include "model/imodel.hpp"

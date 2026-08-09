@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/qwen3_vl/qwen3_vl_model.hpp"
 
 #include <utility>

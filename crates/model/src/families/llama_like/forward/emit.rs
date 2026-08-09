@@ -366,7 +366,7 @@ fn emit_class_fn(
         b.line("    kernels::attn::prepare_attention_xqa_decode_bf16(");
         b.line("        kv_page_indices, kv_page_indptr, kv_last_page_lens,");
         b.line("        R, cache.page_size(), plan_state.xqa_max_pages_per_seq,");
-        b.line("        attn_ws, stream);");
+        b.line("        attn_ws.view(), stream);");
         b.line("");
     }
 
@@ -1463,7 +1463,7 @@ fn emit_launch(
             b.stmt("        ws.attn_out.data(),");
             b.stmt("        R, num_q_heads, num_kv_heads, d,");
             b.stmt("        cache.page_size(), plan_state.xqa_max_pages_per_seq,");
-            b.stmt("        attn_ws, stream, /*sm_scale_override=*/-1.f);");
+            b.stmt("        attn_ws.view(), stream, /*sm_scale_override=*/-1.f);");
             b.stmt("}");
         }
         "attn::dequant_kv_cache_layer_to_bf16_active" => {
@@ -1534,7 +1534,7 @@ fn emit_launch(
                 b.stmt("        kv_last_page_lens,");
                 b.stmt("        qo_indptr_h, kv_page_indptr_h,");
                 b.stmt(&format!(
-                    "        {n_rows}, {n_reqs}, num_q_heads, attn_ws, stream,"
+                    "        {n_rows}, {n_reqs}, num_q_heads, attn_ws.view(), stream,"
                 ));
                 b.stmt("        layer_window_left,");
                 b.stmt("        /*logits_soft_cap=*/0.f,");
@@ -1560,7 +1560,7 @@ fn emit_launch(
             b.stmt(&format!("        {out_buf},"));
             b.stmt("        qo_indptr, kv_page_indices, kv_page_indptr,");
             b.stmt("        kv_last_page_lens,");
-            b.stmt("        attn_ws, stream, /*logits_soft_cap=*/0.f,");
+            b.stmt("        attn_ws.view(), stream, /*logits_soft_cap=*/0.f,");
             b.stmt(&format!("        {scale});"));
             if win == Some(Win::MaskPrefix) {
                 // NO-DEMOTION (3-way, generated leg): when prepare armed
@@ -1592,7 +1592,7 @@ fn emit_launch(
                 b.stmt("            kv_page_indices,");
                 b.stmt("            kv_page_indptr + mid_P,");
                 b.stmt("            kv_last_page_lens + mid_P,");
-                b.stmt("            attn_ws, stream, mid_wl,");
+                b.stmt("            attn_ws.view(), stream, mid_wl,");
                 b.stmt(&format!(
                     "            /*logits_soft_cap=*/0.f, {scale});"
                 ));
@@ -1638,7 +1638,7 @@ fn emit_launch(
                 b.stmt(&format!("        {q_buf}, kv_view, {out_buf},"));
                 b.stmt("        attn_page_indices, attn_page_indptr,");
                 b.stmt("        attn_last_page_lens,");
-                b.stmt("        attn_ws, stream, layer_window_left,");
+                b.stmt("        attn_ws.view(), stream, layer_window_left,");
                 b.stmt(&format!(
                     "        /*logits_soft_cap=*/0.f, {scale});"
                 ));
@@ -1697,8 +1697,8 @@ fn emit_launch(
                 b.stmt(&format!("        {q_buf}, kv_view, {out_buf},"));
                 b.stmt("        attn_page_indices, attn_page_indptr,");
                 b.stmt("        attn_last_page_lens,");
-                b.stmt("        band_j >= 0 ? depth_band_attn_ws_public(band_j)");
-                b.stmt("        : depth_tail ? spatial_suffix_attn_ws() : attn_ws,");
+                b.stmt("        (band_j >= 0 ? depth_band_attn_ws_public(band_j)");
+                b.stmt("         : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),");
                 b.stmt("        stream, layer_window_left,");
                 b.stmt(&format!(
                     "        /*logits_soft_cap=*/0.f, {scale});"
@@ -1709,7 +1709,7 @@ fn emit_launch(
                 b.stmt(&format!("        {q_buf}, kv_view, {out_buf},"));
                 b.stmt("        attn_page_indices, attn_page_indptr,");
                 b.stmt("        attn_last_page_lens,");
-                b.stmt("        attn_ws, stream, layer_window_left,");
+                b.stmt("        attn_ws.view(), stream, layer_window_left,");
                 b.stmt(&format!(
                     "        /*logits_soft_cap=*/0.f, {scale});"
                 ));
@@ -1759,7 +1759,7 @@ fn emit_launch(
                     // the mixed/prefill class into the dedicated
                     // suffix workspace (its prefix causal plan owns
                     // attn_ws).
-                    let ws = "spatial_suffix_attn_ws()";
+                    let ws = "spatial_suffix_attn_ws().view()";
                     b.stmt("    kernels::attn::dispatch_attention_flashinfer_prefill_custom(");
                     b.stmt(&format!("        *{plan_cache},"));
                     b.stmt(&format!(
@@ -1784,7 +1784,7 @@ fn emit_launch(
                     b.stmt(&format!("        {q_buf}, kv_view, {out_buf},"));
                     b.stmt("        qo_indptr, kv_page_indices, kv_page_indptr,");
                     b.stmt("        kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,");
-                    b.stmt("        attn_ws, stream);");
+                    b.stmt("        attn_ws.view(), stream);");
                 }
                 Some(_) => panic!(
                     "emitter: the custom dispatch in a foreign peel region"
@@ -1835,7 +1835,7 @@ fn emit_launch(
             b.stmt(&format!("        {q_buf}, kv_view, {out_buf},"));
             b.stmt("        attn_page_indices, attn_page_indptr,");
             b.stmt("        attn_last_page_lens,");
-            b.stmt("        attn_ws, stream,");
+            b.stmt("        attn_ws.view(), stream,");
             b.stmt("        score_capture->raw(), score_capture->indptr_d(),");
             b.stmt("        /*window_left=*/-1,");
             b.stmt(&format!(
@@ -1874,7 +1874,7 @@ fn emit_launch(
             ));
             b.stmt(&format!("        {out_buf},"));
             b.stmt("        qo_indptr, kv_page_indices, kv_page_indptr,");
-            b.stmt("        kv_last_page_lens, attn_ws, stream,");
+            b.stmt("        kv_last_page_lens, attn_ws.view(), stream,");
             b.stmt("        prefill_score_capture->raw(),");
             b.stmt("        prefill_score_capture->folded(),");
             b.stmt("        prefill_score_capture->indptr_d(),");

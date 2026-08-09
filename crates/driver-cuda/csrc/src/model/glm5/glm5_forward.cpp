@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/glm5/glm5_forward.hpp"
 
 #include "model/act_dump.hpp"
@@ -479,7 +480,7 @@ void glm5_forward_paged(
             layer_view,
             ws.attn_latent.data(),
             kv_page_indices,
-            attn_ws,
+            attn_ws.view(),
             stream,
             /*lse_out=*/nullptr,
             qo_indptr, kv_page_indptr, kv_last_page_lens,

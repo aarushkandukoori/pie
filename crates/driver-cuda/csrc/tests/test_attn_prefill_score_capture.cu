@@ -43,6 +43,7 @@
 
 #include <cuda_runtime.h>
 
+#include "attention_workspace.hpp"
 #include "attn/attention_flashinfer.hpp"
 
 using pie_cuda_driver::AttentionWorkspace;
@@ -226,19 +227,19 @@ Run run_batch(const std::vector<Req>& reqs, int window, bool capture,
     auto plan = kernels::attn::make_prefill_plan();
     kernels::attn::plan_attention_flashinfer_prefill_bf16(
         *plan, qo_indptr_h.data(), kv_page_indptr_h.data(),
-        kv_last_page_lens_h.data(), total_tokens, R, HQ, HKV, D, PAGE, ws,
+        kv_last_page_lens_h.data(), total_tokens, R, HQ, HKV, D, PAGE, ws.view(),
         /*stream=*/nullptr, /*enable_cuda_graph=*/false, /*window_left=*/-1,
         /*full_attention_variant=*/true, /*hnd_layout=*/false,
         /*causal_mask=*/true, /*custom_mask=*/false,
         /*wants_prefill_score=*/capture);
     if (capture) {
         kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
-            *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws,
+            *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws.view(),
             /*stream=*/nullptr, d_scores, d_folded, d_sindptr, window_arg,
             logits_soft_cap);
     } else {
         kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
-            *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws,
+            *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws.view(),
             /*stream=*/nullptr);
     }
     RT(cudaDeviceSynchronize());
@@ -249,12 +250,12 @@ Run run_batch(const std::vector<Req>& reqs, int window, bool capture,
         auto launch = [&] {
             if (capture) {
                 kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
-                    *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws,
+                    *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws.view(),
                     nullptr, d_scores, d_folded, d_sindptr, window_arg,
                     logits_soft_cap);
             } else {
                 kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
-                    *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws,
+                    *plan, d_q, d_k, d_v, d_o, d_qoi, d_kpi, d_kpp, d_klpl, ws.view(),
                     nullptr);
             }
         };

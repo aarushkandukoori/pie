@@ -15,6 +15,7 @@
 // the result back into the residual stream. Top-K and renormalization
 // happen on-device via `kernels::moe::topk_softmax_bf16`.
 
+#include "attention_workspace.hpp"
 #include "device_buffer.hpp"
 #include <cstdint>
 #include <vector>

@@ -320,6 +320,12 @@ set(PIE_CUDA_MODEL_SOURCES
 
 add_library(pie_driver_cuda_lib STATIC
   src/abi.cpp
+  # The attention plan/dispatch scratch. Owned here rather than in
+  # kernels-cuda because everything past the five values a kernel reads --
+  # allocation, the pinned plan-staging rotation and the events fencing it --
+  # is sized by this crate's run-ahead depth. Kernels take the view instead
+  # (`kernels-cuda/csrc/src/attention_workspace_view.hpp`).
+  src/attention_workspace.cpp
   src/context.cpp
   src/distributed.cpp
   # comm/ -- the TP collective's device half, which is not a compute kernel:

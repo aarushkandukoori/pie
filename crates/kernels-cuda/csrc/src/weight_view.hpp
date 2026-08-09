@@ -10,7 +10,7 @@
 // `using` declaration left behind in `ops`. This header replaces that shim.
 //
 // The namespace is `pie_cuda_driver`, the same one `tensor.hpp`,
-// `cache_root.hpp` and `attention_workspace.hpp` sit in beside it. An earlier
+// `cache_root.hpp` and `attention_workspace_view.hpp` sit in beside it. An earlier
 // revision of this comment argued for keeping `ops` -- "1099 edits for a nicer
 // word and buys nothing else" -- and that was wrong on the second half. `ops`
 // was a directory name from when this tree meant "vendored-wrapper kernels".

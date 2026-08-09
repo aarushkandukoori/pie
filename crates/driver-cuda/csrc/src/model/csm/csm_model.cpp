@@ -1,5 +1,6 @@
 // CSM IModel impl. See csm_model.hpp.
 
+#include "attention_workspace.hpp"
 #include "model/csm/csm_model.hpp"
 
 #include <stdexcept>

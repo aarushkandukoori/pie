@@ -1,25 +1,25 @@
 #pragma once
 
-// Low-level device/pinned scratch buffers for FlashInfer's plan + dispatch
-// path (DecodePlan / PrefillPlan write per-request scheduling metadata —
-// request_indices, kv_tile_indices, o_indptr, kv_chunk_size_ptr, split-kv
-// tmp buffers — into these). Allocated once at boot by the driver's `batch/`
-// (see `batch/workspace.hpp`, the sizing-policy wrapper around this type)
-// and reused across all forward passes.
+// Device/pinned scratch for FlashInfer's plan + dispatch path. DecodePlan /
+// PrefillPlan write their per-request scheduling metadata -- request_indices,
+// kv_tile_indices, o_indptr, kv_chunk_size_ptr, split-kv tmp buffers -- into
+// these buffers. Allocated once at boot and reused across all forward passes
+// (see `batch/workspace.hpp`, the sizing-policy wrapper around this type,
+// and `Context::create`).
 //
-// Why this sits at `src/` root rather than under `attn/`: the name says
-// attention, but the type does not belong to that family. It is in plain
-// `pie_cuda_driver`, not `pie_cuda_driver::kernels::attn` — the driver's
-// `batch/forward.hpp` forward-declares it there, and every attention
-// launcher takes one by reference. Root holds the vocabulary a family is
-// written in (`tensor.hpp`, `cuda_check.hpp`, `quant_meta.hpp`); a file
-// belongs to a family directory only when its namespace says so.
+// This is the owner. Kernels never see it: they take an
+// `AttentionWorkspaceView` (`kernels-cuda`), which is the five values they
+// actually read. Everything the class adds on top of those five -- the
+// allocation, the move semantics, the pinned plan-staging slots and the
+// events that fence them -- is scheduling, sized by the driver's run-ahead
+// depth, and so it lives here rather than downhill in the kernels.
 
 #include <cstddef>
 #include <vector>
 
 #include <cuda_runtime.h>
 
+#include "attention_workspace_view.hpp"
 #include "tensor.hpp"
 
 namespace pie_cuda_driver {
@@ -32,8 +32,7 @@ public:
     /// (`begin_plan_update`) and is reusable only after its upload event
     /// retires, so a pool shallower than the in-flight step count blocks
     /// every submit in `cudaEventSynchronize` for ~a full GPU step. The
-    /// driver derives it (`runahead.hpp`) and passes it down; this side only
-    /// has to honour it.
+    /// driver derives it (`runahead.hpp`) and passes it down.
     static AttentionWorkspace allocate(
         std::size_t float_workspace_bytes = 80 * 1024 * 1024,  // 80 MiB
         std::size_t int_workspace_bytes  =  8 * 1024 * 1024,   // 8  MiB
@@ -46,6 +45,20 @@ public:
     AttentionWorkspace& operator=(AttentionWorkspace&&) noexcept;
 
     ~AttentionWorkspace();
+
+    /// What a kernel is handed. Named rather than an implicit conversion for
+    /// the same reason `KvCache::layer_view` is: the crate boundary should be
+    /// legible at the call site, not inferred by overload resolution.
+    ///
+    /// Non-const to match the accessors it is built from -- the buffers it
+    /// points at are written by the kernels.
+    AttentionWorkspaceView view() noexcept {
+        return AttentionWorkspaceView{
+            float_buffer(), float_bytes(),
+            int_buffer(),   int_bytes(),
+            page_locked_int(),
+        };
+    }
 
     void* float_buffer()      noexcept { return float_buf_.data(); }
     void* int_buffer()        noexcept { return int_buf_.data(); }
@@ -80,13 +93,5 @@ private:
     std::size_t active_plan_slot_ = 0;
     std::size_t next_plan_slot_ = 0;
 };
-
-// FlashInfer decode is only a win for certain GQA ratios — for the rest
-// we route through the prefill kernel as a fallback.
-bool flashinfer_decode_supports_gqa(int gqa);
-
-// PIE_CUDA_XQA_DECODE override (defaults to enabled). When false the
-// driver forces the FlashInfer paged decode kernel for all archs.
-bool xqa_decode_enabled_by_env();
 
 }  // namespace pie_cuda_driver

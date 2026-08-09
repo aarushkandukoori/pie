@@ -1,5 +1,6 @@
 #pragma once
 
+#include "attention_workspace.hpp"
 #include "model/imodel.hpp"
 #include "model/qwen3_5/declared_facts.hpp"
 #include "model/qwen3_5/qwen3_5.hpp"

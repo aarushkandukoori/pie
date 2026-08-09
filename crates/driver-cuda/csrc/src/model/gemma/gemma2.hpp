@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "attention_workspace.hpp"
 #include "distributed.hpp"
 #include "model/loaded_model.hpp"
 #include "store/kv_cache.hpp"

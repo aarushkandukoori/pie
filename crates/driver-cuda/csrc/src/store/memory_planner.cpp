@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "memory_planner.hpp"
 #include "../batch/planner_calibration.hpp"
 #include "planner_profile_cache.hpp"

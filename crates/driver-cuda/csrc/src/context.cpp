@@ -1,5 +1,6 @@
 #include <pie/driver/fire/step.hpp>
 #include <pie/driver/region_plans.hpp>
+#include "attention_workspace.hpp"
 #include "context.hpp"
 
 #include <algorithm>

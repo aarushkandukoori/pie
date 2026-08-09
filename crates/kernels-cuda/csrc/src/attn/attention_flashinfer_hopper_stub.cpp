@@ -25,7 +25,7 @@ void plan_attention_flashinfer_prefill_sm90_bf16(
     int /*num_kv_heads*/,
     int /*head_dim*/,
     int /*page_size*/,
-    AttentionWorkspace& /*workspace*/,
+    AttentionWorkspaceView /*workspace*/,
     cudaStream_t /*stream*/,
     bool /*enable_cuda_graph*/,
     bool /*causal*/,
@@ -41,7 +41,7 @@ void dispatch_attention_flashinfer_prefill_sm90_bf16(
     void* /*v_pages*/,
     void* /*o*/,
     const std::uint32_t* /*kv_page_indices_d*/,
-    AttentionWorkspace& /*workspace*/,
+    AttentionWorkspaceView /*workspace*/,
     cudaStream_t /*stream*/,
     float /*logits_soft_cap*/,
     float /*sm_scale*/,
@@ -83,7 +83,7 @@ void launch_attention_xqa_decode_bf16_gqa8_sm90(
     int /*head_dim*/,
     int /*page_size*/,
     int /*max_pages_per_seq*/,
-    AttentionWorkspace& /*workspace*/,
+    AttentionWorkspaceView /*workspace*/,
     cudaStream_t /*stream*/,
     float /*sm_scale*/) {
     throw std::runtime_error("xqa gqa8 sm90 decode is not built for this CUDA architecture");
@@ -100,7 +100,7 @@ void launch_attention_xqa_decode_bf16_gqa8_sm90_prepared(
     int /*head_dim*/,
     int /*page_size*/,
     int /*max_pages_per_seq*/,
-    AttentionWorkspace& /*workspace*/,
+    AttentionWorkspaceView /*workspace*/,
     cudaStream_t /*stream*/,
     float /*sm_scale*/) {
     throw std::runtime_error("xqa gqa8 sm90 decode is not built for this CUDA architecture");

@@ -19,12 +19,21 @@
 #                        it from HERE, because a kernel signature cannot be
 #                        stated in a type the caller owns.
 #
-# What went BACK to the driver: `runahead.hpp`. It holds the scheduler's
-# run-ahead depth, which is shell policy, and it was here only because
-# `ops/attention_workspace.hpp` sized a `std::array` by it. That array is a
-# `std::vector` now and `allocate()` takes the depth as an argument, so the
-# driver states its own number and passes it down -- no shared header, and
-# the dependency is a call rather than an include.
+# What went BACK to the driver: `runahead.hpp`, and then the class it was
+# there to size. `runahead.hpp` holds the scheduler's run-ahead depth, which
+# is shell policy, and it was here only because `attention_workspace.hpp`
+# sized a `std::array` by it. That array became a `std::vector` and
+# `allocate()` took the depth as an argument, which sent the constant home.
+#
+# `AttentionWorkspace` itself followed. The measurement that decided it: of
+# everything the class offers, `attn/` reads exactly five values and calls
+# nothing else, while `allocate` / `begin_plan_update` / `end_plan_update`
+# are the driver's alone. So the five stayed as a POD --
+# `src/attention_workspace_view.hpp`, which is what every launcher now takes
+# -- and the allocation, the move semantics, the pinned staging rotation and
+# the events fencing it went to `driver-cuda/csrc/src/attention_workspace.*`.
+# Same shape as `runahead`: what crosses is a value, not an object, and the
+# dependency is one-way.
 #   third_party/         FlashInfer's generated MoE launchers, marlin,
 #                        marlin_moe. Kernels, vendored.
 #
@@ -555,7 +564,6 @@ add_library(pie_kernels_cuda STATIC
   src/attn/attention_merge_states.cu
   src/attn/attention_naive.cu
   src/attn/attention_naive_paged.cu
-  src/attention_workspace.cpp
   src/attn/attention_xqa.cu
   src/attn/attention_xqa_gqa2.cu
   src/attn/attention_xqa_gqa2_p16.cu

@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/deepseek_v4/deepseek_v4_forward.hpp"
 
 #include "loader/group_stream_cache.hpp"
@@ -718,7 +719,7 @@ void dsv4_forward_paged(
                     *ws.swa_plan,
                     ws.q.data(), lv.k_pages, lv.v_pages, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
                     static_cast<float*>(ws.attn_lse.data()));
                 // FlashInfer emits `m + log2(d)`; the compressed-attention

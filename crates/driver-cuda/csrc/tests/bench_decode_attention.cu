@@ -25,6 +25,7 @@
 
 #include <cuda_runtime.h>
 
+#include "attention_workspace.hpp"
 #include "cuda_check.hpp"
 #include "attn/attention_flashinfer.hpp"
 #include "attn/attention_flashinfer_hopper.hpp"
@@ -134,7 +135,7 @@ int main(int argc, char** argv) {
         auto decode_plan = kernels::attn::make_decode_plan();
         kernels::attn::plan_attention_flashinfer_decode(
             *decode_plan, indptr_h.data(), 1, q_heads, kv_heads, head_dim,
-            kPageSize, workspace, stream, /*enable_cuda_graph=*/true,
+            kPageSize, workspace.view(), stream, /*enable_cuda_graph=*/true,
             /*full_attention_variant=*/window_left < 0, /*hnd_layout=*/false,
             // With PIE_CUDA_WINDOW_SPLIT_KV=1 this makes the planner split a
             // windowed layer instead of firing batch*kv_heads CTAs.
@@ -142,7 +143,7 @@ int main(int argc, char** argv) {
         const float fi_us = time_us([&](cudaStream_t s) {
             kernels::attn::dispatch_attention_flashinfer_decode_bf16(
                 *decode_plan, q, k_pages, v_pages, out, idx_d, indptr_d,
-                lastlen_d, workspace, s, window_left, 0.f, 1.0f);
+                lastlen_d, workspace.view(), s, window_left, 0.f, 1.0f);
         }, stream);
 
         float fa3_us = -1.f;
@@ -151,13 +152,13 @@ int main(int argc, char** argv) {
             kernels::attn::HopperPrefillPlan hplan;
             kernels::attn::plan_attention_flashinfer_prefill_sm90_bf16(
                 hplan, qo_h.data(), indptr_h.data(), lastlen_h.data(), 1, 1,
-                q_heads, kv_heads, head_dim, kPageSize, workspace, stream,
+                q_heads, kv_heads, head_dim, kPageSize, workspace.view(), stream,
                 /*enable_cuda_graph=*/true, /*causal=*/true, window_left,
                 workspace.int_bytes() / 2);
             if (hplan.valid) {
                 fa3_us = time_us([&](cudaStream_t s) {
                     kernels::attn::dispatch_attention_flashinfer_prefill_sm90_bf16(
-                        hplan, q, k_pages, v_pages, out, idx_d, workspace, s,
+                        hplan, q, k_pages, v_pages, out, idx_d, workspace.view(), s,
                         0.f, 1.0f);
                 }, stream);
             }
@@ -203,14 +204,14 @@ int main(int argc, char** argv) {
             kernels::attn::plan_attention_flashinfer_prefill_bf16(
                 *pc, qo_h.data(), indptr_h.data(), lastlen_h.data(),
                 /*total_tokens=*/1, /*num_requests=*/1, q_heads, kv_heads,
-                head_dim, kPageSize, workspace, stream,
+                head_dim, kPageSize, workspace.view(), stream,
                 /*enable_cuda_graph=*/true, /*window_left=*/window_left,
                 /*full_attention_variant=*/window_left < 0,
                 /*hnd_layout=*/false, /*causal_mask=*/true);
             pf_us = time_us([&](cudaStream_t st) {
                 kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *pc, q, k_pages, v_pages, pf_o, qo_d, idx_d, indptr_d,
-                    lastlen_d, workspace, st, 0.f, 1.0f, nullptr);
+                    lastlen_d, workspace.view(), st, 0.f, 1.0f, nullptr);
             }, stream);
             CUDA_CHECK(cudaFree(qo_d));
         }
@@ -297,13 +298,13 @@ int main(int argc, char** argv) {
             kernels::attn::DecodePlanCachePtr fp = kernels::attn::make_decode_plan();
             kernels::attn::plan_attention_flashinfer_decode(
                 *fp, findptr.data(), splits, q_heads, kv_heads, head_dim,
-                kPageSize, workspace, stream, /*enable_cuda_graph=*/true,
+                kPageSize, workspace.view(), stream, /*enable_cuda_graph=*/true,
                 /*full_attention_variant=*/false, /*hnd_layout=*/false);
             if (covered) {
                 fi_split_us = time_us([&](cudaStream_t st) {
                     kernels::attn::dispatch_attention_flashinfer_decode_bf16(
                         *fp, q, k_pages, v_pages, fpart, idx_d, findptr_d,
-                        flast_d, workspace, st, /*window_left=*/fwin,
+                        flast_d, workspace.view(), st, /*window_left=*/fwin,
                         /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f,
                         static_cast<float*>(flse), /*broadcast_q=*/true);
                     kernels::attn::merge_attention_states_bf16(
@@ -464,7 +465,7 @@ int main(int argc, char** argv) {
             kernels::attn::HopperPrefillPlan sp;
             kernels::attn::plan_attention_flashinfer_prefill_sm90_bf16(
                 sp, sq.data(), sindptr.data(), slast.data(), splits, splits,
-                q_heads, kv_heads, head_dim, kPageSize, workspace, stream,
+                q_heads, kv_heads, head_dim, kPageSize, workspace.view(), stream,
                 /*enable_cuda_graph=*/true, /*causal=*/true,
                 /*window_left=*/(skip > 0 ? split_window : -1),
                 workspace.int_bytes() / 2);
@@ -475,7 +476,7 @@ int main(int argc, char** argv) {
             if (sp.valid) {
                 split_us = time_us([&](cudaStream_t st) {
                     kernels::attn::dispatch_attention_flashinfer_prefill_sm90_bf16(
-                        sp, q, k_pages, v_pages, spart, idx_d, workspace,
+                        sp, q, k_pages, v_pages, spart, idx_d, workspace.view(),
                         st, 0.f, 1.0f, static_cast<float*>(slse),
                         /*broadcast_q=*/true);
                     kernels::attn::merge_attention_states_bf16(

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "attention_workspace.hpp"
 #include "distributed.hpp"
 #include "store/mla_cache.hpp"
 #include "model/imodel.hpp"

@@ -10,6 +10,7 @@
 
 #include <string>
 
+#include "attention_workspace.hpp"
 #include "model/config.hpp"
 #include "model/gemma4/gemma4.hpp"
 #include "pie_forward/plan.hpp"

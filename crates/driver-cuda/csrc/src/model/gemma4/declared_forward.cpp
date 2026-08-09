@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/gemma4/declared_forward.hpp"
 
 #include <algorithm>
@@ -600,7 +601,7 @@ bool gemma4_forward_declared(
                     p = owned.get();
                     kernels::attn::plan_attention_flashinfer_decode(
                         *p, kv_page_indptr_h, R, cfg.num_attention_heads,
-                        cur_hk / cur_d, cur_d, cache.page_size(), attn_ws,
+                        cur_hk / cur_d, cur_d, cache.page_size(), attn_ws.view(),
                         stream, /*enable_cuda_graph=*/true,
                         /*full_attention_variant=*/cur_full,
                         cache.hnd_layout());
@@ -608,7 +609,7 @@ bool gemma4_forward_declared(
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *p, ws.q.data(), kv_view, ws.attn_out.data(),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
                 break;
@@ -683,7 +684,7 @@ bool gemma4_forward_declared(
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
-                    N, R, cfg.num_attention_heads, attn_ws, stream,
+                    N, R, cfg.num_attention_heads, attn_ws.view(), stream,
                     w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
                 break;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "attention_workspace.hpp"
 #include "store/dsa_cache.hpp"
 #include "distributed.hpp"
 #include "store/mla_cache.hpp"

@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/llama_like/declared_forward.hpp"
 
 #include <algorithm>
@@ -1022,7 +1023,7 @@ void llama_like_forward_declared(
             kernels::attn::prepare_attention_xqa_decode_bf16(
                 kv_page_indices, kv_page_indptr, kv_last_page_lens,
                 R_fire, cache.page_size(), plan_state.xqa_max_pages_per_seq,
-                attn_ws, stream);
+                attn_ws.view(), stream);
             break;
         }
     }
@@ -1692,7 +1693,7 @@ void llama_like_forward_declared(
                     attn_out_buf,
                     R, num_q_heads, num_kv_heads, dk,
                     cache.page_size(), plan_state.xqa_max_pages_per_seq,
-                    attn_ws, stream, sm_scale_override);
+                    attn_ws.view(), stream, sm_scale_override);
                 break;
             }
             case LaunchKernel::AttentionFlashinferDecode: {
@@ -1715,7 +1716,7 @@ void llama_like_forward_declared(
                         attn_q, kv_view_b, attn_out_buf,
                         kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        depth_band_attn_ws_public(depth_band_index),
+                        depth_band_attn_ws_public(depth_band_index).view(),
                         stream, layer_window_left_b,
                         /*logits_soft_cap=*/0.f, sm_scale_override);
                     break;
@@ -1733,7 +1734,7 @@ void llama_like_forward_declared(
                         attn_q, kv_view_d, attn_out_buf,
                         kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
-                        spatial_suffix_attn_ws(), stream,
+                        spatial_suffix_attn_ws().view(), stream,
                         layer_window_left_d,
                         /*logits_soft_cap=*/0.f, sm_scale_override);
                     break;
@@ -1766,7 +1767,7 @@ void llama_like_forward_declared(
                         attn_q, kv_view, attn_out_buf,
                         attn_page_indices, attn_page_indptr,
                         attn_last_page_lens,
-                        attn_ws, stream, layer_window_left,
+                        attn_ws.view(), stream, layer_window_left,
                         /*logits_soft_cap=*/0.f, sm_scale_override);
                     break;
                 }
@@ -1776,7 +1777,7 @@ void llama_like_forward_declared(
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream, layer_window_left,
+                    attn_ws.view(), stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 break;
             }
@@ -1798,7 +1799,7 @@ void llama_like_forward_declared(
                     attn_q, kv_view, attn_out_buf,
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
-                    attn_ws, stream,
+                    attn_ws.view(), stream,
                     score_capture->raw(), score_capture->indptr_d(),
                     /*window_left=*/-1,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
@@ -1828,7 +1829,7 @@ void llama_like_forward_declared(
                     attn_q, kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream,
+                    kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
                     prefill_score_capture->folded(),
                     prefill_score_capture->indptr_d(),
@@ -1915,7 +1916,7 @@ void llama_like_forward_declared(
                         // Both classes now PLAN the suffix into the
                         // dedicated workspace (the pure-decode split
                         // overlaps on the side stream too).
-                        spatial_suffix_attn_ws(),
+                        spatial_suffix_attn_ws().view(),
                         stream);
                     break;
                 }
@@ -1924,7 +1925,7 @@ void llama_like_forward_declared(
                     attn_q, kv_view, attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
                 break;
             }
             case LaunchKernel::WriteKvExplicit: {
@@ -2053,7 +2054,7 @@ void llama_like_forward_declared(
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         qo_indptr_h, kv_page_indptr_h,
-                        split, split, num_q_heads, attn_ws, stream,
+                        split, split, num_q_heads, attn_ws.view(), stream,
                         layer_window_left,
                         /*logits_soft_cap=*/0.f, sm_scale_override);
                     break;
@@ -2079,7 +2080,7 @@ void llama_like_forward_declared(
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         qo_indptr_h, kv_page_indptr_h,
-                        N, R, num_q_heads, attn_ws, stream,
+                        N, R, num_q_heads, attn_ws.view(), stream,
                         layer_window_left,
                         /*logits_soft_cap=*/0.f, sm_scale_override);
                     break;
@@ -2091,7 +2092,7 @@ void llama_like_forward_declared(
                     attn_out_buf,
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
-                    attn_ws, stream, /*logits_soft_cap=*/0.f,
+                    attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
                 // NO-DEMOTION (3-way, interpreter leg): when prepare
                 // armed the middle decode plan, the causal above was
@@ -2117,7 +2118,7 @@ void llama_like_forward_declared(
                         kv_page_indices,
                         kv_page_indptr + P,
                         kv_last_page_lens + P,
-                        attn_ws, stream, layer_window_left_m,
+                        attn_ws.view(), stream, layer_window_left_m,
                         /*logits_soft_cap=*/0.f, sm_scale_override);
                 }
                 break;

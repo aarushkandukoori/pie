@@ -1,3 +1,4 @@
+#include "attention_workspace.hpp"
 #include "model/qwen3_5/declared_forward.hpp"
 #include "model/qwen3_5/qwen3_5_moe.hpp"
 #include "model/qwen3_5/qwen3_5_moe_forward.hpp"
@@ -1232,7 +1233,7 @@ case PieForwardOpKind::Launch: {
                     *decode_plan,
                     ws.q.data(), kv_view, ws.attn_out.data(),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws, stream);
+                    attn_ws.view(), stream);
                 break;
             }
             case Q35Kernel::AttnFlashinferPrefill: {
@@ -1246,7 +1247,7 @@ case PieForwardOpKind::Launch: {
                     ws.q.data(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
                     ws.attn_out.data(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws, stream);
+                    kv_last_page_lens, attn_ws.view(), stream);
                 break;
             }
             case Q35Kernel::WriteKvExplicit: {

@@ -115,7 +115,7 @@ void plan_static_nonsplit_decode(
     int num_kv_heads,
     int head_dim,
     int page_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     bool enable_cuda_graph,
     bool full_attention_variant,
@@ -146,12 +146,12 @@ void plan_static_nonsplit_decode(
     plan.enable_cuda_graph = enable_cuda_graph;
     plan.split_kv = false;
 
-    if (cursor + cache.int_base_bytes > workspace.int_bytes()) {
+    if (cursor + cache.int_base_bytes > workspace.int_bytes) {
         throw std::runtime_error(
             "flashinfer decode static plan: attention int workspace too small");
     }
 
-    auto* host = static_cast<std::uint8_t*>(workspace.page_locked_int()) +
+    auto* host = static_cast<std::uint8_t*>(workspace.page_locked_int) +
                  cache.int_base_bytes;
     std::memcpy(host + plan.request_indices_offset,
                 cache.static_request_indices.data(),
@@ -166,9 +166,9 @@ void plan_static_nonsplit_decode(
         static_cast<IdType>(page_size);
 
     CUDA_CHECK(cudaMemcpyAsync(
-        static_cast<std::uint8_t*>(workspace.int_buffer()) +
+        static_cast<std::uint8_t*>(workspace.int_buffer) +
             cache.int_base_bytes,
-        static_cast<std::uint8_t*>(workspace.page_locked_int()) +
+        static_cast<std::uint8_t*>(workspace.page_locked_int) +
             cache.int_base_bytes,
         cursor, cudaMemcpyHostToDevice, stream));
 
@@ -196,7 +196,7 @@ void plan_attention_flashinfer_decode_bf16(
     const std::uint32_t* kv_page_indptr_h,
     int num_requests,
     int num_q_heads, int num_kv_heads, int head_dim, int page_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     bool enable_cuda_graph,
     bool full_attention_variant,
@@ -272,7 +272,7 @@ void plan_attention_flashinfer_prefill_bf16(
     int num_kv_heads,
     int head_dim,
     int page_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     bool enable_cuda_graph,
     int window_left,
@@ -393,7 +393,7 @@ void plan_attention_flashinfer_prefill_bf16(
                 cta_tile_q * (static_cast<std::uint64_t>(head_dim) + 1) *
                 sizeof(float) +
             2 * 16;  // two 16-byte-aligned allocations
-        if (carve_bytes > workspace.float_bytes()) {
+        if (carve_bytes > workspace.float_bytes) {
             enable_cuda_graph = false;
             // `PIE_GRAPH_STATS=1`: this demotion is invisible from above --
             // the wave simply reports itself uncapturable and the refusal is
@@ -410,7 +410,7 @@ void plan_attention_flashinfer_prefill_bf16(
                         "float_ws=%.1f MiB (N=%d R=%d tile_q=%llu "
                         "padded_batch=%llu)\n",
                         static_cast<double>(carve_bytes) / (1024.0 * 1024.0),
-                        static_cast<double>(workspace.float_bytes()) /
+                        static_cast<double>(workspace.float_bytes) /
                             (1024.0 * 1024.0),
                         total_tokens, num_requests,
                         static_cast<unsigned long long>(cta_tile_q),
@@ -423,9 +423,9 @@ void plan_attention_flashinfer_prefill_bf16(
     }
 
     auto status = ::flashinfer::PrefillPlan<IdType>(
-        workspace.float_buffer(), workspace.float_bytes(),
-        workspace.int_buffer(), workspace.page_locked_int(),
-        workspace.int_bytes(),
+        workspace.float_buffer, workspace.float_bytes,
+        workspace.int_buffer, workspace.page_locked_int,
+        workspace.int_bytes,
         cache.plan_info,
         cache.qo_h_buf.data(), cache.kv_h_buf.data(),
         static_cast<uint32_t>(total_tokens),
@@ -468,7 +468,7 @@ void dispatch_attention_flashinfer_decode_bf16(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     int window_left,
     float logits_soft_cap,
@@ -737,7 +737,7 @@ void dispatch_attention_flashinfer_decode_capture_bf16(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float* score_out,
     const std::int32_t* score_indptr_d,
@@ -875,7 +875,7 @@ void dispatch_attention_flashinfer_decode_capture(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float* score_out,
     const std::int32_t* score_indptr_d,
@@ -904,7 +904,7 @@ void dispatch_attention_flashinfer_decode(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     int window_left,
     float logits_soft_cap,
@@ -936,7 +936,7 @@ static PrefillParams make_prefill_params(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     float logits_soft_cap,
     float sm_scale,
     float* lse_out,
@@ -978,8 +978,8 @@ static PrefillParams make_prefill_params(
     params.rope_rcp_scale = 1.0f;
     params.rope_rcp_theta = 1.0f;
 
-    void* int_buf = workspace.int_buffer();
-    void* float_buf = workspace.float_buffer();
+    void* int_buf = workspace.int_buffer;
+    void* float_buf = workspace.float_buffer;
     const auto& plan_info = cache.plan_info;
     params.request_indices = offset_ptr<IdType>(int_buf, plan_info.request_indices_offset);
     params.qo_tile_indices = offset_ptr<IdType>(int_buf, plan_info.qo_tile_indices_offset);
@@ -1020,7 +1020,7 @@ void dispatch_attention_flashinfer_prefill_bf16(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float logits_soft_cap,
     float sm_scale,
@@ -1081,7 +1081,7 @@ void dispatch_attention_flashinfer_prefill_capture_bf16(
     const std::uint32_t* kv_page_indices_d,
     const std::uint32_t* kv_page_indptr_d,
     const std::uint32_t* kv_last_page_lens_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float* score_out,
     float* folded_out,
@@ -1188,7 +1188,7 @@ void attention_flashinfer_prefill_bf16(
     int total_tokens,
     int num_requests,
     int num_q_heads, int num_kv_heads, int head_dim, int page_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     int window_left,
     float logits_soft_cap,
@@ -1230,9 +1230,9 @@ void attention_flashinfer_prefill_bf16(
         head_dim_supports_cascade_merge(static_cast<uint32_t>(head_dim));
 
     auto status = ::flashinfer::PrefillPlan<IdType>(
-        workspace.float_buffer(), workspace.float_bytes(),
-        workspace.int_buffer(), workspace.page_locked_int(),
-        workspace.int_bytes(),
+        workspace.float_buffer, workspace.float_bytes,
+        workspace.int_buffer, workspace.page_locked_int,
+        workspace.int_bytes,
         plan_info,
         qo_h.data(), kv_h.data(),
         /*total_num_rows=*/static_cast<uint32_t>(total_tokens),
@@ -1275,8 +1275,8 @@ void attention_flashinfer_prefill_bf16(
     params.rope_rcp_scale = 1.0f;
     params.rope_rcp_theta = 1.0f;
 
-    void* int_buf   = workspace.int_buffer();
-    void* float_buf = workspace.float_buffer();
+    void* int_buf   = workspace.int_buffer;
+    void* float_buf = workspace.float_buffer;
     params.request_indices   = offset_ptr<IdType>(int_buf, plan_info.request_indices_offset);
     params.qo_tile_indices   = offset_ptr<IdType>(int_buf, plan_info.qo_tile_indices_offset);
     params.kv_tile_indices   = offset_ptr<IdType>(int_buf, plan_info.kv_tile_indices_offset);
@@ -1332,7 +1332,7 @@ void attention_flashinfer_prefill(
     int total_tokens,
     int num_requests,
     int num_q_heads,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     int window_left,
     float logits_soft_cap,
@@ -1366,7 +1366,7 @@ void dispatch_attention_flashinfer_prefill_custom_bf16(
     const std::uint32_t* kv_last_page_lens_d,
     const std::uint8_t* mask_d,
     const std::int32_t* mask_indptr_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float logits_soft_cap,
     float sm_scale,
@@ -1414,8 +1414,8 @@ void dispatch_attention_flashinfer_prefill_custom_bf16(
     params.rope_rcp_scale = 1.0f;
     params.rope_rcp_theta = 1.0f;
 
-    void* int_buf = workspace.int_buffer();
-    void* float_buf = workspace.float_buffer();
+    void* int_buf = workspace.int_buffer;
+    void* float_buf = workspace.float_buffer;
     const auto& plan_info = cache.plan_info;
     params.request_indices =
         offset_ptr<IdType>(int_buf, plan_info.request_indices_offset);
@@ -1478,7 +1478,7 @@ void dispatch_attention_flashinfer_prefill_custom(
     const std::uint32_t* kv_last_page_lens_d,
     const std::uint8_t* mask_d,
     const std::int32_t* mask_indptr_d,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     float logits_soft_cap,
     float sm_scale,
@@ -1508,7 +1508,7 @@ void attention_flashinfer_prefill_custom_bf16(
     int total_tokens,
     int num_requests,
     int num_q_heads, int num_kv_heads, int head_dim, int page_size,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     int /* window_left */,  // ignored — kCustom owns the mask
     float logits_soft_cap,
@@ -1547,9 +1547,9 @@ void attention_flashinfer_prefill_custom_bf16(
         head_dim_supports_cascade_merge(static_cast<uint32_t>(head_dim));
 
     auto status = ::flashinfer::PrefillPlan<IdType>(
-        workspace.float_buffer(), workspace.float_bytes(),
-        workspace.int_buffer(), workspace.page_locked_int(),
-        workspace.int_bytes(),
+        workspace.float_buffer, workspace.float_bytes,
+        workspace.int_buffer, workspace.page_locked_int,
+        workspace.int_bytes,
         plan_info,
         qo_h.data(), kv_h.data(),
         static_cast<uint32_t>(total_tokens),
@@ -1591,8 +1591,8 @@ void attention_flashinfer_prefill_custom_bf16(
     params.rope_rcp_scale = 1.0f;
     params.rope_rcp_theta = 1.0f;
 
-    void* int_buf   = workspace.int_buffer();
-    void* float_buf = workspace.float_buffer();
+    void* int_buf   = workspace.int_buffer;
+    void* float_buf = workspace.float_buffer;
     params.request_indices   = offset_ptr<IdType>(int_buf, plan_info.request_indices_offset);
     params.qo_tile_indices   = offset_ptr<IdType>(int_buf, plan_info.qo_tile_indices_offset);
     params.kv_tile_indices   = offset_ptr<IdType>(int_buf, plan_info.kv_tile_indices_offset);
@@ -1648,7 +1648,7 @@ void attention_flashinfer_prefill_custom(
     int total_tokens,
     int num_requests,
     int num_q_heads,
-    AttentionWorkspace& workspace,
+    AttentionWorkspaceView workspace,
     cudaStream_t stream,
     int window_left,
     float logits_soft_cap,
