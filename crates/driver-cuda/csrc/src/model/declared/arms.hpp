@@ -22,6 +22,8 @@
 #include <string>
 
 #include "attn/attention_mla.hpp"
+#include "moe/moe_dispatch.hpp"
+#include "moe/topk_sigmoid.hpp"
 #include "attn/mla_paged.hpp"
 #include "attn/split_packed.hpp"
 #include "gemm/gemm.hpp"
@@ -464,6 +466,136 @@ inline void arm_attention_mla(const ArmCtx& c,
     kernels::attn::dispatch_attention_mla_bf16(
         mla_plan, c.values.slot(ins[0]), c.values.slot(ins[1]), layer,
         c.values.slot(outs[0]), kv_page_indices, attn_ws, c.stream, lse);
+}
+
+// ── The routed decode GEMVs, and the router in front of them ────────
+//
+// deepseek_v4, glm5 and kimi_k2 state all three. The pair of GEMVs
+// treats each (token, expert) route as a one-row GEMM and indexes the
+// expert BANK by the router's own indices, which is why the route
+// indices are an OPERAND here and not a buffer the arm goes looking for.
+
+// `topk_sigmoid`: each token's top-k experts and their weights.
+//
+// One operand (the router logits), two results — the indices and the
+// weights, in that order, which is what `record_many` states. `top_k`
+// and the expert count come off those results' own shapes; what stays
+// a parameter is the deployment's routing policy, because no shape
+// carries a renormalize flag or a scaling factor.
+inline void arm_topk_sigmoid(const ArmCtx& c,
+                             const pie_forward::PieForwardOp& op,
+                             int num_experts,
+                             const float* correction_bias,
+                             bool renormalize,
+                             float routed_scaling_factor) {
+    const auto& plan = c.plan;
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 1, "topk router inputs");
+    need(outs, 2, "topk router outputs");
+    kernels::moe::topk_sigmoid_bf16(
+        c.values.slot(ins[0]),
+        static_cast<std::int32_t*>(c.values.slot(outs[0])),
+        static_cast<float*>(c.values.slot(outs[1])),
+        correction_bias, c.rows, num_experts,
+        row_width(plan, outs[0]), renormalize, routed_scaling_factor,
+        c.stream);
+}
+
+// `moe_gate_up_gemv` / `moe_down_gemv`: the routed pair.
+//
+// Operands are `[route_indices, activation]` -- the DSL's order, and
+// the kernels' first two arguments in the same order, which is not a
+// coincidence: the wrapper was written from the launcher.
+//
+// The result is `[Tokens, top_k, width]`, so `top_k` and the output
+// width both come off it. The REDUCTION dim does not, and stays a
+// parameter: it is the operand's row width, which the arm reads.
+inline void arm_moe_routed_gemv(const ArmCtx& c,
+                                const pie_forward::PieForwardOp& op,
+                                bool gate_up,
+                                const void* bank) {
+    const auto& plan = c.plan;
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 2, "routed gemv inputs");
+    need(outs, 1, "routed gemv outputs");
+    const auto& rv = plan.value(outs[0]);
+    if (rv.rank != 3) {
+        throw std::runtime_error(
+            "declared arm: a routed GEMV states rank " +
+            std::to_string(rv.rank) + ", wants [Tokens, top_k, width]");
+    }
+    const int top_k = static_cast<int>(rv.dims[1].value);
+    const int out_w = static_cast<int>(rv.dims[2].value);
+    const int in_w = row_width(plan, ins[1]);
+    // The gate_up leg reads the residual-width activation and writes
+    // `2 * I_moe`; the down leg reads `I_moe` and writes the residual
+    // width. Both launchers take `(H, I_moe)` in that order, so which
+    // of the two extents plays which role is the SYMBOL's, not a
+    // measurement.
+    if (gate_up) {
+        kernels::moe::moe_gate_up_decode_gemv_bf16(
+            static_cast<const std::int32_t*>(c.values.slot(ins[0])),
+            c.values.slot(ins[1]), bank, c.values.slot(outs[0]),
+            c.rows, top_k, in_w, out_w / 2, c.stream);
+    } else {
+        kernels::moe::moe_down_decode_gemv_bf16(
+            static_cast<const std::int32_t*>(c.values.slot(ins[0])),
+            c.values.slot(ins[1]), bank, c.values.slot(outs[0]),
+            c.rows, top_k, out_w, in_w, c.stream);
+    }
+}
+
+// `mla_prepare`: the two projections into the four operands MLA
+// attends over, in ONE launch.
+//
+// deepseek_v4 and glm5 both state it. Two operands in
+// (`kv_a`, `q_b`), four results out (`kv_c`, `k_pe`, `q_nope`, `q_pe`)
+// -- the DSL's order, which is the launcher's.
+//
+// The head count and the nope width come off `q_nope`'s own shape
+// (`[Tokens, heads, nope]`); everything else the launcher takes is the
+// deployment's -- the norm weight, `eps`, the rope theta and its
+// interleave, the source row stride, and the YaRN block where one
+// applies. Those stay parameters, like every config number an arm
+// takes.
+inline void arm_mla_prepare(const ArmCtx& c,
+                            const pie_forward::PieForwardOp& op,
+                            MlaCacheLayerView layer,
+                            const void* kv_a_norm_weight,
+                            const std::int32_t* positions,
+                            const std::uint32_t* qo_indptr,
+                            const std::uint32_t* kv_page_indices,
+                            const std::uint32_t* kv_page_indptr,
+                            const std::uint32_t* kv_last_page_lens,
+                            int num_requests,
+                            float eps,
+                            float theta,
+                            bool interleaved,
+                            int kv_a_row_stride,
+                            const kernels::attn::YarnOriginalParams* yarn,
+                            const std::uint8_t* row_valid) {
+    const auto& plan = c.plan;
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 2, "mla prepare inputs");
+    need(outs, 4, "mla prepare outputs");
+    const auto& qn = plan.value(outs[2]);
+    if (qn.rank != 3) {
+        throw std::runtime_error(
+            "declared arm: mla_prepare's q_nope states rank " +
+            std::to_string(qn.rank) + ", wants [Tokens, heads, nope]");
+    }
+    kernels::attn::mla_prepare_bf16(
+        layer, c.values.slot(ins[0]), kv_a_norm_weight, c.values.slot(ins[1]),
+        c.values.slot(outs[0]), c.values.slot(outs[1]),
+        c.values.slot(outs[2]), c.values.slot(outs[3]),
+        positions, qo_indptr, kv_page_indices, kv_page_indptr,
+        kv_last_page_lens, c.rows, num_requests,
+        static_cast<int>(qn.dims[1].value),
+        static_cast<int>(qn.dims[2].value),
+        eps, theta, interleaved, kv_a_row_stride, yarn, c.stream, row_valid);
 }
 
 // The EPILOGUE's compaction, which is the half of `LmHead` every
