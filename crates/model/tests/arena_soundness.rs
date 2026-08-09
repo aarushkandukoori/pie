@@ -571,3 +571,114 @@ fn what_gemma_4_e2b_asks_for_at_one_row() {
         }
     }
 }
+
+/// WHAT IS LIVE at the peak, which is the only thing that can shorten
+/// the arena.
+///
+/// The assignment runs at 1.6x its liveness floor, so a better free list
+/// is worth 1.6x and no more; the remaining ~4x over the hand-written
+/// workspace is in how long the traced values live. That is a fact about
+/// the DECLARATION, and this is the view of it: the op where the most
+/// bytes are simultaneously readable, and what is holding them.
+///
+/// Excludes the values the host declined to place — those are the
+/// backend's and are not what the arena is sizing for.
+#[test]
+fn what_is_live_where_the_arena_peaks() {
+    for (name, class, plan) in families() {
+        if class != FireClass::Decode {
+            continue;
+        }
+        if name != "gemma_4" && name != "llama_like" {
+            continue;
+        }
+        let rows = plain(1);
+        let (n_tokens, n_requests) = (rows.len(), rows.len());
+        let buffers = Buffers::assign(&plan, &rows);
+
+        let mut last = vec![0usize; plan.values.len()];
+        let mut def = vec![usize::MAX; plan.values.len()];
+        for (i, op) in plan.ops.iter().enumerate() {
+            for &v in op.inputs.iter().chain(op.outputs.iter()) {
+                if let Some(s) = last.get_mut(v as usize) {
+                    *s = (*s).max(i);
+                }
+            }
+            for &v in &op.outputs {
+                if let Some(s) = def.get_mut(v as usize) {
+                    *s = (*s).min(i);
+                }
+            }
+        }
+        let placed = |v: usize| buffers.offset[v] != Buffers::NAMED;
+        let bytes = |v: usize| value_bytes(&plan, v as ValueId, n_tokens, n_requests);
+
+        let mut peak_at = 0usize;
+        let mut peak = 0usize;
+        for i in 0..plan.ops.len() {
+            let live: usize = (0..plan.values.len())
+                .filter(|&v| placed(v) && def[v] <= i && i <= last[v])
+                .map(bytes)
+                .sum();
+            if live > peak {
+                peak = live;
+                peak_at = i;
+            }
+        }
+        println!(
+            "\n{name}: peak {peak} bytes live at op {peak_at}/{} ({:?})",
+            plan.ops.len(),
+            plan.ops[peak_at].kind
+        );
+        // Who is holding it, longest-lived first: a value defined far
+        // before the peak and read far after is the one the text could
+        // stop carrying.
+        let mut holders: Vec<(usize, usize, usize)> = (0..plan.values.len())
+            .filter(|&v| placed(v) && def[v] <= peak_at && peak_at <= last[v])
+            .map(|v| (bytes(v), last[v] - def[v], v))
+            .collect();
+        holders.sort_by_key(|&(b, span, _)| std::cmp::Reverse(b * span.max(1)));
+        println!("  {:>9}  {:>6}  {}", "bytes", "ops live", "shape");
+        for (b, span, v) in holders.into_iter().take(8) {
+            println!("  {b:>9}  {span:>6}  {:?}", plan.values[v].shape.0);
+        }
+    }
+}
+
+/// The block a REALISTIC widest fire needs — which is what sizing
+/// `ws.declared_values` actually costs.
+///
+/// The 2.34 MB per row measured through the driver was a harness shape
+/// where every row samples, so the `[Requests, vocab]` logits scaled
+/// with TOKENS. Production does not: sampled rows are bounded by
+/// `max_logit_rows`, far below `max_tokens`, and the peak is otherwise
+/// almost entirely those logits. So the honest probe marks the
+/// non-sampled rows `multi_token`, which is what makes
+/// `Buffers::assign` count requests rather than tokens.
+#[test]
+fn what_a_widest_fire_actually_costs() {
+    for (name, class, plan) in families() {
+        if class != FireClass::Decode {
+            continue;
+        }
+        for (tokens, sampled) in [(6144usize, 512usize), (6144, 64)] {
+            let rows: Vec<Row> = (0..tokens)
+                .map(|i| Row {
+                    samples: i < sampled,
+                    // Rows a request does not sample are interior rows
+                    // of a multi-token request; without this every row
+                    // counts as its own request and the logits are
+                    // sized by TOKENS.
+                    multi_token: i >= sampled,
+                    ..Row::default()
+                })
+                .collect();
+            let b = Buffers::assign(&plan, &rows);
+            println!(
+                "{name:12} {tokens} tokens / {sampled} sampled -> {:>13} bytes ({:.2} GB)",
+                b.bytes,
+                b.bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+            );
+        }
+    }
+}
