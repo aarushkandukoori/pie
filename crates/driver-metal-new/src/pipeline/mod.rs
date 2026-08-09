@@ -31,6 +31,7 @@
 //! is validated.
 
 mod channel;
+mod extent;
 mod op;
 mod plan;
 mod registry;
@@ -42,6 +43,7 @@ pub use channel::{
     ChannelState, HostOp, InterpInstance, host_put, host_take, make_host_channel_state,
     make_host_instance, make_instance,
 };
+pub use extent::{Extents, Role, Unresolvable, ValueDesc, describe};
 pub use plan::{
     ConstPortValue, ExecPlan, StagePlan, adopt_launch_package, bounded_mtp_row_base,
     classify_exec_plan, const_port_value, port_consumes,
