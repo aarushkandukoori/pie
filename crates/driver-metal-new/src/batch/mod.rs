@@ -12,11 +12,13 @@
 //! anything the kernel's own causal predicate does not already enforce.
 
 mod admit;
+mod color;
 mod mask;
 mod member;
 mod schedule;
 
 pub use admit::{Refused, admit_recurrent};
+pub use color::{Coloring, ColoringError, Use, color_live_ranges};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
 pub use schedule::{
