@@ -317,7 +317,8 @@ pub fn describe(value: &LaunchPlanValue, extents: &Extents) -> Result<ValueDesc,
         let dim = if kind == PIE_EXTENT_STATIC {
             literal
         } else {
-            let role = Role::from_wire(kind).ok_or(Unresolvable::UnknownRole { axis, role: kind })?;
+            let role =
+                Role::from_wire(kind).ok_or(Unresolvable::UnknownRole { axis, role: kind })?;
             extents.get(role)
         };
         if dim == 0 {
@@ -334,10 +335,12 @@ pub fn describe(value: &LaunchPlanValue, extents: &Extents) -> Result<ValueDesc,
     // same product with one factor left out. The C++ re-checked it anyway, and
     // then guarded `len / rows` against a zero `rows` that its own zero-extent
     // refusal had already made impossible.
-    descriptor.rows = descriptor.dims[..rank.saturating_sub(1)]
-        .iter()
-        .product();
-    descriptor.last = if rank == 0 { 1 } else { descriptor.dims[rank - 1] };
+    descriptor.rows = descriptor.dims[..rank.saturating_sub(1)].iter().product();
+    descriptor.last = if rank == 0 {
+        1
+    } else {
+        descriptor.dims[rank - 1]
+    };
     Ok(descriptor)
 }
 
@@ -378,7 +381,11 @@ mod tests {
             &extents,
         )
         .expect("a rank-two shape of legal extents resolves");
-        assert_eq!(desc.dims, [7, 5, 1, 1], "the literal under a symbolic axis is ignored");
+        assert_eq!(
+            desc.dims,
+            [7, 5, 1, 1],
+            "the literal under a symbolic axis is ignored"
+        );
         assert_eq!(desc.len, 35);
         assert_eq!(desc.rows, 7);
         assert_eq!(desc.last, 5);
