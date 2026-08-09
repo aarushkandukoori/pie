@@ -1099,6 +1099,24 @@ bool forward_declared_tmpl(
     // them apart and a blanket entry gave the recurrence core the
     // attention's buffer.
     //
+    // WHY THIS IS NOT COMPUTED FROM THE GUARD, which is what it looks
+    // like it should be. The ABI says regions are FLAT and CONSECUTIVE
+    // -- `param0` arms, `[kind, payload, len]` each plus a trailing
+    // else length in the aux run -- so a driver can compute each
+    // guard's span and hand every op inside it the guard's output as
+    // the value it BINDS. That was built, and it does not hold here:
+    //
+    //   [q35-guard] op 61 arms=1 span=2 out=v65
+    //   [q35-guard] attention at op 67 has no binding
+    //
+    // One value-producing guard per layer, spanning ops 62-63, while
+    // the attention dispatch whose result IS v65 executes at op 67 --
+    // outside the span of the guard that owns its value. Either the
+    // span is not what the arm lengths say, or the dispatch is not in
+    // the region that produces its result. Until that is resolved the
+    // span cannot be trusted to route a write, and a consumer-keyed
+    // table is the honest fallback.
+    //
     // The CONSUMER can. A recurrence core is what the gated norm reads;
     // an attention result is what the output gate reads. That is a
     // statement of the convention rather than a heuristic -- those two
