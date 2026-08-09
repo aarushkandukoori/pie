@@ -6,6 +6,7 @@ use self::facts::{
     Gemma4CudaFacts, Gemma4Facts,
 };
 use model_compiler::dsl::{
+    WeightRepr,
     self, matmul,
     rmsnorm, MatW, NormW,
 };
@@ -47,6 +48,7 @@ impl Gemma4LayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         // PLAIN, despite the family name: `gemma4.cpp` fires
         // `kernels::norm::rmsnorm_bf16` at all fourteen of its norm sites and
@@ -161,6 +163,7 @@ pub fn gemma4_cuda(
                 name: "ple_model_proj".into(),
                 width: ple_total,
                 layer: None,
+                repr: WeightRepr::Bf16,
             },
         );
         let scaled = dsl::cuda::scalar_mul(&ple, "rsqrt_hidden");

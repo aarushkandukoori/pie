@@ -6,6 +6,7 @@ use self::facts::{
     GptOssCudaFacts, GptOssFacts,
 };
 use model_compiler::dsl::{
+    WeightRepr,
     self, matmul,
     rmsnorm, MatW, NormW, Val,
 };
@@ -45,6 +46,7 @@ impl GptOssLayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         let d = f.head_dim;
         Self {

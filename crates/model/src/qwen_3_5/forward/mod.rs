@@ -24,6 +24,7 @@ use self::facts::{
     Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MlpKind, Qwen35MoeMlpFacts,
 };
 use model_compiler::dsl::{
+    WeightRepr,
     self, attention, causal_conv1d, cuda, gated_delta, gdn_prep, matmul, matmul_per_token,
     rmsnorm, rmsnorm_gated, rope_partial, sigmoid_gate_add, sigmoid_gate_mul, split_gdn,
     split_q_gate, split_qkv, swiglu, topk, weighted_sum, ConvW, GdnPrepW, Kv, MatW, NormW, Rs,
@@ -98,6 +99,7 @@ impl MoeLayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         MoeLayerW {
             mlp_norm: NormW {
@@ -438,6 +440,7 @@ impl GdnLayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         GdnLayerW {
             attn_norm: NormW {
@@ -756,6 +759,7 @@ impl FullAttnLayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         // Per-head convention throughout this family — the weight knows,
         // so `rmsnorm(q, &w.q_norm)` needs no variant arguments.
@@ -975,11 +979,13 @@ fn dense_mlp_body(
         name: w("gate_up"),
         width: 2 * intermediate,
         layer: Some(l),
+        repr: WeightRepr::Bf16,
     };
     let down = MatW {
         name: w("down"),
         width: hidden,
         layer: Some(l),
+        repr: WeightRepr::Bf16,
     };
     let mut y = y.clone();
     let m = rmsnorm(&y, &mlp_norm);
@@ -1016,11 +1022,13 @@ fn dense_mlp_body_cuda(
         name: w("gate_up"),
         width: 2 * intermediate,
         layer: Some(l),
+        repr: WeightRepr::Bf16,
     };
     let down = MatW {
         name: w("down"),
         width: hidden,
         layer: Some(l),
+        repr: WeightRepr::Bf16,
     };
     let mut y = y.clone();
     let m = rmsnorm(&y, &mlp_norm);

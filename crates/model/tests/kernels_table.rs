@@ -422,3 +422,66 @@ fn live_traces_satisfy_the_table() {
         assert!(problems.is_empty(), "{problems:#?}");
     }
 }
+
+/// A quantized weight makes its statement name MORE tensors, and a
+/// dense one names exactly what it did before.
+///
+/// The quantization axis lives on the weight handle
+/// (`MatW::repr`), so `matmul(x, &w)` resolves to a stated symbol at
+/// TRACE time and the scales ride as declared weights. This asserts the
+/// two halves that matter: the dense path is untouched (every existing
+/// golden depends on that), and each representation names a symbol the
+/// `kernel!` table declares — which is what stops `check_plan` refusing
+/// it at load.
+#[test]
+fn a_weight_representation_states_its_kernel() {
+    use model_compiler::dsl::{MatW, ScaleLayout, WeightRepr};
+
+    let dense = MatW::dense("layer.0.q_proj".into(), 2048, Some(0));
+    assert_eq!(dense.gemm_symbol(), None, "a dense weight chooses nothing");
+    assert!(dense.scale_names().is_empty());
+
+    let cases = [
+        (
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerGroup,
+                group: 128,
+                axis: 0,
+                zero_point: true,
+            },
+            "gemm::act_x_wt_grouped_scaled",
+            2,
+        ),
+        (
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerChannel,
+                group: 0,
+                axis: 0,
+                zero_point: false,
+            },
+            "gemm::act_x_wt_channel_scaled",
+            1,
+        ),
+        (WeightRepr::Mxfp4Marlin, "gemm::act_x_wt_mxfp4_marlin", 1),
+    ];
+    for (repr, symbol, extra) in cases {
+        let w = dense.clone().with_repr(repr.clone());
+        assert_eq!(
+            w.gemm_symbol(),
+            Some(symbol),
+            "{repr:?} must name the kernel that can read it"
+        );
+        assert_eq!(
+            w.scale_names().len(),
+            extra,
+            "{repr:?} names its scales (and zero-points) as weights"
+        );
+        // The name the loader already looks for, derived off the
+        // weight's own — not a second naming convention.
+        assert!(w.scale_names()[0].starts_with("layer.0.q_proj."));
+        assert!(
+            sig_in(Backend::Cuda, symbol).is_some(),
+            "{symbol} needs a kernel! row or `check_plan` refuses it at load"
+        );
+    }
+}

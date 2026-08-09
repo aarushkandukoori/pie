@@ -23,7 +23,8 @@
 pub mod facts;
 
 use self::facts::{KimiCudaFacts, KimiFacts};
-use model_compiler::dsl::{self, matmul, rmsnorm, MatW, NormW};
+use model_compiler::dsl::{
+    WeightRepr,self, matmul, rmsnorm, MatW, NormW};
 use model_compiler::trace::{FireClass, ForwardPlan, NormVariant};
 
 struct KimiLayerW {
@@ -51,6 +52,7 @@ impl KimiLayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         let n = |name: &str| NormW {
             name: w(name),

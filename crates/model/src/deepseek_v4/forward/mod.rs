@@ -26,7 +26,8 @@
 pub mod facts;
 
 use self::facts::Dsv4Facts;
-use model_compiler::dsl::{self, matmul, rmsnorm, MatW, NormW};
+use model_compiler::dsl::{
+    WeightRepr,self, matmul, rmsnorm, MatW, NormW};
 use model_compiler::trace::{FireClass, ForwardPlan, NormVariant};
 
 struct Dsv4LayerW {
@@ -52,6 +53,7 @@ impl Dsv4LayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         let n = |name: &str| NormW {
             name: w(name),
@@ -189,6 +191,7 @@ pub fn dsv4_cuda(facts: &Dsv4Facts, class: FireClass) -> ForwardPlan {
                         name: format!("layer.{l}.expert.{{e}}.gate_up"),
                         width: 2 * facts.moe.moe_intermediate,
                         layer: Some(l),
+                        repr: WeightRepr::Bf16,
                     },
                     &experts,
                     facts.moe.top_k,
@@ -200,6 +203,7 @@ pub fn dsv4_cuda(facts: &Dsv4Facts, class: FireClass) -> ForwardPlan {
                         name: format!("layer.{l}.expert.{{e}}.down"),
                         width: facts.hidden,
                         layer: Some(l),
+                        repr: WeightRepr::Bf16,
                     },
                     &experts,
                     facts.moe.top_k,

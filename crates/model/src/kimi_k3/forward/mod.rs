@@ -26,7 +26,8 @@
 pub mod facts;
 
 use self::facts::KimiK3Facts;
-use model_compiler::dsl::{self, matmul, rmsnorm, MatW, NormW};
+use model_compiler::dsl::{
+    WeightRepr,self, matmul, rmsnorm, MatW, NormW};
 use model_compiler::trace::{FireClass, ForwardPlan, NormVariant};
 
 struct K3LayerW {
@@ -66,6 +67,7 @@ impl K3LayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         let n = |name: &str| NormW {
             name: w(name),
@@ -276,6 +278,7 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
                     name: format!("layer.{l}.expert.{{e}}.gate_up"),
                     width: 2 * facts.moe.moe_intermediate,
                     layer: Some(l),
+                    repr: WeightRepr::Bf16,
                 },
                 facts.moe.top_k,
                 facts.moe.moe_intermediate,
@@ -288,6 +291,7 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
                     name: format!("layer.{l}.expert.{{e}}.down"),
                     width: facts.hidden,
                     layer: Some(l),
+                    repr: WeightRepr::Bf16,
                 },
                 facts.moe.top_k,
                 facts.hidden,

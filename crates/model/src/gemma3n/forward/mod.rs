@@ -31,7 +31,8 @@
 pub mod facts;
 
 use self::facts::Gemma3nFacts;
-use model_compiler::dsl::{self, matmul, rmsnorm, MatW, NormW, Val};
+use model_compiler::dsl::{
+    WeightRepr,self, matmul, rmsnorm, MatW, NormW, Val};
 use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, RopeKind};
 
 struct G3nLayerW {
@@ -68,6 +69,7 @@ impl G3nLayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         let n = |name: &str| NormW {
             name: w(name),

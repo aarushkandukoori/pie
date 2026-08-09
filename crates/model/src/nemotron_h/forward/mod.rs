@@ -20,7 +20,8 @@
 pub mod facts;
 
 use self::facts::{NemotronHFacts, NemotronLayerKind};
-use model_compiler::dsl::{self, matmul, rmsnorm, MatW, NormW};
+use model_compiler::dsl::{
+    WeightRepr,self, matmul, rmsnorm, MatW, NormW};
 use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, RopeKind};
 
 struct NhLayerW {
@@ -49,6 +50,7 @@ impl NhLayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         let n = |name: &str| NormW {
             name: w(name),
@@ -179,6 +181,7 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
                     name: format!("layer.{l}.expert.{{e}}.up"),
                     width: facts.moe.moe_intermediate,
                     layer: Some(l),
+                    repr: WeightRepr::Bf16,
                 },
                 &experts,
                 facts.moe.top_k,
@@ -190,6 +193,7 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
                     name: format!("layer.{l}.expert.{{e}}.down"),
                     width: facts.hidden,
                     layer: Some(l),
+                    repr: WeightRepr::Bf16,
                 },
                 &experts,
                 facts.moe.top_k,

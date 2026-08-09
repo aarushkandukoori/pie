@@ -56,13 +56,124 @@ pub struct Val {
     layer: Option<u32>,
 }
 
-/// A matmul weight handle: name, out width, layer. Built by the
-/// [`Layer`] namespace; the declaration never spells either.
+/// How a weight is STORED, and therefore which kernel can read it.
+///
+/// The polymorphism axis quantization needs, and it belongs on the
+/// WEIGHT rather than on the statement for the reason [`NormW`] already
+/// gives about its variant: the weight knows. `x @ Wᵀ` is one piece of
+/// arithmetic whatever W is made of; what changes is the kernel that
+/// can read W, and a kernel is what a declaration STATES.
+///
+/// Today the driver picks that kernel — `make_weight_view` builds a
+/// descriptor from a per-layer struct the statement never mentions, and
+/// `gemm::act_x_w` routes on it. Every defect this arc found was that
+/// shape: the driver knowing something the statement did not.
+///
+/// The scales and zero-points are WEIGHTS, so a quantized statement
+/// names more of them. A `Launch` already carries a list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WeightRepr {
+    /// Dense, read directly. The implicit `WeightView(const DeviceTensor&)`.
+    Bf16,
+    /// Scaled storage — the weight's own dtype says int4/int8/fp8, and
+    /// these say where the scales live (`QuantMeta`'s three layouts).
+    Scaled {
+        layout: ScaleLayout,
+        /// Elements per scale under [`ScaleLayout::PerGroup`]; 0 otherwise.
+        group: u32,
+        /// Which axis [`ScaleLayout::PerChannel`] runs along.
+        axis: u32,
+        /// The checkpoint carries zero-points beside the scales.
+        zero_point: bool,
+    },
+    /// MXFP4 with E8M0 block scales — gpt-oss's expert banks, and the
+    /// one representation whose scales are not a separate layout
+    /// question.
+    Mxfp4Marlin,
+}
+
+/// Where a scaled weight's scales apply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScaleLayout {
+    PerTensor,
+    PerChannel,
+    PerGroup,
+}
+
+/// A matmul weight handle: name, out width, layer, and how it is
+/// STORED. Built by the [`Layer`] namespace; the declaration never
+/// spells any of them.
 #[derive(Clone)]
 pub struct MatW {
     pub name: String,
     pub width: u32,
     pub layer: Option<u32>,
+    /// Dense unless the deployment's facts say otherwise. Defaulted so
+    /// that a text which has never met a quantized checkpoint reads
+    /// exactly as it did.
+    pub repr: WeightRepr,
+}
+
+impl MatW {
+    /// The dense handle, which is what every text builds today.
+    pub fn dense(name: String, width: u32, layer: Option<u32>) -> MatW {
+        MatW {
+            name,
+            width,
+            layer,
+            repr: WeightRepr::Bf16,
+        }
+    }
+
+    /// The same weight, stored some other way. The scale and
+    /// zero-point tensors are named by CONVENTION off the weight's own
+    /// name, which is how the loader already finds them.
+    pub fn with_repr(mut self, repr: WeightRepr) -> MatW {
+        self.repr = repr;
+        self
+    }
+
+    /// The extra tensors this representation makes the statement name.
+    /// Empty for [`WeightRepr::Bf16`], which is why a dense statement
+    /// carries one weight and a quantized one carries three.
+    pub fn scale_names(&self) -> Vec<String> {
+        match &self.repr {
+            WeightRepr::Bf16 => Vec::new(),
+            WeightRepr::Mxfp4Marlin => vec![format!("{}.scales", self.name)],
+            WeightRepr::Scaled { zero_point, .. } => {
+                let mut out = vec![format!("{}.scales", self.name)];
+                if *zero_point {
+                    out.push(format!("{}.zeros", self.name));
+                }
+                out
+            }
+        }
+    }
+
+    /// The launcher symbol a statement over this weight STATES.
+    ///
+    /// `None` for the dense case, which still records the semantic
+    /// [`crate::trace::OpKind::Matmul`] — that kind fans to exactly one
+    /// kernel per backend, so nothing is being chosen. A quantized one
+    /// fans to several, so it names which.
+    pub fn gemm_symbol(&self) -> Option<&'static str> {
+        match &self.repr {
+            WeightRepr::Bf16 => None,
+            WeightRepr::Mxfp4Marlin => Some("gemm::act_x_wt_mxfp4_marlin"),
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerGroup,
+                ..
+            } => Some("gemm::act_x_wt_grouped_scaled"),
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerChannel,
+                ..
+            } => Some("gemm::act_x_wt_channel_scaled"),
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerTensor,
+                ..
+            } => Some("gemm::act_x_wt_tensor_scaled"),
+        }
+    }
 }
 
 /// A norm weight handle. `per_head` carries the head_dim when this
@@ -257,6 +368,7 @@ impl M {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         let row_norm = |name: &str| NormW {
             name: w(name),
@@ -482,8 +594,38 @@ pub fn select(x: &Val, index: u32) -> Val {
     }
 }
 
+/// `y = x @ Wᵀ`, over a weight stored however [`MatW::repr`] says.
+///
+/// POLYMORPHIC OVER THE REPRESENTATION, and that is the whole of the
+/// quantization axis. A dense weight records the semantic
+/// [`crate::trace::OpKind::Matmul`] — one arithmetic, one kernel per
+/// backend, nothing chosen. Any other representation records a stated
+/// `Launch` naming the kernel that can read it, plus the scale and
+/// zero-point tensors as extra WEIGHTS.
+///
+/// So the driver never sees a descriptor and never routes: it binds the
+/// names the statement gives it and calls the symbol the statement
+/// names. `make_weight_view` and `gemm::act_x_w`'s internal dispatch
+/// have nothing left to decide.
 pub fn matmul(x: &Val, w: &MatW) -> Val {
-    let id = x.t.with(w.layer, |b| b.matmul(x.id, &w.name, w.width));
+    let id = match w.gemm_symbol() {
+        None => x.t.with(w.layer, |b| b.matmul(x.id, &w.name, w.width)),
+        Some(symbol) => {
+            let mut weights = vec![w.name.clone()];
+            weights.extend(w.scale_names());
+            let shape = Shape(vec![Dim::Tokens, Dim::Const(w.width)]);
+            let outs = x.t.with(w.layer, |b| {
+                b.launch(
+                    symbol,
+                    weights,
+                    None,
+                    vec![x.id],
+                    vec![(shape, DType::BF16)],
+                )
+            });
+            outs[0]
+        }
+    };
     Val {
         t: x.t.clone(),
         id,
