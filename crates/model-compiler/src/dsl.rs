@@ -5078,14 +5078,15 @@ pub mod cuda {
     /// The semantic [`super::rope`] cannot: its shape is a (q, k) pair,
     /// and a pair with an empty slot is a different statement, not a
     /// degenerate one.
-    pub fn rope_partial_q_only(q: &Val) -> Val {
+    pub fn rope_partial_q_only(q: &Val, rotary_dim: u32) -> Val {
         let out = (q.t.inner.borrow().value_shape(q.id), DType::BF16);
-        record(
+        record_with_params(
             &q.t,
             q.layer,
             "rope::rope_partial_bf16",
             vec![],
             None,
+            vec![rotary_dim],
             vec![q.id],
             Some(out),
         )
@@ -5917,7 +5918,7 @@ pub mod cuda {
     /// rotation and a partial one are different arithmetic — so it
     /// belongs in the statement, and the pair below is that statement.
     pub fn rope(q: &Val, k: &Val) -> (Val, Val) {
-        rope_launch(q, k, "rope::rope_bf16", Vec::new())
+        rope_launch(q, k, "rope::rope_bf16", vec![0])
     }
 
     /// `kernels::rope::rope_partial_bf16`: only the first `rotary_dim`
@@ -5925,6 +5926,15 @@ pub mod cuda {
     ///
     /// `rotary_dim` rides the statement's PARAMS
     /// ([`crate::trace::OpKind::Launch`]), not the executor's config.
+    ///
+    /// The THETA does not, yet, and the reason is worth writing down
+    /// rather than leaving as an omission: gemma-4 alternates it per
+    /// layer between its local and global attention, so a driver
+    /// reading the single `cfg.rope_theta` reads the wrong one for half
+    /// that model's layers — the fact belongs here. What blocks it is
+    /// the emission fixtures, which would have to state each target's
+    /// real theta, and inventing those numbers is worse than a driver
+    /// reading a config value that is uniform for every family but one.
     /// It is a property of this rotation and no operand shape spells it
     /// — the operands are full-width q and k either way — which is
     /// exactly what that channel is for.

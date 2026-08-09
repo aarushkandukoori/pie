@@ -11674,7 +11674,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_partial_bf16"
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            128
+          ]
         }
       },
       "inputs": [
@@ -12891,7 +12894,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_partial_bf16"
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            128
+          ]
         }
       },
       "inputs": [
@@ -14108,7 +14114,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_partial_bf16"
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            128
+          ]
         }
       },
       "inputs": [
@@ -15325,7 +15334,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_partial_bf16"
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            128
+          ]
         }
       },
       "inputs": [

@@ -225,7 +225,7 @@ pub fn gemma4_cuda(
                 let q = matmul(&normed, &w.q_proj);
                 if full {
                     let q = dsl::cuda::rmsnorm(&q, &w.q_norm);
-                    dsl::cuda::rope_partial_q_only(&q)
+                    dsl::cuda::rope_partial_q_only(&q, facts.global_rotary_dim)
                 } else {
                     dsl::cuda::qk_rmsnorm_rope_rounded_q_only(&q, &w.q_norm)
                 }

@@ -3867,7 +3867,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -4298,7 +4301,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -4729,7 +4735,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -5160,7 +5169,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -5591,7 +5603,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -6022,7 +6037,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -6453,7 +6471,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -6884,7 +6905,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -7315,7 +7339,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -7746,7 +7773,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -8177,7 +8207,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -8608,7 +8641,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -9039,7 +9075,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -9470,7 +9509,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -9901,7 +9943,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -10332,7 +10377,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -10763,7 +10811,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -11194,7 +11245,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -11625,7 +11679,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -12056,7 +12113,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -12487,7 +12547,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -12918,7 +12981,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -13349,7 +13415,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -13780,7 +13849,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -14211,7 +14283,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -14642,7 +14717,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -15073,7 +15151,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -15504,7 +15585,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -15935,7 +16019,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -16366,7 +16453,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -16797,7 +16887,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
@@ -17228,7 +17321,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "rope::rope_bf16"
+          "kernel": "rope::rope_bf16",
+          "params": [
+            0
+          ]
         }
       },
       "inputs": [
