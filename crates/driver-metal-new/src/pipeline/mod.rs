@@ -36,6 +36,7 @@ mod emitted;
 mod extent;
 mod group;
 mod identity;
+mod lane;
 mod meta;
 mod op;
 mod params;
@@ -65,6 +66,12 @@ pub use group::{
     used_channel_slots,
 };
 pub use identity::{Versions, cache_identity, combined_signature};
+pub use lane::{
+    ABI_VERSION as LANE_ABI_VERSION, ChannelMeta, ChannelSlot as LaneChannelSlot,
+    FLAG_RAGGED as LANE_FLAG_RAGGED, GroupLayout, HEADER_BYTES as LANE_HEADER_BYTES,
+    Header as LaneHeader, RECORD_BYTES as LANE_RECORD_BYTES, Record as LaneRecord, RowMeta,
+    SLOT_BYTES as LANE_SLOT_BYTES, Shape as LaneShape,
+};
 pub use meta::{Inconsistent, Malformed, OpMeta, Problem, channel_effects, op_metadata};
 pub use params::{OpParams, Runtime as OpRuntime};
 pub use plan::{

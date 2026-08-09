@@ -302,6 +302,66 @@ comment or a string literal are left alone, and it builds the output forward
 so the scan never revisits text a replacement introduced. It also handles
 nested includes and bounds the depth, neither of which the C++ attempts.
 
+## The struct zoo — `src/pipeline/lane.rs`, and where the rest went
+
+The C++ declares fifteen structs in one block (lines 388–546) because a single
+translation unit wants every type before any function. They are not one kind
+of thing, and in Rust they do not become one module. What the three paths
+actually *share* is the lane table and its grouped sidecars — data with an ABI
+— and that is what this slice ports, portably. The executables, the fire and
+the command plans are each the output of exactly one function, and each lands
+with its builder, where its invariants are established.
+
+| C++ | Rust | |
+|---|---|---|
+| `PtirLaneTableHeader` (use) | `lane::Header` | ported |
+| `PtirLaneRecord` (use) | `lane::Record` | ported |
+| `PtirLaneChannelSlot` (use) | `lane::ChannelSlot` | ported |
+| `M3ChannelMeta` | `lane::ChannelMeta` | ported |
+| `M3GroupLayout` | `lane::GroupLayout` | ported |
+| `M3RowMeta` | `lane::RowMeta` | ported |
+| the `lane_bytes` formula, twice | `lane::Shape::bytes` | ported |
+| the header/record/slot pointer walks, twice | `lane::Shape` offsets | ported |
+| `static_assert(sizeof(...))` ×3 (651–653) | size **and offset** tests | ported |
+| `M1ProgramExecutable::grouped_reason` | — | dropped |
+| `M1StageExecutable::cache_identity` | — | dropped |
+| `M1StageExecutable::stage_identity` | `Stages`'s entry | dropped |
+| `M1RegionExecutable`, `M2FusedRegionExecutable`, `M3GroupedRegionExecutable` | — | missing: `compile_program` |
+| `M1StageExecutable`, `M1ProgramStage`, `M1ProgramExecutable` | — | missing: `compile_program` |
+| `M1PreparedFire` | — | missing: `prepare`/`execute` |
+| `M2EncodedRegion`, `M2CommandPlan` | — | missing: the M2 slice |
+| `M3EncodedRegion`, `M3StageCommand`, `M3GroupCommand` | — | missing: the M3 slice |
+
+The find of the slice: **`M3GroupLayout::reserved[3]` is load-bearing, on both
+sides of the ABI.** The C++ fills the three words through a field literally
+named `reserved` with the per-lane binding stride, the parallel-selection row
+count, and the per-lane op stride — and the emitted kernels read all three
+(`channel_bindings[dispatch_lane * layout->reserved0 + n]`,
+`group_position / layout->reserved1`, `dispatch_lane * layout->reserved2`).
+Nothing on either side marks them live. The mirror names them
+`binding_stride`, `rows_per_lane` and `op_stride` at the same tested offsets.
+
+The lane-table structs are authoritative in `tensor_compiler::plan::lane_table`
+and this crate does not build-depend on the compiler, so they are mirrored and
+drift-checked the way `status::FAULT_CLASSES` is: a dev-dependency test
+compares size and every field offset, and a second holds the exact MSL text of
+the three sidecar declarations against the mirror — the compiler's own
+preamble comment concedes the MSL copies have "nothing to pin them to".
+
+`Shape` replaces the arithmetic both `prepare` and `prepare_m3_group` walked
+by hand: same formula, written twice, no lane index checked anywhere — and
+the record array and slot array are contiguous, so `records[lane_count]` does
+not fault, it reads channel slots reinterpreted as a lane record. Offsets
+here are bounds-checked and the `static_cast<uint32_t>` truncation of
+`channel_slot_offset` is a checked conversion.
+
+The three dropped fields: the program-level `grouped_reason` is written
+nowhere and read nowhere (the stage-level one of the same name is real and
+lands with `compile_program`); `cache_identity` is written once and read
+never; `stage_identity` was a heap-allocated `Vec<u8>` of a `u64`'s bytes
+whose only job — the collision guard — `pipeline::stage_cache` already does
+with the `u64` it stores beside every entry.
+
 ## The buffer view — `src/metal/handle.rs`
 
 | C++ | Rust | |
@@ -351,7 +411,6 @@ above tests on any machine, and everything below needs a device.
 
 | C++ | lines | |
 |---|---|---|
-| `M1RegionExecutable` … `M3GroupCommand` | 388–546 | missing |
 | `bind_m2_*` / `bind_m3_*` | 654–735 | missing |
 | `PsoCompileTransaction` | ~700 | missing |
 | `compile_program` | 736–1454 | missing |
@@ -361,13 +420,14 @@ above tests on any machine, and everything below needs a device.
 
 ## Where this stands
 
-Twelve subjects ported, each one argued from a specific defect in the C++
+Thirteen subjects ported, each one argued from a specific defect in the C++
 rather than from a wish to have it in Rust. The portable half of
 `m1_runtime.cpp` — everything that is a function of the plan and the fire's
-numbers rather than of the device — is done, and it carries 122 tests that run
+numbers rather than of the device — is done, and it carries 134 tests that run
 without a GPU. The C++ had none for any of it: every one of these functions
 lived in an anonymous namespace behind a pimpl, reachable only through a
 `*_for_test` hook or not at all.
 
 The metal half has begun with the buffer view, whose seven tests need a
-device. Everything still missing above builds on it.
+device. Everything still missing above builds on it and on the lane-table
+module, which is portable because a layout is a function of two counts.
