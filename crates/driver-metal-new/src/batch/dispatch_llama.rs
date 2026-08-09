@@ -25,7 +25,7 @@ use super::dispatch::{
 };
 use super::dispatch_mb::{elementwise_mb, qmm_bm, qmm_bn, qmm_bn_unsplit, qmm_t, qmv_mb, rms_mb};
 use super::llama::{LlamaGeometry, llama_qmv_kn};
-use super::sizing::sorted_rows;
+use super::sizing::{pool_colour_elems, sorted_rows};
 
 /// Emit the ordered per-token DAG for `g`.
 ///
@@ -506,6 +506,71 @@ pub fn build_llama_dag_mb(
     dag
 }
 
+/// One value's shape, off its WRITER — the per-family half of
+/// [`pool_colour_elems`](super::pool_colour_elems). The two int32 traps
+/// are the C++'s, kept verbatim: the router's ids are `int32` — TWO of
+/// this pool's two-byte elements per entry — and one kind produces both
+/// ids and weights, so the claim is the wider and the weights ride along
+/// at twice their need (k extra elements per routed layer). The sort's
+/// four index outputs are sized as the tallest of them for the same
+/// reason.
+#[must_use]
+pub fn llama_value_extent(d: &Dispatch, g: &LlamaGeometry) -> super::sizing::ValueExtent {
+    use super::sizing::{RowAxis, ValueExtent};
+    let e = |elems: u32, axis: RowAxis| ValueExtent { elems, axis };
+    match d.kind {
+        Kernel::EmbedGather
+        | Kernel::EmbedUntied
+        | Kernel::Rms
+        | Kernel::FfnRms
+        | Kernel::Residual
+        | Kernel::LayerOut
+        | Kernel::QmvO
+        | Kernel::QmvDown
+        | Kernel::LlMoeCombine => e(g.hidden, RowAxis::Body),
+        Kernel::FinalRms | Kernel::G4RowGather => e(g.hidden, RowAxis::Tail),
+        Kernel::QmvQ | Kernel::QNorm | Kernel::Rope | Kernel::Sdpa | Kernel::SdpaPaged => {
+            e(g.q_width(), RowAxis::Body)
+        }
+        Kernel::QmvK | Kernel::QmvV | Kernel::KNorm | Kernel::RopeK => {
+            e(g.kv_width(), RowAxis::Body)
+        }
+        Kernel::QmvGate | Kernel::QmvUp | Kernel::SiluMul => e(g.intermediate, RowAxis::Body),
+        Kernel::LlRouter => e(g.n_experts, RowAxis::Body),
+        Kernel::GoRouterTopK => e(g.experts_per_token * 2, RowAxis::Body),
+        Kernel::LlMoeSort => e(2, RowAxis::Sorted),
+        Kernel::LlMoeGather => e(g.hidden, RowAxis::Sorted),
+        Kernel::LlExpertGate | Kernel::LlExpertUp | Kernel::LlExpertSiluMul => {
+            e(g.moe_intermediate, RowAxis::Sorted)
+        }
+        Kernel::LlExpertDown => e(g.hidden, RowAxis::Sorted),
+        _ => e(0, RowAxis::Body),
+    }
+}
+
+/// Each pool colour's element count for a `rows`-token fire — the number
+/// [`extra-heap budgeting`](super::pool_colour_elems) and the engine's
+/// staging must agree on, produced by ONE composition of the same pure
+/// pieces the fire itself uses.
+#[must_use]
+pub fn llama_pool_elems(g: &LlamaGeometry, tuning: &Tuning, rows: u32, head_rows: u32) -> Vec<u64> {
+    let dag = build_llama_dag_mb(g, tuning, rows.max(1), head_rows, 1, 0, false);
+    let (uses, values) = super::dataflow::build_scratch_uses(&dag);
+    let ends = super::dispatch::concurrent_run_ends(&dag);
+    let coloring = super::color::color_live_ranges(&uses, &ends, values, false)
+        .expect("the llama DAG colours");
+    pool_colour_elems(
+        &dag,
+        &uses,
+        &coloring,
+        |d| llama_value_extent(d, g),
+        rows,
+        head_rows,
+        llama_moe_sorted_rows(g, tuning, rows),
+        u64::from(rows.max(1)) * u64::from(g.hidden),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -598,6 +663,49 @@ mod tests {
         // 64 — row count alone cannot distinguish the two.
         assert_eq!(llama_dense_qmm_bm(64, 64), 32);
         assert_eq!(llama_dense_qmm_bm(64, 1), 64);
+    }
+
+    #[test]
+    fn a_colour_is_sized_by_its_widest_value_not_its_kind() {
+        let tuning = Tuning::default();
+        // Dense 8B at 16 rows: every colour holds at least one 16-row
+        // value, the widest holds the 14336-wide FFN pair.
+        let g = LlamaGeometry::default();
+        let elems = llama_pool_elems(&g, &tuning, 16, 0);
+        assert!(!elems.is_empty());
+        assert_eq!(
+            elems.iter().max().copied().unwrap(),
+            u64::from(16u32) * u64::from(g.intermediate),
+            "the FFN width dominates a dense fire"
+        );
+        // Routed: the sorted stack is TALLER than rows×k (128 pairs pad
+        // to 2048 at the 16 tile), and the colour holding the gathered
+        // stack must be sized for it — sizing by kind would hand the
+        // last expert's projection a buffer 16× short.
+        let moe = LlamaGeometry {
+            n_experts: 128,
+            experts_per_token: 8,
+            moe_intermediate: 768,
+            ..LlamaGeometry::default()
+        };
+        let sorted = llama_moe_sorted_rows(&moe, &tuning, 16);
+        assert_eq!(sorted, 2048);
+        let elems = llama_pool_elems(&moe, &tuning, 16, 0);
+        assert!(
+            elems
+                .iter()
+                .any(|&e| e >= u64::from(sorted) * u64::from(moe.hidden)),
+            "some colour holds the hidden-wide gathered stack at the SORTED height"
+        );
+        // The tail scales on the SAMPLED rows: at head_rows=1 no colour
+        // needs 16 vocab-rows… the head writes IO, but the gather's
+        // output is [S, hidden] — its colour may still be dominated by
+        // body values sharing it, so pin the SHRINK instead: sampling
+        // fewer rows never grows any colour.
+        let all = llama_pool_elems(&g, &tuning, 16, 0);
+        let one = llama_pool_elems(&g, &tuning, 16, 1);
+        assert_eq!(all.len(), one.len());
+        assert!(one.iter().zip(&all).all(|(a, b)| a <= b));
     }
 
     #[test]

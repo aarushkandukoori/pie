@@ -119,7 +119,8 @@ pub use schedule::{
     find_request, validate_capacity, validate_paged,
 };
 pub use sizing::{
-    RoutedProjection, moe_sorted_rows, scratch_slot_elems, scratch_widest_elems, sorted_rows,
+    RoutedProjection, RowAxis, ValueExtent, moe_sorted_rows, pool_colour_elems, scratch_slot_elems,
+    scratch_widest_elems, sorted_rows,
 };
 pub use timing::{
     Ablation, BoundaryMismatch, DispatchAttribution, DispatchInfo, StepAttribution, attribute_step,

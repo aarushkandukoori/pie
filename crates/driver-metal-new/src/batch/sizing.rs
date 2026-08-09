@@ -23,6 +23,9 @@
 
 use crate::tuning::Tuning;
 
+use super::color::{Coloring, Use};
+use super::dispatch::Dispatch;
+
 use super::geometry::DecodeGeometry;
 
 /// Whether the routed projections run as matmuls over the sorted stack, or
@@ -246,4 +249,101 @@ mod tests {
             scratch_widest_elems(&dense, &tuning) * 8
         );
     }
+}
+
+/// Which row axis a scratch value scales on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RowAxis {
+    /// One row per token.
+    #[default]
+    Body,
+    /// One row per SAMPLED row — the tail after the row gather.
+    Tail,
+    /// One row per sorted `(token, slot)` pair, tile-padded — the
+    /// expert-major stack, TALLER than `rows × k`.
+    Sorted,
+}
+
+/// One scratch value's shape: its producer's output shape. The pool is
+/// measured in ACTIVATION elements (two bytes); an `int32` value counts
+/// two per entry — sizing the ids like the weights hands the kernel a
+/// buffer half the length it writes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ValueExtent {
+    /// Elements per row.
+    pub elems: u32,
+    /// The row axis.
+    pub axis: RowAxis,
+}
+
+/// How many elements each pool COLOUR must hold, for a `rows`-token fire
+/// sampling `head_rows`.
+///
+/// Read off the VALUES rather than the dispatch kinds, because the two
+/// are not the same question: a routed layer's expert stack is
+/// `experts_per_token` times taller than the dense tensor it shares a
+/// colour with, and a colour is sized by the widest value in it — sizing
+/// by kind would under-allocate the stack and let the last expert's
+/// projection run off the end of the buffer. `extent_of` answers for the
+/// WRITER (every value has exactly one producer; reading the extent off
+/// a consumer is ambiguous for anything read twice), and a value written
+/// more than once — the ropes and qk-norms write in place — keeps its
+/// widest claim, so an in-place pass can never shrink a slot under the
+/// value already living in it.
+#[must_use]
+pub fn pool_colour_elems(
+    dag: &[Dispatch],
+    uses: &[Use],
+    coloring: &Coloring,
+    extent_of: impl Fn(&Dispatch) -> ValueExtent,
+    rows: u32,
+    head_rows: u32,
+    sorted: u32,
+    fallback_elems: u64,
+) -> Vec<u64> {
+    let rows = rows.max(1);
+    let head_rows = if head_rows == 0 {
+        rows
+    } else {
+        head_rows.min(rows)
+    };
+    // The widest claim per value first, then the widest value per colour.
+    let mut extents: Vec<ValueExtent> = vec![ValueExtent::default(); coloring.color.len()];
+    for u in uses {
+        if !u.is_write {
+            continue;
+        }
+        let Some(slot) = extents.get_mut(u.value as usize) else {
+            continue;
+        };
+        let e = extent_of(&dag[u.ordinal as usize]);
+        if e.elems > slot.elems {
+            slot.elems = e.elems;
+        }
+        if e.axis == RowAxis::Sorted {
+            slot.axis = RowAxis::Sorted;
+        } else if e.axis == RowAxis::Tail && slot.axis == RowAxis::Body {
+            slot.axis = RowAxis::Tail;
+        }
+    }
+    let mut elems = vec![0u64; coloring.colors_used as usize];
+    for (value, extent) in extents.iter().enumerate() {
+        let Some(Some(colour)) = coloring.color.get(value) else {
+            continue;
+        };
+        let n = match extent.axis {
+            RowAxis::Body => rows,
+            RowAxis::Tail => head_rows,
+            RowAxis::Sorted => sorted,
+        };
+        let need = u64::from(n) * u64::from(extent.elems);
+        let slot = &mut elems[*colour as usize];
+        *slot = (*slot).max(need);
+    }
+    for e in &mut elems {
+        if *e == 0 {
+            *e = fallback_elems;
+        }
+    }
+    elems
 }
