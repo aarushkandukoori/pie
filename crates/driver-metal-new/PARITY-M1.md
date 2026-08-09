@@ -403,6 +403,71 @@ retains its buffer, so the allocation cannot be freed while a view names it —
 what retaining does not answer for is exclusivity over a recycled pool buffer,
 which is why a handle still belongs beside the owner it was derived from.
 
+## The program compile — `src/metal/program.rs`, `src/metal/runtime.rs`
+
+| C++ | Rust | |
+|---|---|---|
+| `M1Runtime` (the caches and the counter) | `Runtime` | ported |
+| `M1Runtime::create` | `Runtime::new` | ported |
+| `compile_program` | `Runtime::compile` | ported |
+| `M1RegionExecutable` | `RegionExecutable` | ported |
+| `M2FusedRegionExecutable` | `FusedExecutable` | ported |
+| `M3GroupedRegionExecutable` | `GroupedExecutable` | ported |
+| `M1StageExecutable` | `StageExecutable` | ported |
+| `M1ProgramStage` | `ProgramStage` | ported |
+| `M1ProgramExecutable` | `ProgramExecutable` | ported |
+| `Impl::compile_cached` | `Compiler::compile_sources` | ported |
+| the effects fill loop | `channel_effects` + a port fold | ported |
+| `kMetalM2MaxFusedChannels` | `MAX_FUSED_CHANNELS` | ported |
+| `kMaxRegionsPerStage` / `kMaxRegionsPerProgram` | `MAX_REGIONS_PER_*` | ported |
+| `kPrefillOrdinalLimit` | `ORDINAL_BASE` | ported |
+| `PTIR_LIBRARY_*` (use) | `LIBRARY_*` mirrors, drift-checked | ported |
+| `PsoCompileTransaction` | — | dropped |
+| `Impl::remember_negative` | the `compile` wrapper | dropped |
+| `compile_faults` / `PIE_METAL_PTIR_TEST_FAIL_COMPILE_ONCE` | — | dropped |
+
+The 718-line function becomes a walk over modules that already exist —
+identity, the bounded caches, the stage cache, the emitted-kernel index, the
+metadata walk, the shader splice — plus one new compiler primitive:
+`Compiler::compile_sources`, the in-memory counterpart of `compile_batch`,
+because the launch path's kernels arrive as host-emitted text rather than
+files.
+
+`PsoCompileTransaction` is dropped because the thing it rolled back stops
+happening: the C++ installs as it builds (PSOs registered with the context,
+ordinals taken from the shared counter), so failure needs a destructor that
+walks it all back. Here nothing is installed until everything has compiled —
+the PSOs sit in a local vector that releases itself, the ordinal counter is
+written back in the success path's last statements, and the stage cache is
+staged only at assembly, past the last failure exit. A device test proves the
+ordinal counter is untouched by a failed compile.
+
+Behaviour changes, each argued in its module: "cache full" is no longer a
+retryable failure (the caches evict — `cache.rs`, `stage_cache.rs`); an
+in-flight signature collision between two stages of one program builds the
+second stage unshared instead of writing a program error into the negative
+cache; and the per-region `.mtl4archive` files become one archive per program
+(device + combined signature + versions), written by a compiler created for
+that build. What that trades away: a new program sharing a stage with an old
+one recompiles the stage once after a restart; the in-memory cache still
+dedups within a run. A device test shows a second runtime replaying all six
+pipelines of a program from the archive.
+
+Two C++ holes are closed in passing: the parallel-top-k classification
+indexes `ops[nodes.front()]` unchecked (UB on a malformed plan; a checked
+lookup that answers "not the parallel path" here), and the singleton region
+cap was checked against the partition's region count while the compile loop
+ran one region per *op* — the bound here takes the larger of the two counts.
+The channel-effects fold gains the descriptor ports: a consuming port is a
+take the descriptor phase performs, which the op walk cannot see, so it is
+folded in as a synthetic op list bound by the identity table.
+
+`compile_faults` and its env var are dropped because they existed to reach
+caches a test could not otherwise touch; a test here hands `compile` a source
+that does not compile. `remember_negative` is the `compile` wrapper's four
+lines. `Runtime::new` no longer creates the context — the runtime's state is
+caches and counters, and every method takes the `Context` it runs against.
+
 ## Not yet started
 
 Everything below names a Metal type and will land under `src/metal/`. That is
@@ -412,8 +477,6 @@ above tests on any machine, and everything below needs a device.
 | C++ | lines | |
 |---|---|---|
 | `bind_m2_*` / `bind_m3_*` | 654–735 | missing |
-| `PsoCompileTransaction` | ~700 | missing |
-| `compile_program` | 736–1454 | missing |
 | `prepare` / `execute` (M1 singleton) | 1455–1981 | missing |
 | M2 fused placement | 1982–2411 | missing |
 | M3 grouped lanes | 2412–3350 | missing |
@@ -428,6 +491,7 @@ without a GPU. The C++ had none for any of it: every one of these functions
 lived in an anonymous namespace behind a pimpl, reachable only through a
 `*_for_test` hook or not at all.
 
-The metal half has begun with the buffer view, whose seven tests need a
-device. Everything still missing above builds on it and on the lane-table
-module, which is portable because a layout is a function of two counts.
+The metal half now carries the buffer view and the program compile — sixteen
+device tests between them — and the executables every remaining slice
+consumes. What is left is the three execute paths: the single-lane fire, the
+M2 placement, and the M3 group.

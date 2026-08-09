@@ -41,6 +41,8 @@ mod keepalive;
 mod memory;
 mod pipeline;
 mod pool;
+mod program;
+mod runtime;
 mod tables;
 mod timestamp;
 mod timing;
@@ -61,6 +63,13 @@ pub use keepalive::{Keepalive, MIN_DEPTH, MIN_THREADGROUPS, THREADS_PER_THREADGR
 pub use memory::{Memory, Pages, reclaimable_pages};
 pub use pipeline::{Archived, Compiled, Compiler, Math};
 pub use pool::{DEFAULT_CAPACITY, Pool, PoolStats, SMALLEST_CLASS, Transient};
+pub use program::{
+    FusedExecutable, GroupedExecutable, ProgramExecutable, ProgramStage, Pso, RegionExecutable,
+    StageExecutable,
+};
+pub use runtime::{
+    MAX_FUSED_CHANNELS, MAX_REGIONS_PER_PROGRAM, MAX_REGIONS_PER_STAGE, ORDINAL_BASE, Runtime,
+};
 pub use tables::{MAX_BINDINGS, Tables};
 pub use timestamp::{Granularity, Timestamps};
 pub use timing::Timing;

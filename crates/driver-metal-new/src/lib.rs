@@ -61,8 +61,11 @@ pub mod metal;
 #[cfg(target_vendor = "apple")]
 pub use metal::{
     Archived, Archives, Arena, ArgumentTable, Budget, CHUNK, Compiled, Compiler, Context,
-    DeviceInfo, Elastic, External, Externals, Feedback, Feedbacks, Granularity, Handle, Heap,
-    Keepalive, MAX_BINDINGS, MIN_DEPTH, MIN_THREADGROUPS, Mapped, Math, Memory, Need, PAGE, Pool,
-    PoolStats, Pressure, Slot, StepEncoder, Stepper, THREADS_PER_THREADGROUP, TILE, Tables,
-    Timestamps, Timing, Transient, Visibility, create_elastic, pages_for_bytes,
+    DeviceInfo, Elastic, External, Externals, Feedback, Feedbacks, FusedExecutable, Granularity,
+    GroupedExecutable, Handle, Heap, Keepalive, MAX_BINDINGS, MAX_FUSED_CHANNELS,
+    MAX_REGIONS_PER_PROGRAM, MAX_REGIONS_PER_STAGE, MIN_DEPTH, MIN_THREADGROUPS, Mapped, Math,
+    Memory, Need, ORDINAL_BASE, PAGE, Pool, PoolStats, Pressure, ProgramExecutable, ProgramStage,
+    Pso, RegionExecutable, Runtime, Slot, StageExecutable, StepEncoder, Stepper,
+    THREADS_PER_THREADGROUP, TILE, Tables, Timestamps, Timing, Transient, Visibility,
+    create_elastic, pages_for_bytes,
 };
