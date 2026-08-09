@@ -22,7 +22,7 @@
 
 #include <cuda_runtime.h>
 
-#include "attn/split_packed.hpp"
+#include "attn/qkv_fused.hpp"
 
 namespace k = pie_cuda_driver::kernels;
 

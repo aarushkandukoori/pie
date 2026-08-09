@@ -20,10 +20,12 @@
 #include "cutlass_fused_moe_kernels.cuh"
 #include "tuning_cache.hpp"
 
-// `ops::` on the names below: they live in `ops/tuning_cache.hpp` and
-// `ops/quant_meta.hpp`, which are `quant`-family infrastructure and have
-// not been renamed. Being in the same namespace used to resolve them
-// silently; the qualifier is what makes the cross-family use visible.
+// `TuningCache` and friends below are unqualified but are not this family's:
+// they live in `src/tuning_cache.hpp` under plain `pie_cuda_driver`, shared
+// with `gemm/` and `quant/`, and enclosing-namespace lookup reaches them
+// from here. They used to sit in a `pie_cuda_driver::ops` namespace that no
+// longer exists; if you came looking for `ops::TuningCache`, that is where
+// it went.
 namespace pie_cuda_driver::kernels::moe {
 namespace {
 

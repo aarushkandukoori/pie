@@ -592,6 +592,7 @@ add_library(pie_kernels_cuda STATIC
   src/norm/residual_add.cu
   src/norm/rmsnorm.cu
   src/rope/rope.cu
+  src/attn/qkv_fused.cu
   src/layout/slot_ops.cu
   src/attn/split_packed.cu
   src/mlp/swiglu.cu

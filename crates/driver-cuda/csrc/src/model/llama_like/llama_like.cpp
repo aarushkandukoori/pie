@@ -25,6 +25,7 @@
 #include "norm/residual_add.hpp"
 #include "norm/rmsnorm.hpp"
 #include "rope/rope.hpp"
+#include "attn/qkv_fused.hpp"
 #include "attn/split_packed.hpp"
 #include "mlp/swiglu.hpp"
 #include "model/qwen3_vl/qwen3_vl_vision_forward.hpp"

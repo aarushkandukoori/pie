@@ -12,4 +12,11 @@ pub static KERNELS: &[KernelSig] = &[
     // materializes the vocab-wide row, which is why it is its own statement
     // rather than `lm_head` followed by an argmax.
     kernel!(lm_head_gemv_argmax_int8 "sample::lm_head_gemv_argmax_int8"),
+    // The plain `sample::argmax_bf16` is deliberately NOT here, though CSM's
+    // backbone fires it. A row was added and `the_table_is_exactly_the_dsl_
+    // surface` rejected it: this table and `dsl::cuda` are the same set, and
+    // a DSL statement is something a TRACE records. CSM's backbone is a
+    // hand-written forward, so nothing traces that argmax and the statement
+    // would have no caller. See EXPECTED_RESIDUE in
+    // scripts/kernel-vocabulary-audit.py, which excuses it for this reason.
 ];

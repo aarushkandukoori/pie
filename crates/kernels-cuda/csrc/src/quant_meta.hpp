@@ -1,9 +1,9 @@
 #pragma once
 
 // Per-weight quantization metadata, threaded from the loaded model's weight
-// store through to the GEMM dispatcher (ops/gemm.hpp's `WeightView`). Ops-
-// owned: it describes how a GEMM operand should be scaled/dequantized, not
-// how the weight is stored. model/weight_store.hpp re-exports this under
+// store through to the GEMM dispatcher (`gemm/gemm.hpp`'s `WeightView`).
+// Kernel-owned: it describes how a GEMM operand should be scaled or
+// dequantized, not how the weight is stored. model/weight_store.hpp re-exports this under
 // its historical `pie_cuda_driver::QuantMeta` name for its own map/lookup
 // API; the pointers reference DeviceTensors registered separately under
 // their own names in that store — QuantMeta does not own those tensors.

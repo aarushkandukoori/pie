@@ -14,10 +14,11 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 
-// `ops::` on the names below: they live in `ops/tuning_cache.hpp` and
-// `ops/quant_meta.hpp`, which are `quant`-family infrastructure and have
-// not been renamed. Being in the same namespace used to resolve them
-// silently; the qualifier is what makes the cross-family use visible.
+// `QuantMeta` below is unqualified but is not this family's: it lives in
+// `src/quant_meta.hpp` under plain `pie_cuda_driver`, one of the few types
+// every family shares, and enclosing-namespace lookup reaches it from here.
+// It used to sit in a `pie_cuda_driver::ops` namespace that no longer
+// exists; if you came looking for `ops::QuantMeta`, that is where it went.
 namespace pie_cuda_driver::kernels::quant {
 
 void dequant_fp8_e4m3_to_bf16(

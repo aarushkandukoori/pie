@@ -15,6 +15,7 @@
 #include "attn/kv_cache_view.hpp"
 #include "attn/kv_paged.hpp"
 #include "rope/rope.hpp"
+#include "attn/qkv_fused.hpp"
 #include "attn/split_packed.hpp"
 
 using namespace pie_cuda_driver;

@@ -26,6 +26,7 @@
 #include "norm/residual_add.hpp"
 #include "norm/rmsnorm.hpp"
 #include "rope/rope.hpp"
+#include "attn/qkv_fused.hpp"
 #include "attn/split_packed.hpp"
 #include "mlp/swiglu.hpp"
 #include "model/attn_page_mask.hpp"

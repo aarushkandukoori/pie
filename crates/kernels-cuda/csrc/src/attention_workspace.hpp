@@ -1,15 +1,19 @@
 #pragma once
 
-// ops/: reusable attention, GEMM, MoE, and state-space launch wrappers.
 // Low-level device/pinned scratch buffers for FlashInfer's plan + dispatch
 // path (DecodePlan / PrefillPlan write per-request scheduling metadata —
 // request_indices, kv_tile_indices, o_indptr, kv_chunk_size_ptr, split-kv
-// tmp buffers — into these). Ops-owned (every attention kernel wrapper takes
-// one by reference), physically filed under ops/ though the type stays in
-// `pie_cuda_driver` (not `pie_cuda_driver::ops`) since batch/forward.hpp
-// forward-declares it there. Allocated once at boot by batch/ (see
-// batch/workspace.hpp, the sizing-policy wrapper around this type) and
-// reused across all forward passes.
+// tmp buffers — into these). Allocated once at boot by the driver's `batch/`
+// (see `batch/workspace.hpp`, the sizing-policy wrapper around this type)
+// and reused across all forward passes.
+//
+// Why this sits at `src/` root rather than under `attn/`: the name says
+// attention, but the type does not belong to that family. It is in plain
+// `pie_cuda_driver`, not `pie_cuda_driver::kernels::attn` — the driver's
+// `batch/forward.hpp` forward-declares it there, and every attention
+// launcher takes one by reference. Root holds the vocabulary a family is
+// written in (`tensor.hpp`, `cuda_check.hpp`, `quant_meta.hpp`); a file
+// belongs to a family directory only when its namespace says so.
 
 #include <cstddef>
 #include <vector>

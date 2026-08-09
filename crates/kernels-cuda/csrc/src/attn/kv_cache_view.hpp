@@ -1,8 +1,9 @@
 #pragma once
 
-// kernels/: leaf CUDA launch contracts consumed by ops/ and model forwards.
-// This neutral per-layer KV descriptor lets cache owners expose storage to
-// kernels without importing store/ into this leaf module.
+// A neutral per-layer KV descriptor, so a cache owner in the driver can
+// expose its storage to a kernel without this crate importing `store/`.
+// That one-way rule is what the kernels-cuda / driver-cuda split is: the
+// driver reaches down, nothing here reaches up.
 
 #include <cstdint>
 

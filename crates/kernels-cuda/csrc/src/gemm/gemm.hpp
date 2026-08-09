@@ -1,7 +1,5 @@
 #pragma once
 
-// ops/: attention, GEMM, MoE, and SSM kernel wrappers shared by every model forward.
-//
 // Thin cuBLAS wrapper for bf16 matmul.
 //
 // The transformer linear layers are all of shape `out = act @ W^T`, where

@@ -32,6 +32,7 @@
 #include "rope/rope.hpp"
 #include "norm/scalar_mul.hpp"
 #include "attn/softcap.hpp"
+#include "attn/qkv_fused.hpp"
 #include "attn/split_packed.hpp"
 #include "mlp/swiglu.hpp"
 #include "moe/topk_softmax.hpp"
