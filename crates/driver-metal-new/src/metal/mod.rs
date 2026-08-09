@@ -48,6 +48,7 @@ mod pool;
 mod program;
 mod ring;
 mod runtime;
+mod step;
 mod storage;
 mod tables;
 mod timestamp;
@@ -84,6 +85,7 @@ pub use ring::Ring;
 pub use runtime::{
     MAX_FUSED_CHANNELS, MAX_REGIONS_PER_PROGRAM, MAX_REGIONS_PER_STAGE, ORDINAL_BASE, Runtime,
 };
+pub use step::{DecodeStep, load_step_psos};
 pub use storage::{DecodeStorage, GdnState, KvSlots, stage_decode_storage, stage_plan_weights};
 pub use tables::{MAX_BINDINGS, Tables};
 pub use timestamp::{Granularity, Timestamps};
