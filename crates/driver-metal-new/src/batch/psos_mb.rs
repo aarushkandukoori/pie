@@ -43,7 +43,7 @@ fn tile(bm: u32, bn: u32) -> String {
 /// Which table slot a compiled PSO lands in. Array slots carry their rung
 /// indices: `bm` indexes [`QMM_BMS`] (or [`MOE_TILE_WIDTHS`] for the routed
 /// form), `bn` counts 16/32/64 column tiles.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[allow(missing_docs)] // the slot names ARE the C++ field names; each is documented there
 pub enum MbSlot {
     EmbedMb,

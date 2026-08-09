@@ -653,3 +653,355 @@ fn the_first_step_taps_agree_with_the_host() {
 
     eprintln!("bisect: every stage function verified except the GDN core itself");
 }
+
+// ── The paged path: one fire prefills the whole prompt, then n=1 paged
+// decode fires continue it. The sequential M=1 run above is the reference:
+// both must answer " Paris". ──
+
+#[test]
+fn the_paged_prefill_matches_the_sequential_decode() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT");
+        return;
+    };
+    let prompt: Vec<u32> = match std::env::var("PIE_METAL_SMOKE_PROMPT_IDS") {
+        Ok(csv) => csv.split(',').map(|t| t.parse().unwrap()).collect(),
+        Err(_) => {
+            eprintln!("SKIP: set PIE_METAL_SMOKE_PROMPT_IDS");
+            return;
+        }
+    };
+    let snapshot = std::path::PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json")).unwrap();
+    let root: serde_json::Value = serde_json::from_str(&config).unwrap();
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().unwrap()).unwrap();
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json).unwrap();
+    let mut geometry = geometry_from_facts(&facts).unwrap();
+    geometry.quant = AffineFormat { bits: 4, group: 64 };
+    geometry.paged_kv_enabled = true;
+    geometry.max_tokens = 16;
+    geometry.max_requests = 1;
+    geometry.kv_page_size = 32;
+    geometry.total_pages = 128;
+    let target = metal_storage_target();
+    let (plan, _) = compile_load_plan(&snapshot, &target, &descriptor_json).unwrap();
+    let context = Context::new().unwrap();
+    let tuning = Tuning::default();
+    let max_ctx = 4096u32;
+    let slot_bytes = scratch_slot_elems(&geometry, &tuning, geometry.max_tokens) * 2;
+    let mut storage =
+        stage_decode_storage(&context, &plan, &snapshot, &geometry, max_ctx, slot_bytes).unwrap();
+
+    let options = DagOptions {
+        gdn_prep: true,
+        ..DagOptions::default()
+    };
+    // The MB DAG shares the M=1 order, so its schedule comes off its own
+    // dispatch list the same way.
+    let n = prompt.len() as u32;
+    let dag_n = driver_metal_new::batch::build_decode_dag_mb(&geometry, &tuning, n, 0, options);
+    let schedule_n = {
+        let (uses, values) = driver_metal_new::batch::build_scratch_uses(&dag_n);
+        let ends = driver_metal_new::batch::concurrent_run_ends(&dag_n);
+        driver_metal_new::batch::schedule_scratch(dag_n.len(), &uses, &ends, values, false).unwrap()
+    };
+
+    let features = PsoFeatures {
+        gdn: true,
+        gated_attention: true,
+        sdpa_d256: geometry.head_dim == 256,
+        routed: geometry.is_moe(),
+        untied: !geometry.tied_embeddings,
+        ..PsoFeatures::default()
+    };
+    let compiler = Compiler::new(&context).unwrap();
+    let base = load_step_psos(
+        &compiler,
+        &context,
+        &kernels_dir(),
+        &plan_decode_psos(&EntryNames::bf16_g64_b4(), features),
+    )
+    .unwrap();
+    let base2 = load_step_psos(
+        &compiler,
+        &context,
+        &kernels_dir(),
+        &plan_decode_psos(&EntryNames::bf16_g64_b4(), features),
+    )
+    .unwrap();
+    let mb_features = driver_metal_new::batch::MbFeatures {
+        gdn: true,
+        sdpa_d256: geometry.head_dim == 256,
+        ..driver_metal_new::batch::MbFeatures::default()
+    };
+    let mb_plan =
+        driver_metal_new::batch::plan_multibatch_psos(geometry.quant, mb_features, &tuning);
+    let mb = driver_metal_new::metal::load_mb_psos(&compiler, &context, &kernels_dir(), &mb_plan)
+        .unwrap();
+    let mb2 = driver_metal_new::metal::load_mb_psos(&compiler, &context, &kernels_dir(), &mb_plan)
+        .unwrap();
+
+    // The paged IO plumbing for one request holding every page.
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().unwrap();
+    let write_u32s = |slot: IoSlot, values: &[u32]| {
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        // SAFETY: host-owned between fires.
+        unsafe { io(slot).write(0, &bytes).unwrap() };
+    };
+    let pages: Vec<u32> = (0..geometry.total_pages).collect();
+    write_u32s(IoSlot::KvPageIndices, &pages);
+    write_u32s(IoSlot::KvPageIndptr, &[0, geometry.total_pages]);
+    write_u32s(IoSlot::QoIndptr, &[0, n]);
+    write_u32s(IoSlot::KvLastPageLens, &[1]);
+    write_u32s(IoSlot::RsSlotIds, &[0]);
+    let feed_positions = |base_pos: u32, tokens: &[u32]| {
+        write_u32s(IoSlot::TokenId, tokens);
+        let positions: Vec<u32> = (0..tokens.len() as u32).map(|i| base_pos + i).collect();
+        write_u32s(IoSlot::Position, &positions);
+        write_u32s(
+            IoSlot::SeqLen,
+            &positions.iter().map(|p| p + 1).collect::<Vec<_>>(),
+        );
+        write_u32s(IoSlot::ReqOfToken, &vec![0; tokens.len()]);
+        write_u32s(IoSlot::SlotOfToken, &vec![0; tokens.len()]);
+        let wpage: Vec<u32> = positions
+            .iter()
+            .map(|p| p / geometry.kv_page_size)
+            .collect();
+        let woff: Vec<u32> = positions
+            .iter()
+            .map(|p| p % geometry.kv_page_size)
+            .collect();
+        write_u32s(IoSlot::WPage, &wpage);
+        write_u32s(IoSlot::WOff, &woff);
+    };
+
+    // Prefill: one fire, or — under PIE_SMOKE_SEQ_PREFILL — a chain of
+    // n=1 paged fires, which isolates the batched fire from the paged
+    // plumbing when the two disagree.
+    let sequential = std::env::var_os("PIE_SMOKE_SEQ_PREFILL").is_some();
+    let mut slots = driver_metal_new::store::LinearStateSlots::new(1);
+    let mut stepper = Stepper::new(&context).unwrap();
+    let dag_1 = driver_metal_new::batch::build_decode_dag_mb(&geometry, &tuning, 1, 0, options);
+    let schedule_1 = {
+        let (uses, values) = driver_metal_new::batch::build_scratch_uses(&dag_1);
+        let ends = driver_metal_new::batch::concurrent_run_ends(&dag_1);
+        driver_metal_new::batch::schedule_scratch(dag_1.len(), &uses, &ends, values, false).unwrap()
+    };
+    if sequential {
+        let mb3 =
+            driver_metal_new::metal::load_mb_psos(&compiler, &context, &kernels_dir(), &mb_plan)
+                .unwrap();
+        let base3 = load_step_psos(
+            &compiler,
+            &context,
+            &kernels_dir(),
+            &plan_decode_psos(&EntryNames::bf16_g64_b4(), features),
+        )
+        .unwrap();
+        let mut one = driver_metal_new::metal::MbStep::prepare(
+            &context,
+            &storage,
+            &geometry,
+            &tuning,
+            options,
+            &schedule_1,
+            base3,
+            mb3,
+            1,
+            max_ctx,
+        )
+        .unwrap();
+        for (i, &t) in prompt.iter().enumerate() {
+            write_u32s(IoSlot::QoIndptr, &[0, 1]);
+            feed_positions(i as u32, &[t]);
+            one.set_gdn_parity(&context, &storage, slots.parity(0).unwrap())
+                .unwrap();
+            one.fire(&mut stepper)
+                .expect("the sequential prefill retires");
+            slots.step(0).unwrap();
+        }
+    } else {
+        let mut prefill = driver_metal_new::metal::MbStep::prepare(
+            &context,
+            &storage,
+            &geometry,
+            &tuning,
+            options,
+            &schedule_n,
+            base,
+            mb,
+            n,
+            max_ctx,
+        )
+        .unwrap();
+        feed_positions(0, &prompt);
+        prefill
+            .set_gdn_parity(&context, &storage, slots.parity(0).unwrap())
+            .unwrap();
+        prefill.fire(&mut stepper).expect("the prefill retires");
+        slots.step(0).unwrap();
+    }
+
+    let vocab = geometry.vocab as usize;
+    let argmax_row = |row: usize| -> u32 {
+        let logits = io(IoSlot::Logits);
+        // SAFETY: the fire retired.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                logits.contents().cast::<u8>().as_ptr().add(row * vocab * 2),
+                vocab * 2,
+            )
+        };
+        let mut best = (0u32, f32::NEG_INFINITY);
+        for (i, pair) in bytes.chunks_exact(2).enumerate() {
+            let v = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+            if v > best.1 {
+                best = (i as u32, v);
+            }
+        }
+        best.0
+    };
+    // Under PIE_SMOKE_PAGED_TAPS: dump one n=1 <bos> fire's taps on a
+    // no-recycle pool and hold the chain heads to the host, exactly as the
+    // M=1 bisect does — the first divergence names the paged kernel.
+    if std::env::var_os("PIE_SMOKE_PAGED_TAPS").is_some() {
+        let sched_taps = {
+            let (uses, values) = driver_metal_new::batch::build_scratch_uses(&dag_1);
+            let ends = driver_metal_new::batch::concurrent_run_ends(&dag_1);
+            driver_metal_new::batch::schedule_scratch(dag_1.len(), &uses, &ends, values, true)
+                .unwrap()
+        };
+        storage.scratch = driver_metal_new::metal::scratch_pool(
+            &context,
+            sched_taps.coloring.colors_used as usize,
+            slot_bytes,
+        )
+        .unwrap();
+        let mbt =
+            driver_metal_new::metal::load_mb_psos(&compiler, &context, &kernels_dir(), &mb_plan)
+                .unwrap();
+        let baset = load_step_psos(
+            &compiler,
+            &context,
+            &kernels_dir(),
+            &plan_decode_psos(&EntryNames::bf16_g64_b4(), features),
+        )
+        .unwrap();
+        let mut one = driver_metal_new::metal::MbStep::prepare(
+            &context,
+            &storage,
+            &geometry,
+            &tuning,
+            options,
+            &sched_taps,
+            baset,
+            mbt,
+            1,
+            max_ctx,
+        )
+        .unwrap();
+        write_u32s(IoSlot::QoIndptr, &[0, 1]);
+        feed_positions(0, &[248044]);
+        one.fire(&mut stepper).unwrap();
+        let dir = std::env::temp_dir().join("pie-paged-bisect");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sites: Vec<_> = dag_1
+            .iter()
+            .map(|d| driver_metal_new::batch::TapSite {
+                kind: d.kind,
+                layer: d.layer,
+            })
+            .collect();
+        unsafe {
+            driver_metal_new::batch::dump_taps(
+                &dir,
+                &sites,
+                &sched_taps,
+                &storage.scratch,
+                &geometry,
+                1,
+                0,
+            )
+        }
+        .unwrap();
+        let staged = |name: &str| {
+            let h = storage.weights.get(name).unwrap();
+            unsafe {
+                std::slice::from_raw_parts(h.contents().cast::<u8>().as_ptr(), h.len() as usize)
+            }
+        };
+        let hidden = geometry.hidden as usize;
+        let embed = dequant_row(
+            staged("embed_tokens.weight"),
+            staged("embed_tokens.scales"),
+            staged("embed_tokens.biases"),
+            248044,
+            hidden,
+        );
+        let tap = read_npy(&dir.join("embed.npy"));
+        eprintln!("paged embed cosine {:.6}", cosine(&embed, &tap));
+        let core = read_npy(&dir.join("0.gdn_core.npy"));
+        eprintln!(
+            "paged 0.gdn_core magnitude {:.6}",
+            core.iter().map(|v| v * v).sum::<f32>().sqrt()
+        );
+        let out_tap = read_npy(&dir.join("0.gdn_out.npy"));
+        eprintln!(
+            "paged 0.gdn_out magnitude {:.6}",
+            out_tap.iter().map(|v| v * v).sum::<f32>().sqrt()
+        );
+        let full = (0..geometry.n_layers)
+            .find(|&l| geometry.is_full_attn(l))
+            .unwrap();
+        let gated = read_npy(&dir.join(format!("{full}.gated.npy")));
+        eprintln!(
+            "paged {full}.gated magnitude {:.6}",
+            gated.iter().map(|v| v * v).sum::<f32>().sqrt()
+        );
+        let final_tap = read_npy(&dir.join("final_norm.npy"));
+        eprintln!(
+            "paged final_norm magnitude {:.6}",
+            final_tap.iter().map(|v| v * v).sum::<f32>().sqrt()
+        );
+        return;
+    }
+    let mut token = argmax_row(if sequential { 0 } else { n as usize - 1 });
+    eprintln!("prefill answer: {token}");
+    let mut sequence = vec![token];
+
+    // Decode: n=1 paged fires continuing the same request.
+    let mut decode = driver_metal_new::metal::MbStep::prepare(
+        &context,
+        &storage,
+        &geometry,
+        &tuning,
+        options,
+        &schedule_1,
+        base2,
+        mb2,
+        1,
+        max_ctx,
+    )
+    .unwrap();
+    for step_index in 0..6u32 {
+        let position = n + step_index;
+        write_u32s(IoSlot::QoIndptr, &[0, 1]);
+        feed_positions(position, &[token]);
+        decode
+            .set_gdn_parity(&context, &storage, slots.parity(0).unwrap())
+            .unwrap();
+        decode.fire(&mut stepper).expect("the decode retires");
+        slots.step(0).unwrap();
+        token = argmax_row(0);
+        sequence.push(token);
+    }
+    eprintln!("paged sequence: {sequence:?}");
+    assert_eq!(
+        &sequence[..3],
+        &[11751, 13, 561],
+        "the paged path must answer what the sequential path answered: ' Paris. The'"
+    );
+}

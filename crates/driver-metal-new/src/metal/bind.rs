@@ -75,6 +75,17 @@ pub mod slot {
     pub const SDPA_GQA_FACTOR: u8 = 4;
     pub const SDPA_N: u8 = 5;
     pub const SDPA_K_HEAD_STRIDE: u8 = 6;
+    pub const KV_APPEND_PAGED_HEAD_DIM: u8 = 5;
+    pub const KV_APPEND_PAGED_K_HEAD_STRIDE: u8 = 6;
+    pub const KV_APPEND_PAGED_K_SEQ_STRIDE: u8 = 7;
+    pub const KV_APPEND_PAGED_PAGE_SIZE: u8 = 10;
+    pub const KV_APPEND_PAGED_N_KV_HEADS: u8 = 12;
+    pub const KV_APPEND_PAGED_SRC_ROW_STRIDE: u8 = 15;
+    pub const SDPA_PAGED_GQA_FACTOR: u8 = 4;
+    pub const SDPA_PAGED_PAGE_SIZE: u8 = 9;
+    pub const SDPA_PAGED_N_KV_HEADS: u8 = 10;
+    pub const SDPA_PAGED_SCALE: u8 = 11;
+    pub const SDPA_PAGED_WINDOW: u8 = 15;
     pub const SDPA_K_SEQ_STRIDE: u8 = 7;
     pub const SDPA_V_HEAD_STRIDE: u8 = 8;
     pub const SDPA_V_SEQ_STRIDE: u8 = 9;
@@ -624,12 +635,21 @@ pub fn bind_decode_consts(
                 };
                 consts.bind(context, tables, ord, slot::RMS_PARAMS, &params)?;
             }
-            Kernel::GdnPrep => {
+            Kernel::GdnPrep | Kernel::GdnPrepSlotted => {
                 consts.bind(
                     context,
                     tables,
                     ord,
                     slot::GDN_PREP_PARAMS,
+                    &gdn_core_params(g),
+                )?;
+            }
+            Kernel::GdnCoreSlotted => {
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::GDN_RECURRENT_PARAMS,
                     &gdn_core_params(g),
                 )?;
             }
@@ -694,6 +714,82 @@ pub fn bind_decode_consts(
                     slot::KV_APPEND_K_SEQ_STRIDE,
                     &seq_stride,
                 )?;
+            }
+            Kernel::KvAppendPaged => {
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::KV_APPEND_PAGED_HEAD_DIM,
+                    &(g.head_dim as i32),
+                )?;
+                // The two preserved M=1 ABI entries: unused by the paged
+                // shader but bound so every declared slot has a value.
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::KV_APPEND_PAGED_K_HEAD_STRIDE,
+                    &head_stride,
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::KV_APPEND_PAGED_K_SEQ_STRIDE,
+                    &seq_stride,
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::KV_APPEND_PAGED_PAGE_SIZE,
+                    &(g.kv_page_size as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::KV_APPEND_PAGED_N_KV_HEADS,
+                    &(g.n_kv_heads as i32),
+                )?;
+                // Packed by default; a per-token prefill rebinds row zero's
+                // table to the arena's pitch.
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::KV_APPEND_PAGED_SRC_ROW_STRIDE,
+                    &0i32,
+                )?;
+            }
+            Kernel::SdpaPaged => {
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::SDPA_PAGED_GQA_FACTOR,
+                    &gqa_factor,
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::SDPA_PAGED_PAGE_SIZE,
+                    &(g.kv_page_size as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    slot::SDPA_PAGED_N_KV_HEADS,
+                    &(g.n_kv_heads as i32),
+                )?;
+                consts.bind(context, tables, ord, slot::SDPA_PAGED_SCALE, &sdpa_scale)?;
+                // Full attention, but the shared kernel takes a window:
+                // binding 0 says so; unbound would read one from
+                // uninitialized memory — wrong attention, not a crash.
+                consts.bind(context, tables, ord, slot::SDPA_PAGED_WINDOW, &0i32)?;
             }
             Kernel::Sdpa => {
                 consts.bind(context, tables, ord, slot::SDPA_GQA_FACTOR, &gqa_factor)?;

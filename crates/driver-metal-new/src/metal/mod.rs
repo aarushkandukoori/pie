@@ -50,6 +50,7 @@ mod program;
 mod ring;
 mod runtime;
 mod step;
+mod step_mb;
 mod storage;
 mod tables;
 mod timestamp;
@@ -90,6 +91,7 @@ pub use runtime::{
     MAX_FUSED_CHANNELS, MAX_REGIONS_PER_PROGRAM, MAX_REGIONS_PER_STAGE, ORDINAL_BASE, Runtime,
 };
 pub use step::{DecodeStep, load_step_psos};
+pub use step_mb::{MbPsos, MbStep, load_mb_psos, mb_pso};
 pub use storage::{
     DecodeStorage, GdnState, KvSlots, scratch_pool, stage_decode_storage, stage_plan_weights,
 };
