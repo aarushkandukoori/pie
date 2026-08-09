@@ -2844,6 +2844,28 @@ bool llama_like_forward_supergraph_build(
         run(generated_llama_like_decode_phi3_mini_supergraph_build);
         return true;
     }
+    // D4: THE GENERATED BODIES ARE THIS PATH'S ONLY IMPLEMENTATION.
+    //
+    // Returning false is right for a deployment whose digest simply is
+    // not emitted — the caller takes the plain graph, which is the
+    // default anyway (`supergraph_enabled()` is off; the union was
+    // RETIRED BY PROMOTION, NS-5). It is NOT right for a tree where the
+    // `.inc` files have been deleted: the union would stop existing
+    // while every switch still said it was available, and nothing would
+    // say so.
+    //
+    // So a caller that ASKED for it and got nothing hears about it. The
+    // silent leg stays silent, and the deliberate one cannot be removed
+    // by deleting a file somewhere else.
+    if (const char* v = std::getenv("PIE_SUPERGRAPH");
+        v != nullptr && v[0] == '1') {
+        std::fprintf(stderr,
+                     "[declared-forward] PIE_SUPERGRAPH=1 but no generated "
+                     "supergraph body matches digest '%s' — the union path "
+                     "has no implementation outside the emitted .inc files, "
+                     "so this fire takes the plain graph\n",
+                     declared.facts_digest.c_str());
+    }
     return false;
 }
 
