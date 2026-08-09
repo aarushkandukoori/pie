@@ -32,6 +32,7 @@
 
 mod cache;
 mod channel;
+mod emitted;
 mod extent;
 mod group;
 mod identity;
@@ -56,6 +57,7 @@ pub use channel::{
     ChannelState, HostOp, InterpInstance, host_put, host_take, make_host_channel_state,
     make_host_instance, make_instance,
 };
+pub use emitted::{Duplicate, Emitted, Slot};
 pub use extent::{Extents, Role, Unresolvable, ValueDesc, describe};
 pub use group::{
     CHANNEL_NEEDS_EMPTY, CHANNEL_NEEDS_FULL, CHANNEL_PUT, CHANNEL_RETRY_INELIGIBLE, CHANNEL_TAKE,

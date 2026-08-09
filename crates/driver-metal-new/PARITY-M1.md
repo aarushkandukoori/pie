@@ -251,6 +251,37 @@ without `HOME` scattered a compile cache into whatever directory it happened to
 be launched from. `Archives` has no cache at all in that case, which is the
 honest answer.
 
+## Emitted-kernel index — `src/pipeline/emitted.rs`
+
+| C++ | Rust | |
+|---|---|---|
+| `HostEmittedKernels` | `Emitted` | ported |
+| `HostEmittedKernels::find` | `Emitted::get` | ported |
+| `HostEmittedKernels::Key` | the map's tuple key | ported |
+| `HostEmittedKernels::KeyHash` | — | dropped |
+| the `error`-before-`source` convention | `Slot` | ported |
+
+`emplace` on an `unordered_map` keeps the entry already present and drops the
+new one, silently. So a host that emitted two kernels for one `(kind, stage,
+region)` got whichever came first in the vector — a choice between two kernels
+made by array order, by a driver with no way to know which the host meant, and
+if the two differ at all one of them is wrong. `Emitted::index` reports it.
+
+The three states `EmittedKernel` packs into two strings become `Slot`'s
+variants. The C++ has them right and says so in a comment on the container:
+callers must read `error` before `source`, because an empty source with a
+populated error is a *deliberate* refusal that the driver answers with its
+slower path rather than a failure. That comment is not next to any of the call
+sites that must obey it. The order is inside `get` here. `Slot::Malformed` is
+the fourth state the C++ had no name for — both strings empty, which `find`
+returned like any other entry and the caller compiled as `""`.
+
+`KeyHash` is dropped rather than ported: it packed `stage << 24` over a
+full-width `region`, so `(stage 1, region 0)` and `(stage 0, region
+0x0100_0000)` hashed alike. The map compared full keys, so this cost lookups
+rather than correctness — but it is a hand-written hash with a bug in it and
+the standard one has neither.
+
 ## Not yet started
 
 | C++ | lines | |
@@ -263,7 +294,6 @@ honest answer.
 | M2 fused placement | 1982–2411 | missing |
 | M3 grouped lanes | 2412–3350 | missing |
 | `inline_ptir_rng_preamble` | ~125 | missing |
-| `HostEmittedKernels` | ~150–192 | missing |
 | `subhandle` / `external_handle` | ~194–215 | missing |
 | `bind_m2_*` / `bind_m3_*` | 654–735 | missing |
 
