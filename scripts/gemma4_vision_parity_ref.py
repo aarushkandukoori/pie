@@ -16,6 +16,20 @@ What comes out
     projected_f32.npy             HF output, fp32
     manifest.json                 shapes, grid, model id, revision
 
+and with `--real-image`, the three the harness's second mode opens:
+
+    realimg_pixel_values_f32.npy  [2520, 768] the PROCESSOR's own buffer
+    realimg_position_ids.npy      [2520, 2] f32, trailing rows (-1, -1)
+    realimg_projected_f32.npy     [OUTL, 2560] fp32 only
+
+The two modes differ in what they exercise, which is why both exist. The
+synthetic one is a fixed 60x42 grid with no padding and every patch valid,
+and it carries the staged checkpoints, so a bad cosine says which layer. The
+real one takes whatever geometry an image's aspect ratio gives -- 57x42 for
+640x480, so 2394 valid patches of a padded 2520, and 266 pooled tokens rather
+than 280 -- which is the padding strip and the pooling group index, and
+nothing else checks those.
+
 Name mapping, measured against the checkpoint rather than assumed
 -----------------------------------------------------------------
     harness                                   HF
@@ -39,14 +53,16 @@ Two things this gets right that are easy to get wrong
 
 Usage
 -----
-    pip install torch transformers safetensors
-    python scripts/gemma4_vision_parity_ref.py --out /tmp/gemma4_vision_parity
+    pip install torch transformers safetensors pillow
+    python scripts/gemma4_vision_parity_ref.py --out /tmp/gemma4_vision_parity \\
+                                               --real-image
 
     export PATH=/usr/local/cuda/bin:$PATH
     nvcc -O2 -arch=sm_89 -std=c++20 --extended-lambda --expt-relaxed-constexpr \\
          -I crates/driver-cuda/csrc/src -I crates/kernels-cuda/csrc/src \\
          crates/driver-cuda/csrc/tests/gemma4_vision_full_parity_bf16.cu -o /tmp/g4v
-    /tmp/g4v /tmp/gemma4_vision_parity
+    /tmp/g4v /tmp/gemma4_vision_parity          # synthetic  0.99978
+    /tmp/g4v /tmp/gemma4_vision_parity real     # real       0.99980
 """
 
 from __future__ import annotations
@@ -112,6 +128,12 @@ def main() -> int:
                     help="pin the checkpoint revision; recorded in manifest.json")
     ap.add_argument("--no-reference", action="store_true",
                     help="dump weights and inputs only, skip the HF forward")
+    ap.add_argument("--real-image", metavar="WxH", nargs="?", const="640x480",
+                    default=None,
+                    help="also dump the harness's `real` mode: a deterministic "
+                         "image of this size through the REAL processor, so the "
+                         "patch count is variable and padded rather than the "
+                         "synthetic grid's fixed 2520")
     args = ap.parse_args()
 
     try:
@@ -255,6 +277,89 @@ def main() -> int:
         print(f"\nNOTE: HF pooled to {projected.shape[0]} tokens, the grid "
               f"implies {out_len}, and the harness hardcodes OUTL=280 for the "
               f"synthetic case. Reconcile before trusting a comparison.",
+              file=sys.stderr)
+
+    if args.real_image:
+        return dump_real_image(args, model, out, np, torch)
+    return 0
+
+
+def dump_real_image(args, model, out, np, torch) -> int:
+    """The harness's `real` mode: the processor's own output, padding and all.
+
+    `gemma4_vision_full_parity_bf16.cu <dir> real` opens three files that no
+    script produced, so that path had never run. The difference from the
+    synthetic mode is the point: the processor emits a FIXED 2520-patch buffer
+    with the trailing rows marked (-1, -1), and the real grid is whatever the
+    image's aspect ratio gives -- 57x42 for 640x480, so 2394 valid patches and
+    266 pooled tokens, neither of which is the synthetic 2520/280.
+
+    The image is generated rather than loaded so this reproduces anywhere. It
+    is only a carrier for the processor's geometry; what is being checked is
+    the padding and the pooling, not anything about the picture.
+    """
+    from PIL import Image
+    from transformers import AutoProcessor
+
+    w, _, h = args.real_image.partition("x")
+    w, h = int(w), int(h or w)
+
+    proc = AutoProcessor.from_pretrained(args.model, revision=args.revision)
+    gen = np.random.default_rng(SEED)
+    img = Image.fromarray((gen.random((h, w, 3)) * 255).astype(np.uint8))
+    # The image token has to be in the text or `validate_inputs` rejects the
+    # call -- the processor counts them against the image list.
+    enc = proc(text="<|image|>", images=[img], return_tensors="pt")
+
+    pix = enc["pixel_values"][0]          # [2520, 768] f32
+    pid = enc["image_position_ids"][0]    # [2520, 2]   i64, (-1,-1) = padding
+
+    pos = pid.numpy()
+    valid = pos[:, 0] >= 0
+    n_valid = int(valid.sum())
+    # The harness reads the first N rows of BOTH arrays after counting the
+    # valid ones (gemma4_vision_full_parity_bf16.cu:91-97). That is only right
+    # if the padding is trailing, so check rather than assume -- a processor
+    # that interleaved padding would otherwise be caught as a bad cosine.
+    if not (valid[:n_valid].all() and not valid[n_valid:].any()):
+        print(f"\n{n_valid} valid patches but they are NOT the leading rows. "
+              f"The harness slices [0, N) of both arrays, so it would read "
+              f"padding as data. Compact them here first, or teach the harness "
+              f"to gather.", file=sys.stderr)
+        return 4
+    if n_valid % 9:
+        print(f"\n{n_valid} valid patches is not a multiple of 9, and the "
+              f"harness computes OUTL = N/9 for the 3x3 pooling.",
+              file=sys.stderr)
+        return 4
+
+    np.save(out / "realimg_pixel_values_f32.npy", pix.float().numpy())
+    # f32, not the i64 the processor returns: the harness casts the buffer to
+    # `const float*` to test `>= 0` and to build the pooling group index.
+    np.save(out / "realimg_position_ids.npy", pos.astype(np.float32))
+
+    gx = int(pos[valid, 0].max()) + 1
+    gy = int(pos[valid, 1].max()) + 1
+    print(f"real image {w}x{h}: grid {gx}x{gy}, {n_valid} valid of "
+          f"{pos.shape[0]} patches -> {n_valid // 9} pooled tokens")
+
+    with torch.no_grad():
+        feats = model.model.get_image_features(
+            pixel_values=pix.unsqueeze(0).to(torch.bfloat16),
+            image_position_ids=pid.unsqueeze(0))
+        projected = feats.pooler_output.float()
+
+    # fp32 only. The harness compares bf16 output against this at a 6%
+    # threshold precisely because it is the unrounded reference; there is no
+    # `realimg_projected.npy` and it does not open one.
+    np.save(out / "realimg_projected_f32.npy", projected.numpy())
+    print(f"realimg_projected_f32 {tuple(projected.shape)}  "
+          f"rms={projected.pow(2).mean().sqrt().item():.3f}")
+
+    if projected.shape[0] != n_valid // 9:
+        print(f"\nNOTE: HF pooled to {projected.shape[0]} tokens and the "
+              f"harness will size its output buffer at {n_valid // 9}. They "
+              f"have to agree or the comparison runs off the end.",
               file=sys.stderr)
     return 0
 
