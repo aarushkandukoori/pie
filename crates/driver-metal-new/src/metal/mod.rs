@@ -21,10 +21,13 @@
 //! complete and tested. [`context`] follows it -- the queue, the allocator
 //! pair and the residency set, which every later object is created against.
 //! [`heap`] places every long-lived buffer inside one resident range. The
-//! [`pipeline`] compiles kernel text into pipeline states, and [`encoder`]
-//! encodes a step against them and waits for it with a bound. [`tables`] keeps
-//! the argument tables a step binds, so encoding one allocates nothing.
+//! [`pipeline`] compiles kernel text into pipeline states -- in batches, and
+//! through [`archive`], which is what keeps a second start from paying for
+//! the first one's compilation. [`encoder`] encodes a step against them and
+//! waits for it with a bound. [`tables`] keeps the argument tables a step
+//! binds, so encoding one allocates nothing.
 
+mod archive;
 mod context;
 mod device;
 mod encoder;
@@ -36,6 +39,7 @@ mod pipeline;
 mod pool;
 mod tables;
 
+pub use archive::{Archives, CACHE_ENV, EXTENSION, MAX_AGE};
 pub use context::{ALLOCATOR_COUNT, Context};
 pub use device::DeviceInfo;
 pub use encoder::{ArgumentTable, StepEncoder, Stepper, Visibility};
@@ -43,6 +47,6 @@ pub use external::{External, Externals, Mapped, page_size};
 pub use feedback::{Feedback, Feedbacks};
 pub use heap::{Heap, Slot};
 pub use memory::{Memory, Pages, reclaimable_pages};
-pub use pipeline::Compiler;
+pub use pipeline::{Archived, Compiled, Compiler};
 pub use pool::{DEFAULT_CAPACITY, Pool, PoolStats, SMALLEST_CLASS, Transient};
 pub use tables::{MAX_BINDINGS, Tables};

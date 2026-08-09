@@ -49,6 +49,7 @@ pub mod shader;
 pub mod tuning;
 
 pub use error::{Error, Result};
+pub use shader::{Batch, Request};
 pub use region::Region;
 
 #[cfg(target_vendor = "apple")]
@@ -56,7 +57,8 @@ pub mod metal;
 
 #[cfg(target_vendor = "apple")]
 pub use metal::{
-    ArgumentTable, Compiler, Context, DeviceInfo, External, Externals, Feedback, Feedbacks, Heap,
+    ArgumentTable, Archived, Archives, Compiled, Compiler, Context, DeviceInfo, External, Externals, Feedback,
+    Feedbacks, Heap,
     MAX_BINDINGS, Mapped, Memory, Pool, PoolStats, Slot, StepEncoder, Stepper, Tables, Transient,
     Visibility,
 };
