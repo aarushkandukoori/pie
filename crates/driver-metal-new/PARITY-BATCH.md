@@ -192,9 +192,35 @@ shared vocabulary. The porting order that follows from the includes:
 4. `decode_psos` (582), `golden_tap` (238), `worker.hpp` (171),
    `simple_family` (2176), then `forward.cpp/.hpp` (5393) over everything.
 
+## The decode-step ABI — `src/batch/abi.rs`
+
+The vocabulary half of `decode_abi.hpp`: regions, IO slots, the kernel-kind
+enum, the argmax params and the graph key.
+
+| C++ | Rust | |
+|---|---|---|
+| `Region` | `Region` | ported |
+| `SCRATCH_POOL` | `SCRATCH_POOL` | ported |
+| `IoSlot` / `kIoSlotCount` | `IoSlot` / `IO_SLOT_COUNT` | ported |
+| `ArgmaxParams` | `ArgmaxParams` (+ size pin) | ported |
+| `Kernel` (98 kinds) | `Kernel`, macro-derived | ported |
+| `Kernel::KindCount` | `Kernel::COUNT` via `Kernel::ALL` | ported |
+| `ForwardGraphKey` / `PAGE_BUCKET_GRAN` | `ForwardGraphKey::of` | ported |
+| the ~30 `bind::` layouts | — | missing: each is one kernel's ABI and lands beside the encoder that binds it |
+
+The argument is the count that was forty kinds short: `KindCount` was once
+spelled `G4PleResidual + 1`, so `psos[LmHeadUntied]` indexed past every
+kind-sized table — the untied head ran the wrong pipeline, every logit
+zero, every token 0, not one error anywhere. The C++ fix made the count an
+enum member; the Rust fix derives `ALL` and `COUNT` from the same token
+list the variants come from, so there is no second spelling of the end to
+fall behind, and a `[T; COUNT]` table indexed through a `Kernel` value
+cannot be indexed past. The numeric values are ABI ("APPEND ONLY" five
+times over), so eleven anchor discriminants pin every block boundary — an
+insertion upstream of one fails loudly instead of renumbering silently.
+
 | C++ | lines | |
 |---|---|---|
-| `decode_abi.hpp` | 650 | missing — next; pure |
 | `compose.cpp` rest: `LaunchMember`, `LaunchJobData`, tickets | ~90 | missing — the job container, with the worker port |
 | `scratch.hpp` / `scratch.cpp`: `build_scratch_schedule`, `bind_scratch`, the footprint helpers | ~540 | missing — coupled to `DecodeGeometry`/`Dispatch`, with the family port |
 | `decode_timing.cpp` / `.hpp` | 365 | missing — consumes `Kernel`/`Dispatch` |

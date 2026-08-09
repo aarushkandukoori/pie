@@ -11,12 +11,17 @@
 //! be addressed. [`mask`] answers whether a wire attention mask says
 //! anything the kernel's own causal predicate does not already enforce.
 
+mod abi;
 mod admit;
 mod color;
 mod mask;
 mod member;
 mod schedule;
 
+pub use abi::{
+    ArgmaxParams, ForwardGraphKey, IO_SLOT_COUNT, IoSlot, Kernel, PAGE_BUCKET_GRAN, Region,
+    SCRATCH_POOL,
+};
 pub use admit::{Refused, admit_recurrent};
 pub use color::{Coloring, ColoringError, Use, color_live_ranges};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
