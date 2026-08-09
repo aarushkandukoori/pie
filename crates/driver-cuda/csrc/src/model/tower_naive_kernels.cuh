@@ -74,6 +74,21 @@ __global__ void k_f32_to_bf16(const float* a, bf* o, long n){
     long i=blockIdx.x*(long)blockDim.x+threadIdx.x; if(i<n) o[i]=Bf(a[i]);
 }
 
+// Exact GELU: 0.5*x*(1+erf(x/√2)) — transformers' ACT2FN["gelu"], and
+// nn.GELU(approximate='none'). The name carries `_erf` because the OTHER form
+// exists in this tree: qwen3_vl's patch tower uses the tanh approximation, and
+// for a while both were called `k_gelu` in different files. Merging those two
+// by name would have changed numerics silently; keeping the form in the name
+// is what makes the duplicate below a real duplicate.
+//
+// mimi and qwen3_vl each had this, spelled differently (`if(i>=n)return` vs a
+// guarded block) with the √2 reciprocal written to different lengths --
+// 0.70710678118f and 0.70710678118654752f both round to the same float, so the
+// two were bit-identical all along.
+__global__ void k_gelu_erf(const bf* x,bf* o,long n){
+    long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i>=n)return;
+    float v=F(x[i]);o[i]=Bf(0.5f*v*(1.f+erff(v*0.70710678118654752f)));}
+
 __global__ void k_layernorm(const bf* x,const bf* g,const bf* bta,bf* o,int R,int D,float eps){
     int r=blockIdx.x;if(r>=R)return;const bf* xr=x+(long)r*D;bf* orow=o+(long)r*D;
     float sum=0;for(int d=threadIdx.x;d<D;d+=blockDim.x)sum+=F(xr[d]);

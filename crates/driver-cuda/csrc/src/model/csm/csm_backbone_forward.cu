@@ -42,7 +42,7 @@ __device__ __forceinline__ float yarn_freq(float base_freq,float factor,
 }
 // Apply RoPE in place to a [R, H, hd] block where row r has absolute position
 // pos0+r (rotate-half convention, matches modeling_csm / llama).
-__global__ void k_rope(bf* x,int R,int H,int hd,int pos0,
+__global__ void k_rope_yarn_1d(bf* x,int R,int H,int hd,int pos0,
         float theta,float factor,float lo,float hi,float orig){
     int r=blockIdx.z; int h=blockIdx.y*blockDim.y+threadIdx.y, d=blockIdx.x*blockDim.x+threadIdx.x;
     int half=hd/2;if(r>=R||h>=H||d>=half)return;
@@ -60,7 +60,7 @@ __global__ void k_rope(bf* x,int R,int H,int hd,int pos0,
 // [q0 .. q0+R-1]; the KV cache holds `L` keys at absolute positions [0..L-1]
 // (so q0 = L - R). Row r attends keys 0..(q0+r). GQA: head h -> kv head h/(H/KV).
 // out [R, H*hd].
-__global__ void k_attn(const bf* q,const bf* kcache,const bf* vcache,
+__global__ void k_attn_causal_cached(const bf* q,const bf* kcache,const bf* vcache,
         bf* out,int R,int H,int KV,int hd,int L,int q0,float scale){
     int r=blockIdx.y; int h=blockIdx.x; if(r>=R||h>=H)return;
     int kvh=h/(H/KV);
@@ -134,14 +134,14 @@ void bb_layer(const CsmBackboneRawWeights& w,const CsmBackboneLayerRaw& L,
     k_matmul<<<G2(QD,R),B2,0,S>>>(s.normed,L.q,s.q,R,H,QD);
     k_matmul<<<G2(KD,R),B2,0,S>>>(s.normed,L.k,s.k,R,H,KD);
     k_matmul<<<G2(KD,R),B2,0,S>>>(s.normed,L.v,s.v,R,H,KD);
-    { dim3 g((hd/2+15)/16,(NH+15)/16,R); k_rope<<<g,B2,0,S>>>(s.q,R,NH,hd,q0,
+    { dim3 g((hd/2+15)/16,(NH+15)/16,R); k_rope_yarn_1d<<<g,B2,0,S>>>(s.q,R,NH,hd,q0,
         w.rope_theta,w.rope_factor,w.rope_low_freq_factor,w.rope_high_freq_factor,(float)w.rope_original_max_position); }
-    { dim3 g((hd/2+15)/16,(KV+15)/16,R); k_rope<<<g,B2,0,S>>>(s.k,R,KV,hd,q0,
+    { dim3 g((hd/2+15)/16,(KV+15)/16,R); k_rope_yarn_1d<<<g,B2,0,S>>>(s.k,R,KV,hd,q0,
         w.rope_theta,w.rope_factor,w.rope_low_freq_factor,w.rope_high_freq_factor,(float)w.rope_original_max_position); }
     // append the R new k,v rows into the cache at slots q0..q0+R-1
     CK(cudaMemcpyAsync(s.kcache[li]+(long)q0*KD,s.k,(long)R*KD*sizeof(bf),cudaMemcpyDeviceToDevice,S));
     CK(cudaMemcpyAsync(s.vcache[li]+(long)q0*KD,s.v,(long)R*KD*sizeof(bf),cudaMemcpyDeviceToDevice,S));
-    { dim3 g(NH,R); k_attn<<<g,128,(size_t)Lkv*sizeof(float),S>>>(s.q,s.kcache[li],s.vcache[li],s.attn,R,NH,KV,hd,Lkv,q0,scale); }
+    { dim3 g(NH,R); k_attn_causal_cached<<<g,128,(size_t)Lkv*sizeof(float),S>>>(s.q,s.kcache[li],s.vcache[li],s.attn,R,NH,KV,hd,Lkv,q0,scale); }
     k_matmul<<<G2(H,R),B2,0,S>>>(s.attn,L.o,s.attn_o,R,QD,H);
     k_add<<<(long)(R*H+255)/256,256,0,S>>>(s.resid,s.attn_o,(long)R*H);
     k_rms<<<R,256,0,S>>>(s.resid,L.post_ln_w,s.normed,R,H,w.norm_eps);

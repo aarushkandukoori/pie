@@ -74,11 +74,6 @@ dim3 B2(16,16); inline dim3 G2(int X,int Y){return dim3((X+15)/16,(Y+15)/16);}
 __global__ void k_elu(const bf* x,bf* o,long n){
     long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i>=n)return;
     float v=F(x[i]);o[i]=Bf(v>0.f?v:(__expf(v)-1.f));}     // ELU(alpha=1)
-__global__ void k_gelu(const bf* x,bf* o,long n){
-    long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i>=n)return;
-    float v=F(x[i]);
-    // exact (erf) GELU — transformers ACT2FN["gelu"] is the erf form.
-    o[i]=Bf(0.5f*v*(1.f+erff(v*0.70710678118f)));}
 __global__ void k_bf16_to_f32(const bf* a,float* o,long n){
     long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<n)o[i]=F(a[i]);}
 // out[c,t] += scale[c] * x[c,t]  (per-CHANNEL layer scale on a [C, T] tensor)
@@ -210,7 +205,7 @@ __global__ void k_rope_inplace(bf* q,bf* kk,int T,int H,int KVH,int hd,float the
 }
 // Naive causal attention with GQA + sliding window. out[t,h,:] over keys
 // j in [max(0,t-window+1), t]. scaling = 1/sqrt(head_dim).
-__global__ void k_attn(const bf* q,const bf* kk,const bf* v,bf* out,
+__global__ void k_attn_sliding_window(const bf* q,const bf* kk,const bf* v,bf* out,
                        int T,int H,int KVH,int hd,int window,float scale){
     int h=blockIdx.y,t=blockIdx.x*blockDim.x+threadIdx.x;if(h>=H||t>=T)return;
     int kvh=h/(H/KVH);
@@ -298,7 +293,7 @@ int run_mimi_decoder(const MimiDecoderRawWeights& w,
         k_matmul<<<G2(KVH*hd,Tu),B2,0,S>>>(ln,L.v,vv,Tu,HID,KVH*hd);
         { dim3 g((hd/2+15)/16,(Tu+15)/16);
           k_rope_inplace<<<g,B2,0,S>>>(q,kk,Tu,H,KVH,hd,w.xf_rope_theta); }
-        { dim3 g((Tu+127)/128,H); k_attn<<<g,128,0,S>>>(q,kk,vv,ao,Tu,H,KVH,hd,
+        { dim3 g((Tu+127)/128,H); k_attn_sliding_window<<<g,128,0,S>>>(q,kk,vv,ao,Tu,H,KVH,hd,
                                                         w.xf_sliding_window,ascale); }
         k_matmul<<<G2(HID,Tu),B2,0,S>>>(ao,L.o,proj,Tu,H*hd,HID);
         // layer_scale (per-channel) then residual. proj/hs are [Tu, HID]
@@ -309,7 +304,7 @@ int run_mimi_decoder(const MimiDecoderRawWeights& w,
         // mlp (pre-norm)
         k_layernorm<<<Tu,128,0,S>>>(hs,L.post_ln_w,L.post_ln_b,ln,Tu,HID,EPS);
         k_matmul<<<G2(IM,Tu),B2,0,S>>>(ln,L.fc1,mid,Tu,HID,IM);
-        k_gelu<<<((long)Tu*IM+255)/256,256,0,S>>>(mid,mid,(long)Tu*IM);
+        k_gelu_erf<<<((long)Tu*IM+255)/256,256,0,S>>>(mid,mid,(long)Tu*IM);
         k_matmul<<<G2(HID,Tu),B2,0,S>>>(mid,L.fc2,mlp,Tu,IM,HID);
         { dim3 g((HID+15)/16,(Tu+15)/16);
           k_layerscale_add_rd<<<g,B2,0,S>>>(hs,mlp,L.mlp_scale,Tu,HID); }

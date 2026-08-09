@@ -46,11 +46,11 @@ private:
 };
 
 __global__ void k_scale(const bf* p,bf* o,long t){long i=blockIdx.x*(long)blockDim.x+threadIdx.x;if(i<t)o[i]=Bf(2.f*(F(p[i])-0.5f));}
-__global__ void k_addpos(bf* y,const bf* tb,const float* pos,int N,int O,int P){
+__global__ void k_addpos_grid2d(bf* y,const bf* tb,const float* pos,int N,int O,int P){
     int n=blockIdx.y*blockDim.y+threadIdx.y,o=blockIdx.x*blockDim.x+threadIdx.x;if(n>=N||o>=O)return;
     long x=(long)llrintf(pos[2L*n]),yy=(long)llrintf(pos[2L*n+1]);if(x<0)x=0;if(yy<0)yy=0;
     y[(long)n*O+o]=Bf(F(y[(long)n*O+o])+F(tb[(0L*P+x)*O+o])+F(tb[(1L*P+yy)*O+o]));}
-__global__ void k_rope(bf* q,const float* pos,int N,int H,float theta){
+__global__ void k_rope_axial2d(bf* q,const float* pos,int N,int H,float theta){
     int n=blockIdx.z,head=blockIdx.y,c=blockIdx.x*blockDim.x+threadIdx.x;if(n>=N||head>=H||c>=16)return;
     bf* v=q+(((long)n*H+head)*64);float px=pos[2L*n],py=pos[2L*n+1];float invf=powf(theta,-(float)c/16.f);
     float cx=cosf(px*invf),sx=sinf(px*invf),cy=cosf(py*invf),sy=sinf(py*invf);
@@ -102,12 +102,12 @@ void run_gemma4_vision(const VisRawWeights& w,
 
     k_scale<<<((long)N*Hd+255)/256,256,0,S>>>(pixel,hn,(long)N*Hd);
     k_matmul<<<G2(Hd,N),B2,0,S>>>(hn,w.patch_w,h,N,Hd,Hd);
-    k_addpos<<<G2(Hd,N),B2,0,S>>>(h,w.pos_table,pos,N,Hd,PT);
+    k_addpos_grid2d<<<G2(Hd,N),B2,0,S>>>(h,w.pos_table,pos,N,Hd,PT);
     for(const auto& L:w.layers){
         k_rms<<<N,256,0,S>>>(h,L.in_ln,hn,N,Hd,EPS);
         clin(hn,q,L.q,Hd,Hd);clin(hn,k,L.k,Hd,Hd);clin(hn,v,L.v,Hd,Hd);
         k_rms<<<N*NH,64,0,S>>>(q,L.q_norm,q,N*NH,64,EPS);k_rms<<<N*NH,64,0,S>>>(k,L.k_norm,k,N*NH,64,EPS);k_rms<<<N*NH,64,0,S>>>(v,nullptr,v,N*NH,64,EPS);
-        dim3 rg(1,NH,N);k_rope<<<rg,32,0,S>>>(q,pos,N,NH,THETA);k_rope<<<rg,32,0,S>>>(k,pos,N,NH,THETA);
+        dim3 rg(1,NH,N);k_rope_axial2d<<<rg,32,0,S>>>(q,pos,N,NH,THETA);k_rope_axial2d<<<rg,32,0,S>>>(k,pos,N,NH,THETA);
         for(int hh=0;hh<NH;hh++){k_qk<<<G2(N,N),B2,0,S>>>(q,k,scr,N,NH,hh,1.0f);k_softmax<<<N,256,0,S>>>(scr,N);k_av<<<G2(64,N),B2,0,S>>>(scr,v,attn,N,NH,hh);}
         clin(attn,tmp,L.o,Hd,Hd);
         k_rms<<<N,256,0,S>>>(tmp,L.post_attn_ln,tmp,N,Hd,EPS);
