@@ -170,16 +170,38 @@ unused values costing nothing, the refusals, and def-order robustness.
 
 ## Not yet started
 
+The independent leaves of `batch/` are done; everything below hangs off
+shared vocabulary. The porting order that follows from the includes:
+
+1. **`decode_abi.hpp` (650) is the trunk** — Region/IoSlot enums, the ~30
+   `bind::` argument-table layouts, `ArgmaxParams`, the `Kernel` kind enum
+   and `ForwardGraphKey`. Pure ("NO Metal/ObjC — every lane includes it
+   without a Metal dependency") and next. Its own best argument is the
+   `KindCount` story at the bottom: the count used to be spelled
+   `G4PleResidual + 1`, forty kinds short, so `psos[LmHeadUntied]` indexed
+   past the array and the untied head ran the wrong pipeline — every logit
+   zero, every token 0, and not one error anywhere. The enum's numeric
+   values are ABI ("APPEND ONLY" ×5 in the comments), so the Rust port owes
+   discriminant-pinning tests.
+2. `decode_timing` (365) and the scratch schedule (`scratch.hpp/.cpp`,
+   ~540) consume `Kernel`/`Dispatch`/`DecodeGeometry`; `Dispatch` and the
+   geometry live under `model/<family>/` and land with the family port.
+3. `expert_paging.hpp` (195): `plan`'s validation is pure modulo a
+   three-field slab shape, but `fire` needs `ExpertSlab` (the loader port)
+   and host-callback segments; port whole when the loader lands.
+4. `decode_psos` (582), `golden_tap` (238), `worker.hpp` (171),
+   `simple_family` (2176), then `forward.cpp/.hpp` (5393) over everything.
+
 | C++ | lines | |
 |---|---|---|
+| `decode_abi.hpp` | 650 | missing — next; pure |
 | `compose.cpp` rest: `LaunchMember`, `LaunchJobData`, tickets | ~90 | missing — the job container, with the worker port |
 | `scratch.hpp` / `scratch.cpp`: `build_scratch_schedule`, `bind_scratch`, the footprint helpers | ~540 | missing — coupled to `DecodeGeometry`/`Dispatch`, with the family port |
+| `decode_timing.cpp` / `.hpp` | 365 | missing — consumes `Kernel`/`Dispatch` |
+| `expert_paging.hpp` | 195 | missing — `fire` needs `ExpertSlab` (loader) |
 | `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` | 650 | missing |
 | `batch_schedule.hpp` (done above) | — | — |
-| `decode_abi.hpp` | 650 | missing |
 | `decode_psos.cpp` / `.hpp` | 582 | missing |
-| `decode_timing.cpp` / `.hpp` | 365 | missing |
-| `expert_paging.hpp` | 195 | missing |
 | `golden_tap.cpp` | 238 | missing |
 | `worker.hpp` | 171 | missing |
 | `simple_family.cpp` / `.hpp` | 2176 | missing |
