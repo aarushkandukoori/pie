@@ -310,7 +310,9 @@ pub fn weight_binds(
                 format!("{prefix}self_attn.o_proj.bias"),
             );
         }
-        Kernel::GoSdpaSink => bind(
+        // The paged form reads the SAME learned sinks — what changes with
+        // paging is where the keys live, not what joins the softmax.
+        Kernel::GoSdpaSink | Kernel::GoSdpaSinkPaged => bind(
             &mut out,
             slot::SDPA_SINK_SINKS,
             format!("{prefix}self_attn.sinks"),

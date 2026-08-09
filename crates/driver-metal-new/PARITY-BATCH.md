@@ -506,7 +506,11 @@ step machinery is reused rather than mirrored.
 | `bind.cpp`: `bind_gptoss_dag` | `metal/gptoss_bind.rs` + the SHARED `bind_decode_dag` over `gptoss_decode_geometry` | ported; the all-full-attention view gives every layer its KV pair — the window is a property of the attention READ (a per-layer const), not of what is stored |
 | the assembled step | `metal/gptoss_step.rs::GptOssStep` | ported; `fire_prefix` is the bisect's stage probe — truncated fires read any stage off the ordinary recycled pool |
 | device smoke vs gpt-oss-20b-MXFP4-Q4 | `tests/device_smoke.rs::the_gptoss_assembly_decodes_the_reference_tokens` | verified TOKEN-EXACT: the staged trio solves (router 8 / proj 4 / mxfp4), and eight greedy fed-back argmaxes reproduce mlx_lm's continuation of "The capital of France is" |
-| `pso_for_paged` / `pso_for_mb*`, `RowGather` prefill | — | missing — the paged/MB fire path, after the M=1 smoke |
+| `encode.cpp`: `pso_for_paged` / `pso_for_mb` / `pso_for_mb_rows` + `launch_shape_mb` | `dispatch_gptoss.rs::build_gptoss_dag_mb` + `psos_gptoss.rs::gptoss_mb_plan` | ported portable: the C++ kept the tile decision in TWO switches that had to mirror each other across four predicates and says so itself ("wrong numbers, not a crash"); the builder decides once and the answers ride the `Dispatch` |
+| `encode.cpp`: `gptoss_qmm_rows` / `_pool_rows` / `_moe_qmm_bn` / `_qmm_bn` / `is_dense_proj` | `dispatch_gptoss.rs`, same names | ported; the moe GEMM's widest-dividing-tile rule kept distinct from the dense no-split rule, with the C++'s 448-row measurement carried |
+| `kernels.cpp`: the mxfp4 routed GEMM table | `psos_gptoss.rs::QmmRoutedBias{width,bn}` | ported; compiled only for the bank that has the instantiation, names pinned against the signature table |
+| `RowGather` (prefill tail compaction) | `Kernel::G4RowGather` in the MB DAG + `dataflow.rs` arm | ported; a value of its own, never aliased — `[N,hidden]` in, `[S,hidden]` out — and the MB DAG colours under the shared scheduler |
+| the MB fire itself: binds (paged sink, sample rows), MB consts (per-row strides, sort tile), `GptOssMbStep`, device prefill smoke | — | missing — the device half of the paged/MB path; the tiled/MMA paged sinks and FP16 precast staging stay unclaimed with the shared family's, same deferral same reason |
 
 The smoke's first run decoded fluent wrong tokens, and the tap bisect
 (cosine per stage against mlx_lm, first divergence at `0.moe_out`,

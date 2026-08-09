@@ -40,6 +40,14 @@ pub enum GptOssSlot {
     RopeFreqs,
     RopeFreqsMb,
     RowGather,
+    /// The routed MXFP4 GEMM: `width` indexes the sort's tile widths
+    /// (16/32/64), `bn` the column tiles. Slot-keyed, not kind-keyed —
+    /// which entry a routed dispatch runs is `qmm_bn`/`qmm_bm` on the
+    /// dispatch itself, decided where the launch was.
+    QmmRoutedBias {
+        width: usize,
+        bn: usize,
+    },
 }
 
 /// One entrypoint the plan wants compiled.
@@ -159,6 +167,27 @@ pub fn plan_gptoss_psos(g: &GptOssGeometry) -> Vec<GptOssPsoRequest> {
         "layout/row_gather.metal",
         "row_gather_bfloat16".to_string(),
     );
+    // The routed GEMM table exists only for the bank that has an MXFP4
+    // GEMM instantiation; the affine bank keeps the matvec at every
+    // batch. `bm` is spelled from the shared tile widths, not restated —
+    // it is the same number the sort pads each expert's run to and the
+    // same number the grid divides the sorted rows by, and the C++ notes
+    // that hardcoding it here was the one place that did not follow the
+    // constant.
+    if g.mxfp4_experts {
+        for (width, &rows) in super::psos_mb::MOE_TILE_WIDTHS.iter().enumerate() {
+            for bn in 0..3usize {
+                want(
+                    GptOssSlot::QmmRoutedBias { width, bn },
+                    "quant/qmm_t.metal",
+                    format!(
+                        "mxfp4_qmm_t_routed_bias_bfloat16_bm_{rows}_bn_{}",
+                        16u32 << bn
+                    ),
+                );
+            }
+        }
+    }
     out
 }
 
@@ -199,8 +228,85 @@ pub fn gptoss_kinds(slot: GptOssSlot) -> &'static [Kernel] {
         | GptOssSlot::SdpaSinkPaged
         | GptOssSlot::SdpaSinkPagedTiled
         | GptOssSlot::SdpaSinkPagedMma
-        | GptOssSlot::RowGather => &[],
+        | GptOssSlot::RowGather
+        | GptOssSlot::QmmRoutedBias { .. } => &[],
     }
+}
+
+/// [`gptoss_kinds`] for the M>1 DAG: the ring attention and the decode
+/// rope give way to their paged and freqs-table forms, and the sampled-row
+/// compaction joins the tail. The matvec entries keep their kinds — a
+/// dispatch that tiled carries `qmm_bn > 0` and is served by slot, so the
+/// kind-keyed table is its FALLBACK, not its contradiction. The tiled and
+/// matrix sinks stay unclaimed with the shared family's — the scalar paged
+/// sink serves every fleet width until that arm is opened for both.
+#[must_use]
+pub fn gptoss_mb_kinds(slot: GptOssSlot) -> &'static [Kernel] {
+    match slot {
+        GptOssSlot::SdpaSink | GptOssSlot::RopeFreqs => &[],
+        GptOssSlot::SdpaSinkPaged => &[Kernel::GoSdpaSinkPaged],
+        GptOssSlot::RopeFreqsMb => &[Kernel::Rope, Kernel::RopeK],
+        GptOssSlot::RowGather => &[Kernel::G4RowGather],
+        other => gptoss_kinds(other),
+    }
+}
+
+/// The whole M>1 compile list, as the shared plan type — the MB twin of
+/// [`gptoss_step_plan`], claiming exactly the kinds
+/// [`build_gptoss_dag_mb`](super::build_gptoss_dag_mb) dispatches. Same
+/// self-containment argument: the C++ MB encoder borrowed THREE tables
+/// (qwen's base, the shared multibatch set, its own), and a kind that fell
+/// through every switch dispatched an empty `Pso{}`.
+#[must_use]
+pub fn gptoss_mb_plan(g: &GptOssGeometry) -> DecodePsoPlan {
+    let mut plan = DecodePsoPlan::default();
+    for request in plan_gptoss_psos(g) {
+        let kinds = gptoss_mb_kinds(request.slot);
+        if kinds.is_empty() {
+            continue;
+        }
+        plan.requests.push(PsoRequest {
+            file: request.file,
+            entry: request.entry,
+            kinds: kinds.to_vec(),
+        });
+    }
+    let mut want = |file: &'static str, entry: String, kinds: &[Kernel]| {
+        plan.requests.push(PsoRequest {
+            file,
+            entry,
+            kinds: kinds.to_vec(),
+        });
+    };
+    // The MB embed reads a row per token off `grid.y`; the M=1 gather has
+    // no row axis at all. Same historical `4bit` prefix, same rule: the
+    // suffix carries the truth.
+    want(
+        "layout/embed_gather.metal",
+        format!("embed_gather_mb_4bit{}", suffix(g.proj_bits, 64)),
+        &[Kernel::EmbedUntied],
+    );
+    want(
+        "norm/rms.metal",
+        "rms_single_row_bfloat16".to_owned(),
+        &[Kernel::Rms, Kernel::FfnRms, Kernel::FinalRms],
+    );
+    want(
+        "norm/residual_add.metal",
+        "residual_add_bfloat16".to_owned(),
+        &[Kernel::Residual, Kernel::LayerOut],
+    );
+    want(
+        "attn/kv_write.metal",
+        "kv_append_paged_bfloat16".to_owned(),
+        &[Kernel::KvAppendPaged],
+    );
+    want(
+        "sample/argmax.metal",
+        "argmax_logits_bfloat16".to_owned(),
+        &[Kernel::Argmax],
+    );
+    plan
 }
 
 /// The whole M=1 compile list, as the shared plan type: the family's own
@@ -342,6 +448,76 @@ mod tests {
             "embed_gather_4bit_bfloat16_gs_64_b_8"
         );
         assert!(table.contains(&plan8.requests[i].entry));
+    }
+
+    #[test]
+    fn the_mb_plan_claims_every_kind_the_mb_dag_dispatches() {
+        let g = GptOssGeometry {
+            mxfp4_experts: true,
+            ..GptOssGeometry::default()
+        };
+        let plan = gptoss_mb_plan(&g);
+        let dag = crate::batch::build_gptoss_dag_mb(
+            &g,
+            &crate::tuning::Tuning::default(),
+            16,
+            2,
+            0,
+            true,
+        );
+        for d in &dag {
+            assert!(
+                plan.source_of(d.kind).is_some(),
+                "{:?} has no compiled pipeline — the MB fire would refuse at prepare",
+                d.kind
+            );
+        }
+        let table: std::collections::HashSet<String> =
+            kernels_metal::entrypoints().into_iter().collect();
+        for request in &plan.requests {
+            assert!(table.contains(&request.entry), "{}", request.entry);
+        }
+        // The swaps are the paged pair, the freqs-table rope, the MB
+        // embed and the compaction; the ring sink and the decode rope do
+        // not survive into this plan.
+        let entry_of = |kind: Kernel| {
+            let i = plan.source_of(kind).expect("claimed above");
+            plan.requests[i].entry.clone()
+        };
+        assert!(entry_of(Kernel::GoSdpaSinkPaged).starts_with("sdpa_paged_decode_sink"));
+        assert_eq!(entry_of(Kernel::Rope), "neox_freqs_mb_bfloat16");
+        assert!(entry_of(Kernel::EmbedUntied).starts_with("embed_gather_mb_4bit"));
+        assert_eq!(entry_of(Kernel::G4RowGather), "row_gather_bfloat16");
+        assert_eq!(entry_of(Kernel::KvAppendPaged), "kv_append_paged_bfloat16");
+        assert!(plan.source_of(Kernel::GoSdpaSink).is_none());
+        assert!(plan.source_of(Kernel::KvAppend).is_none());
+    }
+
+    #[test]
+    fn the_routed_gemm_table_belongs_to_the_bank_that_has_one() {
+        let table: std::collections::HashSet<String> =
+            kernels_metal::entrypoints().into_iter().collect();
+        let mxfp4 = GptOssGeometry {
+            mxfp4_experts: true,
+            ..GptOssGeometry::default()
+        };
+        let routed: Vec<_> = plan_gptoss_psos(&mxfp4)
+            .into_iter()
+            .filter(|r| matches!(r.slot, GptOssSlot::QmmRoutedBias { .. }))
+            .collect();
+        assert_eq!(routed.len(), 9, "three sort widths by three column tiles");
+        for r in &routed {
+            assert!(table.contains(&r.entry), "{} is not shipped", r.entry);
+        }
+        // The affine bank compiles none — a table for it would name
+        // entrypoints that do not exist, and the matvec is its every
+        // batch.
+        let affine = GptOssGeometry::default();
+        assert!(
+            plan_gptoss_psos(&affine)
+                .iter()
+                .all(|r| !matches!(r.slot, GptOssSlot::QmmRoutedBias { .. }))
+        );
     }
 
     #[test]

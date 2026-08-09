@@ -55,7 +55,11 @@ pub use dataflow::{build_scratch_schedule, build_scratch_uses};
 pub use dispatch::{
     DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
 };
-pub use dispatch_gptoss::{GptOssDagStats, build_gptoss_dag, gptoss_dag_stats};
+pub use dispatch_gptoss::{
+    GptOssDagStats, build_gptoss_dag, build_gptoss_dag_mb, gptoss_dag_stats, gptoss_is_dense_proj,
+    gptoss_mb_kind, gptoss_moe_qmm_bn, gptoss_moe_sorted_rows, gptoss_qmm_bn, gptoss_qmm_min_batch,
+    gptoss_qmm_pool_rows, gptoss_qmm_rows,
+};
 pub use dispatch_mb::{
     PREFILL_ORDINAL_BASE, PREFILL_ORDINAL_STRIDE, ROUTED_DECODE_BATCHED, SDPA_QUERY_TILE,
     build_decode_dag_mb, build_decode_prefill_dags, fp16_format, mb_geometry, mb_kind, qmm_bm,
@@ -81,8 +85,8 @@ pub use paging::{
 };
 pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, plan_decode_psos};
 pub use psos_gptoss::{
-    GptOssPsoRequest, GptOssSlot, SDPA_MMA_HEAD_DIM, gptoss_kinds, gptoss_step_plan,
-    plan_gptoss_psos,
+    GptOssPsoRequest, GptOssSlot, SDPA_MMA_HEAD_DIM, gptoss_kinds, gptoss_mb_kinds, gptoss_mb_plan,
+    gptoss_step_plan, plan_gptoss_psos,
 };
 pub use psos_mb::{
     MOE_TILE_WIDTHS, MbFeatures, MbRequest, MbSlot, QMM_BMS, QMM_SPLIT_BN, plan_multibatch_psos,

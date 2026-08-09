@@ -402,6 +402,8 @@ kernels! {
         G4ExpertCombine = "g4_expert_combine",
         /// The dense and mixture branches meeting.
         G4BranchAdd = "g4_branch_add",
+        /// gpt-oss paged decode attention with the per-head sink (M>1).
+        GoSdpaSinkPaged = "go_sdpa_sink_paged",
     }
 }
 
@@ -484,7 +486,12 @@ mod tests {
         assert_eq!(Kernel::LlRouter.index(), 71);
         assert_eq!(Kernel::G4Router.index(), 84);
         assert_eq!(Kernel::G4BranchAdd.index(), 97);
-        assert_eq!(Kernel::COUNT, 98);
+        assert_eq!(
+            Kernel::GoSdpaSinkPaged.index(),
+            98,
+            "appended, nothing renumbered"
+        );
+        assert_eq!(Kernel::COUNT, 99);
         // The bug the count fix answers: the short spelling reached 54 of
         // 98, and psos[LmHeadUntied] at 58 indexed past it.
         assert!(Kernel::LmHeadUntied.index() > Kernel::G4PleResidual.index() + 1);

@@ -73,6 +73,8 @@ mod bi {
     pub const ROUTER_LOGITS: u8 = 0;
     pub const ROUTER_IDS: u8 = 1;
     pub const ROUTER_WEIGHTS: u8 = 2;
+    pub const ROW_GATHER_IN: u8 = 0;
+    pub const ROW_GATHER_OUT: u8 = 1;
     pub const SORT_IDS: u8 = 0;
     pub const SORT_PERM: u8 = 1;
     pub const SORT_ROW_EXPERT: u8 = 2;
@@ -664,7 +666,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 wr(&mut uses, bi::QMV_OUT, v);
                 live.vv = Some(v);
             }
-            Kernel::GoSdpaSink => {
+            Kernel::GoSdpaSink | Kernel::GoSdpaSinkPaged => {
                 let v = fresh();
                 rd(&mut uses, bi::SDPA_Q, have(live.q, k, "the query"));
                 wr(&mut uses, bi::SDPA_OUT, v);
@@ -776,6 +778,21 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 );
                 wr(&mut uses, bi::COMBINE_OUT, v);
                 live.dn = Some(v);
+            }
+
+            // The sampled rows, compacted: everything after this is [S, *].
+            // A value of its own rather than in place — the input is
+            // [N, hidden] and the output is [S, hidden], and aliasing them
+            // would make the pool's slot sizing a lie.
+            Kernel::G4RowGather => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::ROW_GATHER_IN,
+                    have(live.resid, k, "the residual stream"),
+                );
+                wr(&mut uses, bi::ROW_GATHER_OUT, v);
+                live.resid = Some(v);
             }
 
             // The tail lm_head reads the final norm from scratch and writes

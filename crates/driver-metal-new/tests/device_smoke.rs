@@ -240,7 +240,7 @@ fn the_assembly_fires_one_token_end_to_end() {
         sequence.extend(&feed);
         token = *feed.first().unwrap();
     }
-    for position in 1..(1 + feed.len().max(0) as u32 + 11) {
+    for position in 1..(1 + feed.len() as u32 + 11) {
         // While the prompt lasts, feed it; after, feed the argmax back.
         let input = if (position as usize) <= feed.len() {
             feed[position as usize - 1]
@@ -1623,7 +1623,7 @@ fn the_gptoss_assembly_decodes_the_reference_tokens() {
     let max_ctx = 4096u32;
     let scratch_bytes = driver_metal_new::batch::gptoss_scratch_elems(&geometry) * 4;
     let shared_view = driver_metal_new::batch::gptoss_decode_geometry(&geometry);
-    let mut storage = stage_decode_storage(
+    let storage = stage_decode_storage(
         &context,
         &plan,
         &snapshot,
