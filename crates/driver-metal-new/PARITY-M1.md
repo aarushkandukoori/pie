@@ -147,11 +147,45 @@ distinct program a process saw could never run, and the caller retried forever
 against the one condition retrying cannot change. The negative cache evicted
 `begin()`, which is neither the oldest nor the coldest entry. All three are LRU.
 
+## Bind-time derivation — `src/pipeline/meta.rs`
+
+| C++ | Rust | |
+|---|---|---|
+| `collect_singleton_metadata` | `op_metadata` | ported |
+| `M1OpMeta` | `OpMeta` | ported |
+| the inline walk in M2 validate | `op_metadata` | dropped |
+| the inline walk in the M2 builder | `op_metadata` | dropped |
+| the inline walk in the M3 builder | `op_metadata` | dropped |
+| the `effects.resize` loop | `channel_effects` | ported |
+
+The three dropped entries are the same running sum written out by hand at
+three more call sites, each maintaining its own `result_base` local. They are
+dropped in the sense that they do not become three Rust functions.
+
+`M1OpMeta` carried a by-value copy of the whole `PlanOp` — a struct with two
+vectors — so binding duplicated the op list next to the list it walked. The
+Rust holds `node` and reads the op through it.
+
+The walk gains two refusals. The base accumulated in an unchecked `uint32_t`,
+and a wrapped base is not a large index that a later bounds check catches but a
+small one that passes and aliases another op's results. And the header states
+that the walker "assumes the plan is well-formed", justified by the host
+validating first — true of the path the host emitted, not of a plan arriving
+over the ABI, and the check is one comparison.
+
+`channel_effects` gains a consistency check between a channel's declared
+readiness and the ops that touch it. `PIE_READINESS_UNTOUCHED` on a channel
+something takes means the gate the take needs was never computed, and the C++
+would run the take against a ring it never checked was non-empty. A capacity of
+zero is full and empty at once, so both gates are unsatisfiable; the C++
+defaulted the field to 1 and then overwrote it with the plan's zero.
+
 ## Not yet started
 
 | C++ | lines | |
 |---|---|---|
 | `M1RegionExecutable` … `M3GroupCommand` | 388–546 | missing |
+| `M1ChannelEffect` derivation callers | 553–592 | ported |
 | `PsoCompileTransaction` | ~700 | missing |
 | `compile_program` | 736–1454 | missing |
 | `prepare` / `execute` (M1 singleton) | 1455–1981 | missing |

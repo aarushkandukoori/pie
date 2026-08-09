@@ -35,6 +35,7 @@ mod channel;
 mod extent;
 mod group;
 mod identity;
+mod meta;
 mod op;
 mod params;
 mod plan;
@@ -60,6 +61,7 @@ pub use group::{
     used_channel_slots,
 };
 pub use identity::{Versions, cache_identity, combined_signature};
+pub use meta::{Inconsistent, Malformed, OpMeta, Problem, channel_effects, op_metadata};
 pub use params::{OpParams, Runtime as OpRuntime};
 pub use plan::{
     ConstPortValue, ExecPlan, StagePlan, adopt_launch_package, bounded_mtp_row_base,
