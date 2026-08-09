@@ -487,7 +487,8 @@ the worker directly.
 Five portable tests: the `!Send`-state fence, FIFO + drain-as-barrier,
 panic resume + survival, contained post panics, drop-as-barrier.
 | `simple_family.cpp`: `*_pool_elems` / `*_value_extents` | `sizing.rs::pool_colour_elems` + `dispatch_llama.rs::llama_value_extent`/`llama_pool_elems` | ported (llama first): each colour sized by its WIDEST VALUE, not its kind — a routed stack is k× taller than the dense tensor sharing its colour. The int32 traps kept verbatim (ids are TWO two-byte elements; one kind writes ids and weights so the wider claims); in-place writers keep their widest claim. gemma4/gptoss extents + `extra_heap_bytes` + the budget bisection follow |
-| `simple_family.cpp`: the engines, `FireCsr`, `stream_predicate`, `max_forward_tokens_for_budget` | — | missing — over the pool sizing above |
+| `simple_family.cpp`: `extra_heap_bytes` / `max_forward_tokens_for_budget` / `stream_predicate` + the gptoss/gemma4 extents | `batch/heap_budget.rs` + `gptoss_pool_elems`/`gemma4_pool_elems` | ported; the budget sums the SAME pure pieces the engine stages (gemma's KV term walks owning layers at their own widths — the same shape `stage_gemma4_kv` allocates), the bisection spends the DIFFERENCE from a one-row fire (charging the floor made every model answer "one row"), and the stream predicate is one pattern with the C++'s three findings intact: `experts.` not `mlp.experts.` (gemma hangs its bank off the layer), no family argument (the llama proxy streamed nothing on Qwen3-MoE while gpt-oss streamed 10.75 GB), and the bias splits on paging because paging RENUMBERS |
+| `simple_family.cpp`: the engines themselves, `FireCsr`, the fire/step/reset surface | — | missing — over everything above |
 | `forward.cpp` / `forward.hpp` | 5393 | missing — the executor; last, over everything above |
 
 ## The gpt-oss family — `csrc/src/model/gptoss/`

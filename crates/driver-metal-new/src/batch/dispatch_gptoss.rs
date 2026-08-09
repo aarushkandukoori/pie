@@ -515,6 +515,66 @@ pub fn build_gptoss_dag_mb(
     dag
 }
 
+/// One value's shape, off its WRITER — this family's half of
+/// [`pool_colour_elems`](super::pool_colour_elems). The int32 traps are
+/// the shared ones: ids count two two-byte elements per entry, one kind
+/// writes ids and weights, the sort's index outputs size as the
+/// tallest.
+#[must_use]
+pub fn gptoss_value_extent(d: &Dispatch, g: &GptOssGeometry) -> super::sizing::ValueExtent {
+    use super::sizing::{RowAxis, ValueExtent};
+    let e = |elems: u32, axis: RowAxis| ValueExtent { elems, axis };
+    match d.kind {
+        Kernel::EmbedUntied
+        | Kernel::Rms
+        | Kernel::FfnRms
+        | Kernel::Residual
+        | Kernel::LayerOut
+        | Kernel::GoQmvO
+        | Kernel::GoExpertCombine => e(g.hidden, RowAxis::Body),
+        Kernel::FinalRms | Kernel::G4RowGather => e(g.hidden, RowAxis::Tail),
+        Kernel::GoQmvQ | Kernel::Rope | Kernel::GoSdpaSink | Kernel::GoSdpaSinkPaged => {
+            e(g.q_dim(), RowAxis::Body)
+        }
+        Kernel::GoQmvK | Kernel::GoQmvV | Kernel::RopeK => e(g.kv_dim(), RowAxis::Body),
+        Kernel::GoRouter => e(g.n_experts, RowAxis::Body),
+        Kernel::GoRouterTopK => e(g.experts_per_token * 2, RowAxis::Body),
+        Kernel::LlMoeSort => e(2, RowAxis::Sorted),
+        Kernel::LlMoeGather => e(g.hidden, RowAxis::Sorted),
+        Kernel::GoExpertGate | Kernel::GoExpertUp | Kernel::GoSwiGlu => {
+            e(g.intermediate, RowAxis::Sorted)
+        }
+        Kernel::GoExpertDown => e(g.hidden, RowAxis::Sorted),
+        _ => e(0, RowAxis::Body),
+    }
+}
+
+/// Each pool colour's element count for a `rows`-token fire — one
+/// composition of the same pure pieces the fire uses.
+#[must_use]
+pub fn gptoss_pool_elems(
+    g: &GptOssGeometry,
+    tuning: &Tuning,
+    rows: u32,
+    head_rows: u32,
+) -> Vec<u64> {
+    let dag = build_gptoss_dag_mb(g, tuning, rows.max(1), head_rows, 0, false);
+    let (uses, values) = super::dataflow::build_scratch_uses(&dag);
+    let ends = super::dispatch::concurrent_run_ends(&dag);
+    let coloring = super::color::color_live_ranges(&uses, &ends, values, false)
+        .expect("the gpt-oss DAG colours");
+    super::sizing::pool_colour_elems(
+        &dag,
+        &uses,
+        &coloring,
+        |d| gptoss_value_extent(d, g),
+        rows,
+        head_rows,
+        gptoss_moe_sorted_rows(g, tuning, rows),
+        u64::from(rows.max(1)) * u64::from(g.hidden),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

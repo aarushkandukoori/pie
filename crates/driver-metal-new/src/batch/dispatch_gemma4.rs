@@ -24,6 +24,8 @@ use super::dispatch::{
     routed_qmv, router_topk, sdpa,
 };
 use super::gemma4::{Gemma4Geometry, gemma4_qmv_kn};
+use crate::tuning::Tuning;
+
 use super::sizing::sorted_rows;
 
 fn elementwise(width: u32) -> Launch {
@@ -304,6 +306,102 @@ pub fn gemma4_dag_stats(dag: &[Dispatch], g: &Gemma4Geometry) -> Gemma4DagStats 
         }
     }
     s
+}
+
+/// One value's shape, off its WRITER — per LAYER, as everything in this
+/// family is.
+#[must_use]
+#[allow(clippy::match_same_arms)] // grouped by meaning, not by width
+pub fn gemma4_value_extent(d: &Dispatch, g: &Gemma4Geometry) -> super::sizing::ValueExtent {
+    use super::sizing::{RowAxis, ValueExtent};
+    let e = |elems: u32, axis: RowAxis| ValueExtent { elems, axis };
+    let l = d.layer;
+    let hd = l.map_or(g.global_head_dim.max(g.head_dim), |l| g.head_dim_of(l));
+    let kv = l.map_or(g.n_kv_heads, |l| g.n_kv_heads_of(l));
+    match d.kind {
+        Kernel::EmbedGather
+        | Kernel::Rms
+        | Kernel::G4FfnPreNorm
+        | Kernel::G4AttnPostResidual
+        | Kernel::G4FfnPostResidual
+        | Kernel::G4PleResidualScaled
+        | Kernel::G4LayerScalar
+        | Kernel::QmvO
+        | Kernel::QmvDown
+        | Kernel::G4DenseBranchNorm
+        | Kernel::G4RouterNorm
+        | Kernel::G4MoeNorm
+        | Kernel::G4MoeBranchNorm
+        | Kernel::G4BranchAdd
+        | Kernel::G4ExpertCombine
+        | Kernel::G4PleProjLayerGemv => e(g.hidden, RowAxis::Body),
+        Kernel::FinalRms | Kernel::G4RowGather => e(g.hidden, RowAxis::Tail),
+        Kernel::QmvQ | Kernel::QNorm | Kernel::Rope | Kernel::Sdpa | Kernel::G4SdpaSliding => {
+            e(g.n_q_heads * hd, RowAxis::Body)
+        }
+        Kernel::QmvK
+        | Kernel::QmvV
+        | Kernel::KNorm
+        | Kernel::RopeK
+        | Kernel::G4VNorm
+        | Kernel::G4VNormFromK => e(kv * hd, RowAxis::Body),
+        Kernel::QmvGate | Kernel::QmvUp | Kernel::G4Geglu => e(
+            l.map_or(g.intermediate, |l| g.intermediate_of(l)),
+            RowAxis::Body,
+        ),
+        Kernel::G4PleTokenGather
+        | Kernel::G4PleProjGemv
+        | Kernel::G4PleProjNorm
+        | Kernel::G4PleCombine => e(g.n_layers * g.per_layer_emb_dim, RowAxis::Body),
+        Kernel::G4PleGateGemv | Kernel::G4PleGeglu => e(g.per_layer_emb_dim, RowAxis::Body),
+        Kernel::G4Router => e(g.n_experts, RowAxis::Body),
+        Kernel::G4RouterTopK => e(g.experts_per_token * 2, RowAxis::Body),
+        Kernel::G4MoeSort => e(2, RowAxis::Sorted),
+        Kernel::G4MoeGather => e(g.hidden, RowAxis::Sorted),
+        Kernel::G4ExpertGate | Kernel::G4ExpertUp | Kernel::G4ExpertGeglu => {
+            e(g.moe_intermediate, RowAxis::Sorted)
+        }
+        Kernel::G4ExpertDown => e(g.hidden, RowAxis::Sorted),
+        _ => e(0, RowAxis::Body),
+    }
+}
+
+/// Each pool colour's element count for a `rows`-token fire. The C++
+/// asks its MB DAG, which is the SAME dispatch list with shifted
+/// ordinals — the M=1 list serves, and the rows ride the axes.
+#[must_use]
+pub fn gemma4_pool_elems(
+    g: &Gemma4Geometry,
+    tuning: &Tuning,
+    rows: u32,
+    head_rows: u32,
+) -> Vec<u64> {
+    let dag = build_gemma4_dag(g, false);
+    let (uses, values) = super::dataflow::build_scratch_uses(&dag);
+    let ends = super::dispatch::concurrent_run_ends(&dag);
+    let coloring = super::color::color_live_ranges(&uses, &ends, values, false)
+        .expect("the gemma4 DAG colours");
+    let pairs = rows.max(1).saturating_mul(g.experts_per_token.max(1));
+    let sorted = if g.is_moe() {
+        u32::try_from(super::sizing::sorted_rows(
+            pairs,
+            g.n_experts,
+            tuning.moe_tile_rows(pairs, g.n_experts),
+        ))
+        .expect("a sort is bounded")
+    } else {
+        rows.max(1)
+    };
+    super::sizing::pool_colour_elems(
+        &dag,
+        &uses,
+        &coloring,
+        |d| gemma4_value_extent(d, g),
+        rows,
+        head_rows,
+        sorted,
+        u64::from(rows.max(1)) * u64::from(g.hidden),
+    )
 }
 
 #[cfg(test)]

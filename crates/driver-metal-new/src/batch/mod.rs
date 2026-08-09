@@ -30,6 +30,7 @@ mod golden;
 mod gptoss;
 mod gptoss_consts;
 mod gptoss_solve;
+mod heap_budget;
 mod llama;
 mod mask;
 mod member;
@@ -62,11 +63,14 @@ pub use dataflow::{build_scratch_schedule, build_scratch_uses};
 pub use dispatch::{
     DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
 };
-pub use dispatch_gemma4::{Gemma4DagStats, build_gemma4_dag, gemma4_dag_stats};
+pub use dispatch_gemma4::{
+    Gemma4DagStats, build_gemma4_dag, gemma4_dag_stats, gemma4_pool_elems, gemma4_value_extent,
+};
 pub use dispatch_gptoss::{
     GptOssDagStats, build_gptoss_dag, build_gptoss_dag_mb, gptoss_dag_stats, gptoss_is_dense_proj,
-    gptoss_mb_kind, gptoss_moe_qmm_bn, gptoss_moe_sorted_rows, gptoss_qmm_bn, gptoss_qmm_min_batch,
-    gptoss_qmm_pool_rows, gptoss_qmm_rows, gptoss_scratch_elems_mb,
+    gptoss_mb_kind, gptoss_moe_qmm_bn, gptoss_moe_sorted_rows, gptoss_pool_elems, gptoss_qmm_bn,
+    gptoss_qmm_min_batch, gptoss_qmm_pool_rows, gptoss_qmm_rows, gptoss_scratch_elems_mb,
+    gptoss_value_extent,
 };
 pub use dispatch_llama::{
     LlamaDagStats, build_llama_dag, build_llama_dag_mb, llama_dag_stats, llama_dense_qmm_bm,
@@ -99,6 +103,11 @@ pub use gptoss::{
 };
 pub use gptoss_consts::{RowGatherParams, SwiGluParams, gptoss_qmv_kn, yarn_inv_freq, yarn_mscale};
 pub use gptoss_solve::{StagedQuant, bits_from_extents, solve_quant_into, solve_staged_quant};
+pub use heap_budget::{
+    PAGED_MAX_FORWARD_TOKENS, PAGED_MIN_FORWARD_TOKENS, gemma4_extra_heap_bytes,
+    gptoss_extra_heap_bytes, llama_extra_heap_bytes, max_forward_tokens_for_budget,
+    stream_predicate,
+};
 pub use llama::{LlamaGeometry, llama_decode_geometry, llama_geometry_from_facts, llama_qmv_kn};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
