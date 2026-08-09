@@ -488,3 +488,21 @@ Five portable tests: the `!Send`-state fence, FIFO + drain-as-barrier,
 panic resume + survival, contained post panics, drop-as-barrier.
 | `simple_family.cpp` / `.hpp` | 2176 | missing |
 | `forward.cpp` / `forward.hpp` | 5393 | missing — the executor; last, over everything above |
+
+## The gpt-oss family — `csrc/src/model/gptoss/`
+
+The third family, built in the SHARED `Kernel` vocabulary (the C++ kept
+its kinds in their own namespace and mapped at encode time), so the M=1
+step machinery is reused rather than mirrored.
+
+| C++ | Rust | |
+|---|---|---|
+| `geometry.hpp` | `batch/gptoss.rs` | ported; refusal ladder shares the router bounds with llama's |
+| `encode.cpp`: the DAG walk + `launch_shape` | `batch/dispatch_gptoss.rs` | ported; 508 dispatches pinned, `RowGather` deliberately absent at M=1 |
+| `encode.cpp`: `qmv_kn` + params structs | `batch/gptoss_consts.rs` | ported; YaRN table host-computed (mlx `YarnRoPE` port), routed looks dense |
+| `bind.cpp`: `router_bits_from_extents` + the mxfp4/proj probes | `batch/gptoss_solve.rs` | ported portable (name→bytes lookup); refusals carry the extents |
+| `kernels.cpp`: the compile list | `batch/psos_gptoss.rs` | ported; both solver outcomes validated against the signature table |
+| `encode.cpp`: `pso_for` | `psos_gptoss.rs::gptoss_kinds` / `gptoss_step_plan` | ported as plan DATA: the C++ re-decided per fire and fell back to qwen's base table for norms/residuals — the plan is self-contained and a kind nothing claims refuses at prepare, not at dispatch |
+| `bind.cpp`: `bind_gptoss_dag` | `metal/gptoss_bind.rs` | consts walk ported (YaRN table bound once, keepalive returned); weight/IO walk pending the device smoke |
+| device smoke vs gpt-oss-20b-MXFP4-Q4 | — | missing — next on the arc |
+| `pso_for_paged` / `pso_for_mb*`, `RowGather` prefill | — | missing — the paged/MB fire path, after the M=1 smoke |
