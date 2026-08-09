@@ -71,11 +71,46 @@ the request and both numbers.
 Eight portable tests, including multi-word rows, the sink and window
 refusals, and the classic PAGE_T-16-vs-32 mismatch.
 
+## The admission gate — `src/batch/admit.rs`
+
+The first half of `compose.cpp`: the recurrent-state shapes this driver
+refuses to run, extracted from `build_launch_view`'s refusal battery.
+
+| C++ | Rust | |
+|---|---|---|
+| the RS refusals in `build_launch_view` | `admit_recurrent` | ported |
+| `build_launch_view` (the slice wrapping) | — | dropped |
+| `OwnedLaunchView::capture` | — | dropped |
+| `OwnedLaunchView::view` | — | dropped |
+| `kRsFlagFold` / `kRsFlagBufferWrite` / `kRsFlagFoldLenDevice` / `kRsFlagReset` | `driver_abi::local::PIE_RS_FLAG_*` | dropped |
+
+The refusals are the file's real content and survive exactly — buffered
+replay, device-resident fold lengths, mid-page buffer heads, a fold
+boundary inside a fire's own tokens, a fold row with no tokens, mixed
+persistence — each one a shape that fails *quietly* if admitted, corrupting
+a recurrent state that cannot be recovered once folded. What changes is
+their identity: the C++ throws `std::runtime_error` with prose as the only
+discriminator, conflating "your launch is malformed" with "this driver
+lacks the capability". `Refused` names each decision, keeps the C++'s prose
+as `reason()`, carries the row at fault, and `is_malformed` answers the
+question the exception type could not. A descending token CSR is refused as
+malformed where the C++ wrapped the subtraction.
+
+The wrapping half is dropped because its reason to exist is the C ABI: the
+engine hands the C++ borrowed slices that die at return, so every launch was
+re-wrapped (`build_launch_view`), deep-copied (`capture`) and re-wrapped
+again (`view`). The Rust engine hands the driver an owned
+`driver_abi::plan::LaunchPlan`; there is nothing to capture. The four
+`kRsFlag*` hand copies fall to the ABI crate's own constants.
+
+Nine portable tests, one per refusal plus the whole-row/no-fold admissions
+and the malformed-rows fail-closed cases.
+
 ## Not yet started
 
 | C++ | lines | |
 |---|---|---|
-| `compose.cpp` / `compose.hpp` | 644 | missing — ticket composition; `readiness::Ticket` exists |
+| `compose.cpp` rest: `build_member_forward_desc`, `LaunchMember`, tickets | ~380 | missing — needs `MemberForwardDesc` (`forward.hpp`) |
 | `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` | 650 | missing |
 | `batch_schedule.hpp` (done above) | — | — |
 | `decode_abi.hpp` | 650 | missing |

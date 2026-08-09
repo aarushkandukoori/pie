@@ -11,9 +11,11 @@
 //! be addressed. [`mask`] answers whether a wire attention mask says
 //! anything the kernel's own causal predicate does not already enforce.
 
+mod admit;
 mod mask;
 mod schedule;
 
+pub use admit::{Refused, admit_recurrent};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use schedule::{
     BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,
