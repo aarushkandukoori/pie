@@ -30,6 +30,7 @@
 
 mod archive;
 mod bind;
+mod bind_mb;
 mod context;
 mod device;
 mod elastic;
@@ -58,6 +59,9 @@ pub use archive::{Archives, CACHE_ENV, EXTENSION, MAX_AGE};
 pub use bind::{
     ConstSlots, StepPsos, bind_decode_consts, bind_decode_dag, bind_scratch, bind_token_consts,
     encode_decode_step,
+};
+pub use bind_mb::{
+    MbBindOffsets, bind_decode_dag_mb, bind_gdn_conv_parity, paged_attention_mask_pitch_bytes,
 };
 pub use context::{ALLOCATOR_COUNT, Context};
 pub use device::DeviceInfo;
