@@ -1169,13 +1169,37 @@ void llama_like_forward_declared(
                                 MaskRegion mask_region,
                                 int depth_band_index,
                                 bool depth_tail_active) {
+        // A value's trailing dims ARE its row width -- what `H`, `Hq`,
+        // `Hk`, `I` and `V` spell. Hoisted to the arm scope because more
+        // than one island wants it.
+        const auto row_width = [&](std::uint32_t id) {
+            const auto& val = plan.value(id);
+            std::uint32_t out = 1;
+            for (std::uint32_t k = 1; k < val.rank; ++k) {
+                if (val.dims[k].kind !=
+                    pie_forward::PieForwardDimKind::Const) {
+                    return 0;
+                }
+                out *= val.dims[k].value;
+            }
+            return static_cast<int>(out);
+        };
+        const auto in_w = [&](std::size_t i) {
+            return row_width(plan.inputs(op)[i]);
+        };
+        const auto out_w = [&](std::size_t i) {
+            return row_width(plan.outputs(op)[i]);
+        };
         switch (op.kind) {
         case PieForwardOpKind::Embed: {
             const std::string_view name = plan.weight_name(op);
             if (name != "embed") throw_unknown_weight(name);
+            // ISLAND (value arena). `token_ids` stays a driver input.
             kernels::layout::embed_bf16(
-                token_ids, wb.require(name).data(), ws.y.data(),
-                N, H, V, stream);
+                token_ids, wb.require(name).data(),
+                values.slot(plan.outputs(op)[0],
+                            plan.value(plan.outputs(op)[0])),
+                N, out_w(0), V, stream);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {
@@ -1211,8 +1235,15 @@ void llama_like_forward_declared(
                                 plan.value(plan.outputs(op)[0]));
                 // Post-norm norms the o_proj OUTPUT (the pinned
                 // scratch), pre-norm the residual stream.
-                norm(post_norm ? ws.norm_x.data() : ws.y.data(),
-                     wb.require(name).data(), attn_norm_out, N, H);
+                // The OPERAND is the statement's on the pre-norm path
+                // (the residual stream); post-norm norms the o_proj
+                // scratch and keeps its convention until that island
+                // moves.
+                norm(post_norm ? ws.norm_x.data()
+                               : values.slot(plan.inputs(op)[0],
+                                             plan.value(plan.inputs(op)[0])),
+                     wb.require(name).data(), attn_norm_out, N,
+                     post_norm ? H : in_w(0));
             } else if (nm.field == "mlp_norm") {
                 const auto& layer = layer_of(w, nm, name);
                 if (post_norm) {
@@ -1226,10 +1257,12 @@ void llama_like_forward_declared(
                     // role `ws.norm_x`. Producer and consumer move
                     // together; the post-norm arm above keeps its
                     // convention until its own island moves.
-                    norm(ws.y.data(), wb.require(name).data(),
+                    norm(values.slot(plan.inputs(op)[0],
+                                     plan.value(plan.inputs(op)[0])),
+                         wb.require(name).data(),
                          values.slot(plan.outputs(op)[0],
                                      plan.value(plan.outputs(op)[0])),
-                         N, H);
+                         N, in_w(0));
                 }
             } else if (nm.field == "q_norm") {
                 // Global qk-norm (olmo2): ONE row RMSNorm over the
@@ -1294,29 +1327,7 @@ void llama_like_forward_declared(
                 return values.slot(plan.outputs(op)[i],
                                    plan.value(plan.outputs(op)[i]));
             };
-            // A value's trailing dims ARE its row width, which is what
-            // `Hq + 2 * Hk`, `Hq`, `Hk`, `I` and `H` were spelling. The
-            // buffers here were already the trace's; these were the last
-            // half of the convention this arm still carried.
-            const auto row_width = [&](std::uint32_t id) {
-                const auto& val = plan.value(id);
-                std::uint32_t out = 1;
-                for (std::uint32_t k = 1; k < val.rank; ++k) {
-                    if (val.dims[k].kind !=
-                        pie_forward::PieForwardDimKind::Const) {
-                        return 0;
-                    }
-                    out *= val.dims[k].value;
-                }
-                return static_cast<int>(out);
-            };
-            const auto in_w = [&]() {
-                return plan.inputs(op).size > 0 ? row_width(plan.inputs(op)[0])
-                                                : H;
-            };
-            const auto out_w = [&](std::size_t i) {
-                return row_width(plan.outputs(op)[i]);
-            };
+
             // The island's consumers: the projection reads the value the
             // attn_norm arm produced (pinned, so LoRA's captured pointer
             // and this slot are the same bytes).
@@ -1337,25 +1348,25 @@ void llama_like_forward_declared(
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     WeightView(wb.require(name)),
-                    out_slot(0), N, out_w(0), in_w());
+                    out_slot(0), N, out_w(0), in_w(0));
             } else if (nm.field == "q_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     make_weight_view(&wb.require(name),
                                      layer.q_proj_quant),
-                    out_slot(0), N, out_w(0), in_w());
+                    out_slot(0), N, out_w(0), in_w(0));
             } else if (nm.field == "k_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     make_weight_view(&wb.require(name),
                                      layer.k_proj_quant),
-                    out_slot(0), N, out_w(0), in_w());
+                    out_slot(0), N, out_w(0), in_w(0));
             } else if (nm.field == "v_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     make_weight_view(&wb.require(name),
                                      layer.v_proj_quant),
-                    out_slot(0), N, out_w(0), in_w());
+                    out_slot(0), N, out_w(0), in_w(0));
             } else if (nm.field == "o_proj") {
                 if (post_norm) {
                     // Post-norm: o_proj lands in the norm_x scratch (the
@@ -1371,7 +1382,7 @@ void llama_like_forward_declared(
                                     plan.value(plan.inputs(op)[0])),
                         make_weight_view(&wb.require(name),
                                          layer.o_proj_quant),
-                        out_slot(0), N, out_w(0), in_w(), beta);
+                        out_slot(0), N, out_w(0), in_w(0), beta);
                 } else {
                     // Residual accumulate folded into the GEMM (beta from
                     // the trace's beta_one), exactly the hand-written T==1
@@ -1385,7 +1396,7 @@ void llama_like_forward_declared(
                                     plan.value(plan.inputs(op)[0])),
                         make_weight_view(&wb.require(name),
                                          layer.o_proj_quant),
-                        out_slot(0), N, out_w(0), in_w(), beta);
+                        out_slot(0), N, out_w(0), in_w(0), beta);
                 }
             } else if (nm.field == "gate_up") {
                 // The island's consumer: the same traced value the
@@ -1404,7 +1415,7 @@ void llama_like_forward_declared(
                     kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
                         WeightView(*layer.gate_up_proj_fused),
-                        out_slot(0), N, out_w(0), in_w());
+                        out_slot(0), N, out_w(0), in_w(0));
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
@@ -1431,13 +1442,13 @@ void llama_like_forward_declared(
                         down_in,
                         make_weight_view(&wb.require(name),
                                          layer.down_proj_quant),
-                        out_slot(0), N, out_w(0), in_w(), beta);
+                        out_slot(0), N, out_w(0), in_w(0), beta);
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),
                         down_in,
                         make_weight_view(&wb.require(name),
                                          layer.down_proj_quant),
-                        out_slot(0), N, out_w(0), in_w(), beta);
+                        out_slot(0), N, out_w(0), in_w(0), beta);
                 }
             } else {
                 throw_unknown_weight(name);
