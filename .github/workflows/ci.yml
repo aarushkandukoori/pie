@@ -150,6 +150,19 @@ jobs:
             --exclude pie-server-py --exclude worker --exclude driver-cuda-new
           cargo test -p worker --lib
 
+      # Neither of these needs CUDA -- the audit is Python over the published
+      # headers, the table test is pure Rust -- and until now neither ran in
+      # ANY job. Both had rotted in place: the audit globbed `csrc/src/ops` and
+      # `csrc/src/kernels`, which the kernels split deleted, so it examined
+      # five launchers against a 192-row table and reported ZERO UNDECLARED for
+      # weeks. A check nobody runs is indistinguishable from a check that
+      # passes.
+      - name: kernel vocabulary audit
+        run: python3 scripts/kernel-vocabulary-audit.py
+
+      - name: kernel table (every symbol carries its family)
+        run: cargo test -p model --features forward --test kernels_table
+
       # driver-cuda-new is excluded from the two sweeps above because it has no
       # default feature and refuses to build until one of `cuda-12` / `cuda-13`
       # is chosen. That is deliberate: the CUDA runtime API is not ABI-stable
@@ -501,6 +514,21 @@ jobs:
             --target test_entry_validation test_pipeline_dispatch_bind
           ctest --test-dir "$CUDA_BUILD_DIR" --output-on-failure \
             -R '^(entry_validation|pipeline_dispatch_bind)$'
+
+      # The 66 test and bench executables under csrc/. `cargo build -p
+      # driver-cuda` asks CMake for `pie_driver_cuda_lib` and stops, so these
+      # were configured by CMake and built by no command anyone runs -- eleven
+      # kernel-family renames landed green across them, leaving a dead
+      # `namespace ops` alias, call sites naming a `kernels` not in scope, and
+      # 27 XQA kernels defined in a namespace their only caller did not use.
+      # That last one cannot fail a compile: `cargo build -p driver-cuda`
+      # produces an rlib and never links.
+      - name: Build every driver-cuda harness (66 targets)
+        run: |
+          CUDA_BUILD_DIR="$(find target/debug/build -type d \
+            -path '*/out/cuda/build' -print -quit)"
+          test -n "$CUDA_BUILD_DIR"
+          cmake --build "$CUDA_BUILD_DIR" --target pie_driver_cuda_checks
 
       - name: Verify no CUDA shared deps
         run: |
