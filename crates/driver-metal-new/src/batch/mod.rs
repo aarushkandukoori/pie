@@ -29,6 +29,7 @@ mod mask;
 mod member;
 mod paging;
 mod psos;
+mod psos_gptoss;
 mod psos_mb;
 mod schedule;
 mod sizing;
@@ -75,6 +76,7 @@ pub use paging::{
     Cut, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging, renumber_routing,
 };
 pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, plan_decode_psos};
+pub use psos_gptoss::{GptOssPsoRequest, GptOssSlot, SDPA_MMA_HEAD_DIM, plan_gptoss_psos};
 pub use psos_mb::{
     MOE_TILE_WIDTHS, MbFeatures, MbRequest, MbSlot, QMM_BMS, QMM_SPLIT_BN, plan_multibatch_psos,
 };
