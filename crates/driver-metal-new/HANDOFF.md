@@ -184,16 +184,12 @@ per-entity state.
 
 | subsystem | state |
 |---|---|
-| `pipeline/` | done — interp (`op.rs`/`step.rs`/`channel.rs`/`value.rs`/`plan.rs`), descriptor_resolve (`resolve.rs`), registry (`registry.rs`) all landed in earlier sessions |
-| `batch/` independent surface | done — schedule, mask, admit, member, color, abi, timing, psos, worker, geometry, sizing, paging |
-| `batch/` family-coupled remainder | open — golden_tap, the scratch schedule, decode_psos' multibatch tail, `simple_family` (2.2k), `forward.cpp/.hpp` (5.4k); all consume the family `Dispatch` DAG |
-| `loader/` portable | done — heap plan (`heap.rs`), load plan (`plan.rs`), expert slab (`slab.rs` + `model_loader::group_slot`); `transcode.hpp` dropped with receipts (the Rust host executor is the original, see `PARITY-LOADER.md`) |
-| `loader/` Metal side | open — `heap_bind.cpp` (2044) + `heap_bind_metal.hpp` (209): heap alloc, argument tables, staging |
-| `store/`, `model/` | open — `kv_pool.hpp`/`linear_state_slots.hpp` (69 lines together); `model/` families are being ported by concurrent agents (`facts.rs` landed; llama_like in progress on origin) |
-
-The family-coupled batch remainder and the Metal-side loader are the two
-real bodies of work; both follow the same pattern as everything above:
-portable half first, into `src/`, with tests that run anywhere.
+| `pipeline/` | done |
+| `batch/` | done through the multibatch layer: independent surface, DAG builders (M=1 and MB), dataflow walk, PSO plans, binds tables, golden taps |
+| `loader/` portable | done; `transcode.hpp` dropped with receipts |
+| `metal/` step + runner | done in first form: storage staging (arena mode), the four bind passes, MB binds, PSO loaders, DecodeStep/MbStep, and `decoder.rs` (prefill streams, fleet fires, per-slot conv orientation) |
+| device verification | Qwen3.6-27B answers token-exact on the M=1 ring, the paged prefills, the equal fleet and the mixed-length fleet (`tests/device_smoke.rs`); staging is byte-exact; the golden-tap bisect exonerated every stage function |
+| remaining | `simple_family` (gemma4/gptoss/llama, 2.2k — the qwen pattern repeated), forward.cpp's engine-facing surface (elastic resize, EOS loop, copy_state ABI, logits views), FP16 staging, zero-copy mapping/streaming, expert-slab staging arm, and the engine backend wiring `CUTOVER.md` describes |
 
 ### Also outstanding
 

@@ -66,6 +66,16 @@ The flip is authorised when all of the following hold, and not before:
    in-tree semantic coverage), fixed seeds, N ≥ 1000 decoded tokens: the new
    backend's tokens are bit-identical to the old one's. The PTIR channel
    plane is deterministic by contract, so any drift is a defect, not noise.
+
+   *Progress (2026-08-09):* `tests/device_smoke.rs` decodes Qwen3.6-27B
+   greedily on four paths — M=1 ring, paged sequential, paged per-row
+   stream, and a fleet (equal and mixed lengths) — and all reproduce one
+   reference sequence exactly over the tested horizon; staging is
+   byte-exact for every tensor, and the golden-tap bisect holds every
+   stage function to host arithmetic at cosine 0.999+. What this gate
+   still requires beyond that: the N ≥ 1000 horizon, and the comparison
+   against the OLD backend's tokens rather than against the run's own
+   reference.
 4. **The interpreter agrees.** The same fires replayed through the ported
    CPU reference interpreter (`interp.hpp`'s Rust) match the device results
    within its stated tolerance — the oracle the C++ never had wired to

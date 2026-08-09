@@ -188,9 +188,32 @@ shared vocabulary. The porting order that follows from the includes:
    geometry live under `model/<family>/` and land with the family port.
    (`DecodeGeometry` itself has since landed — see the geometry section.)
 3. `expert_paging.hpp` (195): ported -- see "Expert paging" below.
-4. `worker.hpp` (171) — ported (`worker.rs`); `simple_family` (2176),
-   then `forward.cpp/.hpp` (5393) over everything. (`golden_tap` and
-   `decode_psos`' multibatch half have since landed — see below.)
+4. `worker.hpp` (171) — ported (`worker.rs`); `simple_family` (2176)
+   remains, and `forward.cpp/.hpp` (5393) is now PARTIALLY covered by
+   `src/metal/decoder.rs` — see "The multibatch step and the decode
+   runner" below for what is ported and what still is not.
+
+## The multibatch step and the decode runner
+
+`decode_step_mb.cpp` (1179) is fully ported across four modules, and the
+first arm of `forward.cpp`'s orchestration exists as `metal/decoder.rs`.
+
+| C++ | Rust | |
+|---|---|---|
+| `build_decode_dag_mb` / `build_decode_prefill_dags` / `mb_kind` / `mb_geometry` + `decode_dispatch_mb.hpp`'s decisions | `batch/dispatch_mb.rs` | ported; split-K OFF and the routed decode GEMM SHUT, both with their numbers |
+| `bind_decode_dag_mb` / `bind_gdn_conv_parity` / `MbBindOffsets` | `metal/bind_mb.rs` | ported; per-row offsets are `gpu_address + offset`, one number per table entry |
+| `mb_pso` selection ladder | `metal/step_mb.rs::mb_pso` | ported; FP16 staging (`bind_mb_fp16_qmm`) deferred — mb_pso is always told FP16 is unavailable until the staging pair lands |
+| slotted GDN / paged KV / paged SDPA const arms | `metal/bind.rs` | ported — found by the paged bisect after being omitted (an unbound constant is zero output, not a fault) |
+| `ab_*` A/B levers, `PIE_METAL_PAGING_TRACE` | — | dropped: crate policy denies prints; the smoke's env levers are the equivalents |
+| `forward.cpp`: fire loop, page/slot assignment, conv orientation | `metal/decoder.rs` | ported in first form: per-width step cache, per-token prefill streams, fleet fires, per-slot orientation with the join copy |
+| `forward.cpp`: elastic KV resize, EOS/argmax loop, copy_state/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
+
+Verified on device (Qwen3.6-27B, `tests/device_smoke.rs`): the M=1 ring
+decode, the paged sequential and per-row-stream prefills, the equal
+fleet, and the mixed-length fleet all reproduce one token-exact
+reference; the bisect instruments (`PIE_SMOKE_SEQ_PREFILL`,
+`PIE_SMOKE_PAGED_TAPS`, the per-step KV/sdpa host checks) stay in the
+test as the accuracy gate's tooling.
 
 ## The multibatch PSO plan — `src/batch/psos_mb.rs`
 
