@@ -35,6 +35,7 @@ mod elastic;
 mod encoder;
 mod external;
 mod feedback;
+mod fire;
 mod handle;
 mod heap;
 mod keepalive;
@@ -58,6 +59,7 @@ pub use elastic::{
 pub use encoder::{ArgumentTable, StepEncoder, Stepper, Visibility};
 pub use external::{External, Externals, Mapped, page_size};
 pub use feedback::{Feedback, Feedbacks};
+pub use fire::{DeviceInputs, Execution, Mode, Prepare, PreparedFire};
 pub use handle::Handle;
 pub use heap::{Heap, Slot};
 pub use keepalive::{Keepalive, MIN_DEPTH, MIN_THREADGROUPS, THREADS_PER_THREADGROUP};

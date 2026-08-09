@@ -475,6 +475,48 @@ that does not compile. `remember_negative` is the `compile` wrapper's four
 lines. `Runtime::new` no longer creates the context — the runtime's state is
 caches and counters, and every method takes the `Context` it runs against.
 
+## The single-lane fire — `src/metal/fire.rs`
+
+| C++ | Rust | |
+|---|---|---|
+| `M1Runtime::prepare` | `Runtime::prepare` | ported |
+| `M1Runtime::execute` | `Runtime::execute` | ported |
+| `M1PreparedFire` | `PreparedFire` | ported |
+| `M1DeviceInputs` | `DeviceInputs` | ported |
+| `M1ExecutionMode` | `Mode` | ported |
+| `M1PrepareOutcome` | `Prepare` + `readiness::Readiness` | ported |
+| `M1ExecuteOutcome` | `StatusOutcome` + `Execution` | ported |
+| `Impl::bind_effect_kernel` | the effect-bind loop | ported |
+| `M1Runtime::release` | `PreparedFire`'s `Drop` | dropped |
+| `resource_accounted` / `m1_prepared_resource_counters` | — | dropped |
+| the `goto cleanup_failure` block, twice | `Transient`'s `Drop` | dropped |
+| `m1_singleton_fallback_inputs` | — | missing: `batch/` |
+
+The fire takes `Rc<Ring>`s where the C++ took `shared_ptr<ChannelState>`s,
+because on the device path the ring's storage must be GPU-addressable and the
+Rust host `ChannelState` deliberately is not. `DeviceInputs` drops both
+sentinels (`logits` is an `Option<Handle>`, `mtp_draft_row` an `Option<u32>`)
+and defers `logits_rows` to the M3 slice, its only reader.
+
+The C++ needed a `goto cleanup_failure` label because four transient buffers
+had to be recycled on each of nine failure exits — and the cleanup was still
+written twice. Here every `?` is that label: a `Transient` recycles on drop.
+`release()` and its `resource_accounted` guard are gone the same way — the
+fire's `Rc`s on its rings are what the external-buffer registration and the
+global counter were imitating.
+
+The status readback goes through `StatusOutcome::of`, so the two states the
+C++ swallowed into "generated op fault 0" — never written, never finished —
+keep their names, and a retried fire re-zeroes its status buffer first
+(`tests/device_fire.rs` runs one fire twice to hold that). The report prints
+the fault class by name via `describe_fault` rather than the code in decimal.
+
+Four device tests run a whole fire — readiness, regions, commit — against
+hand-written kernels that honour the real binding ABI and status protocol:
+commit lands, a device-side retry reports as retry with its account, an
+early fire is refused by the host with zero pool allocations, and a
+prepared fire survives re-execution.
+
 ## Not yet started
 
 Everything below names a Metal type and will land under `src/metal/`. That is
@@ -484,7 +526,6 @@ above tests on any machine, and everything below needs a device.
 | C++ | lines | |
 |---|---|---|
 | `bind_m2_*` / `bind_m3_*` | 654–735 | missing |
-| `prepare` / `execute` (M1 singleton) | 1455–1981 | missing |
 | M2 fused placement | 1982–2411 | missing |
 | M3 grouped lanes | 2412–3350 | missing |
 
@@ -498,7 +539,7 @@ without a GPU. The C++ had none for any of it: every one of these functions
 lived in an anonymous namespace behind a pimpl, reachable only through a
 `*_for_test` hook or not at all.
 
-The metal half now carries the buffer view and the program compile — sixteen
-device tests between them — and the executables every remaining slice
-consumes. What is left is the three execute paths: the single-lane fire, the
-M2 placement, and the M3 group.
+The metal half now carries the buffer view, the program compile, the device
+ring and the single-lane fire — twenty-five device tests between them,
+including four that run a whole fire end to end. What is left is the two
+placed paths: M2 around a forward, and the M3 group.
