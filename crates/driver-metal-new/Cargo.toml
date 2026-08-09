@@ -58,6 +58,10 @@ objc2-io-kit = { version = "0.3.2", default-features = false, features = [
     "libc",
 ] }
 libc = "0.2"
+# The commit-feedback handler is an Objective-C block. `block2` is the only
+# way to hand Metal one, and `objc2-metal`'s own `block2` feature is what
+# exposes `addFeedbackHandler:` at all.
+block2 = "0.6"
 
 # Feature-gated per header, so the list IS the API surface this shell uses.
 # Adding a Metal type means adding its feature here; that is the intended
@@ -67,6 +71,12 @@ version = "0.3.2"
 default-features = false
 features = [
     "std",
+    # `addFeedbackHandler:` takes a block, and the method does not exist
+    # without this.
+    "block2",
+    # `MTL4CommitFeedback`'s two timestamps are `CFTimeInterval`, so they do
+    # not exist without this.
+    "objc2-core-foundation",
     # core device + resources
     "MTLDevice",
     "MTLResource",

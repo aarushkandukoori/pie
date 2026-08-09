@@ -31,6 +31,7 @@ use objc2_metal::{
 };
 
 use super::context::{Context, describe};
+use super::feedback::Feedbacks;
 use super::heap::Slot;
 use super::tables::Tables;
 use crate::error::{Error, Result};
@@ -240,6 +241,11 @@ pub struct Stepper<'ctx> {
     committed: u64,
     /// Set once a wait ran out. There is no way back; see the module docs.
     wedged: bool,
+    /// What the GPU said about the steps that have finished.
+    feedback: Feedbacks,
+    /// The newest step whose fault has already been raised, so it is raised
+    /// exactly once.
+    surfaced: u64,
 }
 
 impl<'ctx> Stepper<'ctx> {
@@ -254,6 +260,8 @@ impl<'ctx> Stepper<'ctx> {
             event,
             committed: 0,
             wedged: false,
+            feedback: Feedbacks::new(),
+            surfaced: 0,
         })
     }
 
@@ -267,6 +275,15 @@ impl<'ctx> Stepper<'ctx> {
     #[must_use]
     pub const fn is_wedged(&self) -> bool {
         self.wedged
+    }
+
+    /// What the GPU reported about the steps that have finished.
+    ///
+    /// Lags by about a step: see [`super::feedback`]. Clone it to observe
+    /// from elsewhere.
+    #[must_use]
+    pub const fn feedback(&self) -> &Feedbacks {
+        &self.feedback
     }
 
     /// Encode one step, commit it, and wait for it.
@@ -285,6 +302,10 @@ impl<'ctx> Stepper<'ctx> {
                 message: "this context was abandoned after a completion wait ran out".to_string(),
             });
         }
+        // A faulted command buffer still reaches the signal, so the previous
+        // step's wait returned Ok. This is the first moment its fault can be
+        // known -- raised here rather than swallowed, once.
+        self.raise_pending_fault()?;
 
         // Safe because this stepper is synchronous: the work drawn from this
         // allocator was waited for two steps ago. The parity is what makes
@@ -328,13 +349,19 @@ impl<'ctx> Stepper<'ctx> {
 
         let value = self.committed + 1;
         let mut buffers = [NonNull::from(&*command_buffer)];
+        // The handler is built before the commit so it can tag itself with the
+        // timeline point it describes; `_handler` keeps the block alive across
+        // the call that copies it.
+        let (_handler, options) = self.feedback.options(value);
         // SAFETY: the pointer is to a live array of exactly one command
         // buffer, which outlives the call; `commit` takes it by reference and
         // does not retain the array.
         unsafe {
-            self.context
-                .queue()
-                .commit_count(NonNull::from(&mut buffers).cast(), 1);
+            self.context.queue().commit_count_options(
+                NonNull::from(&mut buffers).cast(),
+                1,
+                &options,
+            );
         }
         self.context
             .queue()
@@ -342,6 +369,22 @@ impl<'ctx> Stepper<'ctx> {
         self.committed = value;
 
         self.await_value(value)
+    }
+
+    /// Raise a GPU fault reported since the last time one was raised.
+    fn raise_pending_fault(&mut self) -> Result<()> {
+        let Some(fault) = self.feedback.take_error_after(self.surfaced) else {
+            return Ok(());
+        };
+        self.surfaced = fault.step;
+        Err(Error::Create {
+            what: "step",
+            message: format!(
+                "the GPU faulted on step {}: {}",
+                fault.step,
+                fault.error.unwrap_or_default()
+            ),
+        })
     }
 
     /// Wait for the event to reach `value`, or wedge.
