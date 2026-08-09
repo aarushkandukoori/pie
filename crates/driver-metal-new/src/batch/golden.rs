@@ -60,7 +60,9 @@ pub fn tap_for(kind: Kernel, g: &DecodeGeometry) -> Option<Tap> {
         })
     };
     match kind {
-        Kernel::EmbedGather => tap("embed", 4, g.hidden),
+        // Tied or untied, the reference's tap is one `embed`: the kinds
+        // differ in which tensor is asked for, not in what comes out.
+        Kernel::EmbedGather | Kernel::EmbedUntied => tap("embed", 4, g.hidden),
         Kernel::Rms => tap("attn_norm", 2, g.hidden),
         Kernel::FfnRms => tap("ffn_norm", 2, g.hidden),
         Kernel::FinalRms => tap("final_norm", 2, g.hidden),

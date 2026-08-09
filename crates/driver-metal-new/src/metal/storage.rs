@@ -165,6 +165,15 @@ pub fn stage_plan_weights(
     Ok((region, weights))
 }
 
+/// A scratch pool of `slots` buffers of `bytes` each — the dump path's
+/// no-recycle pool, where every activation value keeps its own buffer so
+/// nothing is overwritten before it is read back.
+pub fn scratch_pool(context: &Context, slots: usize, bytes: u64) -> Result<Vec<Handle>> {
+    (0..slots)
+        .map(|_| alloc_zeroed(context, bytes, "scratch slot"))
+        .collect()
+}
+
 /// Allocate every region the decode step touches and stage the weights.
 ///
 /// Region sizes are the geometry's own arithmetic, matching

@@ -253,3 +253,204 @@ fn the_assembly_fires_one_token_end_to_end() {
         "a decode stuck on one token is this family's classic silent failure: {sequence:?}"
     );
 }
+
+// ── The bisect: dump every tap of one <bos> step and hold the head of the
+// chain to host-computed values. The first tap that disagrees names the
+// broken kernel; everything before it is exonerated. ──
+
+fn read_npy(path: &std::path::Path) -> Vec<f32> {
+    let bytes = std::fs::read(path).unwrap_or_else(|_| panic!("{} missing", path.display()));
+    let len = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
+    bytes[10 + len..]
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+        .collect()
+}
+
+fn bf16(bits: u16) -> f32 {
+    f32::from_bits(u32::from(bits) << 16)
+}
+
+/// Dequantize one row of an affine g64/b4 tensor from its staged triplet.
+fn dequant_row(w: &[u8], scales: &[u8], biases: &[u8], row: usize, k: usize) -> Vec<f32> {
+    let groups = k / 64;
+    let mut out = Vec::with_capacity(k);
+    for g in 0..groups {
+        let scale = bf16(u16::from_le_bytes([
+            scales[(row * groups + g) * 2],
+            scales[(row * groups + g) * 2 + 1],
+        ]));
+        let bias = bf16(u16::from_le_bytes([
+            biases[(row * groups + g) * 2],
+            biases[(row * groups + g) * 2 + 1],
+        ]));
+        for i in 0..64 {
+            let at = row * k / 2 + (g * 64 + i) / 2;
+            let code = if i % 2 == 0 { w[at] & 0xf } else { w[at] >> 4 };
+            out.push(f32::from(code) * scale + bias);
+        }
+    }
+    out
+}
+
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    dot / (na * nb).max(1e-20)
+}
+
+#[test]
+fn the_first_step_taps_agree_with_the_host() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT");
+        return;
+    };
+    let snapshot = std::path::PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json")).unwrap();
+    let root: serde_json::Value = serde_json::from_str(&config).unwrap();
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().unwrap()).unwrap();
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json).unwrap();
+    let mut geometry = geometry_from_facts(&facts).unwrap();
+    geometry.quant = AffineFormat { bits: 4, group: 64 };
+    let target = metal_storage_target();
+    let (plan, _) = compile_load_plan(&snapshot, &target, &descriptor_json).unwrap();
+    let context = Context::new().unwrap();
+    let tuning = Tuning::default();
+    let max_ctx = 4096u32;
+    let slot_bytes = scratch_slot_elems(&geometry, &tuning, 1) * 2;
+    let mut storage =
+        stage_decode_storage(&context, &plan, &snapshot, &geometry, max_ctx, slot_bytes).unwrap();
+
+    let options = DagOptions::default();
+    let dag = build_decode_dag(&geometry, &tuning, options);
+    // No recycling: every value keeps its own buffer so the dump reads what
+    // each kernel wrote, not what overwrote it.
+    let schedule = build_scratch_schedule(&dag, true).unwrap();
+    storage.scratch = driver_metal_new::metal::scratch_pool(
+        &context,
+        schedule.coloring.colors_used as usize,
+        slot_bytes,
+    )
+    .expect("the no-recycle pool allocates");
+    eprintln!("no-recycle pool: {} buffers", schedule.coloring.colors_used);
+
+    let features = PsoFeatures {
+        gdn: true,
+        gated_attention: true,
+        sdpa_d256: geometry.head_dim == 256,
+        routed: geometry.is_moe(),
+        untied: !geometry.tied_embeddings,
+        ..PsoFeatures::default()
+    };
+    let pso_plan = plan_decode_psos(&EntryNames::bf16_g64_b4(), features);
+    let compiler = Compiler::new(&context).unwrap();
+    let psos = load_step_psos(&compiler, &context, &kernels_dir(), &pso_plan).unwrap();
+    let step = DecodeStep::prepare(
+        &context, &storage, &geometry, &tuning, options, &schedule, psos, max_ctx,
+    )
+    .unwrap();
+
+    let bos: u32 = [&root, root.get("text_config").unwrap_or(&root)]
+        .iter()
+        .find_map(|level| level.get("bos_token_id"))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok())
+        .unwrap();
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().unwrap();
+    unsafe {
+        io(IoSlot::TokenId).write(0, &bos.to_le_bytes()).unwrap();
+        io(IoSlot::SeqLen).write(0, &1u32.to_le_bytes()).unwrap();
+    }
+    let mut stepper = Stepper::new(&context).unwrap();
+    step.fire(&mut stepper).unwrap();
+
+    let dir = std::env::temp_dir().join("pie-golden-bisect");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sites: Vec<_> = dag
+        .iter()
+        .map(|d| driver_metal_new::batch::TapSite {
+            kind: d.kind,
+            layer: d.layer,
+        })
+        .collect();
+    unsafe {
+        driver_metal_new::batch::dump_taps(
+            &dir,
+            &sites,
+            &schedule,
+            &storage.scratch,
+            &geometry,
+            1,
+            0,
+        )
+    }
+    .unwrap();
+
+    // Host reference, tap by tap. embed: the dequantized bos row.
+    let staged = |name: &str| {
+        let h = storage
+            .weights
+            .get(name)
+            .unwrap_or_else(|| panic!("{name} staged"));
+        unsafe { std::slice::from_raw_parts(h.contents().cast::<u8>().as_ptr(), h.len() as usize) }
+    };
+    let hidden = geometry.hidden as usize;
+    let embed = dequant_row(
+        staged("embed_tokens.weight"),
+        staged("embed_tokens.scales"),
+        staged("embed_tokens.biases"),
+        bos as usize,
+        hidden,
+    );
+    let tap = read_npy(&dir.join("embed.npy"));
+    let c = cosine(&embed, &tap);
+    eprintln!("embed cosine {c:.6}");
+    assert!(
+        c > 0.999,
+        "embed diverges: the gather or its binds are wrong"
+    );
+
+    // 0.attn_norm: RMS over the embed row with layer 0's weight.
+    let w = staged("layers.0.input_layernorm.weight");
+    let rms = {
+        let mean: f32 = embed.iter().map(|x| x * x).sum::<f32>() / hidden as f32;
+        let inv = 1.0 / (mean + geometry.eps).sqrt();
+        embed
+            .iter()
+            .enumerate()
+            .map(|(i, x)| {
+                let wi = bf16(u16::from_le_bytes([w[i * 2], w[i * 2 + 1]]));
+                x * inv * wi
+            })
+            .collect::<Vec<_>>()
+    };
+    let tap = read_npy(&dir.join("0.attn_norm.npy"));
+    let c = cosine(&rms, &tap);
+    eprintln!("0.attn_norm cosine {c:.6}");
+    assert!(
+        c > 0.999,
+        "attn_norm diverges: RmsParams or its binds are wrong"
+    );
+
+    // 0.gdn_in_qkv: the first quantized matvec, host-recomputed whole.
+    let conv_dim = geometry.gdn_conv_dim as usize;
+    let wq = staged("layers.0.linear_attn.in_proj_qkv.weight");
+    let sq = staged("layers.0.linear_attn.in_proj_qkv.scales");
+    let bq = staged("layers.0.linear_attn.in_proj_qkv.biases");
+    let mut qkv = Vec::with_capacity(conv_dim);
+    for n in 0..conv_dim {
+        let row = dequant_row(wq, sq, bq, n, hidden);
+        qkv.push(row.iter().zip(&rms).map(|(w, x)| w * x).sum::<f32>());
+    }
+    let tap = read_npy(&dir.join("0.gdn_in_qkv.npy"));
+    let c = cosine(&qkv, &tap);
+    eprintln!("0.gdn_in_qkv cosine {c:.6}");
+    assert!(
+        c > 0.99,
+        "the quantized matvec diverges: Qmv K/N or the triplet binds"
+    );
+    eprintln!("bisect: embed, attn_norm and the first matvec agree with the host");
+}
