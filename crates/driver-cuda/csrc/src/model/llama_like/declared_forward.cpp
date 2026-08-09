@@ -164,6 +164,22 @@ void pin_llama_like_values(const pie_forward::ForwardPlan& plan,
             }
             break;
         }
+        case PieForwardOpKind::Launch: {
+            // The FUSED qk-norm+rope rewrites q and k where they lie,
+            // exactly as the semantic rope below does, and its results
+            // are what the attention and the KV write read. This is the
+            // spelling llama_like's own gate model states -- 84 times
+            // per decode text -- so unlike the rope entry below, this
+            // one is checked.
+            const std::string_view sym = plan.weight_name(op);
+            if ((sym == "rope::qk_rmsnorm_rope_bf16" ||
+                 sym == "rope::qk_rmsnorm_rope_bf16_devwin") &&
+                outs.size >= 2) {
+                values.pin(outs[0], ws.q.data());
+                values.pin(outs[1], ws.k.data());
+            }
+            break;
+        }
         case PieForwardOpKind::Rope:
             // Rope rewrites q and k where they lie; the attention and
             // the KV write downstream still name those buffers, so the
@@ -1780,6 +1796,14 @@ void llama_like_forward_declared(
                 const ParsedWeightName q_nm = parse_weight_name(q_name);
                 if (q_nm.field != "q_norm") throw_unknown_weight(q_name);
                 const auto& layer = layer_of(w, q_nm, q_name);
+                // ISLAND (value arena). Both buffers are the
+                // statement's, and the trace states the alias now -- the
+                // `kernel!` row's operands are `q: BufMut, k: BufMut`,
+                // which is the same fact said in the table.
+                void* const fq = values.slot(plan.outputs(op)[0],
+                                             plan.value(plan.outputs(op)[0]));
+                void* const fk = values.slot(plan.outputs(op)[1],
+                                             plan.value(plan.outputs(op)[1]));
                 // Windowed (A3): a Peel's tail region norms+ropes the
                 // hook-visible rows at their absolute offsets (the
                 // hand-written tail call); offset 0 + full length is
@@ -1787,7 +1811,7 @@ void llama_like_forward_declared(
                 if (peel_window_d != nullptr &&
                     win_region == WinRegion::Tail) {
                     kernels::rope::qk_rmsnorm_rope_bf16_devwin(
-                        ws.q.data(), ws.k.data(),
+                        fq, fk,
                         require(layer.q_norm, q_name)->data(),
                         require(layer.k_norm, k_name)->data(),
                         positions,
@@ -1797,8 +1821,8 @@ void llama_like_forward_declared(
                     break;
                 }
                 kernels::rope::qk_rmsnorm_rope_bf16(
-                    bf16_row(ws.q.data(), win_start, Hq),
-                    bf16_row(ws.k.data(), win_start, Hk),
+                    bf16_row(fq, win_start, out_w(0)),
+                    bf16_row(fk, win_start, out_w(1)),
                     require(layer.q_norm, q_name)->data(),
                     require(layer.k_norm, k_name)->data(),
                     positions + win_start, win_len,

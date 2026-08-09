@@ -28,7 +28,12 @@ pub static KERNELS: &[KernelSig] = &[
             stream: Stream,
             interleaved: Bool,
         ]),
+    // Norms AND rotates q and k where they lie -- `BufMut` on both, and
+    // no destination to give them another. The `_rounded` twin below has
+    // said so since gemma-4's conversion; this row had not, and
+    // llama_like states it 84 times per decode text.
     kernel!(qk_rmsnorm_rope "rope::qk_rmsnorm_rope_bf16",
+        in_place = &[(0, 0), (1, 1)],
         operands = operands![
             q: BufMut, k: BufMut,
             q_weight: Buf, k_weight: Buf,
@@ -42,6 +47,7 @@ pub static KERNELS: &[KernelSig] = &[
     // for a reason no other `whole` row here gives: the window is not a
     // number the lowering knows, so it cannot be a rectangle at all.
     kernel!(qk_rmsnorm_rope_devwin "rope::qk_rmsnorm_rope_bf16_devwin", whole = true,
+        in_place = &[(0, 0), (1, 1)],
         operands = operands![
             q: BufMut, k: BufMut,
             q_weight: Buf, k_weight: Buf,
