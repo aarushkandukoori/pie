@@ -164,6 +164,18 @@ void pin_llama_like_values(const pie_forward::ForwardPlan& plan,
             }
             break;
         }
+        case PieForwardOpKind::Rope:
+            // Rope rewrites q and k where they lie; the attention and
+            // the KV write downstream still name those buffers, so the
+            // rotated results have to land on them. Without this the arm
+            // would write host-assigned bytes nothing else reads -- and
+            // no gate here would say so, because qwen3-0.6b states the
+            // FUSED `qk_rmsnorm_rope` and never reaches the arm.
+            if (outs.size >= 2) {
+                values.pin(outs[0], ws.q.data());
+                values.pin(outs[1], ws.k.data());
+            }
+            break;
         case PieForwardOpKind::RmsnormPerHead: {
             // The per-head q/k norms rewrite the projections where they
             // lie by convention; rope and the attention downstream still
@@ -1560,14 +1572,23 @@ void llama_like_forward_declared(
             // >= 2 — so the resting value cannot be mistaken). A partial
             // trace therefore states its own width, and the executor does
             // not re-derive it from the config.
+            // ISLAND (value arena). Rope rotates where q and k lie and
+            // the trace states that alias, so the two outputs name the
+            // buffers their operands already sit in. The head COUNTS
+            // stay config's: the rotation's geometry is not something a
+            // row width alone gives.
+            void* const rq = values.slot(plan.outputs(op)[0],
+                                         plan.value(plan.outputs(op)[0]));
+            void* const rk = values.slot(plan.outputs(op)[1],
+                                         plan.value(plan.outputs(op)[1]));
             if (op.param1 != 0) {
                 kernels::rope::rope_partial_bf16(
-                    ws.q.data(), ws.k.data(), positions,
+                    rq, rk, positions,
                     N, num_q_heads, num_kv_heads, d,
                     static_cast<int>(op.param1), cfg.rope_theta, stream);
             } else {
                 kernels::rope::rope_bf16(
-                    ws.q.data(), ws.k.data(), positions,
+                    rq, rk, positions,
                     N, num_q_heads, num_kv_heads, d,
                     cfg.rope_theta, stream);
             }
@@ -1657,11 +1678,20 @@ void llama_like_forward_declared(
                     values.slot(plan.outputs(op)[0],
                                 plan.value(plan.outputs(op)[0]));
                 if (stated_fused) {
+                    // ISLAND (value arena): the packed bank is the
+                    // statement's operand.
                     kernels::mlp::chunked_swiglu_bf16(
-                        ws.gate_up_fused.data(), dst, N, I, stream);
+                        values.slot(plan.inputs(op)[0],
+                                    plan.value(plan.inputs(op)[0])),
+                        dst, N, out_w(0), stream);
                 } else {
+                    // The PAIR spelling reads `ws.gate` and `ws.up`,
+                    // which the single traced `gate_up` value does not
+                    // describe -- the gap this family and qwen3.5 both
+                    // stop at.
                     kernels::mlp::swiglu_bf16(
-                        ws.gate.data(), ws.up.data(), dst, N * I, stream);
+                        ws.gate.data(), ws.up.data(), dst,
+                        N * out_w(0), stream);
                 }
                 break;
             }

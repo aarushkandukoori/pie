@@ -1041,3 +1041,40 @@ fn what_the_epilogue_hands_each_of_its_rectangles() {
         }
     }
 }
+
+/// WHICH OP KINDS A FAMILY'S TEXT ACTUALLY STATES.
+///
+/// A green parity gate says the declared drive matches the hand-written
+/// one on the model the harness loads. It says nothing about arms that
+/// model never reaches, and this arc has now converted three of those
+/// without noticing until afterwards: llama_like's `RmsnormPerHead` and
+/// semantic `Rope` arms are dead on qwen3-0.6b, which states the FUSED
+/// `rope::qk_rmsnorm_rope_bf16` instead.
+///
+/// One of them was converted with no pin entry, so the arm would have
+/// written host-assigned bytes nothing else reads — on a deployment the
+/// gate cannot load. That is the failure this census exists to make
+/// cheap to check: before converting an arm, ask whether the text the
+/// A/B runs even contains its op.
+#[test]
+fn which_op_kinds_each_family_states() {
+    use std::collections::BTreeMap;
+    for (name, class, plan) in families() {
+        let mut census: BTreeMap<String, usize> = BTreeMap::new();
+        for op in &plan.ops {
+            let key = match &op.kind {
+                OpKind::Launch { kernel, .. } => format!("Launch:{kernel}"),
+                other => format!("{other:?}")
+                    .split(|c: char| !c.is_alphanumeric())
+                    .next()
+                    .unwrap_or("?")
+                    .to_string(),
+            };
+            *census.entry(key).or_default() += 1;
+        }
+        let mut line: Vec<String> =
+            census.iter().map(|(k, n)| format!("{k}x{n}")).collect();
+        line.sort();
+        println!("{name:12} {class:?}: {}", line.join(" "));
+    }
+}
