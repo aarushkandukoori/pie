@@ -7,6 +7,7 @@
 #include "moe/topk_softmax.hpp"
 #include <type_traits>
 #include "model/declared/arms.hpp"
+#include "model/declared/execute.hpp"
 #include "model/declared/registry.hpp"
 #include "model/declared/weights.hpp"
 
@@ -1705,86 +1706,27 @@ case PieForwardOpKind::Launch: {
                 op.param0 == 2  // RecurrentState store mark
                     ? state_cache.recurrent_state_raw(SL, /*slot=*/0)
                     : nullptr;
+            // THE SHARED SWITCH FIRST (D1). Every symbol whose arm is
+            // family-blind lives in `declared/execute.hpp`; what remains
+            // below is this family's RESIDUE. A `false` is an answer --
+            // "stated, and this family executes it its own way".
+            const declared::ExecCtx ectx{
+                {plan, values, N, 0, stream},
+                wb, cache, attn_ws, cublas,
+                positions, qo_indptr, kv_page_indices, kv_page_indptr,
+                kv_last_page_lens, row_valid_d, w_page_d, w_off_d, R,
+                nullptr, false,
+                eps, cfg.rope_theta,
+                num_q_heads, num_kv_heads, d, d,
+                SL,
+            };
+            if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
             case declared::Kernel::RmsnormRow:
-            case declared::Kernel::RmsnormRowGemma: {
-                // SHARED ARM (D1). The fold comes from the SYMBOL the
-                // registry matched. This family's driver used to THROW
-                // on anything but the Gemma variant -- a deployment's
-                // answer hard-coded into an executor -- and now it
-                // serves whichever the text states.
-                const auto nrm = plan.aux_names(op);
-                if (nrm.size != 1) {
-                    throw_drift("a stated row norm names " +
-                                std::to_string(nrm.size) + " weights");
-                }
-                declared::arm_rmsnorm(
-                    {plan, values, N, 0, stream}, op,
-                    wb.require(plan.name(nrm[0])).data(), eps,
-                    declared::resolve_kernel(plan.weight_name(op)) ==
-                        declared::Kernel::RmsnormRowGemma);
-                break;
-            }
             case declared::Kernel::MatmulTensorScaled:
             case declared::Kernel::MatmulChannelScaled:
             case declared::Kernel::MatmulGroupedScaled:
-            case declared::Kernel::MatmulMxfp4Marlin: {
-                // BINDING, not routing -- llama_like's arm verbatim.
-                // The statement's weight list is `[W, scales]`, plus
-                // `zeros` where the checkpoint carries them.
-                const auto qa = plan.aux_names(op);
-                if (qa.size < 2 || qa.size > 3) {
-                    throw_drift("a scaled projection names " +
-                                std::to_string(qa.size) +
-                                " weights, wants 2 or 3");
-                }
-                const auto matched = declared::resolve_kernel(plan.weight_name(op));
-                const declared::ScaledRepr repr =
-                    matched == declared::Kernel::MatmulTensorScaled
-                        ? declared::ScaledRepr::PerTensor
-                    : matched == declared::Kernel::MatmulChannelScaled
-                        ? declared::ScaledRepr::PerChannel
-                    : matched == declared::Kernel::MatmulGroupedScaled
-                        ? declared::ScaledRepr::PerGroup
-                        : declared::ScaledRepr::Mxfp4Marlin;
-                declared::arm_scaled_matmul(
-                    {plan, values, N, 0, stream}, op, repr, cublas.handle(),
-                    wb.require(plan.name(qa[0])),
-                    wb.require(plan.name(qa[1])),
-                    qa.size == 3 ? &wb.require(plan.name(qa[2])) : nullptr,
-                    // `try_fold_residual` refuses a `Launch`, so a
-                    // quantized projection's landing is a stated add.
-                    0.f);
-                break;
-            }
             case declared::Kernel::RopeFull:
-            case declared::Kernel::RopePartial: {
-                // BINDING. The SYMBOL says which rotation; the partial
-                // one's width rides the statement's params, so the
-                // executor reads neither a config nor an op field for
-                // it. `rope_theta` stays config's, like `eps`.
-                const auto ro = plan.outputs(op);
-                need(ro, 2, "rope outputs");
-                void* const rq = values.slot(ro[0]);
-                void* const rk = values.slot(ro[1]);
-                if (declared::resolve_kernel(plan.weight_name(op)) ==
-                    declared::Kernel::RopePartial) {
-                    const auto rp = plan.aux_params(op);
-                    if (rp.size != 1) {
-                        throw_drift("a partial rotation states " +
-                                    std::to_string(rp.size) +
-                                    " scalar arguments, wants 1");
-                    }
-                    kernels::rope::rope_partial_bf16(
-                        rq, rk, positions, N, num_q_heads, num_kv_heads, d,
-                        static_cast<int>(rp[0]), cfg.rope_theta, stream);
-                } else {
-                    kernels::rope::rope_bf16(
-                        rq, rk, positions, N, num_q_heads, num_kv_heads, d,
-                        cfg.rope_theta, stream);
-                }
-                break;
-            }
             case declared::Kernel::SplitRows:
             case declared::Kernel::SplitGdnBa: {
                 // The two GDN splits, told apart by their SYMBOLS. The
@@ -2057,19 +1999,6 @@ case PieForwardOpKind::Launch: {
             // arm reads them off the plan. Only the dense MLP states
             // it -- the routed and shared legs always bind packed
             // banks and take the chunked kernel below.
-            case declared::Kernel::Swiglu: {
-                const auto si = plan.inputs(op);
-                const auto so = plan.outputs(op);
-                need(si, 2, "swiglu pair inputs");
-                need(so, 1, "swiglu pair outputs");
-                kernels::mlp::swiglu_bf16(
-                    values.slot(si[0]), values.slot(si[1]),
-                    values.slot(so[0]), N * row_width(so[0]), stream);
-                break;
-            }
-            // The MLP activation. WHICH of the two runs is the
-            // checkpoint's gate_up binding, and the trace states it —
-            // the executor no longer reads a workspace to find out.
             case declared::Kernel::ChunkedSwiglu: {
                 // Three callers share this kernel: the dense MLP's, the
                 // routed leg's (block-major rows) and the shared expert's

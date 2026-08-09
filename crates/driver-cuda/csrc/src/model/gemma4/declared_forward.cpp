@@ -24,6 +24,7 @@
 #include "attn/attention_naive_paged.hpp"
 #include "gemm/gemm.hpp"
 #include "model/declared/arms.hpp"
+#include "model/declared/execute.hpp"
 #include "model/declared/registry.hpp"
 #include "model/declared/weights.hpp"
 #include "model/declared/value_arena.hpp"
@@ -576,22 +577,22 @@ bool gemma4_forward_declared(
             const auto aux = [&](std::size_t i) {
                 return plan.name(names[i]);
             };
+            // THE SHARED SWITCH FIRST (D1). Every symbol whose arm is
+            // family-blind lives in `declared/execute.hpp`; what remains
+            // below is this family's RESIDUE. A `false` is an answer --
+            // "stated, and this family executes it its own way".
+            const declared::ExecCtx ectx{
+                {plan, values, N, 0, stream},
+                wb, cache, attn_ws, cublas,
+                positions, qo_indptr, kv_page_indices, kv_page_indptr,
+                kv_last_page_lens, row_valid_d, nullptr, nullptr, R,
+                nullptr, false,
+                eps, 0.f,
+                cfg.num_attention_heads, cfg.num_key_value_heads, cur_d, cur_d,
+                cur_layer,
+            };
+            if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {
-            case declared::Kernel::RmsnormRow:
-            case declared::Kernel::RmsnormRowGemma: {
-                // SHARED ARM (D1). The fold comes from the SYMBOL the
-                // registry matched, not from a param this arm reads.
-                const auto nrm = plan.aux_names(op);
-                if (nrm.size != 1) {
-                    throw_drift("a stated row norm names " +
-                                std::to_string(nrm.size) + " weights");
-                }
-                declared::arm_rmsnorm(
-                    {plan, values, N, 0, stream}, op,
-                    wb.require(plan.name(nrm[0])).data(), eps,
-                    declared::resolve_kernel(sym) == declared::Kernel::RmsnormRowGemma);
-                break;
-            }
             case declared::Kernel::ScalarMul: {
                 const std::string_view which = aux(0);
                 // ISLAND (value arena). Four sites that named four
@@ -626,18 +627,6 @@ bool gemma4_forward_declared(
                     "declared gemma4: lora correction reached, but gemma-4 "
                     "has no adapter support on either side (arc 2 should "
                     "have declined this fire)");
-            case declared::Kernel::ResidualAdd:
-                {
-                    const auto ins = plan.inputs(op);
-                    const auto outs = plan.outputs(op);
-                    need(ins, 2, "residual_add inputs");
-                    need(outs, 1, "residual_add outputs");
-                    kernels::norm::residual_add_bf16(
-                        values.slot(outs[0]), values.slot(ins[1]),
-                        static_cast<std::size_t>(N) * row_width(outs[0]),
-                        stream);
-                }
-                break;
             case declared::Kernel::TransposeNldToLnd:
                 {
                     // The three EXTENTS stay config: this value's rows
@@ -706,19 +695,6 @@ bool gemma4_forward_declared(
                         N * (row_width(outs[0]) / cur_d), cur_d, eps, stream);
                 }
                 break;
-            case declared::Kernel::WriteKvToPages: {
-                auto kv_view = cache.layer_view(cur_layer);
-                // The fourth argument is `qo_indptr`, not an optional.
-                // It was passed as nullptr on an assumption, and the
-                // kernel dereferenced it — the illegal access this
-                // drive faulted with on its first live fire.
-                kernels::attn::write_kv_to_pages(
-                    kv_view, values.slot(plan.inputs(op)[0]),
-                    values.slot(plan.inputs(op)[1]),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, N, R, stream, row_valid_d);
-                break;
-            }
             case declared::Kernel::AttnFlashinferDecode: {
                 auto kv_view = cache.layer_view(cur_layer);
                 kernels::attn::DecodePlanCache* p =
@@ -1052,6 +1028,9 @@ bool gemma4_forward_declared(
                     // stream into the same scratch.
                     pin(0, ws.norm_x.data());
                     break;
+                case declared::Kernel::ResidualAdd:
+                    pin(0, per_layer_proj);
+                    break;
                 case declared::Kernel::ScalarMul: {
                     const std::string_view which = aux(0);
                     if (which == "scale.sqrt_hidden")        pin(0, ws.y.data());
@@ -1059,7 +1038,6 @@ bool gemma4_forward_declared(
                     else                                     pin(0, per_layer_proj);
                     break;
                 }
-                case declared::Kernel::ResidualAdd:       pin(0, per_layer_proj); break;
                 case declared::Kernel::TransposeNldToLnd: pin(0, per_layer_token); break;
                 case declared::Kernel::QkvPackedPost:     pin(0, ws.q.data()); break;
                 case declared::Kernel::QkRmsnormRopeRounded:

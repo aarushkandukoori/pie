@@ -17,6 +17,7 @@
 
 #include "model/declared/value_arena.hpp"
 #include "model/declared/arms.hpp"
+#include "model/declared/execute.hpp"
 #include "model/declared/registry.hpp"
 #include "model/declared/weights.hpp"
 #include "batch/supergraph.hpp"
@@ -1762,61 +1763,28 @@ void llama_like_forward_declared(
                 attn_page_indptr = page_mask.page_indptr();
                 attn_last_page_lens = page_mask.last_page_lens();
             };
+            // THE SHARED SWITCH FIRST (D1). Every symbol whose arm is
+            // family-blind lives in `declared/execute.hpp` now; what
+            // remains below is this family's RESIDUE -- the arms that
+            // still name a workspace field, a plan cache, or a handle
+            // no other family has.
+            //
+            // A `false` is an answer, not a failure: `resolve_kernel`
+            // already refused anything the registry does not know, so
+            // it means "stated, and this family executes it its own
+            // way".
+            const declared::ExecCtx ectx{
+                {plan, values, N, win_start, stream},
+                wb, cache, attn_ws, cublas,
+                positions, qo_indptr, kv_page_indices, kv_page_indptr,
+                kv_last_page_lens, row_valid_d, w_page_d, w_off_d, R,
+                peel_window_d, win_region == WinRegion::Tail,
+                eps, cfg.rope_theta,
+                num_q_heads, num_kv_heads, d, dk,
+                L,
+            };
+            if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
-            // The MLP activation. The declaration states WHICH swiglu,
-            // from the gate_up binding fact it was traced with, so this
-            // arm no longer asks the workspace — it CHECKS, because a
-            // trace built against a different binding than the one this
-            // model bound would otherwise read the wrong buffer and
-            // produce plausible garbage. Refuse on drift, the same rule
-            // the region table's plan cross-check follows.
-            case declared::Kernel::ChunkedSwiglu:
-            case declared::Kernel::Swiglu: {
-                // BINDING, both spellings. The chunked form reads one
-                // packed operand and the pair form reads two, and each
-                // statement carries the operands it reads -- so the
-                // `stated_fused != gate_up_used_fused` cross-check is
-                // deleted. It existed to catch a drift the one-statement
-                // reading created (2d), between this arm and a Matmul
-                // arm that had to guess the same thing.
-                const bool pair =
-                    declared::resolve_kernel(plan.weight_name(op)) ==
-                    declared::Kernel::Swiglu;
-                const auto si = plan.inputs(op);
-                const auto so = plan.outputs(op);
-                declared::need(si, pair ? 2 : 1, "swiglu inputs");
-                declared::need(so, 1, "swiglu outputs");
-                void* const dst = values.slot(so[0], plan.value(so[0]));
-                if (pair) {
-                    kernels::mlp::swiglu_bf16(
-                        values.slot(si[0], plan.value(si[0])),
-                        values.slot(si[1], plan.value(si[1])),
-                        dst, N * out_w(0), stream);
-                } else {
-                    kernels::mlp::chunked_swiglu_bf16(
-                        values.slot(si[0], plan.value(si[0])),
-                        dst, N, out_w(0), stream);
-                }
-                break;
-            }
-            case declared::Kernel::RmsnormRow:
-            case declared::Kernel::RmsnormRowGemma: {
-                // SHARED ARM (D1). The fold comes from the SYMBOL the
-                // registry matched, not from a param this arm reads --
-                // which is the difference between binding and choosing.
-                const auto aux = plan.aux_names(op);
-                if (aux.size != 1) {
-                    throw std::runtime_error(
-                        "declared forward: a stated row norm names " +
-                        std::to_string(aux.size) + " weights, wants 1");
-                }
-                declared::arm_rmsnorm(
-                    {plan, values, N, 0, stream}, op,
-                    wb.require(plan.name(aux[0])).data(), eps,
-                    declared::resolve_kernel(plan.weight_name(op)) ==
-                        declared::Kernel::RmsnormRowGemma);
-                break;
-            }
             case declared::Kernel::AllReduce:
             case declared::Kernel::AllReduceOut: {
                 // BINDING. Which collective is the SYMBOL; whether the
@@ -1864,75 +1832,6 @@ void llama_like_forward_declared(
                     wb.require(plan.name(raux[0])).data(),
                     values.slot(ro[0], plan.value(ro[0])),
                     N, out_w(0), eps, stream);
-                break;
-            }
-            case declared::Kernel::PadHeadDim:
-            case declared::Kernel::StripHeadDim: {
-                // BINDING. Both directions are one kernel shape --
-                // operand in, result out, the head COUNT and the two
-                // widths -- and the count comes off the result's own
-                // shape, which is `[Tokens, heads, head_dim]`.
-                const auto pi = plan.inputs(op);
-                const auto po = plan.outputs(op);
-                declared::need(pi, 1, "head-dim staging inputs");
-                declared::need(po, 1, "head-dim staging outputs");
-                const auto& rv = plan.value(po[0]);
-                if (rv.rank != 3) {
-                    throw std::runtime_error(
-                        "declared forward: a head-dim staging result "
-                        "states rank " + std::to_string(rv.rank) +
-                        ", wants [Tokens, heads, head_dim]");
-                }
-                const int heads = static_cast<int>(rv.dims[1].value);
-                if (declared::resolve_kernel(plan.weight_name(op)) ==
-                    declared::Kernel::PadHeadDim) {
-                    kernels::attn::pad_head_dim_bf16(
-                        values.slot(pi[0], plan.value(pi[0])),
-                        values.slot(po[0], plan.value(po[0])),
-                        N, heads, d, dk, stream);
-                } else {
-                    kernels::attn::strip_head_dim_bf16(
-                        values.slot(pi[0], plan.value(pi[0])),
-                        values.slot(po[0], plan.value(po[0])),
-                        N, heads, d, dk, stream);
-                }
-                break;
-            }
-            case declared::Kernel::RopeFull:
-            case declared::Kernel::RopePartial: {
-                // BINDING. Which rotation runs is the SYMBOL; the
-                // partial one's width rides the statement's params, so
-                // nothing here reads the config for it.
-                //
-                // Rope rotates where q and k lie and the trace states
-                // that alias (`semantic_in_place`'s successor: the
-                // `kernel!` rows carry both pairs), so the two outputs
-                // name the buffers their operands already sit in. The
-                // head COUNTS stay config's -- the rotation's geometry
-                // is not something a row width alone gives.
-                const auto rope_outs = plan.outputs(op);
-                declared::need(rope_outs, 2, "rope outputs");
-                void* const rq = values.slot(rope_outs[0],
-                                             plan.value(rope_outs[0]));
-                void* const rk = values.slot(rope_outs[1],
-                                             plan.value(rope_outs[1]));
-                if (declared::resolve_kernel(plan.weight_name(op)) ==
-                    declared::Kernel::RopePartial) {
-                    const auto rp = plan.aux_params(op);
-                    if (rp.size != 1) {
-                        throw std::runtime_error(
-                            "declared forward: a partial rotation states " +
-                            std::to_string(rp.size) +
-                            " scalar arguments, wants 1 (rotary_dim)");
-                    }
-                    kernels::rope::rope_partial_bf16(
-                        rq, rk, positions, N, num_q_heads, num_kv_heads, d,
-                        static_cast<int>(rp[0]), cfg.rope_theta, stream);
-                } else {
-                    kernels::rope::rope_bf16(
-                        rq, rk, positions, N, num_q_heads, num_kv_heads, d,
-                        cfg.rope_theta, stream);
-                }
                 break;
             }
             case declared::Kernel::RopeStandardTable: {

@@ -24,6 +24,7 @@
 #include "attn/attention_flashinfer.hpp"
 #include "gemm/gemm.hpp"
 #include "model/declared/arms.hpp"
+#include "model/declared/execute.hpp"
 #include "model/declared/registry.hpp"
 #include "model/declared/weights.hpp"
 #include "model/declared/value_arena.hpp"
@@ -594,22 +595,23 @@ bool gpt_oss_forward_declared(
             const auto aux = [&](std::size_t i) { return plan.name(names[i]); };
             const MixtralLayerWeights& layer =
                 w.layers[static_cast<std::size_t>(cur_layer)];
+            // THE SHARED SWITCH FIRST (D1). Every symbol whose arm is
+            // family-blind lives in `declared/execute.hpp`; what remains
+            // below is this family's RESIDUE. A `false` is an answer --
+            // "stated, and this family executes it its own way".
+            const declared::ExecCtx ectx{
+                {plan, values, N, 0, stream},
+                wb, cache, attn_ws, cublas,
+                positions, qo_indptr, kv_page_indices, kv_page_indptr,
+                kv_last_page_lens, row_valid_d, nullptr, nullptr, R,
+                nullptr, false,
+                eps, cfg.rope_theta,
+                cfg.num_attention_heads, cfg.num_key_value_heads, d, d,
+                cur_layer,
+            };
+            if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {
             case declared::Kernel::RmsnormRow:
-            case declared::Kernel::RmsnormRowGemma: {
-                // SHARED ARM (D1). The fold comes from the SYMBOL the
-                // registry matched, not from a param this arm reads.
-                const auto nrm = plan.aux_names(op);
-                if (nrm.size != 1) {
-                    throw_drift("a stated row norm names " +
-                                std::to_string(nrm.size) + " weights");
-                }
-                declared::arm_rmsnorm(
-                    {plan, values, N, 0, stream}, op,
-                    wb.require(plan.name(nrm[0])).data(), eps,
-                    declared::resolve_kernel(sym) == declared::Kernel::RmsnormRowGemma);
-                break;
-            }
             case declared::Kernel::GemmBias: {
                 // ISLAND (value arena). Four sites told apart by the
                 // projection they name, and every branch chose a buffer
@@ -827,22 +829,7 @@ bool gpt_oss_forward_declared(
                     static_cast<const float*>(values.slot(ins[1])),
                     N, top_k, H, stream);
                 break;
-            }
-            case declared::Kernel::ResidualAdd: {
-                // ISLAND (value arena). `residual_add(x, residual)`
-                // lands on x -- input 0, which the `kernel!` row aliases
-                // output 0 over -- so the stream is operand 0 and the
-                // MoE output is operand 1. gpt-oss stated those the
-                // other way round until this conversion asked; see the
-                // note at its `residual_add` call.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 2, "residual add inputs");
-                need(outs, 1, "residual add outputs");
-                declared::arm_residual_add({plan, values, N, 0, stream}, op);
-                break;
-            }
-            }
+            }}
             break;
         }
         case PieForwardOpKind::HookSite:
