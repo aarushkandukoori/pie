@@ -142,6 +142,13 @@ void pin_llama_like_values(const pie_forward::ForwardPlan& plan,
                 values.pin(outs[0], ws.k.data());
             } else if (nm.field == "v_proj") {
                 values.pin(outs[0], ws.v.data());
+            } else if (nm.field == "gate_up") {
+                // The FUSED binding's destination. The unfused pair
+                // writes `ws.gate`/`ws.up`, which this single traced
+                // value does not describe -- the gap qwen3.5's arm
+                // stops at too -- so only the fused spelling asks for
+                // the value and this entry serves it.
+                values.pin(outs[0], ws.gate_up_fused.data());
             } else if (nm.field == "o_proj" || nm.field == "down") {
                 values.pin(outs[0], post_norm ? ws.norm_x.data()
                                               : ws.y.data());
@@ -1287,6 +1294,29 @@ void llama_like_forward_declared(
                 return values.slot(plan.outputs(op)[i],
                                    plan.value(plan.outputs(op)[i]));
             };
+            // A value's trailing dims ARE its row width, which is what
+            // `Hq + 2 * Hk`, `Hq`, `Hk`, `I` and `H` were spelling. The
+            // buffers here were already the trace's; these were the last
+            // half of the convention this arm still carried.
+            const auto row_width = [&](std::uint32_t id) {
+                const auto& val = plan.value(id);
+                std::uint32_t out = 1;
+                for (std::uint32_t k = 1; k < val.rank; ++k) {
+                    if (val.dims[k].kind !=
+                        pie_forward::PieForwardDimKind::Const) {
+                        return 0;
+                    }
+                    out *= val.dims[k].value;
+                }
+                return static_cast<int>(out);
+            };
+            const auto in_w = [&]() {
+                return plan.inputs(op).size > 0 ? row_width(plan.inputs(op)[0])
+                                                : H;
+            };
+            const auto out_w = [&](std::size_t i) {
+                return row_width(plan.outputs(op)[i]);
+            };
             // The island's consumers: the projection reads the value the
             // attn_norm arm produced (pinned, so LoRA's captured pointer
             // and this slot are the same bytes).
@@ -1307,25 +1337,25 @@ void llama_like_forward_declared(
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     WeightView(wb.require(name)),
-                    out_slot(0), N, Hq + 2 * Hk, H);
+                    out_slot(0), N, out_w(0), in_w());
             } else if (nm.field == "q_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     make_weight_view(&wb.require(name),
                                      layer.q_proj_quant),
-                    out_slot(0), N, Hq, H);
+                    out_slot(0), N, out_w(0), in_w());
             } else if (nm.field == "k_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     make_weight_view(&wb.require(name),
                                      layer.k_proj_quant),
-                    out_slot(0), N, Hk, H);
+                    out_slot(0), N, out_w(0), in_w());
             } else if (nm.field == "v_proj") {
                 kernels::gemm::act_x_w(cublas.handle(),
                     qkv_in,
                     make_weight_view(&wb.require(name),
                                      layer.v_proj_quant),
-                    out_slot(0), N, Hk, H);
+                    out_slot(0), N, out_w(0), in_w());
             } else if (nm.field == "o_proj") {
                 if (post_norm) {
                     // Post-norm: o_proj lands in the norm_x scratch (the
@@ -1341,7 +1371,7 @@ void llama_like_forward_declared(
                                     plan.value(plan.inputs(op)[0])),
                         make_weight_view(&wb.require(name),
                                          layer.o_proj_quant),
-                        out_slot(0), N, H, Hq, beta);
+                        out_slot(0), N, out_w(0), in_w(), beta);
                 } else {
                     // Residual accumulate folded into the GEMM (beta from
                     // the trace's beta_one), exactly the hand-written T==1
@@ -1355,7 +1385,7 @@ void llama_like_forward_declared(
                                     plan.value(plan.inputs(op)[0])),
                         make_weight_view(&wb.require(name),
                                          layer.o_proj_quant),
-                        out_slot(0), N, H, Hq, beta);
+                        out_slot(0), N, out_w(0), in_w(), beta);
                 }
             } else if (nm.field == "gate_up") {
                 // The island's consumer: the same traced value the
@@ -1374,7 +1404,7 @@ void llama_like_forward_declared(
                     kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
                         WeightView(*layer.gate_up_proj_fused),
-                        ws.gate_up_fused.data(), N, 2 * I, H);
+                        out_slot(0), N, out_w(0), in_w());
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),
                         gate_up_in,
@@ -1401,13 +1431,13 @@ void llama_like_forward_declared(
                         down_in,
                         make_weight_view(&wb.require(name),
                                          layer.down_proj_quant),
-                        ws.norm_x.data(), N, H, I, beta);
+                        out_slot(0), N, out_w(0), in_w(), beta);
                 } else {
                     kernels::gemm::act_x_w(cublas.handle(),
                         down_in,
                         make_weight_view(&wb.require(name),
                                          layer.down_proj_quant),
-                        ws.y.data(), N, H, I, beta);
+                        out_slot(0), N, out_w(0), in_w(), beta);
                 }
             } else {
                 throw_unknown_weight(name);
