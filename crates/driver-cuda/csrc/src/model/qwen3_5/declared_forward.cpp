@@ -849,13 +849,17 @@ bool forward_declared_tmpl(
             case Q35Kernel::PrefillCachedBf16:
             case Q35Kernel::PrefillFla:
             case Q35Kernel::PrefillFlaBf16:
-                // The recurrence writes the value it is asked for: its
-                // own where the decode step declares one, its guard's
-                // otherwise. Its five operands are still the GDN prep's
-                // results, read by convention -- so the WRITE has moved
-                // and the reads have not, which is why this stays
-                // unconverted until they follow.
-                return false;
+            case Q35Kernel::RepeatInterleave:
+                // Both ends now. The recurrence writes the value it is
+                // asked for -- its own where the decode step declares
+                // one, its guard's otherwise -- and reads its five
+                // operands off the plan. Under GQA q and k come from the
+                // repeat instead, whose own SOURCE is stated, so the
+                // chain from `q_pre` through the repeat to the
+                // recurrence is consistent whichever way the deployment
+                // goes: the only buffer read by convention is the
+                // repeat's destination, and no traced value lives there.
+                return true;
             default:
                 // Notably `Swiglu`, the PAIR spelling: it reads
                 // `ws.gate` and `ws.up`, which the single traced
@@ -1305,6 +1309,27 @@ bool forward_declared_tmpl(
             if (b != pie_forward::PIE_FORWARD_NO_VALUE) return values.slot(b);
             throw_drift("a launch that declares no output sits in no "
                         "value-producing guard");
+        };
+        // The recurrence's five operands. v/g/beta are the GDN prep's
+        // results and always the statement's; q/k are too UNTIL the GQA
+        // repeat sits between them, and that repeat declares no output
+        // of its own -- `repeat_interleave_heads` records `None` -- so
+        // its result is `la.q_norm`/`la.k_norm` by convention and the
+        // recurrence reads THAT. The declaration still names q_pre
+        // there, which is the same "declares no output" gap the
+        // attention has; the difference is that here it costs only two
+        // operands and the repeat's own SOURCE is stated, so the chain
+        // stays consistent either way.
+        const auto rec_in = [&](std::size_t i) -> const float* {
+            const auto ins = plan.inputs(op);
+            need(ins, 5, "recurrence inputs");
+            return static_cast<const float*>(values.slot(ins[i]));
+        };
+        const auto rec_q = [&]() -> const float* {
+            return (V_h == K_h) ? rec_in(0) : q_recur_full;
+        };
+        const auto rec_k = [&]() -> const float* {
+            return (V_h == K_h) ? rec_in(1) : k_recur_full;
         };
         if (pin_audit) audit(op);
         if (ext_dump) extents(op);
@@ -1787,68 +1812,68 @@ case PieForwardOpKind::Launch: {
             }
             case Q35Kernel::StepBatched:
                 kernels::ssm::recurrent_gated_delta_step_batched(
-                    q_recur_full, k_recur_full,
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
                     static_cast<float*>(bound_or_out()), R, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedBf16:
                 kernels::ssm::recurrent_gated_delta_step_batched_state_bf16(
-                    q_recur_full, k_recur_full,
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     rs_slot0, slot_ids_d, slot_stride,
                     static_cast<float*>(bound_or_out()), R, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedGqa:
                 kernels::ssm::recurrent_gated_delta_step_batched_gqa(
-                    la.q_pre.data(), la.k_pre.data(),
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
                     static_cast<float*>(bound_or_out()), R, K_h, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedGqaBf16:
                 kernels::ssm::recurrent_gated_delta_step_batched_gqa_state_bf16(
-                    la.q_pre.data(), la.k_pre.data(),
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     rs_slot0, slot_ids_d, slot_stride,
                     static_cast<float*>(bound_or_out()), R, K_h, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::PrefillWarpTiledGqa:
                 kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa(
-                    la.q_pre.data(), la.k_pre.data(),
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillWarpTiledGqaBf16:
                 kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
-                    la.q_pre.data(), la.k_pre.data(),
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     rs_slot0, slot_ids_d, qo_indptr,
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillCached:
                 kernels::ssm::chunk_gated_delta_prefill_batched_cached(
-                    q_recur_full, k_recur_full,
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillCachedBf16:
                 kernels::ssm::chunk_gated_delta_prefill_batched_cached_state_bf16(
-                    q_recur_full, k_recur_full,
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     rs_slot0, slot_ids_d, qo_indptr,
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillFla:
                 kernels::ssm::chunk_gated_delta_prefill_batched(
-                    la.q_pre.data(), la.k_pre.data(),
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state,
@@ -1856,8 +1881,8 @@ case PieForwardOpKind::Launch: {
                 break;
             case Q35Kernel::PrefillFlaBf16:
                 kernels::ssm::chunk_gated_delta_prefill_batched_state_bf16(
-                    la.q_pre.data(), la.k_pre.data(),
-                    la.v_fp32.data(), la.g_log.data(), la.beta.data(),
+                    rec_q(), rec_k(),
+                    rec_in(2), rec_in(3), rec_in(4),
                     rs_slot0, slot_ids_d, qo_indptr,
                     slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state,
@@ -1866,8 +1891,14 @@ case PieForwardOpKind::Launch: {
             case Q35Kernel::RepeatInterleave: {
                 // The declaration states the pair q-then-k; the toggle
                 // binds them in that order.
-                const float* src = repeat_next_is_k ? la.k_pre.data()
-                                                    : la.q_pre.data();
+                // ISLAND (value arena) on the SOURCE. The
+                // DESTINATION stays `la.q_norm`/`la.k_norm`: this
+                // launch declares no output, so the repeated heads are
+                // a value nothing names.
+                const auto rins = plan.inputs(op);
+                need(rins, 1, "repeat inputs");
+                const float* src =
+                    static_cast<const float*>(values.slot(rins[0]));
                 float* dst = repeat_next_is_k ? la.k_norm.data()
                                               : la.q_norm.data();
                 kernels::ssm::repeat_interleave_heads_fp32(
