@@ -32,6 +32,7 @@
 #include "gemm/gemm.hpp"
 #include "mlp/swiglu.hpp"
 #include "rope/rope.hpp"
+#include "distributed.hpp"
 #include "store/kv_cache.hpp"
 #include "model/declared/arms.hpp"
 #include "model/declared/registry.hpp"
@@ -60,6 +61,12 @@ struct ExecCtx {
     KvCache& cache;
     AttentionWorkspace& attn_ws;
     kernels::gemm::CublasHandle& cublas;
+    // The rank's communicator, or null on a single-GPU deployment. A
+    // HANDLE like `cublas` and `cache`: the arms are given it, never
+    // told about it — which is the difference between a collective
+    // being a statement and being a side effect reached for through
+    // `tp->` from inside a body.
+    NcclComm* tp_comm = nullptr;
 
     // The fire's inputs.
     const std::int32_t* positions = nullptr;
@@ -315,10 +322,36 @@ inline bool execute_shared(const ExecCtx& c,
     // addresses — so both spellings are one call and the two slots are
     // simply equal or not.
     case Kernel::AllReduce:
-    case Kernel::AllReduceOut:
-    case Kernel::ResidualAddRmsnorm:
-        return false;  // the communicator is the deployment's, not this
-                       // file's; llama_like binds it. See its residue.
+    case Kernel::AllReduceOut: {
+        if (c.tp_comm == nullptr) {
+            throw std::runtime_error(
+                "declared arm: the trace states a collective but this "
+                "deployment bound no communicator (tp_size and tp_comm "
+                "disagree)");
+        }
+        need(ins, 1, "all-reduce inputs");
+        need(outs, 1, "all-reduce outputs");
+        c.tp_comm->all_reduce_bf16_out(
+            values.slot(ins[0]), values.slot(outs[0]),
+            static_cast<std::size_t>(N) *
+                static_cast<std::size_t>(row_width(plan, outs[0])),
+            ncclSum, stream);
+        return true;
+    }
+
+    // The two-step landing's second half: `y += summed` and the norm of
+    // the sum, one launch. Operand 0 is the residual stream (updated in
+    // place), operand 1 the summed partial, and the result is the
+    // normed activation the MLP reads.
+    case Kernel::ResidualAddRmsnorm: {
+        need(ins, 2, "residual-add-rmsnorm inputs");
+        need(outs, 1, "residual-add-rmsnorm outputs");
+        kernels::norm::residual_add_rmsnorm_bf16(
+            values.slot(ins[0]), values.slot(ins[1]),
+            one_weight("fused residual norm").data(), values.slot(outs[0]),
+            N, row_width(plan, outs[0]), c.eps, stream);
+        return true;
+    }
 
     // ── the weight representation axis ─────────────────────────────
     case Kernel::MatmulTensorScaled:

@@ -1775,7 +1775,7 @@ void llama_like_forward_declared(
             // way".
             const declared::ExecCtx ectx{
                 {plan, values, N, win_start, stream},
-                wb, cache, attn_ws, cublas,
+                wb, cache, attn_ws, cublas, fwd_cfg.tp_comm,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, row_valid_d, w_page_d, w_off_d, R,
                 peel_window_d, win_region == WinRegion::Tail,
@@ -1785,55 +1785,6 @@ void llama_like_forward_declared(
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
-            case declared::Kernel::AllReduce:
-            case declared::Kernel::AllReduceOut: {
-                // BINDING. Which collective is the SYMBOL; whether the
-                // result is the operand's own bytes is the `kernel!`
-                // row's alias pair, which the host already honoured
-                // when it assigned addresses -- so both spellings are
-                // one call and the two slots are simply equal or not.
-                if (fwd_cfg.tp_comm == nullptr) {
-                    throw std::runtime_error(
-                        "declared forward: the trace states a collective "
-                        "but this deployment bound no communicator "
-                        "(tp_size and tp_comm disagree)");
-                }
-                const auto ci = plan.inputs(op);
-                const auto co = plan.outputs(op);
-                declared::need(ci, 1, "all-reduce inputs");
-                declared::need(co, 1, "all-reduce outputs");
-                fwd_cfg.tp_comm->all_reduce_bf16_out(
-                    values.slot(ci[0], plan.value(ci[0])),
-                    values.slot(co[0], plan.value(co[0])),
-                    static_cast<std::size_t>(N) *
-                        static_cast<std::size_t>(out_w(0)),
-                    ncclSum, stream);
-                break;
-            }
-            case declared::Kernel::ResidualAddRmsnorm: {
-                // The two-step landing's second half: `y += summed` and
-                // the norm of the sum, one launch. Operand 0 is the
-                // residual stream (updated in place), operand 1 the
-                // summed partial, and the result is the normed
-                // activation the MLP reads.
-                const auto ri = plan.inputs(op);
-                const auto ro = plan.outputs(op);
-                const auto raux = plan.aux_names(op);
-                declared::need(ri, 2, "residual-add-rmsnorm inputs");
-                declared::need(ro, 1, "residual-add-rmsnorm outputs");
-                if (raux.size != 1) {
-                    throw std::runtime_error(
-                        "declared forward: a fused residual norm names " +
-                        std::to_string(raux.size) + " weights, wants 1");
-                }
-                kernels::norm::residual_add_rmsnorm_bf16(
-                    values.slot(ri[0], plan.value(ri[0])),
-                    values.slot(ri[1], plan.value(ri[1])),
-                    wb.require(plan.name(raux[0])).data(),
-                    values.slot(ro[0], plan.value(ro[0])),
-                    N, out_w(0), eps, stream);
-                break;
-            }
             case declared::Kernel::RopeStandardTable: {
                 if (ws.rope_table.empty()) {
                     throw std::runtime_error(
