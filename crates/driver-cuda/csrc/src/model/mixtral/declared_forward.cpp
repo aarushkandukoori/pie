@@ -25,6 +25,7 @@
 #include "gemm/gemm.hpp"
 #include "model/declared/arms.hpp"
 #include "model/declared/registry.hpp"
+#include "model/declared/weights.hpp"
 #include "model/declared/value_arena.hpp"
 
 namespace pie_cuda_driver::model {
@@ -103,8 +104,15 @@ ParsedName parse_name(std::string_view name) {
     return {layer, name.substr(dot + 1)};
 }
 
-const DeviceTensor* bind(const MixtralWeights& w, std::string_view name) {
-    const ParsedName nm = parse_name(name);
+// This family's half of `declared::WeightBinder`: a traced name against
+// MixtralWeights. The signature is the binder's -- a plain function
+// pointer plus context -- so no arm that goes through it names a struct
+// field, which is what lets an arm be shared with a family whose field
+// is spelled differently.
+const DeviceTensor* bind_gpt_oss_weight(
+    const void* ctx, const declared::ParsedWeightName& nm,
+    std::string_view name) {
+    const auto& w = *static_cast<const MixtralWeights*>(ctx);
     if (nm.layer < 0) {
         if (nm.field == "embed") return w.embed;
         if (nm.field == "final_norm") return w.final_norm;
@@ -134,15 +142,6 @@ const DeviceTensor* bind(const MixtralWeights& w, std::string_view name) {
     throw_drift("unknown layer weight '" + std::string(name) + "'");
 }
 
-const DeviceTensor& require(const MixtralWeights& w, std::string_view name) {
-    const DeviceTensor* t = bind(w, name);
-    if (t == nullptr) {
-        throw std::runtime_error("declared gptoss: weight '" +
-                                 std::string(name) +
-                                 "' is named by the trace but not bound");
-    }
-    return *t;
-}
 
 }  // namespace
 
@@ -161,7 +160,8 @@ std::string gpt_oss_validate_stated_weights(
             return true;
         }
         try {
-            return bind(w, name) != nullptr;
+            return declared::WeightBinder{&bind_gpt_oss_weight, &w}
+                       .find(name) != nullptr;
         } catch (const std::exception&) {
             return false;
         }
@@ -243,6 +243,9 @@ bool gpt_oss_forward_declared(
     const int R = num_requests;
     const int H = cfg.hidden_size;
     const int I = cfg.intermediate_size;
+    // Every weight an arm reads goes through the binder: the arms name
+    // what the TRACE names, never a struct field.
+    const declared::WeightBinder wb{&bind_gpt_oss_weight, &w};
     const int V = cfg.vocab_size;
     const int d = cfg.head_dim;
     const int Hq = cfg.num_attention_heads * d;
@@ -504,7 +507,7 @@ bool gpt_oss_forward_declared(
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
             declared::arm_embed({plan, values, N, 0, stream}, op,
-                                token_ids, require(w, plan.weight_name(op)).data(), V);
+                                token_ids, wb.require(plan.weight_name(op)).data(), V);
             break;
         }
         case PieForwardOpKind::Rmsnorm:
@@ -534,7 +537,7 @@ bool gpt_oss_forward_declared(
             need(outs, 1, "matmul outputs");
             kernels::gemm::act_x_wt_bf16(
                 cublas.handle(), values.slot(ins[0]),
-                require(w, name).data(), values.slot(outs[0]), N,
+                wb.require(name).data(), values.slot(outs[0]), N,
                 row_width(outs[0]), row_width(ins[0]),
                 /*beta=*/op.param0 != 0 ? 1.f : 0.f);
             break;
@@ -547,7 +550,7 @@ bool gpt_oss_forward_declared(
             const auto outs = plan.outputs(op);
             need(outs, 1, "add_bias outputs");
             kernels::norm::add_bias_bf16(
-                values.slot(outs[0]), require(w, name).data(), N,
+                values.slot(outs[0]), wb.require(name).data(), N,
                 row_width(outs[0]), stream);
             break;
         }
@@ -580,7 +583,7 @@ bool gpt_oss_forward_declared(
             lm_head_rows = rows;
             (void)lm_head_rows;
             kernels::gemm::act_x_wt_bf16(
-                cublas.handle(), input, require(w, name).data(),
+                cublas.handle(), input, wb.require(name).data(),
                 values.slot(outs[0]), rows, row_width(outs[0]),
                 row_width(ins[0]), /*beta=*/0.f);
             break;
@@ -603,7 +606,7 @@ bool gpt_oss_forward_declared(
                 }
                 declared::arm_rmsnorm(
                     {plan, values, N, 0, stream}, op,
-                    require(w, plan.name(nrm[0])).data(), eps,
+                    wb.require(plan.name(nrm[0])).data(), eps,
                     declared::resolve_kernel(sym) == declared::Kernel::RmsnormRowGemma);
                 break;
             }
@@ -627,7 +630,7 @@ bool gpt_oss_forward_declared(
                 need(outs, 1, "biased projection outputs");
                 kernels::gemm::act_x_wt_bias_bf16(
                     cublas.handle(), values.slot(ins[0]),
-                    require(w, proj).data(), require(w, aux(1)).data(),
+                    wb.require(proj).data(), wb.require(aux(1)).data(),
                     values.slot(outs[0]), N, row_width(outs[0]),
                     row_width(ins[0]), stream);
                 break;
@@ -704,7 +707,7 @@ bool gpt_oss_forward_declared(
                 kernels::attn::attention_sink_rescale_bf16(
                     values.slot(outs[0]),
                     static_cast<const float*>(values.slot(ins[1])),
-                    require(w, aux(0)).data(), N, cfg.num_attention_heads, d,
+                    wb.require(aux(0)).data(), N, cfg.num_attention_heads, d,
                     stream);
                 break;
             }
