@@ -332,7 +332,7 @@ pub fn bind_decode_dag(
                     io(storage, IoSlot::Position)?,
                 )?;
             }
-            Kernel::Sdpa => {
+            Kernel::Sdpa | Kernel::GoSdpaSink => {
                 let kv = layer
                     .and_then(|l| storage.kv[l].as_ref())
                     .ok_or(Error::Create {
