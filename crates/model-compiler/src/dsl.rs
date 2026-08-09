@@ -634,6 +634,11 @@ pub fn matmul(x: &Val, w: &MatW) -> Val {
 }
 
 /// Row RMSNorm, or per-head RMSNorm when the weight handle says so.
+///
+/// SEMANTIC: this is the backend-independent spelling, and it stays one
+/// because a trace with no backend cannot name a CUDA symbol —
+/// `check_plan` refuses it, correctly. The stated form is
+/// [`cuda::rmsnorm`], which is what a `*.cuda.*` text calls.
 pub fn rmsnorm(x: &Val, w: &NormW) -> Val {
     let id = x.t.with(w.layer, |b| match w.per_head {
         None => b.rmsnorm(x.id, &w.name, w.variant),
@@ -5407,6 +5412,43 @@ pub mod cuda {
             Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
         )
         .expect("the residual add produces its value")
+    }
+
+    /// Row RMSNorm, STATING which fold it runs.
+    ///
+    /// Gemma folds `(1 + w)` instead of `w` — different arithmetic, so a
+    /// different kernel — and the fold is a property of the WEIGHT,
+    /// which is why [`NormW`] carries it and why the caller passes no
+    /// variant.
+    ///
+    /// The semantic [`super::rmsnorm`] carries the variant as a param
+    /// instead, and four drivers read it and pick; three had hard-coded
+    /// their own deployment's answer. A `*.cuda.*` text calls this one
+    /// and nothing downstream chooses.
+    ///
+    /// PER-HEAD is not here yet: its row count is the operand's width
+    /// over the head dim, and `head_dim` has nowhere to ride on a
+    /// `Launch`. It moves when it states a kernel that takes it.
+    pub fn rmsnorm(x: &Val, w: &NormW, hidden: u32) -> Val {
+        assert!(
+            w.per_head.is_none(),
+            "cuda::rmsnorm is the ROW form; a per-head weight still takes \
+             the semantic spelling"
+        );
+        let symbol = match w.variant {
+            NormVariant::Gemma => "norm::rmsnorm_gemma_bf16",
+            _ => "norm::rmsnorm_bf16",
+        };
+        record(
+            &x.t,
+            w.layer,
+            symbol,
+            vec![w.name.clone()],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the norm produces its value")
     }
 
     // ── TENSOR PARALLELISM ─────────────────────────────────────────

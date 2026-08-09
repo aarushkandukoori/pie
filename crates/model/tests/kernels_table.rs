@@ -165,20 +165,6 @@ const UNSTATED_ROWS: &[&str] = &[
     // directly. No declaration states it because `interleaved` reaches the
     // kernel as an ARGUMENT rather than as a second symbol, and the families
     // that pass it true are not declared.
-    // ── the semantic `Rmsnorm`'s two ───────────────────────────────
-    //
-    // No text states these because `OpKind::Rmsnorm` does not name a
-    // symbol — each driver picks between them from the variant on the
-    // wire. That is exactly the choosing DSL-DESIGN.md removes, and
-    // these entries come out when `dsl::rmsnorm` states the fold
-    // instead of carrying it as a param.
-    //
-    // Until then they are pinned rather than absent, so that
-    // `the_kernels_a_semantic_kind_fans_to_are_declared` has a contract
-    // to point at: a kernel reachable only through a driver's fan is
-    // reachable, and its operands are a real thing to get wrong.
-    "norm::rmsnorm_bf16",
-    "norm::rmsnorm_gemma_bf16",
     "rope::rope_bf16",
     // Nothing calls this one — not a declaration, not a driver body, not a
     // test. It is in the table because `rope.hpp` declares it and the header
