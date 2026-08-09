@@ -42,6 +42,7 @@
 )]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
+pub mod batch;
 pub mod bump;
 mod error;
 pub mod facts;

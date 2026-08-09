@@ -1,0 +1,18 @@
+//! The batch subsystem: scheduling, composition, and the forward's shape.
+//!
+//! `csrc/src/batch/` is ~11.6k lines and is mostly not about the GPU: it
+//! derives batch shapes from the CSR view the engine marshals, composes
+//! channel tickets, colors scratch, and only at the end encodes a forward.
+//! The port follows the crate's rule — portable half first, into modules a
+//! Linux `cargo test` reaches — and `PARITY-BATCH.md` is its ledger.
+//!
+//! [`schedule`] is the batch shape: request spans, the token→request
+//! expansion, and the paged-geometry gate that runs before any pool cell can
+//! be addressed.
+
+mod schedule;
+
+pub use schedule::{
+    BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,
+    find_request, validate_capacity, validate_paged,
+};
