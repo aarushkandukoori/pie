@@ -21,8 +21,8 @@ pub mod facts;
 
 use self::facts::{NemotronHFacts, NemotronLayerKind};
 use model_compiler::dsl::{
-    WeightRepr,self, matmul, rmsnorm, MatW, NormW};
-use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, RopeKind};
+    WeightRepr,self, matmul, MatW, NormW};
+use model_compiler::trace::{FireClass, ForwardPlan, NormVariant};
 
 struct NhLayerW {
     norm: NormW,
@@ -88,7 +88,7 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
         }
     );
     let mb = facts.mamba.clone();
-    let at = facts.attn.clone();
+    let _at = facts.attn.clone();
     dsl::trace_named(&family, |t| {
         dsl::seam(t, &dsl::seam::IN, &[], None);
         let mut y = dsl::embed_with(t, "embed", facts.hidden);
@@ -100,7 +100,7 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
             let window_left =
                 model_compiler::facts::window_left_at(&facts.window_left, l);
             let w = NhLayerW::new(l, facts);
-            let x = rmsnorm(&y, &w.norm);
+            let x = dsl::cuda::rmsnorm(&y, &w.norm);
 
             match facts.kind(l) {
                 NemotronLayerKind::Mamba => {
@@ -153,7 +153,7 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
                     let q = matmul(&x, &w.q_proj);
                     let k = matmul(&x, &w.k_proj);
                     let v = matmul(&x, &w.v_proj);
-                    let (q, k) = dsl::rope(&q, &k, RopeKind::Standard);
+                    let (q, k) = dsl::cuda::rope(&q, &k);
                     let kv = dsl::Kv::at(t, l);
                     dsl::cuda::write_kv_to_pages(&k, &v, &kv);
                     dsl::seam(q.trace(), &dsl::seam::ATTN_Q, &[&q], Some(l));
@@ -173,7 +173,7 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
             }
 
             // ── MoE, on the mixer layers ─────────────────────────────
-            let m = rmsnorm(&y, &w.norm);
+            let m = dsl::cuda::rmsnorm(&y, &w.norm);
             let logits = matmul(&m, &w.router);
             let (experts, weights) = dsl::cuda::topk_sigmoid_bias(
                 &logits,
@@ -216,7 +216,7 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
             y = dsl::cuda::residual_add(&y, &moe_out, facts.hidden);
         }
 
-        let normed = rmsnorm(
+        let normed = dsl::cuda::rmsnorm(
             &y,
             &NormW {
                 name: "final_norm".to_string(),

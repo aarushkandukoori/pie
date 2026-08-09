@@ -778,3 +778,97 @@ fn gemma_4_e2b_cuda_prefill() {
         ),
     );
 }
+
+// ── The SEVEN UNDRIVEN families ────────────────────────────────────
+//
+// Every one of these has a CUDA text and NO declared executor, which
+// makes them the larger half of D3 by line count and the half where the
+// hand-written pass is not a fallback but the only implementation.
+//
+// Their texts were unwitnessed until here: nothing in the tree pinned
+// what they state, so an executor written against one would have been
+// written against a moving target — and the 1a/2a conversion that came
+// with these goldens (the row norms and the rotation naming their
+// kernels) would have been invisible.
+//
+// A golden is not a gate. It says what the text states TODAY, which is
+// exactly what an executor has to bind, and it fails the moment the two
+// drift.
+
+#[test]
+fn deepseek_v4_cuda_decode() {
+    check_plan(
+        "deepseek_v4.cuda.decode",
+        &model::deepseek_v4::forward::dsv4_cuda(
+            &model::deepseek_v4::forward::facts::Dsv4Facts::dsv4_synthetic(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn gemma3n_cuda_decode() {
+    check_plan(
+        "gemma3n.cuda.decode",
+        &model::gemma3n::forward::gemma3n_cuda(
+            &model::gemma3n::forward::facts::Gemma3nFacts::gemma3n_synthetic(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn gemma_2_cuda_decode() {
+    check_plan(
+        "gemma_2.cuda.decode",
+        &model::gemma_2::forward::gemma2_cuda(
+            &model::gemma_2::forward::facts::Gemma2Facts::gemma_2_9b(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn glm5_cuda_decode() {
+    check_plan(
+        "glm5.cuda.decode",
+        &model::glm5::forward::glm5_cuda(
+            &model::glm5::forward::facts::Glm5Facts::glm5_106b_a12b(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn kimi_k2_cuda_decode() {
+    check_plan(
+        "kimi_k2.cuda.decode",
+        &model::kimi_k2::forward::kimi_cuda(
+            &model::kimi_k2::forward::facts::KimiFacts::kimi_k2(),
+            &model::kimi_k2::forward::facts::KimiCudaFacts::kimi_k2_synthetic(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn kimi_k3_cuda_decode() {
+    check_plan(
+        "kimi_k3.cuda.decode",
+        &model::kimi_k3::forward::kimi_k3_cuda(
+            &model::kimi_k3::forward::facts::KimiK3Facts::kimi_k3_synthetic(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn nemotron_h_cuda_decode() {
+    check_plan(
+        "nemotron_h.cuda.decode",
+        &model::nemotron_h::forward::nemotron_h_cuda(
+            &model::nemotron_h::forward::facts::NemotronHFacts::nemotron_h_synthetic(),
+            FireClass::Decode,
+        ),
+    );
+}

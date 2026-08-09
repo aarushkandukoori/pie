@@ -7,8 +7,7 @@ use self::facts::{
 };
 use model_compiler::dsl::{
     WeightRepr,
-    self, matmul,
-    rmsnorm, MatW, NormW, Val,
+    self, matmul, MatW, NormW, Val,
 };
 use model_compiler::trace::{
     FireClass, ForwardPlan, NormVariant, RopeKind,
