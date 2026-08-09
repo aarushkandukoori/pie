@@ -2436,28 +2436,64 @@ void llama_like_forward_declared(
             const bool compact_logits =
                 logit_row_indices_d != nullptr && num_logit_rows > 0 &&
                 num_logit_rows < N_fire;
+            // ISLAND (value arena), at the ENDS only. The stream this
+            // reads and the logits it writes are the statement's; `H`
+            // and `V` are their row widths.
+            //
+            // The two buffers BETWEEN them are not, and cannot be yet:
+            // one `LmHead` lowers to a gather, a norm and a GEMM, and
+            // `Lowerer::emit` hands all three the same operand run --
+            // `(stream, logits)` -- so the gather's compacted hidden and
+            // the normed hidden are values the flat list does not name.
+            // That is D2, measured in `what_the_epilogue_hands_each_of
+            // _its_rectangles`, and `ws.norm_x`/`ws.norm_y` stay until
+            // the text states them.
+            const auto lins = plan.inputs(op);
+            const auto louts = plan.outputs(op);
+            if (lins.size == 0 || louts.size == 0) {
+                throw std::runtime_error(
+                    "declared forward: the epilogue states no operands");
+            }
+            // THE INPUT STAYS `ws.y`, and the reason is the deferral
+            // two arms up. The trace states `Rmsnorm(final_norm)` then
+            // `LmHead` over its RESULT, but this executor defers that
+            // norm -- the hand-written epilogue interleaves it with the
+            // logit-row gather, and copying the block whole is what
+            // keeps the two paths bit-identical -- so at this point the
+            // final-norm value has not been written and its slot holds
+            // the previous fire's bytes. Reading it diverged on the
+            // first token.
+            //
+            // What this arm actually wants is that norm's OPERAND, the
+            // residual stream, which belongs to an op it cannot see. So
+            // the deferral costs the input its name, and says so here
+            // rather than looking like an oversight.
+            const void* const stream_in = ws.y.data();
+            void* const logits_out =
+                values.slot(louts[0], plan.value(louts[0]));
+            const int hidden_w = H;
             const void* lm_head_input = nullptr;
             int lm_head_rows = N_fire;
             if (compact_logits) {
                 kernels::layout::gather_bf16_rows(
-                    static_cast<const std::uint16_t*>(ws.y.data()),
+                    static_cast<const std::uint16_t*>(stream_in),
                     logit_row_indices_d,
                     static_cast<std::uint16_t*>(ws.norm_x.data()),
-                    num_logit_rows, H, stream);
+                    num_logit_rows, hidden_w, stream);
                 kernels::norm::rmsnorm_bf16(
                     ws.norm_x.data(), w.final_norm->data(),
-                    ws.norm_y.data(), num_logit_rows, H, eps, stream);
+                    ws.norm_y.data(), num_logit_rows, hidden_w, eps, stream);
                 lm_head_input = ws.norm_y.data();
                 lm_head_rows = num_logit_rows;
             } else {
                 kernels::norm::rmsnorm_bf16(
-                    ws.y.data(), w.final_norm->data(), ws.norm_y.data(),
-                    N_fire, H, eps, stream);
+                    stream_in, w.final_norm->data(), ws.norm_y.data(),
+                    N_fire, hidden_w, eps, stream);
                 lm_head_input = ws.norm_y.data();
             }
             kernels::gemm::act_x_w(cublas.handle(),
                 lm_head_input, WeightView(*lm_head),
-                ws.logits.data(), lm_head_rows, V, H);
+                logits_out, lm_head_rows, out_w(0), hidden_w);
             break;
         }
         default:
