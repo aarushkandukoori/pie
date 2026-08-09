@@ -3591,8 +3591,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -3960,8 +3960,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -4329,8 +4329,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -4698,8 +4698,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -5067,8 +5067,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -5436,8 +5436,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -5805,8 +5805,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -6174,8 +6174,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -6543,8 +6543,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -6912,8 +6912,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -7281,8 +7281,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -7650,8 +7650,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -8019,8 +8019,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -8388,8 +8388,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -8757,8 +8757,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -9126,8 +9126,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -9495,8 +9495,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -9864,8 +9864,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -10233,8 +10233,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -10602,8 +10602,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -10971,8 +10971,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -11340,8 +11340,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -11709,8 +11709,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -12078,8 +12078,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -12447,8 +12447,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -12816,8 +12816,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -13185,8 +13185,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -13554,8 +13554,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -13923,8 +13923,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -14292,8 +14292,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -14661,8 +14661,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [
@@ -15030,8 +15030,8 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard"
+        "Launch": {
+          "kernel": "rope::rope_bf16"
         }
       },
       "inputs": [

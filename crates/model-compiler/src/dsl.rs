@@ -5816,6 +5816,60 @@ pub mod cuda {
         (mk(ids[0]), mk(ids[1]))
     }
 
+    /// `kernels::rope::rope_bf16`: the full rotation, named.
+    ///
+    /// The semantic [`super::rope`] carries a `RopeKind` and a rotary
+    /// width, and the driver's arm asked whether the width was zero to
+    /// decide between two launchers. That is a KERNEL CHOICE — a full
+    /// rotation and a partial one are different arithmetic — so it
+    /// belongs in the statement, and the pair below is that statement.
+    pub fn rope(q: &Val, k: &Val) -> (Val, Val) {
+        rope_launch(q, k, "rope::rope_bf16", Vec::new())
+    }
+
+    /// `kernels::rope::rope_partial_bf16`: only the first `rotary_dim`
+    /// channels of each head rotate.
+    ///
+    /// `rotary_dim` rides the statement's PARAMS
+    /// ([`crate::trace::OpKind::Launch`]), not the executor's config.
+    /// It is a property of this rotation and no operand shape spells it
+    /// — the operands are full-width q and k either way — which is
+    /// exactly what that channel is for.
+    pub fn rope_partial(q: &Val, k: &Val, rotary_dim: u32) -> (Val, Val) {
+        assert!(
+            rotary_dim > 0,
+            "a partial rotation with no channels is the full one; state \
+             `cuda::rope`"
+        );
+        rope_launch(q, k, "rope::rope_partial_bf16", vec![rotary_dim])
+    }
+
+    /// The shape both rotations share: two operands in, two results out,
+    /// each landing where its operand lies (the `kernel!` rows alias
+    /// both pairs).
+    fn rope_launch(q: &Val, k: &Val, symbol: &str, params: Vec<u32>) -> (Val, Val) {
+        let (q_sh, k_sh) = {
+            let b = q.t.inner.borrow();
+            (b.value_shape(q.id), b.value_shape(k.id))
+        };
+        let ids = q.t.with(q.layer, |b| {
+            b.launch_with_params(
+                symbol,
+                vec![],
+                None,
+                params,
+                vec![q.id, k.id],
+                vec![(q_sh, DType::BF16), (k_sh, DType::BF16)],
+            )
+        });
+        let mk = |id| Val {
+            t: q.t.clone(),
+            id,
+            layer: q.layer,
+        };
+        (mk(ids[0]), mk(ids[1]))
+    }
+
     /// `kernels::gemm::act_x_wt_bias_bf16`: a projection whose BIAS RIDES IN
     /// THE EPILOGUE.
     ///
@@ -6445,6 +6499,7 @@ mod seam_tests {
             kernel: "pie_lora_qkv_correction".to_string(),
             weights: vec![],
             state: None,
+            params: vec![],
         }
     }
 

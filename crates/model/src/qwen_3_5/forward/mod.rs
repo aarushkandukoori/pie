@@ -508,12 +508,34 @@ impl GdnLayerW {
 /// `(qkv, z, a, b)`. One function so the CommitAdvance pass's no-stash
 /// arm ([`commit_advance_body`]) runs EXACTLY the normal body's GEMMs
 /// and splits, by construction rather than by parallel maintenance.
-fn gdn_in_proj(x: &Val, w: &GdnLayerW, facts: &Qwen35GdnFacts) -> (Val, Val, Val, Val) {
+fn gdn_in_proj(
+    x: &Val,
+    w: &GdnLayerW,
+    facts: &Qwen35GdnFacts,
+    stated: bool,
+) -> (Val, Val, Val, Val) {
     if facts.fused_in_proj {
+        // `stated`: the two splits NAME their kernels rather than
+        // leaving a semantic `SplitGdn` whose widths the executor
+        // compared against `conv_dim` / `V_dim` / `V_h` to pick one.
+        //
+        // A row split and an INTERLEAVED b/a split are different
+        // arithmetic over the same shapes, so telling them apart by
+        // extent was a kernel choice made from a coincidence of
+        // numbers — and one a family whose `V_h` ever equalled its
+        // `V_dim` would get wrong. Two symbols, no comparison.
         let qkvz = matmul(x, &w.in_proj_qkvz);
-        let (qkv, z) = split_gdn(&qkvz, facts.conv_dim(), facts.value_width());
+        let (qkv, z) = if stated {
+            dsl::cuda::split_rows(&qkvz, facts.conv_dim(), facts.value_width())
+        } else {
+            split_gdn(&qkvz, facts.conv_dim(), facts.value_width())
+        };
         let ba = matmul(x, &w.in_proj_ba);
-        let (b, a) = split_gdn(&ba, facts.value_heads, facts.value_heads);
+        let (b, a) = if stated {
+            dsl::cuda::split_qwen_gdn_ba(&ba, facts.value_heads)
+        } else {
+            split_gdn(&ba, facts.value_heads, facts.value_heads)
+        };
         (qkv, z, a, b)
     } else {
         (
@@ -531,7 +553,7 @@ fn gdn_attn_body(t: &Trace, l: u32, facts: &Qwen35GdnFacts, y: &Val) -> Val {
 
     let x = rmsnorm(&y, &w.attn_norm);
 
-    let (qkv, z, a, b) = gdn_in_proj(&x, &w, facts);
+    let (qkv, z, a, b) = gdn_in_proj(&x, &w, facts, /*stated=*/ false);
 
     // Conv → prep → recurrence: the GDN core, against the layer's
     // per-request conv/recurrent state. Both stay opaque here — the
@@ -573,7 +595,7 @@ fn gdn_attn_body_cuda(
 
     let x = dsl::cuda::rmsnorm(&y, &w.attn_norm);
 
-    let (qkv, z, a, b) = gdn_in_proj(&x, &w, facts);
+    let (qkv, z, a, b) = gdn_in_proj(&x, &w, facts, /*stated=*/ true);
 
     // FrozenVerify: the frozen verify pass caches the cheap in-proj
     // activations for the later commit-advance replay — the stash STORE,
@@ -903,7 +925,7 @@ fn full_attn_body_cuda(
 
     let q = dsl::cuda::rmsnorm(&q, &w.q_norm);
     let k = dsl::cuda::rmsnorm(&k, &w.k_norm);
-    let (q, k) = rope_partial(&q, &k, RopeKind::Standard, facts.rotary_dim);
+    let (q, k) = dsl::cuda::rope_partial(&q, &k, facts.rotary_dim);
     // The OnAttnProj site (A4): post-rope, pre-KV-write — the
     // hand-written full-attn invoke's position, observing the roped q
     // (bf16). Observation-only, like the GDN sites.
@@ -1275,7 +1297,7 @@ fn commit_advance_body(t: &Trace, facts: &Qwen35HybridFacts, cuda: &Qwen35CudaFa
             // the input placeholder. The z leg is traced (it is part of
             // those arms) and consumed by nothing, like the recurrence
             // output below.
-            let (qkv, _z, a, b) = gdn_in_proj(&x, &w, gdn);
+            let (qkv, _z, a, b) = gdn_in_proj(&x, &w, gdn, /*stated=*/ true);
             (qkv, a, b)
         };
         let qkv = cuda::gdn_conv_prefill_batched(&qkv, &w.conv, &w.rs);
