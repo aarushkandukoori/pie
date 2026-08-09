@@ -1730,22 +1730,11 @@ int Context::Impl::load_model(
     // A plan that refuses the widest fire leaves the formula's block
     // alone: the arena bounds-checks every ask, so a family whose
     // islands outgrow it refuses by name rather than reading past it.
-    if (const pie_forward::ForwardPlan* declared = model_->declared_plan()) {
-        std::vector<pie_forward::PieForwardRow> probe(
-            static_cast<std::size_t>(std::max(1, max_workspace_tokens)));
-        const int sampled = std::max(1, mem_plan.capacity.max_logit_rows);
-        for (std::size_t i = 0; i < probe.size(); ++i) {
-            pie_forward::PieForwardRow& row = probe[i];
-            row = {};
-            row.depth_k = -1;
-            row.samples = i < static_cast<std::size_t>(sampled) ? 1 : 0;
-        }
-        const pie_forward::PieForwardLowered widest =
-            declared->lower(probe.data(), probe.size());
-        if (widest.uncovered == pie_forward::PieForwardUncovered::None &&
-            widest.arena_bytes > ws.declared_values.nbytes()) {
+    if (const std::size_t want = model_->declared_arena_bytes(
+            max_workspace_tokens, mem_plan.capacity.max_logit_rows)) {
+        if (want > ws.declared_values.nbytes()) {
             const std::int64_t elements =
-                static_cast<std::int64_t>((widest.arena_bytes + 1) / 2);
+                static_cast<std::int64_t>((want + 1) / 2);
             ScopedCudaArenaAllocator arena(*workspace_allocator_);
             ws.declared_values =
                 DeviceTensor::allocate(DType::BF16, {1, elements});

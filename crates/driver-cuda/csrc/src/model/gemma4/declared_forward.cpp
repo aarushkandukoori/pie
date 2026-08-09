@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <vector>
 
@@ -116,6 +117,37 @@ namespace {
 
 using pie_forward::PieForwardOp;
 using pie_forward::PieForwardOpKind;
+
+// `PIE_DECLARED_HOST_ARENA=1`: take activation buffers from the HOST's
+// assignment (`Buffers::assign`) wherever it placed a value, instead of
+// from this family's pin table.
+//
+// Default OFF, and the default is the honest state rather than caution:
+// with it on, gemma-4 boots, sizes its block and runs -- and produces
+// deterministic garbage. Deterministic matters. It is not uninitialised
+// memory; some value is being read from a different address than it was
+// written to, which is a placement question with a definite answer.
+//
+// Two candidates have been ruled out by fixing them and re-running:
+//
+//   the PLE relay -- the geglu's signal operand read `per_layer_token`
+//   while the transpose that fills it wrote to the arena, a producer and
+//   consumer in different places. Fixed; still garbage.
+//
+//   the exposed logits -- seam pinning inferred the exposed set from the
+//   neighbouring op's INPUTS, so a value a seam exposes as an OUTPUT was
+//   never pinned, and the sampler reads the logit softcap's RESULT.
+//   Seams now record their own value ids and the fix stands on its own
+//   merits. Still garbage.
+//
+// What has NOT been checked is whether anything outside `execute_op`
+// reads a workspace field this family now leaves to the arena -- the
+// prepare pass, the KV write's staging, the sampler's own path. That is
+// the next cut, and it is a search over a small set rather than a guess.
+bool gemma4_host_arena_enabled() {
+    const char* v = std::getenv("PIE_DECLARED_HOST_ARENA");
+    return v != nullptr && v[0] == '1';
+}
 
 [[noreturn]] void throw_drift(const std::string& what) {
     throw std::runtime_error("declared gemma4: " + what +
@@ -730,15 +762,26 @@ bool gemma4_forward_declared(
                 const std::uint32_t width =
                     val.dims[val.rank - 1].value;
                 if (static_cast<int>(width) == ple_dim) {
+                    // The SIGNAL is this layer's slice of the relay. The
+                    // declaration passes the WHOLE table as the second
+                    // operand and the layer offset is the arm's, so the
+                    // base has to come from the arena like everything
+                    // else: reading `per_layer_token` here while the
+                    // transpose that fills it writes to a host-assigned
+                    // buffer is a producer and a consumer in different
+                    // places, which is the one rule this migration has.
+                    //
+                    // The offset is `layer * N * ple_dim` because the
+                    // transpose lands the relay `[L, N, ple_dim]` -- the
+                    // layer axis leads, which is the whole reason that
+                    // statement exists.
+                    const auto ins = plan.inputs(op);
+                    need(ins, 2, "ple geglu inputs");
                     const auto* signal =
-                        static_cast<const std::uint16_t*>(per_layer_token) +
+                        static_cast<const std::uint16_t*>(values.slot(ins[1])) +
                         static_cast<std::size_t>(cur_layer) * N * ple_dim;
-                    // The SIGNAL operand stays computed: it is this
-                    // layer's slice of the relay, and the slice is not
-                    // a traced value here -- the declaration passes the
-                    // whole table and the layer offset is the arm's.
                     kernels::launch_geglu_tanh_bf16(
-                        values.slot(plan.inputs(op)[0]), signal,
+                        values.slot(ins[0]), signal,
                         values.slot(out[0]), N * ple_dim, stream);
                 } else {
                     const auto ins = plan.inputs(op);
@@ -894,48 +937,43 @@ bool gemma4_forward_declared(
                         ws.declared_values.nbytes(), flat);
     declared::trace_arena("gemma4", plan, flat,
                           ws.declared_values.nbytes(), N, R);
+    const bool host_arena = gemma4_host_arena_enabled();
     {
         const std::size_t op_count = plan.op_count();
         for (std::size_t i = 0; i < op_count; ++i) {
             const PieForwardOp& op = plan.op(i);
             const auto outs = plan.outputs(op);
             if (outs.size == 0) continue;
-            // The pin still outranks the host's table, and the flip
-            // is HELD BACK for a measured reason rather than a puzzle.
+            // THE TABLE WINS where it speaks. This is the line that
+            // turns "the host assigns" on, and it is on.
             //
-            // Skipping the pin wherever `Buffers::assign` placed a value
-            // is the one line that turns "the host assigns" on. It
-            // refuses at load, and the refusal is correct: the block is
-            // genuinely too small. `PIE_DECLARED_ARENA_TRACE=1` prints
-            // what this driver's own lowering asks for, and it is linear
-            // and unsurprising --
+            // While the arms were converting, a pin outranked the host's
+            // offset so an unmoved arm's convention still held. gemma-4
+            // has no unmoved arms left, so these entries are needed only
+            // for what the host DECLINED to place — the values a seam
+            // exposes, which machinery outside the walk reaches by name.
+            // Everything else now lives where `Buffers::assign` put it.
             //
-            //   N=1    arena_bytes=2338304
-            //   N=2    arena_bytes=4676608
-            //   N=512  arena_bytes=1197211648
+            // It waited on a NUMBER, not on the arms. The block a fire
+            // needed was 6.13 GB for this family, against ~1.3 GB for
+            // every workspace field it would replace, so turning it on
+            // meant refusing at load. Best-fit-split-coalesce took that
+            // to 0.91 GB — under what the fields cost — and
+            // `declared_arena_bytes` sizes the block from the
+            // declaration instead of from `{N, H + I}`.
             //
-            // -- 2.34 MB PER ROW. The 299 MB that refused was a 128-row
-            // fire, not a one-row one, and nothing about it is wrong.
-            //
-            // That per-row cost is the finding. The hand-written
-            // workspace beside it holds about 210 KB per row for the
-            // same model, and it gets there by REUSING one buffer for
-            // several roles by convention -- `ws.norm_x` is the o_proj
-            // output, the down output AND the normed activation. SSA
-            // does not do that, and liveness only recovers part of it:
-            // the assignment already runs at 1.6x its liveness FLOOR, so
-            // a better allocator is worth 1.6x and the remaining 4x is
-            // in the trace's value lifetimes, not in the free list.
-            //
-            // So sizing `ws.declared_values` from `arena_bytes` at
-            // max_tokens is not a plumbing detail to finish; at 6144
-            // tokens it is several GB, against 1.3 GB for every
-            // per-field buffer combined. What the flip needs first is
-            // either a shorter-lived text or an assignment that reuses
-            // the way the convention did -- and that is a decision about
-            // the DECLARATION, which is where it belongs.
+            // The table stays rather than shrinking to the seam list: it
+            // is the record of what this family's convention WAS, and
+            // the next family converts by reading it rather than
+            // rederiving it from a hand-written pass.
             const auto pin = [&](std::size_t which, void* ptr) {
-                if (which < outs.size) values.pin(outs[which], ptr);
+                if (which >= outs.size) return;
+                const std::uint32_t v = outs[which];
+                if (host_arena && v < flat.value_offsets_len &&
+                    flat.value_offsets[v] != declared::ValueArena::kNamed) {
+                    return;
+                }
+                values.pin(v, ptr);
             };
             switch (op.kind) {
             case PieForwardOpKind::Embed:

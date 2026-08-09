@@ -1070,29 +1070,46 @@ impl Buffers {
             .max(1);
 
         // The values a seam exposes: read off the seam statements, not a
-        // per-family table.
+        // per-family table, and now off the statement's OWN value list
+        // rather than the operands of whatever op it points at.
         //
-        // OVER-PINS, deliberately for now. `seam(t, &ATTN_QV, &[&q, &v])`
-        // names the two values it exposes, but `SeamStatement` keeps only
-        // the seam, the layer and the op index — the value list is
-        // `seam::check_plan`'s and is not recorded — so the widest thing
-        // this can say is "the operands of the construct the seam points
-        // at", which for that example is q, k AND v. Pinning too much is
-        // the safe direction: those values stay backend-bound exactly as
-        // they are today, and the cost is arena reuse the fire does not
-        // get. Recording the ids on the statement is what would tighten
-        // it, and that is a trace change, not a lowering one.
+        // The probe that did the guessing is kept as the fallback for a
+        // record written before seams carried their values, and it was
+        // wrong in both directions. It took the neighbouring op's
+        // INPUTS, so `attn.qv` -- which names q and v -- pinned q, k and
+        // v, costing reuse; and no exposed value that is an OUTPUT was
+        // ever pinned at all. That second one is not a cost, it is a
+        // wrong answer: the sampler reads the logit softcap's RESULT,
+        // which the arena was placing while the driver read `ws.logits`.
         let mut pinned: Vec<ValueId> = Vec::new();
         for stmt in &plan.seams {
+            if !stmt.values.is_empty() {
+                pinned.extend(stmt.values.iter().copied());
+                continue;
+            }
             let Some(at) = stmt.op else { continue };
-            // The statement points at the construct; the values it sees
-            // are the operands of the op that carries the observation.
             for probe in [at as usize, at as usize + 1] {
                 if let Some(op) = plan.ops.get(probe) {
                     if matches!(op.kind, OpKind::HookSite { .. } | OpKind::Launch { .. }) {
                         pinned.extend(op.inputs.iter().copied());
                         break;
                     }
+                }
+            }
+        }
+        // A seam names the value at the point it is STATED, and later
+        // statements may write over those bytes in place -- the logit
+        // softcap accumulates into the logits it was handed. Everything
+        // sharing an exposed value's buffer is therefore exposed too, or
+        // the arena places the final contents somewhere the reader is
+        // not looking.
+        {
+            let owner = alias_owners(plan);
+            let roots: std::collections::BTreeSet<ValueId> =
+                pinned.iter().map(|&v| owner[v as usize]).collect();
+            for v in 0..plan.values.len() {
+                if roots.contains(&owner[v]) {
+                    pinned.push(v as ValueId);
                 }
             }
         }

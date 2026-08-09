@@ -213,6 +213,37 @@ class ValueArena {
     std::vector<void*> pinned_;
 };
 
+// The activation block one plan needs for the WIDEST fire a deployment
+// admits — what `ws.declared_values` has to hold.
+//
+// The row shape matters more than it looks. Rows a request does not
+// sample are INTERIOR rows of a multi-token request, and saying so is
+// what makes `Buffers::assign` size the `[Requests, vocab]` logits by
+// sampled rows instead of by tokens. Left unset, every row counts as its
+// own request and the answer is inflated by the largest value in the
+// plan times the batch.
+inline std::size_t arena_bytes_for_widest(const pie_forward::ForwardPlan& plan,
+                                          int max_tokens, int max_sampled) {
+    const std::size_t tokens =
+        static_cast<std::size_t>(std::max(1, max_tokens));
+    const int sampled = std::max(1, max_sampled);
+    std::vector<pie_forward::PieForwardRow> rows(tokens);
+    for (std::size_t i = 0; i < tokens; ++i) {
+        pie_forward::PieForwardRow& row = rows[i];
+        row = {};
+        row.depth_k = -1;
+        const bool samples = i < static_cast<std::size_t>(sampled);
+        row.samples = samples ? 1 : 0;
+        row.multi_token = samples ? 0 : 1;
+    }
+    const PieForwardLowered out = plan.lower(rows.data(), rows.size());
+    // A plan that refuses the widest fire asks for nothing: the caller
+    // keeps whatever block it had, and the arena's bounds check is what
+    // catches a family whose islands outgrow it.
+    if (out.uncovered != pie_forward::PieForwardUncovered::None) return 0;
+    return out.arena_bytes;
+}
+
 // `PIE_DECLARED_ARENA_TRACE=1`: print what THIS driver's lowering says
 // its arena needs, and which values are asking.
 //
