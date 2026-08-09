@@ -24,6 +24,7 @@
 //! needs no registration of its own -- which is the property that makes
 //! allocating mid-run cheap rather than a residency rebuild.
 
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
@@ -44,6 +45,12 @@ use crate::error::{Error, Result};
 /// options have to agree with the heap's: `heapBufferSizeAndAlignWithLength:`
 /// answers for THESE options, and a buffer created with different ones is
 /// sized against a number that was computed for something else.
+/// The alignment floor a constant placement asks for.
+///
+/// Metal's own buffer-offset requirement, and the same number the C++ uses as
+/// `heap_alloc`'s default. The device may raise it; it may not lower it.
+const CONSTANT_ALIGN: u64 = 256;
+
 const BUFFER_OPTIONS: MTLResourceOptions = MTLResourceOptions(
     MTLResourceOptions::StorageModeShared.0 | MTLResourceOptions::HazardTrackingModeUntracked.0,
 );
@@ -121,6 +128,24 @@ pub struct Heap {
     /// it never removes from.
     buffers: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
     bump: Bump,
+    /// Placements memoised by the argument-table slot they are bound to.
+    ///
+    /// See [`Heap::constant`]. Small and looked up once per rebind, so a map
+    /// rather than anything cleverer.
+    constants: HashMap<u64, Constant>,
+}
+
+/// A placement the constant cache can hand out again.
+///
+/// Everything a [`Slot`] is except the buffer reference, which cannot be
+/// stored beside the `Vec` that owns it and is looked up by index instead.
+#[derive(Debug, Clone, Copy)]
+struct Constant {
+    buffer: usize,
+    contents: NonNull<c_void>,
+    gpu_address: u64,
+    offset: u64,
+    size: u64,
 }
 
 impl Heap {
@@ -166,6 +191,7 @@ impl Heap {
             heap,
             buffers: Vec::new(),
             bump: Bump::new(capacity),
+            constants: HashMap::new(),
         })
     }
 
@@ -185,6 +211,84 @@ impl Heap {
     #[must_use]
     pub fn slot_count(&self) -> usize {
         self.buffers.len()
+    }
+
+    /// A placement MEMOISED by the argument-table slot it will be bound to.
+    ///
+    /// The bump allocator never takes anything back, which is the right
+    /// trade for weights and the wrong one for a constant that is rewritten
+    /// every fire. A batch whose row count varies rebinds its constants each
+    /// time, and a fresh [`alloc`](Self::alloc) per rebind walks the heap
+    /// until there is nothing left -- at which point the model fails to set
+    /// up its NEXT sequence, reporting a budget too small, some thousands of
+    /// fires away from the allocation that actually spent it.
+    ///
+    /// The value at a given `(ordinal, index)` is the same constant every
+    /// time, so it can be allocated once and rewritten. What makes rewriting
+    /// safe is the step boundary: a rebind happens between steps and a step
+    /// blocks on its completion fence, so nothing is reading the old bytes.
+    ///
+    /// A LARGER request at the same slot is a different constant and gets a
+    /// fresh placement; the old one stays where it is, because the bump
+    /// allocator has no way to take it back. That is a leak bounded by the
+    /// number of distinct sizes a slot ever sees, which is one in every
+    /// current caller.
+    ///
+    /// # Errors
+    ///
+    /// As [`alloc`](Self::alloc), and only when the placement is new.
+    pub fn constant(
+        &mut self,
+        context: &Context,
+        ordinal: u32,
+        index: u8,
+        bytes: u64,
+    ) -> Result<Slot<'_>> {
+        let key = (u64::from(ordinal) << 8) | u64::from(index);
+        if let Some(hit) = self.constants.get(&key).copied()
+            && hit.size >= bytes
+        {
+            return Ok(Slot {
+                buffer: &self.buffers[hit.buffer],
+                contents: hit.contents,
+                gpu_address: hit.gpu_address,
+                offset: hit.offset,
+                // The request, not what was reserved. A slot that reported
+                // the first, larger request would let a later smaller
+                // constant write past itself, and the whole point of `len` is
+                // that it is the bound.
+                size: bytes,
+            });
+        }
+
+        let fresh = {
+            let slot = self.alloc(context, bytes, CONSTANT_ALIGN)?;
+            Constant {
+                buffer: 0,
+                contents: slot.contents,
+                gpu_address: slot.gpu_address,
+                offset: slot.offset,
+                size: slot.size,
+            }
+        };
+        let record = Constant {
+            buffer: self.buffers.len() - 1,
+            ..fresh
+        };
+        self.constants.insert(key, record);
+        Ok(Slot {
+            buffer: &self.buffers[record.buffer],
+            contents: record.contents,
+            gpu_address: record.gpu_address,
+            offset: record.offset,
+            size: record.size,
+        })
+    }
+
+    /// How many distinct constant slots have been placed.
+    #[must_use]
+    pub fn constant_count(&self) -> usize {
+        self.constants.len()
     }
 
     /// Place `size` bytes, at least `align`-aligned.
