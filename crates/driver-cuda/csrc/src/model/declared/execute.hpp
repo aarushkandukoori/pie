@@ -31,8 +31,12 @@
 #include "attn/kv_paged.hpp"
 #include "gemm/gemm.hpp"
 #include "mlp/swiglu.hpp"
+#include "moe/moe_dispatch.hpp"
+#include "moe/topk_softmax.hpp"
+#include "quant/dequant_wna16.hpp"
 #include "rope/rope.hpp"
 #include "distributed.hpp"
+#include "store/recurrent_state_cache.hpp"
 #include "store/kv_cache.hpp"
 #include "model/declared/arms.hpp"
 #include "model/declared/registry.hpp"
@@ -67,6 +71,11 @@ struct ExecCtx {
     // being a statement and being a side effect reached for through
     // `tp->` from inside a body.
     NcclComm* tp_comm = nullptr;
+    // The RECURRENT STATE store, for the families that have one. A
+    // handle like the KV cache: qwen3.5's GDN arms address per-request
+    // conv and recurrence slots through it, and a slot is not a traced
+    // value.
+    RecurrentStateCache* state_cache = nullptr;
 
     // The fire's inputs.
     const std::int32_t* positions = nullptr;
@@ -379,6 +388,54 @@ inline bool execute_shared(const ExecCtx& c,
                           // residual: `try_fold_residual` refuses a
                           // `Launch`, so the landing is a stated add.
                           0.f);
+        return true;
+    }
+
+    // ── the routed MoE trio every MoE family states ────────────────
+    //
+    // These read `top_k` and the hidden width from CONFIG in three
+    // executors, and both are on the results' own shapes: the router's
+    // indices are `[Tokens, top_k]` and the combine's operand is
+    // `[Tokens, top_k, H]`. Reading the shape is the difference between
+    // an arm that serves any MoE family and one that serves the family
+    // whose config it was written beside.
+    case Kernel::TopkSoftmax: {
+        need(ins, 1, "topk inputs");
+        need(outs, 2, "topk outputs");
+        kernels::moe::topk_softmax_bf16(
+            values.slot(ins[0]),
+            static_cast<std::int32_t*>(values.slot(outs[0])),
+            static_cast<float*>(values.slot(outs[1])), N,
+            row_width(plan, ins[0]), row_width(plan, outs[0]), stream);
+        return true;
+    }
+
+    case Kernel::Bf16ToFp16: {
+        need(ins, 1, "cast inputs");
+        need(outs, 1, "cast outputs");
+        kernels::quant::bf16_to_fp16(
+            values.slot(ins[0]), values.slot(outs[0]),
+            value_elements(plan, outs[0], N, c.num_requests), stream);
+        return true;
+    }
+
+    // The per-token combine: `[Tokens, top_k, H]` weighted by
+    // `[Tokens, top_k]` into `[Tokens, H]`. Both extents come off the
+    // routed operand, which is what makes this one arm.
+    case Kernel::WeightedSum: {
+        need(ins, 2, "weighted sum inputs");
+        need(outs, 1, "weighted sum outputs");
+        const auto& rv = plan.value(ins[0]);
+        if (rv.rank != 3) {
+            throw std::runtime_error(
+                "declared arm: a weighted sum reads rank " +
+                std::to_string(rv.rank) + ", wants [Tokens, top_k, H]");
+        }
+        kernels::moe::token_batched_weighted_sum_bf16(
+            values.slot(outs[0]), values.slot(ins[0]),
+            static_cast<const float*>(values.slot(ins[1])), N,
+            static_cast<int>(rv.dims[1].value),
+            static_cast<int>(rv.dims[2].value), stream);
         return true;
     }
 

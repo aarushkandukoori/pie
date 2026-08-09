@@ -1712,7 +1712,8 @@ case PieForwardOpKind::Launch: {
             // "stated, and this family executes it its own way".
             const declared::ExecCtx ectx{
                 {plan, values, N, 0, stream},
-                wb, cache, attn_ws, cublas, nullptr,
+                wb, cache, attn_ws, cublas, /*tp_comm=*/nullptr,
+                &state_cache,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
                 // NULL, deliberately: this family's KV write arms passed
@@ -1732,11 +1733,6 @@ case PieForwardOpKind::Launch: {
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
-            case declared::Kernel::RmsnormRow:
-            case declared::Kernel::MatmulTensorScaled:
-            case declared::Kernel::MatmulChannelScaled:
-            case declared::Kernel::MatmulGroupedScaled:
-            case declared::Kernel::RopeFull:
             case declared::Kernel::SplitRows:
             case declared::Kernel::SplitGdnBa: {
                 // The two GDN splits, told apart by their SYMBOLS. The

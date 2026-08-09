@@ -1776,6 +1776,7 @@ void llama_like_forward_declared(
             const declared::ExecCtx ectx{
                 {plan, values, N, win_start, stream},
                 wb, cache, attn_ws, cublas, fwd_cfg.tp_comm,
+                /*state_cache=*/nullptr,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, row_valid_d, w_page_d, w_off_d, R,
                 peel_window_d, win_region == WinRegion::Tail,

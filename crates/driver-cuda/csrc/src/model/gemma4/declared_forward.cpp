@@ -584,6 +584,7 @@ bool gemma4_forward_declared(
             const declared::ExecCtx ectx{
                 {plan, values, N, 0, stream},
                 wb, cache, attn_ws, cublas, nullptr,
+                /*state_cache=*/nullptr,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, row_valid_d, nullptr, nullptr, R,
                 nullptr, false,
