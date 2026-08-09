@@ -175,6 +175,107 @@ pub fn color_live_ranges(
     })
 }
 
+/// One buffer of one dispatch, and the pool colour it resolved to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScratchBind {
+    /// The activation slot the dispatch binds.
+    pub bind_index: u8,
+    /// The pool buffer behind it.
+    pub color: u32,
+}
+
+/// The full scratch schedule: what to bind, and how big to make it.
+///
+/// `per_dispatch` answers what to bind; `coloring` answers how big. Sizing
+/// a pool slot needs the widest value sharing it, and a value's width is a
+/// property of the VALUE -- a routed model's expert stack is
+/// `experts_per_token` times taller than the dense tensor beside it, and
+/// there is no way to see that from a bind index. That is why the colouring
+/// travels with the bind table instead of being consumed by it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScratchSchedule {
+    /// `per_dispatch[ordinal]`: the scratch binds of that dispatch.
+    pub per_dispatch: Vec<Vec<ScratchBind>>,
+    /// The colouring the binds came from (`color[value]`, `colors_used`).
+    pub coloring: Coloring,
+}
+
+/// Why a schedule was not produced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScheduleError {
+    /// The colouring itself refused; hazards land here and remain
+    /// unignorable -- the C++ carried a `hazard_free` flag the encoder had
+    /// to remember to read.
+    Coloring(ColoringError),
+    /// A use's ordinal is at or past the DAG size, so it has no dispatch to
+    /// fan out to. The C++ indexed the table with it anyway.
+    OrdinalPastDag {
+        /// The offending ordinal.
+        ordinal: u32,
+        /// The DAG's dispatch count.
+        dag_size: usize,
+    },
+}
+
+impl std::fmt::Display for ScheduleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScheduleError::Coloring(err) => write!(f, "scratch schedule: {err:?}"),
+            ScheduleError::OrdinalPastDag { ordinal, dag_size } => write!(
+                f,
+                "scratch schedule: a use at ordinal {ordinal} in a {dag_size}-dispatch DAG"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ScheduleError {}
+
+/// Colour a family's dataflow and fan the result out per dispatch.
+///
+/// Ported from `model/family_coloring.hpp`, minus its template: the C++
+/// took any `Use`-shaped type because every family declared its own struct
+/// with identical fields, and widening them was half the adapter. Rust
+/// families produce [`Use`] itself, so what remains is the part that was
+/// always real -- the fan-out from a per-value colouring to the per-dispatch
+/// bind lists the encoder walks.
+///
+/// # Errors
+///
+/// [`ScheduleError`]; a use past the DAG is refused before the colouring's
+/// answer is fanned out.
+pub fn schedule_scratch(
+    dag_size: usize,
+    uses: &[Use],
+    run_ends: &[u32],
+    value_count: usize,
+    no_recycle: bool,
+) -> Result<ScratchSchedule, ScheduleError> {
+    for use_ in uses {
+        if use_.ordinal as usize >= dag_size {
+            return Err(ScheduleError::OrdinalPastDag {
+                ordinal: use_.ordinal,
+                dag_size,
+            });
+        }
+    }
+    let coloring = color_live_ranges(uses, run_ends, value_count, no_recycle)
+        .map_err(ScheduleError::Coloring)?;
+    let mut per_dispatch: Vec<Vec<ScratchBind>> = vec![Vec::new(); dag_size];
+    for use_ in uses {
+        let color = coloring.color[use_.value as usize]
+            .expect("a value with a use has an interval, so it was coloured");
+        per_dispatch[use_.ordinal as usize].push(ScratchBind {
+            bind_index: use_.bind_index,
+            color,
+        });
+    }
+    Ok(ScratchSchedule {
+        per_dispatch,
+        coloring,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +301,63 @@ mod tests {
     /// Each ordinal runs alone.
     fn solo_runs(n: u32) -> Vec<u32> {
         (0..n).collect()
+    }
+
+    #[test]
+    fn the_schedule_answers_bind_and_size_from_one_colouring() {
+        // A two-dispatch chain: d0 writes v0, d1 reads v0 and writes v1.
+        let uses = [write(0, 0), read(1, 0), write(1, 1)];
+        let schedule =
+            schedule_scratch(2, &uses, &solo_runs(2), 2, false).expect("a sound DAG schedules");
+        assert_eq!(schedule.per_dispatch.len(), 2);
+        let c0 = schedule.coloring.color[0].unwrap();
+        let c1 = schedule.coloring.color[1].unwrap();
+        assert_eq!(
+            schedule.per_dispatch[0],
+            [ScratchBind {
+                bind_index: 1,
+                color: c0
+            }]
+        );
+        assert_eq!(
+            schedule.per_dispatch[1],
+            [
+                ScratchBind {
+                    bind_index: 0,
+                    color: c0
+                },
+                ScratchBind {
+                    bind_index: 1,
+                    color: c1
+                }
+            ]
+        );
+        // The colouring travels with the table: sizing needs color-of-VALUE.
+        assert!(schedule.coloring.colors_used >= 2);
+    }
+
+    #[test]
+    fn a_use_past_the_dag_is_refused_before_fanning_out() {
+        let uses = [write(3, 0)];
+        assert_eq!(
+            schedule_scratch(2, &uses, &solo_runs(4), 1, false),
+            Err(ScheduleError::OrdinalPastDag {
+                ordinal: 3,
+                dag_size: 2
+            })
+        );
+    }
+
+    #[test]
+    fn a_colouring_refusal_reaches_the_scheduler_unignorable() {
+        // Ordinal 1 is past a one-entry run table: RunsTooShort, carried.
+        let uses = [write(0, 0), read(1, 0)];
+        assert_eq!(
+            schedule_scratch(2, &uses, &[0], 1, false),
+            Err(ScheduleError::Coloring(ColoringError::RunsTooShort {
+                ordinal: 1
+            }))
+        );
     }
 
     #[test]

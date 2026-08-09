@@ -232,7 +232,7 @@ despite its path).
 | `scratch_widest_elems(g)` | `scratch_widest_elems(g, tuning)` | ported |
 | `scratch_slot_elems(g, max_tokens)` | `scratch_slot_elems(g, tuning, max_tokens)` | ported |
 | `batched: bool` parameter | `RoutedProjection { Matmul, Matvec }` | ported: a bare `true` at a call site says nothing; the enum says which projection runs |
-| `ScratchBind` / `ScratchDispatch` / the schedule | — | missing: coupled to the dispatch DAG (family port) |
+| `ScratchBind` / `ScratchDispatch` / the schedule | `ScratchBind` / `ScratchSchedule` / `schedule_scratch` (`color.rs`) | ported — see below |
 
 The arguments preserved: the slot width was derived twice (here and in the
 heap layout) and the copies drifted — 8320 elements against a 16384-element
@@ -246,6 +246,19 @@ The kernel bound has no Rust home on the kernels side yet: `kernels-metal`
 is a signature table. When it grows launch-shape helpers, `sorted_rows`
 should migrate there; until then the doc names its authority
 (`moe_route.metal`'s sort).
+
+`model/family_coloring.hpp` (72) folds into `color.rs` as
+`schedule_scratch`: the C++ adapter was a template because every family
+declared its own `Use` struct with identical fields, and widening them was
+half its body. Rust families produce the shared `Use` directly, so what
+remains is the fan-out from the per-value colouring to per-dispatch bind
+lists — plus the argument for `color_of_value` travelling alongside
+(sizing needs the widest VALUE sharing a colour; a routed expert stack is
+`experts_per_token` times taller than the dense tensor beside it, and no
+bind index shows that). Its `hazard_free` flag stays unrepresentable: a
+hazard is an `Err` through the adapter too, pinned by test. A use whose
+ordinal is past the DAG is refused (`OrdinalPastDag`) where the C++
+indexed the table with it.
 
 ## Expert paging — `src/batch/paging.rs`
 

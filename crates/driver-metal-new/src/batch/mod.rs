@@ -29,7 +29,10 @@ pub use abi::{
     SCRATCH_POOL,
 };
 pub use admit::{Refused, admit_recurrent};
-pub use color::{Coloring, ColoringError, Use, color_live_ranges};
+pub use color::{
+    Coloring, ColoringError, ScheduleError, ScratchBind, ScratchSchedule, Use, color_live_ranges,
+    schedule_scratch,
+};
 pub use geometry::{AffineFormat, DecodeGeometry};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
