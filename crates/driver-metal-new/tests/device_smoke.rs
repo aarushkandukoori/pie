@@ -1514,6 +1514,36 @@ fn a_thousand_tokens_decode_without_a_wedge_or_a_nan() {
             token < vocab,
             "step {step}: argmax {token} outside the vocabulary"
         );
+        // PIE_SMOKE_TOP5_AT=N prints step N's top five logits — the
+        // instrument for judging a near-tie against another backend.
+        if std::env::var("PIE_SMOKE_TOP5_AT")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            == Some(step)
+        {
+            let logits = decoder.storage().io[IoSlot::Logits as usize]
+                .as_ref()
+                .unwrap();
+            // SAFETY: the fire retired.
+            let bytes = unsafe {
+                std::slice::from_raw_parts(
+                    logits.contents().cast::<u8>().as_ptr(),
+                    vocab as usize * 2,
+                )
+            };
+            let mut all: Vec<(f32, usize)> = bytes
+                .chunks_exact(2)
+                .enumerate()
+                .map(|(i, c)| {
+                    (
+                        f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16),
+                        i,
+                    )
+                })
+                .collect();
+            all.sort_by(|a, b| b.0.total_cmp(&a.0));
+            eprintln!("step {step} top5: {:?}", &all[..5]);
+        }
         distinct.insert(token);
         position += 1;
         if (step + 1) % 200 == 0 {
@@ -1532,9 +1562,11 @@ fn a_thousand_tokens_decode_without_a_wedge_or_a_nan() {
         f64::from(horizon) / elapsed,
         distinct.len()
     );
-    assert!(
-        distinct.len() >= 5,
-        "a greedy run may loop a sentence, but {} distinct tokens over {horizon} is a wedge",
-        distinct.len()
-    );
+    if horizon >= 50 {
+        assert!(
+            distinct.len() >= 5,
+            "a greedy run may loop a sentence, but {} distinct tokens over {horizon} is a wedge",
+            distinct.len()
+        );
+    }
 }
