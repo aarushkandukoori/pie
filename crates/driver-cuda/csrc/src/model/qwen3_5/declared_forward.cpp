@@ -839,6 +839,23 @@ bool forward_declared_tmpl(
                 // query move while the result stays a workspace field
                 // is a chain half in each world.
                 return false;
+            case Q35Kernel::StepBatched:
+            case Q35Kernel::StepBatchedBf16:
+            case Q35Kernel::StepBatchedGqa:
+            case Q35Kernel::StepBatchedGqaBf16:
+            case Q35Kernel::PrefillWarpTiledGqa:
+            case Q35Kernel::PrefillWarpTiledGqaBf16:
+            case Q35Kernel::PrefillCached:
+            case Q35Kernel::PrefillCachedBf16:
+            case Q35Kernel::PrefillFla:
+            case Q35Kernel::PrefillFlaBf16:
+                // The recurrence writes the value it is asked for: its
+                // own where the decode step declares one, its guard's
+                // otherwise. Its five operands are still the GDN prep's
+                // results, read by convention -- so the WRITE has moved
+                // and the reads have not, which is why this stays
+                // unconverted until they follow.
+                return false;
             default:
                 // Notably `Swiglu`, the PAIR spelling: it reads
                 // `ws.gate` and `ws.up`, which the single traced
@@ -1099,23 +1116,14 @@ bool forward_declared_tmpl(
     // them apart and a blanket entry gave the recurrence core the
     // attention's buffer.
     //
-    // WHY THIS IS NOT COMPUTED FROM THE GUARD, which is what it looks
-    // like it should be. The ABI says regions are FLAT and CONSECUTIVE
-    // -- `param0` arms, `[kind, payload, len]` each plus a trailing
-    // else length in the aux run -- so a driver can compute each
-    // guard's span and hand every op inside it the guard's output as
-    // the value it BINDS. That was built, and it does not hold here:
+    // ONE of the two is computable from the guard and one is not, and
+    // the difference is worth stating.
     //
-    //   [q35-guard] op 61 arms=1 span=2 out=v65
-    //   [q35-guard] attention at op 67 has no binding
-    //
-    // One value-producing guard per layer, spanning ops 62-63, while
-    // the attention dispatch whose result IS v65 executes at op 67 --
-    // outside the span of the guard that owns its value. Either the
-    // span is not what the arm lengths say, or the dispatch is not in
-    // the region that produces its result. Until that is resolved the
-    // span cannot be trusted to route a write, and a consumer-keyed
-    // table is the honest fallback.
+    // The RECURRENCE's prefill spellings sit in a value-producing guard
+    // whose regions are exactly those spellings, so the span answers
+    // for them -- see `binds` below. The ATTENTION dispatch sits in no
+    // guard at all: its result is simply a value nothing declares. That
+    // is the gap, and it is narrower than it first looked.
     //
     // The CONSUMER can. A recurrence core is what the gated norm reads;
     // an attention result is what the output gate reads. That is a
@@ -1147,6 +1155,41 @@ bool forward_declared_tmpl(
                 }
                 if (home != nullptr) values.pin(v, home);
             }
+        }
+    }
+
+    // WHICH VALUE AN OP BINDS: the enclosing value-producing guard's
+    // result.
+    //
+    // `Guard` is the one construct whose result has more than one
+    // writer, and the ABI says so -- "the guard's outputs are the ONE
+    // producer whichever region runs; region launches bind the same
+    // output buffer and record no outputs of their own". That is an SSA
+    // phi, and deliberate: an arm recording its own output would give
+    // the value two definitions.
+    //
+    // Regions are FLAT and CONSECUTIVE -- `param0` arms, `[kind,
+    // payload, len]` each plus a trailing else length in the aux run --
+    // so the span is computable, and every op inside it binds the
+    // result. Guards NEST (llama_like's outer body guard contains
+    // three), so an inner guard's own span wins where they overlap;
+    // this walks outermost-first and lets later, narrower writes
+    // overwrite.
+    std::vector<std::uint32_t> binds(plan.op_count(),
+                                     pie_forward::PIE_FORWARD_NO_VALUE);
+    for (std::size_t i = 0; i < plan.op_count(); ++i) {
+        const PieForwardOp& g = plan.op(i);
+        if (g.kind != PieForwardOpKind::Guard) continue;
+        const auto gouts = plan.outputs(g);
+        if (gouts.size == 0) continue;  // a branch that produces nothing
+        const auto run = plan.aux_names(g);
+        const std::uint32_t arms = g.param0;
+        if (run.size < static_cast<std::size_t>(arms) * 3 + 1) continue;
+        std::size_t span = 0;
+        for (std::uint32_t a = 0; a < arms; ++a) span += run[a * 3 + 2];
+        span += run[arms * 3];
+        for (std::size_t j = i + 1; j <= i + span && j < binds.size(); ++j) {
+            binds[j] = gouts[0];
         }
     }
 
@@ -1249,7 +1292,20 @@ bool forward_declared_tmpl(
         std::fprintf(stderr, "%s\n", line.c_str());
     };
 
-    const auto execute_op = [&](const PieForwardOp& op) {
+    const auto execute_op = [&](const PieForwardOp& op, std::size_t at_op) {
+        // Where a statement's result lands: its own declared output if
+        // it has one (the decode recurrence states it), else the value
+        // its enclosing guard owns.
+        const auto bound_or_out = [&]() -> void* {
+            const auto o = plan.outputs(op);
+            if (o.size > 0) return values.slot(o[0]);
+            const std::uint32_t b =
+                at_op < binds.size() ? binds[at_op]
+                                     : pie_forward::PIE_FORWARD_NO_VALUE;
+            if (b != pie_forward::PIE_FORWARD_NO_VALUE) return values.slot(b);
+            throw_drift("a launch that declares no output sits in no "
+                        "value-producing guard");
+        };
         if (pin_audit) audit(op);
         if (ext_dump) extents(op);
         switch (op.kind) {
@@ -1734,35 +1790,35 @@ case PieForwardOpKind::Launch: {
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
-                    la.core_out.data(), R, V_h, K_d, V_d, stream);
+                    static_cast<float*>(bound_or_out()), R, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedBf16:
                 kernels::ssm::recurrent_gated_delta_step_batched_state_bf16(
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, slot_stride,
-                    la.core_out.data(), R, V_h, K_d, V_d, stream);
+                    static_cast<float*>(bound_or_out()), R, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedGqa:
                 kernels::ssm::recurrent_gated_delta_step_batched_gqa(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
-                    la.core_out.data(), R, K_h, V_h, K_d, V_d, stream);
+                    static_cast<float*>(bound_or_out()), R, K_h, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::StepBatchedGqaBf16:
                 kernels::ssm::recurrent_gated_delta_step_batched_gqa_state_bf16(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, slot_stride,
-                    la.core_out.data(), R, K_h, V_h, K_d, V_d, stream);
+                    static_cast<float*>(bound_or_out()), R, K_h, V_h, K_d, V_d, stream);
                 break;
             case Q35Kernel::PrefillWarpTiledGqa:
                 kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa(
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
-                    slot_stride, la.core_out.data(),
+                    slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillWarpTiledGqaBf16:
@@ -1770,7 +1826,7 @@ case PieForwardOpKind::Launch: {
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, qo_indptr,
-                    slot_stride, la.core_out.data(),
+                    slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillCached:
@@ -1778,7 +1834,7 @@ case PieForwardOpKind::Launch: {
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
-                    slot_stride, la.core_out.data(),
+                    slot_stride, static_cast<float*>(bound_or_out()),
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillCachedBf16:
@@ -1786,7 +1842,7 @@ case PieForwardOpKind::Launch: {
                     q_recur_full, k_recur_full,
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, qo_indptr,
-                    slot_stride, la.core_out.data(),
+                    slot_stride, static_cast<float*>(bound_or_out()),
                     R, V_h, K_d, V_d, stream, write_state);
                 break;
             case Q35Kernel::PrefillFla:
@@ -1794,7 +1850,7 @@ case PieForwardOpKind::Launch: {
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
-                    slot_stride, la.core_out.data(),
+                    slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state,
                     commit_lens);
                 break;
@@ -1803,7 +1859,7 @@ case PieForwardOpKind::Launch: {
                     la.q_pre.data(), la.k_pre.data(),
                     la.v_fp32.data(), la.g_log.data(), la.beta.data(),
                     rs_slot0, slot_ids_d, qo_indptr,
-                    slot_stride, la.core_out.data(),
+                    slot_stride, static_cast<float*>(bound_or_out()),
                     R, K_h, V_h, K_d, V_d, stream, write_state,
                     commit_lens);
                 break;
@@ -2266,7 +2322,8 @@ case PieForwardOpKind::Launch: {
             (next_site < flat.structural_len &&
              flat.structural[next_site].at_op < flat.launches[at].at_op);
         if (site_first) {
-            execute_op(plan.op(flat.structural[next_site].at_op));
+            execute_op(plan.op(flat.structural[next_site].at_op),
+                       flat.structural[next_site].at_op);
             ++next_site;
             continue;
         }
@@ -2274,7 +2331,7 @@ case PieForwardOpKind::Launch: {
         while (at < flat.launches_len && flat.launches[at].at_op == at_op) {
             ++at;
         }
-        execute_op(plan.op(at_op));
+        execute_op(plan.op(at_op), at_op);
     }
     return true;
 }

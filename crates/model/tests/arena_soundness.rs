@@ -897,3 +897,70 @@ fn an_alias_lands_inside_its_owner() {
         }
     }
 }
+
+/// A value-producing guard's result must be WRITTEN inside its regions.
+///
+/// The ABI says the regions are flat and consecutive and that "the
+/// guard's outputs are the ONE producer whichever region runs — region
+/// launches bind the same output buffer and record no outputs of their
+/// own". A driver that wants to route those writes has only the span to
+/// go on, and the qwen3.5 executor found the span and the fire
+/// disagreeing: one value-producing guard per layer spanning two ops,
+/// while the attention dispatch whose result the guard owns executed
+/// six ops later.
+///
+/// This asks the same question of the TEXT, without a GPU: for every
+/// guard that produces a value, every launch that could bind it should
+/// lie in `[guard + 1, guard + 1 + span)`. Printed rather than asserted
+/// on the first pass — the point is to find out which of the two is
+/// wrong before deciding which to call the bug.
+#[test]
+fn what_a_value_producing_guard_spans() {
+    for (name, class, plan) in families() {
+        for (i, op) in plan.ops.iter().enumerate() {
+            let OpKind::Guard { arms, else_ops } = &op.kind else {
+                continue;
+            };
+            if op.outputs.is_empty() {
+                continue;
+            }
+            let n_arms = arms.len();
+            let span: usize =
+                arms.iter().map(|a| a.ops as usize).sum::<usize>() + *else_ops as usize;
+            let body = (i + 1)..(i + 1 + span);
+            // Who READS the guard's result, and how far past the span
+            // that sits. A reader inside the body would be stranger
+            // still; what is expected is a reader just after it.
+            let out = op.outputs[0];
+            let reader = plan
+                .ops
+                .iter()
+                .enumerate()
+                .find(|(_, o)| o.inputs.contains(&out))
+                .map(|(j, _)| j);
+            println!(
+                "{name:12} {class:?} guard@{i} arms={n_arms} else={else_ops} \
+                 span={span} body={body:?} out=v{out} first_reader={reader:?}"
+            );
+            for j in body.clone() {
+                if let Some(o) = plan.ops.get(j) {
+                    println!("    body op {j}: {:?}", short(&o.kind));
+                }
+            }
+            if let Some(r) = reader {
+                for j in body.end..r.min(body.end + 8) {
+                    if let Some(o) = plan.ops.get(j) {
+                        println!("    AFTER op {j}: {:?}", short(&o.kind));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn short(k: &OpKind) -> String {
+    match k {
+        OpKind::Launch { kernel, .. } => format!("Launch({kernel})"),
+        other => format!("{other:?}").chars().take(40).collect(),
+    }
+}
