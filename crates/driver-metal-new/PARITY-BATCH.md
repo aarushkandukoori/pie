@@ -214,11 +214,40 @@ repeated), and `alt_quant` exists because mlx_lm spares the two routing
 projections at 8 bits inside a 4-bit body — read as 4-bit they route to
 almost the right experts (cosine 0.84) and weight them wrongly.
 
-Deferred from the same neighbourhood: the scratch footprints
-(`scratch_widest_elems`/`scratch_slot_elems`) and `plan_heap`
-(`loader/heap_layout.hpp`) — their MoE bound chains through
-`pie::kernels::moe::sorted_rows` and `DeviceTuning::moe_tile_rows`,
-which have no Rust counterpart yet. They land with the loader port.
+The deferral recorded here previously is closed: the scratch footprints
+landed as `src/batch/sizing.rs` (below) and `plan_heap` as
+`src/loader/heap.rs` (see `PARITY-LOADER.md`). `Tuning::moe_tile_rows`
+already existed in `src/tuning.rs`; only the kernel bound needed porting.
+
+## Scratch sizing — `src/batch/sizing.rs`
+
+The sizing half of `batch/scratch.hpp`, plus the two helpers it reaches:
+`pie::kernels::moe::sorted_rows` (`kernels-metal/include/pie/kernels/
+moe.h`) and `moe_sorted_rows` (`model/qwen3_5/decode_step.hpp`, generic
+despite its path).
+
+| C++ | Rust | |
+|---|---|---|
+| `moe::sorted_rows(pairs, experts, tile)` | `sorted_rows` | ported |
+| `moe_sorted_rows(g, n_tokens, batched)` | `moe_sorted_rows(g, tuning, n, RoutedProjection)` | ported |
+| `shared_kernels::moe_sorted_rows(pairs, experts)` | — | dropped: it only glued the tile lookup to the bound; the two calls read better than a third name |
+| `scratch_widest_elems(g)` | `scratch_widest_elems(g, tuning)` | ported |
+| `scratch_slot_elems(g, max_tokens)` | `scratch_slot_elems(g, tuning, max_tokens)` | ported |
+| `batched: bool` parameter | `RoutedProjection { Matmul, Matvec }` | ported: a bare `true` at a call site says nothing; the enum says which projection runs |
+| `ScratchBind` / `ScratchDispatch` / the schedule | — | missing: coupled to the dispatch DAG (family port) |
+
+The arguments preserved: the slot width was derived twice (here and in the
+heap layout) and the copies drifted — 8320 elements against a 16384-element
+row pitch, every row past the halfway point writing into the next colour —
+so the second derivation is deleted, not synchronized. The mixture's stack
+does not scale linearly with tokens (12800 rows where the linear bound says
+5120, pinned by test), and `sorted_rows` takes its tile as a parameter
+because a bound the kernel guarantees must not depend on a tuning decision.
+
+The kernel bound has no Rust home on the kernels side yet: `kernels-metal`
+is a signature table. When it grows launch-shape helpers, `sorted_rows`
+should migrate there; until then the doc names its authority
+(`moe_route.metal`'s sort).
 
 ## The decode-step ABI — `src/batch/abi.rs`
 

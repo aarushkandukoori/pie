@@ -19,6 +19,7 @@ mod mask;
 mod member;
 mod psos;
 mod schedule;
+mod sizing;
 mod timing;
 mod worker;
 
@@ -35,6 +36,9 @@ pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, p
 pub use schedule::{
     BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,
     find_request, validate_capacity, validate_paged,
+};
+pub use sizing::{
+    RoutedProjection, moe_sorted_rows, scratch_slot_elems, scratch_widest_elems, sorted_rows,
 };
 pub use timing::{
     Ablation, BoundaryMismatch, DispatchAttribution, DispatchInfo, StepAttribution, attribute_step,
