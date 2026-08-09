@@ -201,6 +201,13 @@ function(pie_add_cuda_target NAME)
     ${ARG_INCLUDE_DIRS})
   target_compile_options(${NAME} PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr>)
+  # The kernel archive, for the same reason its headers are on the include path
+  # above: harnesses call into it. That used to be a headers-only relationship
+  # -- the towers were self-contained naive code -- and stopped being one when
+  # csm_backbone_forward started calling gemm/norm/mlp/sample prims. cuBLAS
+  # comes along because `gemm::act_x_wt_bf16` is a cuBLAS dispatch.
+  target_link_libraries(${NAME} PRIVATE
+    ${PIE_KERNELS_CUDA_LIB} CUDA::cublas CUDA::cublasLt)
   if(ARG_LIBS)
     target_link_libraries(${NAME} PRIVATE ${ARG_LIBS})
   endif()
@@ -614,8 +621,12 @@ pie_add_cuda_target(gemma4_vision_full_parity
   SOURCES tests/gemma4_vision_full_parity.cu
   LIBS CUDA::cudart
   NO_CTEST)
+# The forward under test is the driver's now, not a copy inside the harness,
+# so its translation unit is a source here.
 pie_add_cuda_target(gemma4_vision_full_parity_bf16
-  SOURCES tests/gemma4_vision_full_parity_bf16.cu
+  SOURCES
+    tests/gemma4_vision_full_parity_bf16.cu
+    src/model/gemma4/gemma4_vision_forward.cu
   LIBS CUDA::cudart
   NO_CTEST)
 pie_add_cuda_target(gemma4_vision_patch_parity
