@@ -831,14 +831,13 @@ bool forward_declared_tmpl(
                 return kIsDense;
             case Q35Kernel::AttnFlashinferDecode:
             case Q35Kernel::AttnFlashinferPrefill:
-                // HALF converted, so it counts as unconverted: it reads
-                // its query off the plan but writes `ws.attn_out` by
-                // convention, because the launch DECLARES NO OUTPUT and
-                // there is no id to write to. A half-converted arm has
-                // to hold its whole neighbourhood back -- letting the
-                // query move while the result stays a workspace field
-                // is a chain half in each world.
-                return false;
+                // BOTH ENDS now. The dispatches declare an output in
+                // both classes -- the goldens say so, correcting an
+                // earlier reading here -- so the query comes off the
+                // plan and the result lands in the value, with the
+                // guard's binding and `ws.attn_out` as fallbacks that
+                // this deployment does not take.
+                return true;
             case Q35Kernel::StepBatched:
             case Q35Kernel::StepBatchedBf16:
             case Q35Kernel::StepBatchedGqa:
@@ -1310,6 +1309,20 @@ bool forward_declared_tmpl(
         // Where a statement's result lands: its own declared output if
         // it has one (the decode recurrence states it), else the value
         // its enclosing guard owns.
+        // The attention's destination. Its launches DO declare an
+        // output in both classes -- checked against the goldens, which
+        // corrects an earlier reading here that they did not -- so it is
+        // the statement's value, with the guard's as the fallback and
+        // `ws.attn_out` behind that.
+        const auto attn_dst = [&]() -> void* {
+            const auto o = plan.outputs(op);
+            if (o.size > 0) return values.slot(o[0]);
+            const std::uint32_t b =
+                at_op < binds.size() ? binds[at_op]
+                                     : pie_forward::PIE_FORWARD_NO_VALUE;
+            if (b != pie_forward::PIE_FORWARD_NO_VALUE) return values.slot(b);
+            return ws.attn_out.data();
+        };
         const auto bound_or_out = [&]() -> void* {
             const auto o = plan.outputs(op);
             if (o.size > 0) return values.slot(o[0]);
@@ -1979,7 +1992,7 @@ case PieForwardOpKind::Launch: {
                 need(ins, 1, "decode attention inputs");
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *decode_plan,
-                    values.slot(ins[0]), kv_view, ws.attn_out.data(),
+                    values.slot(ins[0]), kv_view, attn_dst(),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
                     attn_ws.view(), stream);
                 break;
@@ -1998,7 +2011,7 @@ case PieForwardOpKind::Launch: {
                     *prefill_plan,
                     values.slot(ins[0]), kv_view.k_bf16_pages,
                     kv_view.v_bf16_pages,
-                    ws.attn_out.data(),
+                    attn_dst(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, attn_ws.view(), stream);
                 break;
