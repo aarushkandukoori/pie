@@ -18,6 +18,7 @@ mod color;
 mod consts;
 mod dataflow;
 mod dispatch;
+mod dispatch_gptoss;
 mod dispatch_mb;
 mod geometry;
 mod geometry_facts;
@@ -51,6 +52,7 @@ pub use dataflow::{build_scratch_schedule, build_scratch_uses};
 pub use dispatch::{
     DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
 };
+pub use dispatch_gptoss::{GptOssDagStats, build_gptoss_dag, gptoss_dag_stats};
 pub use dispatch_mb::{
     PREFILL_ORDINAL_BASE, PREFILL_ORDINAL_STRIDE, ROUTED_DECODE_BATCHED, SDPA_QUERY_TILE,
     build_decode_dag_mb, build_decode_prefill_dags, fp16_format, mb_geometry, mb_kind, qmm_bm,
