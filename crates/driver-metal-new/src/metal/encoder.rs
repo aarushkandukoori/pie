@@ -1,9 +1,29 @@
 //! Encoding a step, committing it, and waiting for it with a bound.
 //!
-//! A step is one command buffer: an allocator reset, an encoder, some number
-//! of dispatches, and a wait on a shared event. The shape is the C++ shell's
+//! A step is an allocator reset, one or more encoded command buffers, a
+//! commit, and a wait on a shared event. The shape is the C++ shell's
 //! `encode_one_command_buffer` and `await_event`, with the two things that
 //! were comments there made into types here.
+//!
+//! # Three shapes, and what separates them
+//!
+//! [`Stepper::run`] is one command buffer. [`Stepper::run_parallel`] is N
+//! buffers in ONE `commit:count:options:` under ONE event signal -- the
+//! buffers race each other on purpose, so what it buys is `N - 1` submissions
+//! and what it demands is that the chunks be mutually hazard-free. Metal
+//! gives no ordering between command buffers in a batch and a barrier only
+//! orders dispatches inside the encoder that issued it, so nothing here can
+//! check that requirement; it is the caller's.
+//!
+//! [`Stepper::run_segments`] is the opposite trade and the reason both exist:
+//! N buffers committed and waited for one at a time, with a host callback
+//! between them. It is the only one of the three where the host can read what
+//! the GPU just computed and change what it reads next, because the other two
+//! commit everything before waiting for anything. That is right when the host
+//! has nothing to add and impossible when it does -- for expert paging what
+//! the host holds is which weights exist at all. It costs a submit and a
+//! completion wait per segment, so splitting a step that does not need the
+//! host is a straight loss.
 //!
 //! # The wait has a bound, and running out of it is terminal
 //!
@@ -296,6 +316,102 @@ impl<'ctx> Stepper<'ctx> {
     where
         F: FnOnce(&mut StepEncoder<'_>) -> Result<()>,
     {
+        self.preflight()?;
+        let allocator = self.allocator();
+        allocator.reset();
+        let buffer = self.encode_one(allocator, encode)?;
+        let value = self.commit(std::slice::from_ref(&buffer));
+        self.await_value(value)
+    }
+
+    /// Encode `count` command buffers and submit them in ONE commit.
+    ///
+    /// The buffers execute with NO ordering guarantee relative to one another
+    /// -- that is the point, and it is also the requirement: `encode` must
+    /// produce chunks that are mutually hazard-free, because nothing here
+    /// will serialise them. A barrier only orders dispatches within the
+    /// encoder that issued it.
+    ///
+    /// One event signal fences the whole batch, so the wait is the same wait
+    /// [`run`](Self::run) does and the timeline advances by one. What is
+    /// saved is `count - 1` submissions, which is why this exists at all: a
+    /// pass that splits into parallel chunks otherwise pays a submit per
+    /// chunk for work that could have gone in one.
+    ///
+    /// The allocator is reset once, before the first buffer. Several command
+    /// buffers may be drawn from one allocator; what `reset` requires is that
+    /// every buffer previously drawn from it has completed, and the
+    /// alternating pair plus the synchronous wait is what gives that.
+    ///
+    /// # Errors
+    ///
+    /// The first encode error, with the buffers encoded so far dropped and
+    /// nothing committed -- a partial batch is work the caller did not ask
+    /// for and cannot undo. Otherwise as [`run`](Self::run).
+    pub fn run_parallel<F>(&mut self, count: usize, mut encode: F) -> Result<()>
+    where
+        F: FnMut(usize, &mut StepEncoder<'_>) -> Result<()>,
+    {
+        self.preflight()?;
+        if count == 0 {
+            return Ok(());
+        }
+        let allocator = self.allocator();
+        allocator.reset();
+
+        let mut buffers = Vec::with_capacity(count);
+        for index in 0..count {
+            buffers.push(self.encode_one(allocator, |step| encode(index, step))?);
+        }
+        let value = self.commit(&buffers);
+        self.await_value(value)
+    }
+
+    /// Encode and run `count` segments IN ORDER, with the host between them.
+    ///
+    /// `between(i)` runs after segment `i` has completed on the GPU and
+    /// before segment `i + 1` is encoded, so it may read what the segment
+    /// computed and change what the next one reads. It runs after EVERY
+    /// segment, the last included, because a caller that pinned something per
+    /// segment needs somewhere to give the last pin back.
+    ///
+    /// That is the whole reason this exists, and the one thing neither
+    /// [`run`](Self::run) nor [`run_parallel`](Self::run_parallel) can do:
+    /// both commit everything before waiting for anything, which is right
+    /// when the host has nothing to add and impossible when it does. For
+    /// expert paging the host holds something the GPU cannot compute for
+    /// itself -- which weights exist at all.
+    ///
+    /// The cost is a submit and a completion wait per segment, so splitting a
+    /// step that does NOT need the host is a straight loss.
+    ///
+    /// # Errors
+    ///
+    /// From the first segment that fails. A segment that never finished
+    /// leaves the host holding results that were never computed, so `between`
+    /// is not called for it and the remaining segments are not encoded.
+    pub fn run_segments<F, B>(&mut self, count: usize, mut encode: F, mut between: B) -> Result<()>
+    where
+        F: FnMut(usize, &mut StepEncoder<'_>) -> Result<()>,
+        B: FnMut(usize) -> Result<()>,
+    {
+        self.preflight()?;
+        for index in 0..count {
+            let allocator = self.allocator();
+            // Legal every time round for the same reason as in `run`, and
+            // resetting per segment rather than once is what keeps a long
+            // model from growing the allocator by its segment count.
+            allocator.reset();
+            let buffer = self.encode_one(allocator, |step| encode(index, step))?;
+            let value = self.commit(std::slice::from_ref(&buffer));
+            self.await_value(value)?;
+            between(index)?;
+        }
+        Ok(())
+    }
+
+    /// Refuse before encoding anything, for the two reasons a step cannot run.
+    fn preflight(&mut self) -> Result<()> {
         if self.wedged {
             return Err(Error::Create {
                 what: "step",
@@ -305,15 +421,27 @@ impl<'ctx> Stepper<'ctx> {
         // A faulted command buffer still reaches the signal, so the previous
         // step's wait returned Ok. This is the first moment its fault can be
         // known -- raised here rather than swallowed, once.
-        self.raise_pending_fault()?;
+        self.raise_pending_fault()
+    }
 
-        // Safe because this stepper is synchronous: the work drawn from this
-        // allocator was waited for two steps ago. The parity is what makes
-        // that sentence still true when the wait moves off the commit path.
-        let allocator: &ProtocolObject<dyn MTL4CommandAllocator> =
-            self.context.allocator(self.committed as usize);
-        allocator.reset();
+    /// The allocator this submission draws from.
+    ///
+    /// Safe because this stepper is synchronous: the work drawn from this
+    /// allocator was waited for two submissions ago. The parity is what makes
+    /// that sentence still true when the wait moves off the commit path.
+    fn allocator(&self) -> &'ctx ProtocolObject<dyn MTL4CommandAllocator> {
+        self.context.allocator(self.committed as usize)
+    }
 
+    /// Encode one closed command buffer against `allocator`.
+    fn encode_one<F>(
+        &self,
+        allocator: &ProtocolObject<dyn MTL4CommandAllocator>,
+        encode: F,
+    ) -> Result<Retained<ProtocolObject<dyn MTL4CommandBuffer>>>
+    where
+        F: FnOnce(&mut StepEncoder<'_>) -> Result<()>,
+    {
         let command_buffer = self
             .context
             .device()
@@ -341,25 +469,32 @@ impl<'ctx> Stepper<'ctx> {
         };
         let encoded = encode(&mut step);
 
-        // Closed on both paths. See the doc comment: an abandoned encoder
-        // outlives the allocator reset that comes next.
+        // Closed on both paths. See `run`: an abandoned encoder outlives the
+        // allocator reset that comes next.
         encoder.endEncoding();
         command_buffer.endCommandBuffer();
         encoded?;
+        Ok(command_buffer)
+    }
 
+    /// Commit `buffers` as one submission and signal the timeline once.
+    ///
+    /// Returns the value that submission will signal.
+    fn commit(&mut self, buffers: &[Retained<ProtocolObject<dyn MTL4CommandBuffer>>]) -> u64 {
         let value = self.committed + 1;
-        let mut buffers = [NonNull::from(&*command_buffer)];
         // The handler is built before the commit so it can tag itself with the
         // timeline point it describes; `_handler` keeps the block alive across
         // the call that copies it.
         let (_handler, options) = self.feedback.options(value);
-        // SAFETY: the pointer is to a live array of exactly one command
-        // buffer, which outlives the call; `commit` takes it by reference and
-        // does not retain the array.
+        let mut pointers: Vec<NonNull<ProtocolObject<dyn MTL4CommandBuffer>>> =
+            buffers.iter().map(|b| NonNull::from(&**b)).collect();
+        // SAFETY: the pointer is to a live array of exactly `len` command
+        // buffers, which outlive the call; `commit` reads the array and does
+        // not retain it.
         unsafe {
             self.context.queue().commit_count_options(
-                NonNull::from(&mut buffers).cast(),
-                1,
+                NonNull::from(pointers.as_mut_slice()).cast(),
+                pointers.len(),
                 &options,
             );
         }
@@ -367,8 +502,7 @@ impl<'ctx> Stepper<'ctx> {
             .queue()
             .signalEvent_value(ProtocolObject::from_ref(&*self.event), value);
         self.committed = value;
-
-        self.await_value(value)
+        value
     }
 
     /// Raise a GPU fault reported since the last time one was raised.
