@@ -173,7 +173,7 @@ impl Gemma4Geometry {
     /// layers 4, 9, 14, … on E2B. Verified against `layer_types`.
     #[must_use]
     pub const fn is_full_attn(&self, layer: u32) -> bool {
-        self.full_attn_interval <= 1 || (layer + 1) % self.full_attn_interval == 0
+        self.full_attn_interval <= 1 || (layer + 1).is_multiple_of(self.full_attn_interval)
     }
 
     /// The complement of [`is_full_attn`](Self::is_full_attn).
