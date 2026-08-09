@@ -84,7 +84,24 @@ fn main() {
             std::env::var("DEP_PIE_KERNELS_CUDA_LIB")
                 .expect("kernels-cuda publishes the archive path as cargo:lib"),
         )
-        .define("PIE_KERNELS_CUDA_INCLUDE_DIRS", kernels_include_dirs());
+        .define("PIE_KERNELS_CUDA_INCLUDE_DIRS", kernels_include_dirs())
+        // Both Marlin header trees, and whether each was actually built.
+        //
+        // `kernels-cuda` has published all four keys since the split; nothing
+        // here read them, so a note in csrc/CMakeLists.txt concluded the paths
+        // were unpublished and that wiring `bench/marlin_moe_verify.cu` needed
+        // a change to the kernels crate. It needed these four lines.
+        //
+        // The `.cu`/`.cpp` behind each header are `target_sources` of the
+        // kernel archive itself, so a consumer needs the include dir and
+        // nothing more -- the symbols arrive with PIE_KERNELS_CUDA_LIB, but
+        // ONLY if that tree's toggle was on when the archive was built. Hence
+        // the `has_` keys travelling alongside: a consumer has to be able to
+        // ask, or it compiles fine and fails at link.
+        .define("PIE_MARLIN_INCLUDE_DIR", dep_meta("MARLIN"))
+        .define("PIE_MARLIN_MOE_INCLUDE_DIR", dep_meta("MARLIN_MOE"))
+        .define("PIE_HAS_MARLIN", dep_meta("HAS_MARLIN"))
+        .define("PIE_HAS_MARLIN_MOE", dep_meta("HAS_MARLIN_MOE"));
 
     // nvcc discovery, CUDA arch, the sccache/ccache launcher, the Marlin
     // toggle and the CPM source cache are all handled by csrc's CMakeLists
@@ -146,6 +163,22 @@ fn dep_include(prefix: &str, crate_name: &str) -> PathBuf {
         )
     });
     PathBuf::from(dir)
+}
+
+/// One `key=value` `kernels-cuda` published, read back by cargo's name for it.
+///
+/// Every key in that crate's export block is mandatory on its own side -- its
+/// build script panics if CMake omitted one -- so a missing variable here means
+/// the handoff itself is broken, not that this key is optional.
+fn dep_meta(key: &str) -> String {
+    let var = format!("DEP_PIE_KERNELS_CUDA_{key}");
+    std::env::var(&var).unwrap_or_else(|_| {
+        panic!(
+            "kernels-cuda's build.rs did not emit ${var} -- it publishes every \
+             key of its CMake export block, so this is a break in that block \
+             or in the list build.rs copies from it"
+        )
+    })
 }
 
 /// The include path the shell compiles against, in the order the kernel

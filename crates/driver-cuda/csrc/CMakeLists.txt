@@ -851,12 +851,52 @@ pie_add_cuda_target(test_generated_lane_grid_padding
                ${PIE_DRIVER_ABI_INCLUDE_DIR} ${PIE_LOADER_INCLUDE_DIR}
   LIBS CUDA::cudart NO_CTEST)
 
-# Still unwired, and deliberately: bench/moe_bench.cu, bench/mxfp4_cutlass_bench.cu
-# and bench/marlin_moe_verify.cu include cutlass/ or marlin_moe_wrapper.hpp,
-# which are FlashInfer's fetched tree and the Marlin toggle -- both live in the
-# kernels crate's build directory and neither is on any path this crate is
-# given. Wiring them needs those paths published, which is a change to the
-# kernels crate's cargo:: metadata, not to this file.
+# These two were held back by a note saying all three remaining benches
+# "include cutlass/ or marlin_moe_wrapper.hpp ... neither is on any path this
+# crate is given", and that the fix was a change to the kernels crate's
+# cargo:: metadata. Reading the metadata it actually publishes said otherwise
+# on both counts. `moe_bench.cu` includes neither vendor tree -- only
+# `quant/dequant_fp4.hpp` and `moe/moe_dispatch.hpp`, which are the kernels
+# crate's own headers. And cutlass is ALREADY here: kernels-cuda publishes
+# `cutlass/include` and `cutlass/tools/util/include` as the third and fourth
+# entries of its `flashinfer=` value, which this crate's build.rs forwards
+# whole into PIE_KERNELS_CUDA_INCLUDE_DIRS. Nothing had to be published; the
+# note had simply never been re-read against what was.
+pie_add_cuda_target(bench_moe SOURCES bench/moe_bench.cu LIBS CUDA::cudart NO_CTEST)
+pie_add_cuda_target(bench_mxfp4_cutlass
+  SOURCES bench/mxfp4_cutlass_bench.cu LIBS CUDA::cudart NO_CTEST)
+
+# `marlin_moe_verify.cu` needed one thing the other two did not: the header
+# tree behind `marlin_moe_wrapper.hpp`. kernels-cuda had been publishing it as
+# `marlin_moe=` all along -- what was missing is that this crate's build.rs
+# read only CCCL / FLASHINFER / INCLUDE out of that handoff, so the path
+# stopped there. It forwards both keys now.
+#
+# It needs BOTH marlin trees, which the file's name does not say and I did not
+# believe until the link failed: line 238 calls
+# `::marlin::pie_gptq_marlin_repack_w4_no_perm`, which is `third_party/marlin`
+# -- the DENSE path, `PIE_CUDA_BUILD_MARLIN`, which defaults OFF because it is
+# not pruned to one quant config the way marlin_moe is and costs several
+# multi-minute translation units. The verify builds the reference layout with
+# the dense repack and checks the MoE kernel against it, so the two are not
+# separable.
+#
+# Gated rather than assumed, and on both: a harness compiled against a header
+# whose `.cu` was never built fails at LINK with an undefined symbol, which is
+# a worse way to learn a toggle is off than not being offered the target.
+# Turn it on with `PIE_CUDA_BUILD_MARLIN=1 PIE_DRIVER_CUDA_CHECKS=1 cargo build
+# -p driver-cuda`.
+if(PIE_HAS_MARLIN AND PIE_HAS_MARLIN_MOE)
+  pie_add_cuda_target(bench_marlin_moe_verify
+    SOURCES bench/marlin_moe_verify.cu
+    INCLUDE_DIRS ${PIE_MARLIN_INCLUDE_DIR} ${PIE_MARLIN_MOE_INCLUDE_DIR}
+    LIBS CUDA::cudart NO_CTEST)
+else()
+  message(STATUS
+    "bench_marlin_moe_verify: skipped -- needs both PIE_CUDA_BUILD_MARLIN "
+    "(now ${PIE_HAS_MARLIN}) and PIE_CUDA_BUILD_MARLIN_MOE "
+    "(now ${PIE_HAS_MARLIN_MOE})")
+endif()
 
 # ---- One target that builds every harness (KEEP LAST) ----------------------------------
 #
@@ -880,18 +920,16 @@ add_dependencies(pie_driver_cuda_checks pie_driver_cuda_lib ${_pie_check_targets
 list(LENGTH _pie_check_targets _pie_check_count)
 message(STATUS "pie_driver_cuda_checks: ${_pie_check_count} harness targets")
 
-# NOT WIRED IN HERE, and deliberately so: ten .cu files under tests/ and bench/
-# are not sources of any target at all --
+# Nothing under tests/ or bench/ is unwired any more. This used to list ten
+# .cu files that were sources of no target at all and compiled only when
+# someone typed nvcc by hand -- which is how `gemv_bench` came to sweep a
+# `warps=32` that is not instantiated, print the empty interval as a bandwidth
+# number, and go on doing it after `gemv_splitk_tuned` gained an `unroll`
+# parameter it never passed. Seven were wired when the aggregate target above
+# was added; the last three were held back by a vendor-gate note that turned
+# out to be wrong about all three (see above).
 #
-#   bench/gemv_bench          bench/mla_bench          bench/moe_bench
-#   bench/smallop_bench       bench/mxfp4_roof_bench   bench/marlin_moe_verify
-#   bench/mxfp4_cutlass_bench tests/test_peel_window   tests/test_supergraph
-#   tests/test_generated_lane_grid_padding
-#
-# so they compile only when someone types nvcc by hand. That is how
-# gemv_bench came to sweep a `warps=32` that is not instantiated, print the
-# empty interval as a bandwidth number, and go on doing it after
-# `gemv_splitk_tuned` gained an `unroll` parameter it never passed. Adding
-# them needs their vendor gates (cutlass, marlin) decided first, which is a
-# separate change from making the existing targets build.
+# The invariant to keep, then, is not a list: it is that a .cu under tests/ or
+# bench/ with no target is a file nothing can check. `pie_driver_cuda_checks`
+# is what makes a wired one worth wiring.
 
