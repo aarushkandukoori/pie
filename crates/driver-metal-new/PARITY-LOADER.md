@@ -106,9 +106,23 @@ implementation` in `src/loader/plan.rs`: the Metal tile-map mask is
 inside the host executor's convert gate, so every transform a Metal plan
 can carry runs there.
 
+## Decode storage — `src/metal/storage.rs` (in progress)
+
+The first arm of `heap_bind.cpp`: `stage_decode_storage` and the weight
+staging. Implementation-first per the current directive; the bind pass
+(`weight_binds`, `bind_decode_dag`) and the encode half follow.
+
+| C++ | Rust | |
+|---|---|---|
+| `stage_decode_storage` | `stage_decode_storage` | ported: KV / GDN state / scratch / IO / argmax regions, geometry arithmetic identical |
+| `stage_plan_weights` + `run_tile_map` (~900 lines) | `stage_plan_weights` (~40) | ported BY DELEGATION: `execute_plan` runs the plan — checkpoint reads and every TileMap — and the tensors pack 256-aligned into one region, sliced per name. The C++ transform loops were the mirror of that executor (see the transcode entry) |
+| `alloc_zeroed(..., initial_commit)` elastic sizing | full-size allocations | deferred: a memory optimization, ledgered so it is not forgotten |
+| `resolve_mappable` / zero-copy mapping / stream pack | — | deferred: every checkpoint loads correctly through the copy path, some resident-larger |
+| `ExpertSlabRequest` staging arm | — | deferred: `ExpertSlab` exists; wiring needs the paging fire path |
+| `weight_binds` (317) / `bind_decode_dag` | — | next: the per-kind weight-name table and the argument-table walk |
+
 ## Not yet started
 
 | C++ | lines | blocker |
 |---|---|---|
-| `heap_bind.cpp` | 2044 | Metal-side: heap alloc + argument tables; needs `src/metal` runtime surface |
-| `heap_bind_metal.hpp` | 209 | Metal-side companion of `heap_bind.cpp` |
+| `heap_bind.cpp` binding half | ~500 | `weight_binds` + `bind_decode_dag`; needs the argument-table surface |

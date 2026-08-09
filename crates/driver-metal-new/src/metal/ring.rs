@@ -265,7 +265,7 @@ impl std::fmt::Debug for Ring {
 ///
 /// This is what `create_standalone_buffer` was for, as a step of an owning
 /// constructor rather than a primitive that hands out unowned handles.
-fn allocate(context: &Context, len: u64, what: &'static str) -> Result<Handle> {
+pub(super) fn allocate(context: &Context, len: u64, what: &'static str) -> Result<Handle> {
     let options = MTLResourceOptions(
         MTLResourceOptions::StorageModeShared.0 | MTLResourceOptions::HazardTrackingModeUntracked.0,
     );
