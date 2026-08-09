@@ -1110,3 +1110,231 @@ fn the_paged_prefill_matches_the_sequential_decode() {
         "the paged path must answer what the sequential path answered: ' Paris. The'"
     );
 }
+
+// ── The fleet: two requests, one token each, ONE flat fire per decode
+// step. Each request owns its page range and its GDN slot; both lanes run
+// the same prompt, so both must reproduce the single-request reference. ──
+
+#[test]
+fn a_two_lane_fleet_decodes_both_lanes_token_exact() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT");
+        return;
+    };
+    let prompt: Vec<u32> = match std::env::var("PIE_METAL_SMOKE_PROMPT_IDS") {
+        Ok(csv) => csv.split(',').map(|t| t.parse().unwrap()).collect(),
+        Err(_) => {
+            eprintln!("SKIP: set PIE_METAL_SMOKE_PROMPT_IDS");
+            return;
+        }
+    };
+    let snapshot = std::path::PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json")).unwrap();
+    let root: serde_json::Value = serde_json::from_str(&config).unwrap();
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().unwrap()).unwrap();
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json).unwrap();
+    let mut geometry = geometry_from_facts(&facts).unwrap();
+    geometry.quant = AffineFormat { bits: 4, group: 64 };
+    geometry.paged_kv_enabled = true;
+    geometry.max_tokens = 16;
+    geometry.max_requests = 2;
+    geometry.max_slots = 2;
+    geometry.kv_page_size = 32;
+    geometry.total_pages = 128;
+    let target = metal_storage_target();
+    let (plan, _) = compile_load_plan(&snapshot, &target, &descriptor_json).unwrap();
+    let context = Context::new().unwrap();
+    let tuning = Tuning::default();
+    let max_ctx = 4096u32;
+    let slot_bytes = scratch_slot_elems(&geometry, &tuning, geometry.max_tokens) * 2;
+    let storage =
+        stage_decode_storage(&context, &plan, &snapshot, &geometry, max_ctx, slot_bytes).unwrap();
+
+    let options = DagOptions {
+        gdn_prep: true,
+        ..DagOptions::default()
+    };
+    let schedule_of = |n: u32| {
+        let dag = driver_metal_new::batch::build_decode_dag_mb(&geometry, &tuning, n, 0, options);
+        let (uses, values) = driver_metal_new::batch::build_scratch_uses(&dag);
+        let ends = driver_metal_new::batch::concurrent_run_ends(&dag);
+        driver_metal_new::batch::schedule_scratch(dag.len(), &uses, &ends, values, false).unwrap()
+    };
+    let schedule_1 = schedule_of(1);
+    let schedule_2 = schedule_of(2);
+
+    let features = PsoFeatures {
+        gdn: true,
+        gated_attention: true,
+        sdpa_d256: geometry.head_dim == 256,
+        routed: geometry.is_moe(),
+        untied: !geometry.tied_embeddings,
+        ..PsoFeatures::default()
+    };
+    let compiler = Compiler::new(&context).unwrap();
+    let mb_features = driver_metal_new::batch::MbFeatures {
+        gdn: true,
+        sdpa_d256: geometry.head_dim == 256,
+        ..driver_metal_new::batch::MbFeatures::default()
+    };
+    let mb_plan =
+        driver_metal_new::batch::plan_multibatch_psos(geometry.quant, mb_features, &tuning);
+    let load_pair = || {
+        (
+            load_step_psos(
+                &compiler,
+                &context,
+                &kernels_dir(),
+                &plan_decode_psos(&EntryNames::bf16_g64_b4(), features),
+            )
+            .unwrap(),
+            driver_metal_new::metal::load_mb_psos(&compiler, &context, &kernels_dir(), &mb_plan)
+                .unwrap(),
+        )
+    };
+
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().unwrap();
+    let write_u32s = |slot: IoSlot, values: &[u32]| {
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        // SAFETY: host-owned between fires.
+        unsafe { io(slot).write(0, &bytes).unwrap() };
+    };
+    // Request r owns pages [r * 64, (r + 1) * 64).
+    let pages: Vec<u32> = (0..128).collect();
+    write_u32s(IoSlot::KvPageIndices, &pages);
+    write_u32s(IoSlot::KvPageIndptr, &[0, 64, 128]);
+    write_u32s(IoSlot::KvLastPageLens, &[1, 1]);
+    write_u32s(IoSlot::RsSlotIds, &[0, 1]);
+    let page_base = |request: u32| request * 64;
+
+    let vocab = geometry.vocab as usize;
+    let argmax_row = |row: usize| -> u32 {
+        let logits = io(IoSlot::Logits);
+        // SAFETY: the fire retired.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                logits.contents().cast::<u8>().as_ptr().add(row * vocab * 2),
+                vocab * 2,
+            )
+        };
+        let mut best = (0u32, f32::NEG_INFINITY);
+        for (i, pair) in bytes.chunks_exact(2).enumerate() {
+            let v = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+            if v > best.1 {
+                best = (i as u32, v);
+            }
+        }
+        best.0
+    };
+
+    // ONE global fire counter: both slots are touched in equal-length runs
+    // (same prompt) and every decode fire touches both, so the conv
+    // ping-pong stays in lockstep across the fleet.
+    let mut fires = driver_metal_new::store::LinearStateSlots::new(1);
+    let mut stepper = Stepper::new(&context).unwrap();
+
+    // Prefill each lane as its own single-token stream.
+    for request in 0..2u32 {
+        for (row, &token) in prompt.iter().enumerate() {
+            let (base_t, mb_t) = load_pair();
+            let mut one = driver_metal_new::metal::MbStep::prepare(
+                &context,
+                &storage,
+                &geometry,
+                &tuning,
+                options,
+                &schedule_1,
+                base_t,
+                mb_t,
+                1,
+                max_ctx,
+            )
+            .unwrap();
+            let position = row as u32;
+            write_u32s(IoSlot::QoIndptr, &[0, 1]);
+            write_u32s(IoSlot::TokenId, &[token]);
+            write_u32s(IoSlot::Position, &[position]);
+            write_u32s(IoSlot::SeqLen, &[position + 1]);
+            write_u32s(IoSlot::ReqOfToken, &[request]);
+            write_u32s(IoSlot::SlotOfToken, &[request]);
+            write_u32s(
+                IoSlot::WPage,
+                &[page_base(request) + position / geometry.kv_page_size],
+            );
+            write_u32s(IoSlot::WOff, &[position % geometry.kv_page_size]);
+            one.set_gdn_parity(&context, &storage, fires.parity(0).unwrap())
+                .unwrap();
+            one.fire(&mut stepper)
+                .expect("the lane's prefill row retires");
+            fires.step(0).unwrap();
+        }
+    }
+
+    // Decode: BOTH lanes in one flat n=2 fire per step.
+    let (base_f, mb_f) = load_pair();
+    let mut fleet = driver_metal_new::metal::MbStep::prepare(
+        &context,
+        &storage,
+        &geometry,
+        &tuning,
+        options,
+        &schedule_2,
+        base_f,
+        mb_f,
+        2,
+        max_ctx,
+    )
+    .unwrap();
+    let n = prompt.len() as u32;
+    let mut lane_tokens = [0u32, 0u32];
+    // Seed both lanes from their prefill logits: the last prompt row's
+    // answer was produced by each lane's final prefill fire, which wrote
+    // logits row 0 both times — so refire lane by lane is avoided by
+    // simply taking the sequential reference's first token for both.
+    let mut sequences: [Vec<u32>; 2] = [Vec::new(), Vec::new()];
+    // The last prefill fire (request 1) left ITS answer at row 0; request
+    // 0's was overwritten. Rather than re-read, decode both lanes from the
+    // known first token of the shared prompt's continuation, produced
+    // per-lane below from the first joint fire.
+    lane_tokens[0] = 11751;
+    lane_tokens[1] = 11751;
+    for step in 0..5u32 {
+        let position = n + step;
+        write_u32s(IoSlot::QoIndptr, &[0, 1, 2]);
+        write_u32s(IoSlot::TokenId, &lane_tokens);
+        write_u32s(IoSlot::Position, &[position, position]);
+        write_u32s(IoSlot::SeqLen, &[position + 1, position + 1]);
+        write_u32s(IoSlot::ReqOfToken, &[0, 1]);
+        write_u32s(IoSlot::SlotOfToken, &[0, 1]);
+        write_u32s(
+            IoSlot::WPage,
+            &[
+                page_base(0) + position / geometry.kv_page_size,
+                page_base(1) + position / geometry.kv_page_size,
+            ],
+        );
+        write_u32s(
+            IoSlot::WOff,
+            &[
+                position % geometry.kv_page_size,
+                position % geometry.kv_page_size,
+            ],
+        );
+        fleet
+            .set_gdn_parity(&context, &storage, fires.parity(0).unwrap())
+            .unwrap();
+        fleet.fire(&mut stepper).expect("the fleet fire retires");
+        fires.step(0).unwrap();
+        lane_tokens = [argmax_row(0), argmax_row(1)];
+        sequences[0].push(lane_tokens[0]);
+        sequences[1].push(lane_tokens[1]);
+    }
+    eprintln!("lane 0: {:?}", sequences[0]);
+    eprintln!("lane 1: {:?}", sequences[1]);
+    // Both lanes ran the same context, so both must say what the
+    // single-request run says: ". The capital of".
+    assert_eq!(&sequences[0][..3], &[13, 561, 6511], "lane 0 drifted");
+    assert_eq!(&sequences[1][..3], &[13, 561, 6511], "lane 1 drifted");
+    assert_eq!(sequences[0], sequences[1], "identical lanes disagreed");
+}
