@@ -25,21 +25,23 @@
 //! through [`archive`], which is what keeps a second start from paying for
 //! the first one's compilation. [`encoder`] encodes a step against them and
 //! waits for it with a bound. [`tables`] keeps the argument tables a step
-//! binds, so encoding one allocates nothing.
+//! binds, so encoding one allocates nothing. [`handle`] is the checked view
+//! of a buffer sub-range that the launch path stores and binds.
 
 mod archive;
 mod context;
 mod device;
+mod elastic;
 mod encoder;
 mod external;
 mod feedback;
+mod handle;
 mod heap;
 mod keepalive;
 mod memory;
 mod pipeline;
 mod pool;
 mod tables;
-mod elastic;
 mod timestamp;
 mod timing;
 
@@ -53,6 +55,7 @@ pub use elastic::{
 pub use encoder::{ArgumentTable, StepEncoder, Stepper, Visibility};
 pub use external::{External, Externals, Mapped, page_size};
 pub use feedback::{Feedback, Feedbacks};
+pub use handle::Handle;
 pub use heap::{Heap, Slot};
 pub use keepalive::{Keepalive, MIN_DEPTH, MIN_THREADGROUPS, THREADS_PER_THREADGROUP};
 pub use memory::{Memory, Pages, reclaimable_pages};

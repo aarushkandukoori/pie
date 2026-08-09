@@ -302,6 +302,47 @@ comment or a string literal are left alone, and it builds the output forward
 so the scan never revisits text a replacement introduced. It also handles
 nested includes and bounds the depth, neither of which the C++ attempts.
 
+## The buffer view — `src/metal/handle.rs`
+
+| C++ | Rust | |
+|---|---|---|
+| `SlotHandle` | `Handle` | ported |
+| `subhandle` | `Handle::slice` | ported |
+| `external_handle` | `Handle::over` | ported |
+| `SlotHandle::valid` | — | dropped |
+| `SlotHandle::offset` | — | dropped |
+| `SlotHandle::elastic` | — | dropped |
+
+The first metal-side slice, and the type everything after it stores and binds.
+Its tests are in `tests/device_handle.rs` and need a device, including one that
+dispatches a kernel through a sliced address to prove the GPU lands where the
+host pointer says.
+
+`subhandle` checked nothing: a span past the base was minted rather than
+refused, and a default (invalid) base is `nullptr + offset` — UB that in
+practice fabricates a handle whose GPU address *is* the offset, which an
+argument table binds like any other number. `slice` refuses the first with the
+wrap-safe bound every `Region` uses; the second is unrepresentable, because an
+invalid `Handle` is not a value of the type and "no handle yet" is
+`Option<Handle>`. That is also why `valid()` is dropped.
+
+`offset` was written at every construction and read nowhere on the launch
+path; a diagnostic that wants it is one subtraction away. `elastic` is dropped
+because it was per-copy state — a flag saying what type the buffer really was —
+and the C++'s own `subhandle` demonstrates the failure mode: its designated
+initializer names five of the six fields, so a sub-range of an elastic base
+would come out ordinary and pass the `bytes <= size` capacity test with no
+pages behind it. Elastic-ness here is the `Elastic` type, which a view cannot
+mislay. `external_handle` additionally trusted `device_visible()` without
+checking it, so a host-fallback ring would bind as GPU address zero; `over`
+starts from a real `MTLBuffer` and refuses one the host cannot address.
+
+The ownership flips from borrow to retain: the C++ view is "borrowed; lifetime
+owned by RawMetalContext", a contract kept by hand at every copy. A `Handle`
+retains its buffer, so the allocation cannot be freed while a view names it —
+what retaining does not answer for is exclusivity over a recycled pool buffer,
+which is why a handle still belongs beside the owner it was derived from.
+
 ## Not yet started
 
 Everything below names a Metal type and will land under `src/metal/`. That is
@@ -317,14 +358,16 @@ above tests on any machine, and everything below needs a device.
 | `prepare` / `execute` (M1 singleton) | 1455–1981 | missing |
 | M2 fused placement | 1982–2411 | missing |
 | M3 grouped lanes | 2412–3350 | missing |
-| `subhandle` / `external_handle` | 194–215 | missing |
 
 ## Where this stands
 
-Eleven subjects ported, in eleven commits, each one argued from a specific
-defect in the C++ rather than from a wish to have it in Rust. The portable half
-of `m1_runtime.cpp` — everything that is a function of the plan and the fire's
+Twelve subjects ported, each one argued from a specific defect in the C++
+rather than from a wish to have it in Rust. The portable half of
+`m1_runtime.cpp` — everything that is a function of the plan and the fire's
 numbers rather than of the device — is done, and it carries 122 tests that run
 without a GPU. The C++ had none for any of it: every one of these functions
 lived in an anonymous namespace behind a pimpl, reachable only through a
 `*_for_test` hook or not at all.
+
+The metal half has begun with the buffer view, whose seven tests need a
+device. Everything still missing above builds on it.
