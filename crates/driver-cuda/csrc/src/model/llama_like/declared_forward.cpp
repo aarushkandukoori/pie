@@ -327,6 +327,11 @@ enum class LaunchKernel {
     // number the driver read.
     RopeFull,
     RopePartial,
+    // The head-dim staging (2c). Statements now, so their results are
+    // values -- where sixteen sites read a boolean and staged into
+    // workspace fields nothing named.
+    PadHeadDim,
+    StripHeadDim,
     RopeStandardTable,
     QkvDecodeQkNormRopeWriteKv,
     QkRmsnormRope,
@@ -362,6 +367,8 @@ LaunchKernel resolve_launch_kernel(std::string_view kernel) {
     if (kernel == "mlp::swiglu_bf16") {
         return LaunchKernel::Swiglu;
     }
+    if (kernel == "attn::pad_head_dim_bf16") return LaunchKernel::PadHeadDim;
+    if (kernel == "attn::strip_head_dim_bf16") return LaunchKernel::StripHeadDim;
     if (kernel == "rope::rope_bf16") return LaunchKernel::RopeFull;
     if (kernel == "rope::rope_partial_bf16") return LaunchKernel::RopePartial;
     if (kernel == "rope::rope_standard_table") {
@@ -697,6 +704,13 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
     // Load-time: the kernel head dim the attention runs at vs the logical
     // one (Phi-3-mini pads 96 -> 128; llama_like.cpp's head_dim_padded).
     cuda.head_dim_padded = (cfg.head_dim != cfg.head_dim_kernel) ? 1 : 0;
+    // The WIDTH the pads and the strip state (2c). Zero when the
+    // attention runs at the logical head dim, which is what makes
+    // `head_dim_padded` exactly `head_dim_kernel != 0`.
+    cuda.head_dim_kernel =
+        cuda.head_dim_padded
+            ? static_cast<std::uint32_t>(cfg.head_dim_kernel)
+            : 0u;
     // The MLP's gate_up BINDING (qwen3.cpp: the loader installs the
     // packed bank when `contract.hpp::dense_fused_projection_joins`
     // accepts the group — it declines quantized and non-BF16 ones). The
@@ -777,7 +791,8 @@ LlamaLikeDeclaredPlan build_llama_like_declared_plan(
         "/pad" + std::to_string(cuda.head_dim_padded) +
         // The WEIGHT REPRESENTATION -- see the Rust printer for why the
         // payload beside it is deliberately not in here.
-        "/pr" + std::to_string(cuda.proj_repr);
+        "/pr" + std::to_string(cuda.proj_repr) +
+        "/hdk" + std::to_string(cuda.head_dim_kernel);
     return out;
 }
 
@@ -1214,15 +1229,16 @@ void llama_like_forward_declared(
     const float sm_scale_override = head_dim_padded
         ? (1.0f / std::sqrt(static_cast<float>(d)))
         : -1.f;
-    // Padded Q/K/V staging (the hand-written `attn_q`/... indirection):
-    // GEMM in/out buffers stay at `d`; the KV write and attention consume
-    // the zero-padded `dk` copies, and the o_proj reads the stripped
-    // output. All identity when the model's head_dim is a dispatch value.
-    void* const attn_q = head_dim_padded ? ws.q_padded.data() : ws.q.data();
-    void* const attn_k = head_dim_padded ? ws.k_padded.data() : ws.k.data();
-    void* const attn_v = head_dim_padded ? ws.v_padded.data() : ws.v.data();
-    void* const attn_out_buf =
-        head_dim_padded ? ws.attn_out_padded.data() : ws.attn_out.data();
+    // 2c: the padded Q/K/V staging is GONE from here. The pads and the
+    // strip are STATEMENTS now (`cuda::pad_head_dim` /
+    // `cuda::strip_head_dim`), so their results are traced values and
+    // every consumer names one -- which is why the four indirections
+    // below could be four workspace fields no value described, and now
+    // are none.
+    //
+    // `ws.attn_out` survives as the attention's fallback destination
+    // for a launch whose enclosing guard names no value; see `attn_dst`.
+    void* const attn_out_buf = ws.attn_out.data();
 
     // The HookSite slice's fire-level sidebands: the page-mask sink the
     // OnAttnProj site offers, the per-layer score captures the attention
@@ -1464,37 +1480,29 @@ void llama_like_forward_declared(
         // inside it. That is pinned now (see the pass), which is what
         // the load-time refusal was asking for.
         //
-        // Padded, the query is the pad staging, which is scratch for the
-        // reason `kv_src` gives below.
-        // WHERE THE ATTENTION LANDS. Padded, it is the staging buffer
-        // (scratch, stripped afterwards). Unpadded, it is the value the
-        // enclosing guard owns -- which `o_proj` then reads by id, so
-        // the two agree without either naming `ws.attn_out`.
+        // WHERE THE ATTENTION LANDS: the value the enclosing guard owns
+        // -- which `o_proj` (or, on a padded deployment, the stated
+        // strip) then reads by id, so the two agree without either
+        // naming `ws.attn_out`. That field is the fallback for a launch
+        // under no value-producing guard.
+        //
+        // The `head_dim_padded` arms these three carried are deleted
+        // (2c): a padded fire's q, k and v ARE the pads' results, and
+        // the attention's output IS the strip's operand, so every one
+        // of them is an operand off the plan.
         const auto attn_dst = [&]() -> void* {
-            if (head_dim_padded) return attn_out_buf;
             const std::uint32_t b =
                 at_op < binds.size() ? binds[at_op]
                                      : pie_forward::PIE_FORWARD_NO_VALUE;
             if (b == pie_forward::PIE_FORWARD_NO_VALUE) return attn_out_buf;
             return values.slot(b, plan.value(b));
         };
-        const auto attn_dst_padded_strip = [&]() -> void* {
-            const std::uint32_t b =
-                at_op < binds.size() ? binds[at_op]
-                                     : pie_forward::PIE_FORWARD_NO_VALUE;
-            if (b == pie_forward::PIE_FORWARD_NO_VALUE) {
-                return ws.attn_out.data();
-            }
-            return values.slot(b, plan.value(b));
-        };
         const auto attn_src = [&]() -> const void* {
-            if (head_dim_padded) return attn_q;
             const auto ins = plan.inputs(op);
-            if (ins.size == 0) return attn_q;
+            if (ins.size == 0) return attn_out_buf;
             return values.slot(ins[0], plan.value(ins[0]));
         };
-        const auto kv_src = [&](std::size_t i, void* staged) -> const void* {
-            if (head_dim_padded) return staged;
+        const auto kv_src = [&](std::size_t i, void*) -> const void* {
             return values.slot(plan.inputs(op)[i],
                                plan.value(plan.inputs(op)[i]));
         };
@@ -1869,6 +1877,38 @@ void llama_like_forward_declared(
                     wb.require(plan.name(aux[0])).data(), eps,
                     resolve_launch_kernel(plan.weight_name(op)) ==
                         LaunchKernel::RmsnormRowGemma);
+                break;
+            }
+            case LaunchKernel::PadHeadDim:
+            case LaunchKernel::StripHeadDim: {
+                // BINDING. Both directions are one kernel shape --
+                // operand in, result out, the head COUNT and the two
+                // widths -- and the count comes off the result's own
+                // shape, which is `[Tokens, heads, head_dim]`.
+                const auto pi = plan.inputs(op);
+                const auto po = plan.outputs(op);
+                declared::need(pi, 1, "head-dim staging inputs");
+                declared::need(po, 1, "head-dim staging outputs");
+                const auto& rv = plan.value(po[0]);
+                if (rv.rank != 3) {
+                    throw std::runtime_error(
+                        "declared forward: a head-dim staging result "
+                        "states rank " + std::to_string(rv.rank) +
+                        ", wants [Tokens, heads, head_dim]");
+                }
+                const int heads = static_cast<int>(rv.dims[1].value);
+                if (resolve_launch_kernel(plan.weight_name(op)) ==
+                    LaunchKernel::PadHeadDim) {
+                    kernels::attn::pad_head_dim_bf16(
+                        values.slot(pi[0], plan.value(pi[0])),
+                        values.slot(po[0], plan.value(po[0])),
+                        N, heads, d, dk, stream);
+                } else {
+                    kernels::attn::strip_head_dim_bf16(
+                        values.slot(pi[0], plan.value(pi[0])),
+                        values.slot(po[0], plan.value(po[0])),
+                        N, heads, d, dk, stream);
+                }
                 break;
             }
             case LaunchKernel::RopeFull:
@@ -2281,45 +2321,27 @@ void llama_like_forward_declared(
             }
             case LaunchKernel::WriteKvExplicit: {
                 auto kv_view = cache.layer_view(L);
-                // Mechanical pad staging for padded head dims (the
-                // hand-written pre-write pad block; exactly one write
-                // region runs, so this launches once per layer). A
-                // windowed write never coincides with padding: the Peel
-                // exists only in the fused deployment, whose facts
-                // require the unpadded head dim.
-                if (head_dim_padded) {
-                    kernels::attn::pad_head_dim_bf16(
-                        // Q's pad, inside a KV WRITE: this statement's
-                        // operands are k and v, so `inputs[0]` is K here
-                        // and the query is not the write's to name. It
-                        // stays the convention's until the attention --
-                        // whose operand q IS -- pads it itself.
-                        ws.q.data(),
-                        attn_q, N, num_q_heads, d, dk, stream);
-                    kernels::attn::pad_head_dim_bf16(
-                        values.slot(plan.inputs(op)[0],
-                                    plan.value(plan.inputs(op)[0])),
-                        attn_k, N, num_kv_heads, d, dk, stream);
-                    kernels::attn::pad_head_dim_bf16(
-                        values.slot(plan.inputs(op)[1],
-                                    plan.value(plan.inputs(op)[1])),
-                        attn_v, N, num_kv_heads, d, dk, stream);
-                }
+                // 2c: the pad staging that used to sit here is a
+                // STATEMENT (`cuda::pad_head_dim`), so k and v arrive
+                // already padded and this arm names its operands and
+                // nothing else. It also used to pad Q here -- a query
+                // this statement does not name -- because the
+                // convention gave it nowhere else to happen.
                 // Windowed (A3): the tail rows' cells only, from their
                 // slice of the descriptors — the hand-written tail
                 // write; offset 0 + full length is the plain form.
                 if (peel_window_d != nullptr &&
                     win_region == WinRegion::Tail) {
                     kernels::attn::write_kv_explicit_bf16_devwin(
-                        kv_view, kv_src(0, attn_k), kv_src(1, attn_v),
+                        kv_view, kv_src(0, nullptr), kv_src(1, nullptr),
                         w_page_d, w_off_d,
                         peel_window_d, N, stream, row_valid_d);
                     break;
                 }
                 kernels::attn::write_kv_explicit_bf16(
                     kv_view,
-                    bf16_row(kv_src(0, attn_k), win_start, in_w(0)),
-                    bf16_row(kv_src(1, attn_v), win_start, in_w(1)),
+                    bf16_row(kv_src(0, nullptr), win_start, in_w(0)),
+                    bf16_row(kv_src(1, nullptr), win_start, in_w(1)),
                     w_page_d + win_start, w_off_d + win_start,
                     win_len, stream,
                     row_valid_d != nullptr ? row_valid_d + win_start
@@ -2373,25 +2395,6 @@ void llama_like_forward_declared(
             }
             case LaunchKernel::WriteKvToPages: {
                 auto kv_view = cache.layer_view(L);
-                // (Pad staging comment above applies here too.)
-                if (head_dim_padded) {
-                    kernels::attn::pad_head_dim_bf16(
-                        // Q's pad, inside a KV WRITE: this statement's
-                        // operands are k and v, so `inputs[0]` is K here
-                        // and the query is not the write's to name. It
-                        // stays the convention's until the attention --
-                        // whose operand q IS -- pads it itself.
-                        ws.q.data(),
-                        attn_q, N, num_q_heads, d, dk, stream);
-                    kernels::attn::pad_head_dim_bf16(
-                        values.slot(plan.inputs(op)[0],
-                                    plan.value(plan.inputs(op)[0])),
-                        attn_k, N, num_kv_heads, d, dk, stream);
-                    kernels::attn::pad_head_dim_bf16(
-                        values.slot(plan.inputs(op)[1],
-                                    plan.value(plan.inputs(op)[1])),
-                        attn_v, N, num_kv_heads, d, dk, stream);
-                }
                 // Windowed (A3): base pointers stay; `first_token` skips
                 // the fused-prefix rows the peel's other region already
                 // wrote — the hand-written tail call verbatim (0 is the
@@ -2399,14 +2402,14 @@ void llama_like_forward_declared(
                 if (peel_window_d != nullptr &&
                     win_region == WinRegion::Tail) {
                     kernels::attn::write_kv_to_pages_bf16_devwin(
-                        kv_view, kv_src(0, attn_k), kv_src(1, attn_v),
+                        kv_view, kv_src(0, nullptr), kv_src(1, nullptr),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         peel_window_d, N, R, stream, row_valid_d);
                     break;
                 }
                 kernels::attn::write_kv_to_pages(
-                    kv_view, kv_src(0, attn_k), kv_src(1, attn_v),
+                    kv_view, kv_src(0, nullptr), kv_src(1, nullptr),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
                     N, R, stream, row_valid_d,
@@ -2528,14 +2531,7 @@ void llama_like_forward_declared(
                 launch_name == "attn::dispatch_attention_flashinfer_prefill_custom" ||
                 launch_name == "attn::dispatch_attention_flashinfer_decode_capture" ||
                 launch_name == "attn::dispatch_attention_flashinfer_prefill_capture_bf16";
-            if (is_attention_out && head_dim_padded) {
-                // The strip's DESTINATION is the guard's value -- the
-                // same one an unpadded fire lands in directly -- so
-                // `o_proj` reads one place either way.
-                kernels::attn::strip_head_dim_bf16(
-                    attn_out_buf, attn_dst_padded_strip(),
-                    N, num_q_heads, d, dk, stream);
-            }
+            (void)is_attention_out;  // 2c: the strip is a statement now
             break;
         }
         case PieForwardOpKind::Swiglu: {

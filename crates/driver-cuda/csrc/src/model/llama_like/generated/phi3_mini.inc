@@ -7,10 +7,10 @@
 // three-way parity gate. One TU per deployment; the `phi3_mini` suffix
 // keeps the symbols apart and the digest constant names the pair.
 //
-// Emitted from: llama_like/h3072/l32/qh32/kvh32/hd96/i8192/v32064/rope0/nv0/np0/qk0/fq0/te0/qb0/xqa0/dfp0/rt1/fpp0/pad1/pr0
+// Emitted from: llama_like/h3072/l32/qh32/kvh32/hd96/i8192/v32064/rope0/nv0/np0/qk0/fq0/te0/qb0/xqa0/dfp0/rt1/fpp0/pad1/pr0/hdk128
 
 constexpr const char* kGeneratedDigest_phi3_mini =
-    "llama_like/h3072/l32/qh32/kvh32/hd96/i8192/v32064/rope0/nv0/np0/qk0/fq0/te0/qb0/xqa0/dfp0/rt1/fpp0/pad1/pr0";
+    "llama_like/h3072/l32/qh32/kvh32/hd96/i8192/v32064/rope0/nv0/np0/qk0/fq0/te0/qb0/xqa0/dfp0/rt1/fpp0/pad1/pr0/hdk128";
 
 inline void generated_llama_like_decode_phi3_mini(
 const Qwen3Weights& w,
@@ -211,15 +211,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(0);
             kernels::attn::write_kv_explicit_bf16(
@@ -231,12 +231,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(0);
             kernels::attn::write_kv_to_pages(
@@ -293,9 +287,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -365,9 +356,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(0u)) {
@@ -415,9 +403,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -430,6 +415,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant, "layer.0.o_proj"),
@@ -521,15 +509,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(1);
             kernels::attn::write_kv_explicit_bf16(
@@ -541,12 +529,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(1);
             kernels::attn::write_kv_to_pages(
@@ -603,9 +585,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -675,9 +654,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(1u)) {
@@ -725,9 +701,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -740,6 +713,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant, "layer.1.o_proj"),
@@ -831,15 +807,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(2);
             kernels::attn::write_kv_explicit_bf16(
@@ -851,12 +827,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(2);
             kernels::attn::write_kv_to_pages(
@@ -913,9 +883,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -985,9 +952,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(2u)) {
@@ -1035,9 +999,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -1050,6 +1011,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant, "layer.2.o_proj"),
@@ -1141,15 +1105,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(3);
             kernels::attn::write_kv_explicit_bf16(
@@ -1161,12 +1125,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(3);
             kernels::attn::write_kv_to_pages(
@@ -1223,9 +1181,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -1295,9 +1250,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(3u)) {
@@ -1345,9 +1297,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -1360,6 +1309,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant, "layer.3.o_proj"),
@@ -1451,15 +1403,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(4);
             kernels::attn::write_kv_explicit_bf16(
@@ -1471,12 +1423,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(4);
             kernels::attn::write_kv_to_pages(
@@ -1533,9 +1479,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -1605,9 +1548,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(4u)) {
@@ -1655,9 +1595,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -1670,6 +1607,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant, "layer.4.o_proj"),
@@ -1761,15 +1701,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(5);
             kernels::attn::write_kv_explicit_bf16(
@@ -1781,12 +1721,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(5);
             kernels::attn::write_kv_to_pages(
@@ -1843,9 +1777,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -1915,9 +1846,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(5u)) {
@@ -1965,9 +1893,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -1980,6 +1905,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant, "layer.5.o_proj"),
@@ -2071,15 +1999,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(6);
             kernels::attn::write_kv_explicit_bf16(
@@ -2091,12 +2019,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(6);
             kernels::attn::write_kv_to_pages(
@@ -2153,9 +2075,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -2225,9 +2144,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(6u)) {
@@ -2275,9 +2191,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -2290,6 +2203,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant, "layer.6.o_proj"),
@@ -2381,15 +2297,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(7);
             kernels::attn::write_kv_explicit_bf16(
@@ -2401,12 +2317,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(7);
             kernels::attn::write_kv_to_pages(
@@ -2463,9 +2373,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -2535,9 +2442,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(7u)) {
@@ -2585,9 +2489,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -2600,6 +2501,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant, "layer.7.o_proj"),
@@ -2691,15 +2595,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(8);
             kernels::attn::write_kv_explicit_bf16(
@@ -2711,12 +2615,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(8);
             kernels::attn::write_kv_to_pages(
@@ -2773,9 +2671,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -2845,9 +2740,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(8u)) {
@@ -2895,9 +2787,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -2910,6 +2799,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant, "layer.8.o_proj"),
@@ -3001,15 +2893,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(9);
             kernels::attn::write_kv_explicit_bf16(
@@ -3021,12 +2913,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(9);
             kernels::attn::write_kv_to_pages(
@@ -3083,9 +2969,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -3155,9 +3038,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(9u)) {
@@ -3205,9 +3085,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -3220,6 +3097,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant, "layer.9.o_proj"),
@@ -3311,15 +3191,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(10);
             kernels::attn::write_kv_explicit_bf16(
@@ -3331,12 +3211,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(10);
             kernels::attn::write_kv_to_pages(
@@ -3393,9 +3267,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -3465,9 +3336,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(10u)) {
@@ -3515,9 +3383,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -3530,6 +3395,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant, "layer.10.o_proj"),
@@ -3621,15 +3489,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(11);
             kernels::attn::write_kv_explicit_bf16(
@@ -3641,12 +3509,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(11);
             kernels::attn::write_kv_to_pages(
@@ -3703,9 +3565,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -3775,9 +3634,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(11u)) {
@@ -3825,9 +3681,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -3840,6 +3693,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant, "layer.11.o_proj"),
@@ -3931,15 +3787,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(12);
             kernels::attn::write_kv_explicit_bf16(
@@ -3951,12 +3807,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(12);
             kernels::attn::write_kv_to_pages(
@@ -4013,9 +3863,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -4085,9 +3932,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(12u)) {
@@ -4135,9 +3979,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -4150,6 +3991,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant, "layer.12.o_proj"),
@@ -4241,15 +4085,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(13);
             kernels::attn::write_kv_explicit_bf16(
@@ -4261,12 +4105,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(13);
             kernels::attn::write_kv_to_pages(
@@ -4323,9 +4161,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -4395,9 +4230,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(13u)) {
@@ -4445,9 +4277,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -4460,6 +4289,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant, "layer.13.o_proj"),
@@ -4551,15 +4383,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(14);
             kernels::attn::write_kv_explicit_bf16(
@@ -4571,12 +4403,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(14);
             kernels::attn::write_kv_to_pages(
@@ -4633,9 +4459,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -4705,9 +4528,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(14u)) {
@@ -4755,9 +4575,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -4770,6 +4587,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant, "layer.14.o_proj"),
@@ -4861,15 +4681,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(15);
             kernels::attn::write_kv_explicit_bf16(
@@ -4881,12 +4701,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(15);
             kernels::attn::write_kv_to_pages(
@@ -4943,9 +4757,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -5015,9 +4826,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(15u)) {
@@ -5065,9 +4873,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -5080,6 +4885,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant, "layer.15.o_proj"),
@@ -5171,15 +4979,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(16);
             kernels::attn::write_kv_explicit_bf16(
@@ -5191,12 +4999,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(16);
             kernels::attn::write_kv_to_pages(
@@ -5253,9 +5055,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -5325,9 +5124,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(16u)) {
@@ -5375,9 +5171,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -5390,6 +5183,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant, "layer.16.o_proj"),
@@ -5481,15 +5277,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(17);
             kernels::attn::write_kv_explicit_bf16(
@@ -5501,12 +5297,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(17);
             kernels::attn::write_kv_to_pages(
@@ -5563,9 +5353,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -5635,9 +5422,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(17u)) {
@@ -5685,9 +5469,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -5700,6 +5481,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant, "layer.17.o_proj"),
@@ -5791,15 +5575,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(18);
             kernels::attn::write_kv_explicit_bf16(
@@ -5811,12 +5595,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(18);
             kernels::attn::write_kv_to_pages(
@@ -5873,9 +5651,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -5945,9 +5720,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(18u)) {
@@ -5995,9 +5767,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -6010,6 +5779,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant, "layer.18.o_proj"),
@@ -6101,15 +5873,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(19);
             kernels::attn::write_kv_explicit_bf16(
@@ -6121,12 +5893,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(19);
             kernels::attn::write_kv_to_pages(
@@ -6183,9 +5949,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -6255,9 +6018,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(19u)) {
@@ -6305,9 +6065,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -6320,6 +6077,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant, "layer.19.o_proj"),
@@ -6411,15 +6171,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(20);
             kernels::attn::write_kv_explicit_bf16(
@@ -6431,12 +6191,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(20);
             kernels::attn::write_kv_to_pages(
@@ -6493,9 +6247,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -6565,9 +6316,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(20u)) {
@@ -6615,9 +6363,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -6630,6 +6375,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant, "layer.20.o_proj"),
@@ -6721,15 +6469,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(21);
             kernels::attn::write_kv_explicit_bf16(
@@ -6741,12 +6489,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(21);
             kernels::attn::write_kv_to_pages(
@@ -6803,9 +6545,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -6875,9 +6614,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(21u)) {
@@ -6925,9 +6661,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -6940,6 +6673,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant, "layer.21.o_proj"),
@@ -7031,15 +6767,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(22);
             kernels::attn::write_kv_explicit_bf16(
@@ -7051,12 +6787,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(22);
             kernels::attn::write_kv_to_pages(
@@ -7113,9 +6843,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -7185,9 +6912,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(22u)) {
@@ -7235,9 +6959,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -7250,6 +6971,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant, "layer.22.o_proj"),
@@ -7341,15 +7065,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(23);
             kernels::attn::write_kv_explicit_bf16(
@@ -7361,12 +7085,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(23);
             kernels::attn::write_kv_to_pages(
@@ -7423,9 +7141,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -7495,9 +7210,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(23u)) {
@@ -7545,9 +7257,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -7560,6 +7269,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant, "layer.23.o_proj"),
@@ -7651,15 +7363,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(24);
             kernels::attn::write_kv_explicit_bf16(
@@ -7671,12 +7383,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(24);
             kernels::attn::write_kv_to_pages(
@@ -7733,9 +7439,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -7805,9 +7508,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(24u)) {
@@ -7855,9 +7555,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -7870,6 +7567,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant, "layer.24.o_proj"),
@@ -7961,15 +7661,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(25);
             kernels::attn::write_kv_explicit_bf16(
@@ -7981,12 +7681,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(25);
             kernels::attn::write_kv_to_pages(
@@ -8043,9 +7737,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -8115,9 +7806,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(25u)) {
@@ -8165,9 +7853,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -8180,6 +7865,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant, "layer.25.o_proj"),
@@ -8271,15 +7959,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(26);
             kernels::attn::write_kv_explicit_bf16(
@@ -8291,12 +7979,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(26);
             kernels::attn::write_kv_to_pages(
@@ -8353,9 +8035,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -8425,9 +8104,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(26u)) {
@@ -8475,9 +8151,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -8490,6 +8163,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant, "layer.26.o_proj"),
@@ -8581,15 +8257,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(27);
             kernels::attn::write_kv_explicit_bf16(
@@ -8601,12 +8277,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(27);
             kernels::attn::write_kv_to_pages(
@@ -8663,9 +8333,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -8735,9 +8402,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(27u)) {
@@ -8785,9 +8449,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -8800,6 +8461,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant, "layer.27.o_proj"),
@@ -8891,15 +8555,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(28);
             kernels::attn::write_kv_explicit_bf16(
@@ -8911,12 +8575,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(28);
             kernels::attn::write_kv_to_pages(
@@ -8973,9 +8631,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -9045,9 +8700,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(28u)) {
@@ -9095,9 +8747,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -9110,6 +8759,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant, "layer.28.o_proj"),
@@ -9201,15 +8853,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(29);
             kernels::attn::write_kv_explicit_bf16(
@@ -9221,12 +8873,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(29);
             kernels::attn::write_kv_to_pages(
@@ -9283,9 +8929,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -9355,9 +8998,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(29u)) {
@@ -9405,9 +9045,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -9420,6 +9057,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant, "layer.29.o_proj"),
@@ -9511,15 +9151,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(30);
             kernels::attn::write_kv_explicit_bf16(
@@ -9531,12 +9171,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(30);
             kernels::attn::write_kv_to_pages(
@@ -9593,9 +9227,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -9665,9 +9296,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(30u)) {
@@ -9715,9 +9343,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -9730,6 +9355,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant, "layer.30.o_proj"),
@@ -9821,15 +9449,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(31);
             kernels::attn::write_kv_explicit_bf16(
@@ -9841,12 +9469,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(31);
             kernels::attn::write_kv_to_pages(
@@ -9903,9 +9525,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -9975,9 +9594,6 @@ std::uint32_t declared_full_depth_rows)
                 score_capture->publish(
                     attn_page_indptr, attn_last_page_lens,
                     cache.page_size());
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (page_mask.written_for(31u)) {
@@ -10025,9 +9641,6 @@ std::uint32_t declared_full_depth_rows)
                      : depth_tail ? spatial_suffix_attn_ws() : attn_ws).view(),
                     stream, layer_window_left,
                     /*logits_soft_cap=*/0.f, sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -10040,6 +9653,9 @@ std::uint32_t declared_full_depth_rows)
                                          : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant, "layer.31.o_proj"),
@@ -10290,15 +9906,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(0);
             kernels::attn::write_kv_explicit_bf16(
@@ -10310,12 +9926,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(0);
             kernels::attn::write_kv_to_pages(
@@ -10373,9 +9983,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -10439,9 +10046,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -10458,9 +10062,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -10474,6 +10075,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant, "layer.0.o_proj"),
@@ -10565,15 +10169,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(1);
             kernels::attn::write_kv_explicit_bf16(
@@ -10585,12 +10189,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(1);
             kernels::attn::write_kv_to_pages(
@@ -10648,9 +10246,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -10714,9 +10309,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -10733,9 +10325,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -10749,6 +10338,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant, "layer.1.o_proj"),
@@ -10840,15 +10432,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(2);
             kernels::attn::write_kv_explicit_bf16(
@@ -10860,12 +10452,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(2);
             kernels::attn::write_kv_to_pages(
@@ -10923,9 +10509,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -10989,9 +10572,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -11008,9 +10588,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -11024,6 +10601,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant, "layer.2.o_proj"),
@@ -11115,15 +10695,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(3);
             kernels::attn::write_kv_explicit_bf16(
@@ -11135,12 +10715,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(3);
             kernels::attn::write_kv_to_pages(
@@ -11198,9 +10772,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -11264,9 +10835,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -11283,9 +10851,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -11299,6 +10864,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant, "layer.3.o_proj"),
@@ -11390,15 +10958,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(4);
             kernels::attn::write_kv_explicit_bf16(
@@ -11410,12 +10978,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(4);
             kernels::attn::write_kv_to_pages(
@@ -11473,9 +11035,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -11539,9 +11098,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -11558,9 +11114,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -11574,6 +11127,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant, "layer.4.o_proj"),
@@ -11665,15 +11221,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(5);
             kernels::attn::write_kv_explicit_bf16(
@@ -11685,12 +11241,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(5);
             kernels::attn::write_kv_to_pages(
@@ -11748,9 +11298,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -11814,9 +11361,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -11833,9 +11377,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -11849,6 +11390,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant, "layer.5.o_proj"),
@@ -11940,15 +11484,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(6);
             kernels::attn::write_kv_explicit_bf16(
@@ -11960,12 +11504,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(6);
             kernels::attn::write_kv_to_pages(
@@ -12023,9 +11561,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -12089,9 +11624,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -12108,9 +11640,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -12124,6 +11653,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant, "layer.6.o_proj"),
@@ -12215,15 +11747,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(7);
             kernels::attn::write_kv_explicit_bf16(
@@ -12235,12 +11767,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(7);
             kernels::attn::write_kv_to_pages(
@@ -12298,9 +11824,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -12364,9 +11887,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -12383,9 +11903,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -12399,6 +11916,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant, "layer.7.o_proj"),
@@ -12490,15 +12010,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(8);
             kernels::attn::write_kv_explicit_bf16(
@@ -12510,12 +12030,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(8);
             kernels::attn::write_kv_to_pages(
@@ -12573,9 +12087,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -12639,9 +12150,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -12658,9 +12166,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -12674,6 +12179,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant, "layer.8.o_proj"),
@@ -12765,15 +12273,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(9);
             kernels::attn::write_kv_explicit_bf16(
@@ -12785,12 +12293,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(9);
             kernels::attn::write_kv_to_pages(
@@ -12848,9 +12350,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -12914,9 +12413,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -12933,9 +12429,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -12949,6 +12442,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant, "layer.9.o_proj"),
@@ -13040,15 +12536,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(10);
             kernels::attn::write_kv_explicit_bf16(
@@ -13060,12 +12556,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(10);
             kernels::attn::write_kv_to_pages(
@@ -13123,9 +12613,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -13189,9 +12676,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -13208,9 +12692,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -13224,6 +12705,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant, "layer.10.o_proj"),
@@ -13315,15 +12799,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(11);
             kernels::attn::write_kv_explicit_bf16(
@@ -13335,12 +12819,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(11);
             kernels::attn::write_kv_to_pages(
@@ -13398,9 +12876,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -13464,9 +12939,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -13483,9 +12955,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -13499,6 +12968,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant, "layer.11.o_proj"),
@@ -13590,15 +13062,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(12);
             kernels::attn::write_kv_explicit_bf16(
@@ -13610,12 +13082,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(12);
             kernels::attn::write_kv_to_pages(
@@ -13673,9 +13139,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -13739,9 +13202,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -13758,9 +13218,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -13774,6 +13231,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant, "layer.12.o_proj"),
@@ -13865,15 +13325,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(13);
             kernels::attn::write_kv_explicit_bf16(
@@ -13885,12 +13345,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(13);
             kernels::attn::write_kv_to_pages(
@@ -13948,9 +13402,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -14014,9 +13465,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -14033,9 +13481,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -14049,6 +13494,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant, "layer.13.o_proj"),
@@ -14140,15 +13588,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(14);
             kernels::attn::write_kv_explicit_bf16(
@@ -14160,12 +13608,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(14);
             kernels::attn::write_kv_to_pages(
@@ -14223,9 +13665,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -14289,9 +13728,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -14308,9 +13744,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -14324,6 +13757,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant, "layer.14.o_proj"),
@@ -14415,15 +13851,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(15);
             kernels::attn::write_kv_explicit_bf16(
@@ -14435,12 +13871,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(15);
             kernels::attn::write_kv_to_pages(
@@ -14498,9 +13928,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -14564,9 +13991,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -14583,9 +14007,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -14599,6 +14020,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant, "layer.15.o_proj"),
@@ -14690,15 +14114,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(16);
             kernels::attn::write_kv_explicit_bf16(
@@ -14710,12 +14134,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(16);
             kernels::attn::write_kv_to_pages(
@@ -14773,9 +14191,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -14839,9 +14254,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -14858,9 +14270,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -14874,6 +14283,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant, "layer.16.o_proj"),
@@ -14965,15 +14377,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(17);
             kernels::attn::write_kv_explicit_bf16(
@@ -14985,12 +14397,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(17);
             kernels::attn::write_kv_to_pages(
@@ -15048,9 +14454,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -15114,9 +14517,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -15133,9 +14533,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -15149,6 +14546,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant, "layer.17.o_proj"),
@@ -15240,15 +14640,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(18);
             kernels::attn::write_kv_explicit_bf16(
@@ -15260,12 +14660,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(18);
             kernels::attn::write_kv_to_pages(
@@ -15323,9 +14717,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -15389,9 +14780,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -15408,9 +14796,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -15424,6 +14809,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant, "layer.18.o_proj"),
@@ -15515,15 +14903,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(19);
             kernels::attn::write_kv_explicit_bf16(
@@ -15535,12 +14923,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(19);
             kernels::attn::write_kv_to_pages(
@@ -15598,9 +14980,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -15664,9 +15043,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -15683,9 +15059,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -15699,6 +15072,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant, "layer.19.o_proj"),
@@ -15790,15 +15166,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(20);
             kernels::attn::write_kv_explicit_bf16(
@@ -15810,12 +15186,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(20);
             kernels::attn::write_kv_to_pages(
@@ -15873,9 +15243,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -15939,9 +15306,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -15958,9 +15322,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -15974,6 +15335,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant, "layer.20.o_proj"),
@@ -16065,15 +15429,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(21);
             kernels::attn::write_kv_explicit_bf16(
@@ -16085,12 +15449,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(21);
             kernels::attn::write_kv_to_pages(
@@ -16148,9 +15506,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -16214,9 +15569,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -16233,9 +15585,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -16249,6 +15598,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant, "layer.21.o_proj"),
@@ -16340,15 +15692,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(22);
             kernels::attn::write_kv_explicit_bf16(
@@ -16360,12 +15712,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(22);
             kernels::attn::write_kv_to_pages(
@@ -16423,9 +15769,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -16489,9 +15832,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -16508,9 +15848,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -16524,6 +15861,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant, "layer.22.o_proj"),
@@ -16615,15 +15955,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(23);
             kernels::attn::write_kv_explicit_bf16(
@@ -16635,12 +15975,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(23);
             kernels::attn::write_kv_to_pages(
@@ -16698,9 +16032,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -16764,9 +16095,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -16783,9 +16111,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -16799,6 +16124,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant, "layer.23.o_proj"),
@@ -16890,15 +16218,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(24);
             kernels::attn::write_kv_explicit_bf16(
@@ -16910,12 +16238,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(24);
             kernels::attn::write_kv_to_pages(
@@ -16973,9 +16295,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -17039,9 +16358,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -17058,9 +16374,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -17074,6 +16387,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant, "layer.24.o_proj"),
@@ -17165,15 +16481,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(25);
             kernels::attn::write_kv_explicit_bf16(
@@ -17185,12 +16501,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(25);
             kernels::attn::write_kv_to_pages(
@@ -17248,9 +16558,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -17314,9 +16621,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -17333,9 +16637,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -17349,6 +16650,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant, "layer.25.o_proj"),
@@ -17440,15 +16744,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(26);
             kernels::attn::write_kv_explicit_bf16(
@@ -17460,12 +16764,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(26);
             kernels::attn::write_kv_to_pages(
@@ -17523,9 +16821,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -17589,9 +16884,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -17608,9 +16900,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -17624,6 +16913,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant, "layer.26.o_proj"),
@@ -17715,15 +17007,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(27);
             kernels::attn::write_kv_explicit_bf16(
@@ -17735,12 +17027,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(27);
             kernels::attn::write_kv_to_pages(
@@ -17798,9 +17084,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -17864,9 +17147,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -17883,9 +17163,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -17899,6 +17176,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant, "layer.27.o_proj"),
@@ -17990,15 +17270,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(28);
             kernels::attn::write_kv_explicit_bf16(
@@ -18010,12 +17290,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(28);
             kernels::attn::write_kv_to_pages(
@@ -18073,9 +17347,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -18139,9 +17410,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -18158,9 +17426,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -18174,6 +17439,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant, "layer.28.o_proj"),
@@ -18265,15 +17533,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(29);
             kernels::attn::write_kv_explicit_bf16(
@@ -18285,12 +17553,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(29);
             kernels::attn::write_kv_to_pages(
@@ -18348,9 +17610,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -18414,9 +17673,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -18433,9 +17689,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -18449,6 +17702,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant, "layer.29.o_proj"),
@@ -18540,15 +17796,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(30);
             kernels::attn::write_kv_explicit_bf16(
@@ -18560,12 +17816,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(30);
             kernels::attn::write_kv_to_pages(
@@ -18623,9 +17873,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -18689,9 +17936,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -18708,9 +17952,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -18724,6 +17965,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant, "layer.30.o_proj"),
@@ -18815,15 +18059,15 @@ std::uint32_t declared_full_depth_rows)
         ws.q.data(), ws.k.data(), positions,
         N, num_q_heads, num_kv_heads, d,
         cfg.rope_theta, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
+    kernels::attn::pad_head_dim_bf16(
+        ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
     }
     }
     if (has_write_desc) {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(31);
             kernels::attn::write_kv_explicit_bf16(
@@ -18835,12 +18079,6 @@ std::uint32_t declared_full_depth_rows)
                 row_valid_d != nullptr ? row_valid_d + 0 : nullptr);
         }
     } else {
-        kernels::attn::pad_head_dim_bf16(
-            ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);
-        kernels::attn::pad_head_dim_bf16(
-            ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);
         {
             auto kv_view = cache.layer_view(31);
             kernels::attn::write_kv_to_pages(
@@ -18898,9 +18136,6 @@ std::uint32_t declared_full_depth_rows)
                 qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                 attn_ws.view(), stream);
-        kernels::attn::strip_head_dim_bf16(
-            attn_out_buf, ws.attn_out.data(),
-            N, num_q_heads, d, dk, stream);
         }
         if (hooks != nullptr) {
             invoke_stage_hook(
@@ -18964,9 +18199,6 @@ std::uint32_t declared_full_depth_rows)
                     prefill_score_capture->window(),
                     /*logits_soft_cap=*/0.f, sm_scale_override);
                 prefill_score_capture->publish();
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         } else {
             if (!plan_state.prefill_plan) {
@@ -18983,9 +18215,6 @@ std::uint32_t declared_full_depth_rows)
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
                     sm_scale_override);
-            kernels::attn::strip_head_dim_bf16(
-                attn_out_buf, ws.attn_out.data(),
-                N, num_q_heads, d, dk, stream);
             }
         }
         if (hooks != nullptr) {
@@ -18999,6 +18228,9 @@ std::uint32_t declared_full_depth_rows)
                      : nullptr});
         }
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant, "layer.31.o_proj"),
@@ -19247,9 +18479,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -19260,6 +18489,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant, "layer.0.o_proj"),
@@ -19339,9 +18571,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -19352,6 +18581,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant, "layer.1.o_proj"),
@@ -19431,9 +18663,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -19444,6 +18673,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant, "layer.2.o_proj"),
@@ -19523,9 +18755,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -19536,6 +18765,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant, "layer.3.o_proj"),
@@ -19615,9 +18847,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -19628,6 +18857,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant, "layer.4.o_proj"),
@@ -19707,9 +18939,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -19720,6 +18949,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant, "layer.5.o_proj"),
@@ -19799,9 +19031,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -19812,6 +19041,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant, "layer.6.o_proj"),
@@ -19891,9 +19123,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -19904,6 +19133,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant, "layer.7.o_proj"),
@@ -19983,9 +19215,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -19996,6 +19225,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant, "layer.8.o_proj"),
@@ -20075,9 +19307,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20088,6 +19317,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant, "layer.9.o_proj"),
@@ -20167,9 +19399,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20180,6 +19409,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant, "layer.10.o_proj"),
@@ -20259,9 +19491,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20272,6 +19501,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant, "layer.11.o_proj"),
@@ -20351,9 +19583,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20364,6 +19593,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant, "layer.12.o_proj"),
@@ -20443,9 +19675,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20456,6 +19685,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant, "layer.13.o_proj"),
@@ -20535,9 +19767,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20548,6 +19777,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant, "layer.14.o_proj"),
@@ -20627,9 +19859,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20640,6 +19869,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant, "layer.15.o_proj"),
@@ -20719,9 +19951,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20732,6 +19961,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant, "layer.16.o_proj"),
@@ -20811,9 +20043,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20824,6 +20053,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant, "layer.17.o_proj"),
@@ -20903,9 +20135,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -20916,6 +20145,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant, "layer.18.o_proj"),
@@ -20995,9 +20227,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21008,6 +20237,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant, "layer.19.o_proj"),
@@ -21087,9 +20319,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21100,6 +20329,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant, "layer.20.o_proj"),
@@ -21179,9 +20411,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21192,6 +20421,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant, "layer.21.o_proj"),
@@ -21271,9 +20503,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21284,6 +20513,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant, "layer.22.o_proj"),
@@ -21363,9 +20595,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21376,6 +20605,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant, "layer.23.o_proj"),
@@ -21455,9 +20687,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21468,6 +20697,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant, "layer.24.o_proj"),
@@ -21547,9 +20779,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21560,6 +20789,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant, "layer.25.o_proj"),
@@ -21639,9 +20871,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21652,6 +20881,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant, "layer.26.o_proj"),
@@ -21731,9 +20963,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21744,6 +20973,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant, "layer.27.o_proj"),
@@ -21823,9 +21055,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21836,6 +21065,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant, "layer.28.o_proj"),
@@ -21915,9 +21147,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -21928,6 +21157,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant, "layer.29.o_proj"),
@@ -22007,9 +21239,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -22020,6 +21249,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant, "layer.30.o_proj"),
@@ -22099,9 +21331,6 @@ std::uint32_t declared_full_depth_rows,
             qo_indptr, kv_page_indices, kv_page_indptr,
             kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
             attn_ws.view(), stream);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -22112,6 +21341,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant, "layer.31.o_proj"),
@@ -22255,9 +21487,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -22268,6 +21497,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[0].o_proj, "layer.0.o_proj"), w.layers[0].o_proj_quant, "layer.0.o_proj"),
@@ -22372,9 +21604,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -22385,6 +21614,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[1].o_proj, "layer.1.o_proj"), w.layers[1].o_proj_quant, "layer.1.o_proj"),
@@ -22489,9 +21721,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -22502,6 +21731,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[2].o_proj, "layer.2.o_proj"), w.layers[2].o_proj_quant, "layer.2.o_proj"),
@@ -22606,9 +21838,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -22619,6 +21848,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[3].o_proj, "layer.3.o_proj"), w.layers[3].o_proj_quant, "layer.3.o_proj"),
@@ -22723,9 +21955,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -22736,6 +21965,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[4].o_proj, "layer.4.o_proj"), w.layers[4].o_proj_quant, "layer.4.o_proj"),
@@ -22840,9 +22072,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -22853,6 +22082,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[5].o_proj, "layer.5.o_proj"), w.layers[5].o_proj_quant, "layer.5.o_proj"),
@@ -22957,9 +22189,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -22970,6 +22199,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[6].o_proj, "layer.6.o_proj"), w.layers[6].o_proj_quant, "layer.6.o_proj"),
@@ -23074,9 +22306,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -23087,6 +22316,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[7].o_proj, "layer.7.o_proj"), w.layers[7].o_proj_quant, "layer.7.o_proj"),
@@ -23191,9 +22423,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -23204,6 +22433,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[8].o_proj, "layer.8.o_proj"), w.layers[8].o_proj_quant, "layer.8.o_proj"),
@@ -23308,9 +22540,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -23321,6 +22550,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[9].o_proj, "layer.9.o_proj"), w.layers[9].o_proj_quant, "layer.9.o_proj"),
@@ -23425,9 +22657,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -23438,6 +22667,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[10].o_proj, "layer.10.o_proj"), w.layers[10].o_proj_quant, "layer.10.o_proj"),
@@ -23542,9 +22774,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -23555,6 +22784,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[11].o_proj, "layer.11.o_proj"), w.layers[11].o_proj_quant, "layer.11.o_proj"),
@@ -23659,9 +22891,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -23672,6 +22901,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[12].o_proj, "layer.12.o_proj"), w.layers[12].o_proj_quant, "layer.12.o_proj"),
@@ -23776,9 +23008,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -23789,6 +23018,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[13].o_proj, "layer.13.o_proj"), w.layers[13].o_proj_quant, "layer.13.o_proj"),
@@ -23893,9 +23125,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -23906,6 +23135,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[14].o_proj, "layer.14.o_proj"), w.layers[14].o_proj_quant, "layer.14.o_proj"),
@@ -24010,9 +23242,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -24023,6 +23252,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[15].o_proj, "layer.15.o_proj"), w.layers[15].o_proj_quant, "layer.15.o_proj"),
@@ -24127,9 +23359,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -24140,6 +23369,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[16].o_proj, "layer.16.o_proj"), w.layers[16].o_proj_quant, "layer.16.o_proj"),
@@ -24244,9 +23476,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -24257,6 +23486,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[17].o_proj, "layer.17.o_proj"), w.layers[17].o_proj_quant, "layer.17.o_proj"),
@@ -24361,9 +23593,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -24374,6 +23603,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[18].o_proj, "layer.18.o_proj"), w.layers[18].o_proj_quant, "layer.18.o_proj"),
@@ -24478,9 +23710,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -24491,6 +23720,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[19].o_proj, "layer.19.o_proj"), w.layers[19].o_proj_quant, "layer.19.o_proj"),
@@ -24595,9 +23827,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -24608,6 +23837,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[20].o_proj, "layer.20.o_proj"), w.layers[20].o_proj_quant, "layer.20.o_proj"),
@@ -24712,9 +23944,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -24725,6 +23954,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[21].o_proj, "layer.21.o_proj"), w.layers[21].o_proj_quant, "layer.21.o_proj"),
@@ -24829,9 +24061,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -24842,6 +24071,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[22].o_proj, "layer.22.o_proj"), w.layers[22].o_proj_quant, "layer.22.o_proj"),
@@ -24946,9 +24178,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -24959,6 +24188,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[23].o_proj, "layer.23.o_proj"), w.layers[23].o_proj_quant, "layer.23.o_proj"),
@@ -25063,9 +24295,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -25076,6 +24305,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[24].o_proj, "layer.24.o_proj"), w.layers[24].o_proj_quant, "layer.24.o_proj"),
@@ -25180,9 +24412,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -25193,6 +24422,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[25].o_proj, "layer.25.o_proj"), w.layers[25].o_proj_quant, "layer.25.o_proj"),
@@ -25297,9 +24529,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -25310,6 +24539,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[26].o_proj, "layer.26.o_proj"), w.layers[26].o_proj_quant, "layer.26.o_proj"),
@@ -25414,9 +24646,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -25427,6 +24656,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[27].o_proj, "layer.27.o_proj"), w.layers[27].o_proj_quant, "layer.27.o_proj"),
@@ -25531,9 +24763,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -25544,6 +24773,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[28].o_proj, "layer.28.o_proj"), w.layers[28].o_proj_quant, "layer.28.o_proj"),
@@ -25648,9 +24880,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -25661,6 +24890,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[29].o_proj, "layer.29.o_proj"), w.layers[29].o_proj_quant, "layer.29.o_proj"),
@@ -25765,9 +24997,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -25778,6 +25007,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[30].o_proj, "layer.30.o_proj"), w.layers[30].o_proj_quant, "layer.30.o_proj"),
@@ -25882,9 +25114,6 @@ std::uint32_t declared_full_depth_rows,
             attn_last_page_lens,
             attn_ws.view(), stream, layer_window_left,
             /*logits_soft_cap=*/0.f, sm_scale_override);
-    kernels::attn::strip_head_dim_bf16(
-        attn_out_buf, ws.attn_out.data(),
-        N, num_q_heads, d, dk, stream);
     }
     if (hooks != nullptr) {
         invoke_stage_hook(
@@ -25895,6 +25124,9 @@ std::uint32_t declared_full_depth_rows,
             {.scores = score_capture ? score_capture->scores()
                                      : nullptr});
     }
+    kernels::attn::strip_head_dim_bf16(
+        attn_out_buf, ws.attn_out.data(),
+        N, num_q_heads, d, dk, stream);
     kernels::gemm::act_x_w(cublas.handle(),
         ws.attn_out.data(),
         dense(*require(w.layers[31].o_proj, "layer.31.o_proj"), w.layers[31].o_proj_quant, "layer.31.o_proj"),

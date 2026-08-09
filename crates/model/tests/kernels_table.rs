@@ -355,6 +355,11 @@ fn the_depth_axis_derives_from_the_layer_tag() {
         &facts,
         &LlamaLikeCudaFacts {
             head_dim_padded: true,
+            // SYNTHETIC: this fixture's model facts are qwen3-0.6B's
+            // (head_dim 128), which pads nowhere. The width only has to
+            // be wider than the logical one for the pad statements to
+            // be well-formed; what the test is about is the AXIS.
+            head_dim_kernel: 256,
             ..LlamaLikeCudaFacts::qwen3_0_6b_l40s()
         },
         FireClass::Prefill,
