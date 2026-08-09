@@ -79,7 +79,9 @@ pub use dispatch_mb::{
     mb_kind, qmm_bm, qmm_bm_slot, qmm_bn, qmm_bn_unsplit, qmm_mb_rows, qmm_t, qmv_mb, qmv_out_size,
     rms_mb, uses_alt_quant,
 };
-pub use gemma4::{Gemma4Geometry, gemma4_geometry_from_facts, gemma4_qmv_kn};
+pub use gemma4::{
+    Gemma4Geometry, gemma4_decode_geometry, gemma4_geometry_from_facts, gemma4_qmv_kn,
+};
 pub use gemma4_consts::{
     GegluParams, LayerScalarParams, PleCombineParams, SoftcapParams, VNormParams,
 };

@@ -24,7 +24,7 @@ use crate::facts::ModelFacts;
 
 use super::abi::Kernel;
 use super::consts::KN;
-use super::geometry::AffineFormat;
+use super::geometry::{AffineFormat, DecodeGeometry};
 use super::geometry_facts::GeometryRefused;
 
 /// The family's shape. Defaults are `google/gemma-4-E2B-it`'s.
@@ -281,6 +281,54 @@ impl Gemma4Geometry {
         (0..self.n_layers)
             .filter(|&l| !self.is_kv_shared(l))
             .count() as u32
+    }
+}
+
+/// The shared-machinery view of a gemma4 shape — what the weight walk,
+/// the staging and the scratch sizing read. The KV region this view
+/// would imply is WRONG for this family (uniform widths, every layer)
+/// and is replaced by `stage_gemma4_kv`; `head_dim` carries the WIDER
+/// width so the scratch sizing over-covers the sliding layers.
+#[must_use]
+pub fn gemma4_decode_geometry(g: &Gemma4Geometry) -> DecodeGeometry {
+    DecodeGeometry {
+        hidden: g.hidden,
+        n_layers: g.n_layers,
+        vocab: g.vocab,
+        eps: g.eps,
+        tied_embeddings: g.tied_embeddings,
+        n_q_heads: g.n_q_heads,
+        n_kv_heads: g.n_kv_heads,
+        head_dim: g.global_head_dim.max(g.head_dim),
+        quant: g.quant,
+        alt_quant: g.ffn_quant,
+        rotary_dims: g.head_dim,
+        rope_theta: g.rope_theta_local,
+        gdn_k_heads: 0,
+        gdn_v_heads: 0,
+        gdn_k_dim: 0,
+        gdn_v_dim: 0,
+        gdn_conv_k: 0,
+        gdn_conv_dim: 0,
+        gdn_v_total: 0,
+        intermediate: if g.double_wide_mlp {
+            2 * g.intermediate
+        } else {
+            g.intermediate
+        },
+        n_experts: g.n_experts,
+        experts_per_token: g.experts_per_token,
+        moe_intermediate: g.moe_intermediate,
+        mxfp4_experts: false,
+        shared_intermediate: 0,
+        max_tokens: g.max_tokens,
+        max_requests: g.max_requests,
+        max_slots: g.max_slots,
+        kv_page_size: g.kv_page_size,
+        total_pages: g.total_pages,
+        paged_kv_enabled: g.paged_kv_enabled,
+        full_attn_interval: 1,
+        ..DecodeGeometry::default()
     }
 }
 
