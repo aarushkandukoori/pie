@@ -49,5 +49,6 @@ pub mod metal;
 
 #[cfg(target_vendor = "apple")]
 pub use metal::{
-    ArgumentTable, Compiler, Context, DeviceInfo, Heap, Slot, StepEncoder, Stepper, Visibility,
+    ArgumentTable, Compiler, Context, DeviceInfo, Heap, MAX_BINDINGS, Slot, StepEncoder, Stepper,
+    Tables, Visibility,
 };

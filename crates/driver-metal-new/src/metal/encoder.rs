@@ -32,6 +32,7 @@ use objc2_metal::{
 
 use super::context::{Context, describe};
 use super::heap::Slot;
+use super::tables::Tables;
 use crate::error::{Error, Result};
 
 /// How long one probe of the completion wait lasts.
@@ -155,6 +156,17 @@ impl StepEncoder<'_> {
     /// Set the table the next dispatch reads its addresses from.
     pub fn set_argument_table(&mut self, table: &ArgumentTable) {
         self.encoder.setArgumentTable(Some(&table.table));
+    }
+
+    /// Set the table built for `ordinal`, or refuse.
+    ///
+    /// A miss is an error rather than a skipped call. Skipping it leaves the
+    /// PREVIOUS dispatch's table bound, so the kernel runs to completion over
+    /// another dispatch's buffers and the step reports success -- the same
+    /// failure shape as a dispatch with no pipeline.
+    pub fn set_argument_table_for(&mut self, tables: &Tables, ordinal: u32) -> Result<()> {
+        self.set_argument_table(tables.expect(ordinal)?);
+        Ok(())
     }
 
     /// Dispatch `threads`, in threadgroups of `threadgroup`.
