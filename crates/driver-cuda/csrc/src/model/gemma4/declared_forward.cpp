@@ -176,6 +176,24 @@ bool gemma4_host_arena_enabled() {
 // first link; placing it while its own later links stayed pinned put
 // the stream in two buffers. Offsets cannot split a chain, because
 // sharing bytes IS sharing an offset.
+// `PIE_DECLARED_ARENA_ZERO=1`: clear the activation block before the
+// fire. A DISCRIMINATOR, not a fix.
+//
+// A per-role workspace buffer holds the previous fire's contents in any
+// row a kernel skips; a packed arena holds another value's. If some
+// statement reads bytes its producer never wrote, the convention
+// supplies something shape-compatible and the arena supplies noise --
+// so zeroing changes the output. If instead a value is simply being
+// read from the wrong ADDRESS, zeroing changes nothing about which
+// address that is, and the garbage stays put.
+//
+// One run tells the two apart, which is worth more than another
+// hypothesis.
+bool arena_zero_enabled() {
+    const char* v = std::getenv("PIE_DECLARED_ARENA_ZERO");
+    return v != nullptr && v[0] == '1';
+}
+
 std::size_t host_arena_lo() {
     const char* v = std::getenv("PIE_DECLARED_HOST_ARENA_LO");
     return v != nullptr ? static_cast<std::size_t>(std::atoll(v)) : 0;
@@ -975,6 +993,10 @@ bool gemma4_forward_declared(
                         ws.declared_values.nbytes(), flat);
     declared::trace_arena("gemma4", plan, flat,
                           ws.declared_values.nbytes(), N, R);
+    if (arena_zero_enabled()) {
+        CUDA_CHECK(cudaMemsetAsync(ws.declared_values.data(), 0,
+                                   ws.declared_values.nbytes(), stream));
+    }
     const bool host_arena = gemma4_host_arena_enabled();
     const std::size_t arena_lo = host_arena_lo();
     const std::size_t arena_hi = host_arena_hi();
