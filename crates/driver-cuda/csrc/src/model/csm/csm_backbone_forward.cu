@@ -19,6 +19,7 @@
 
 #include "model/csm/csm_backbone_forward.hpp"
 
+#include "norm/rmsnorm.hpp"
 #include "model/csm/csm_naive_kernels.cuh"
 
 namespace pie_cuda_driver::model {
@@ -130,7 +131,7 @@ void bb_layer(const CsmBackboneRawWeights& w,const CsmBackboneLayerRaw& L,
     const int q0=Lkv-R;
     const float scale=1.f/sqrtf((float)hd);
     cudaStream_t S=s.S;
-    k_rms<<<R,256,0,S>>>(s.resid,L.in_ln_w,s.normed,R,H,w.norm_eps);
+    kernels::norm::rmsnorm_bf16(s.resid,L.in_ln_w,s.normed,R,H,w.norm_eps,S);
     k_matmul<<<G2(QD,R),B2,0,S>>>(s.normed,L.q,s.q,R,H,QD);
     k_matmul<<<G2(KD,R),B2,0,S>>>(s.normed,L.k,s.k,R,H,KD);
     k_matmul<<<G2(KD,R),B2,0,S>>>(s.normed,L.v,s.v,R,H,KD);
@@ -144,7 +145,7 @@ void bb_layer(const CsmBackboneRawWeights& w,const CsmBackboneLayerRaw& L,
     { dim3 g(NH,R); k_attn_causal_cached<<<g,128,(size_t)Lkv*sizeof(float),S>>>(s.q,s.kcache[li],s.vcache[li],s.attn,R,NH,KV,hd,Lkv,q0,scale); }
     k_matmul<<<G2(H,R),B2,0,S>>>(s.attn,L.o,s.attn_o,R,QD,H);
     k_add<<<(long)(R*H+255)/256,256,0,S>>>(s.resid,s.attn_o,(long)R*H);
-    k_rms<<<R,256,0,S>>>(s.resid,L.post_ln_w,s.normed,R,H,w.norm_eps);
+    kernels::norm::rmsnorm_bf16(s.resid,L.post_ln_w,s.normed,R,H,w.norm_eps,S);
     k_matmul<<<G2(s.inter,R),B2,0,S>>>(s.normed,L.gate,s.gate,R,H,s.inter);
     k_matmul<<<G2(s.inter,R),B2,0,S>>>(s.normed,L.up,s.up,R,H,s.inter);
     k_swiglu<<<(long)(R*s.inter+255)/256,256,0,S>>>(s.gate,s.up,s.gate,(long)R*s.inter);
@@ -208,7 +209,7 @@ int csm_generate_audio(const CsmBackboneRawWeights& w,
     int Lkv=R0;
     for(int l=0;l<w.num_layers;l++) bb_layer(w,w.layers[l],s,l,R0,Lkv);
     // final norm on the LAST row only (the one that predicts frame 0's cb0).
-    k_rms<<<1,256,0,S>>>(s.resid+(long)(R0-1)*H,w.norm_w,last_hidden,1,H,w.norm_eps);
+    kernels::norm::rmsnorm_bf16(s.resid+(long)(R0-1)*H,w.norm_w,last_hidden,1,H,w.norm_eps,S);
 
     // Single-row decode scratch (reuse layer scratch sized for 1 row).
     bf* d_resid=MAL(H); bf* d_normed=MAL(H);
@@ -253,7 +254,7 @@ int csm_generate_audio(const CsmBackboneRawWeights& w,
         int newL=Lkv+1;
         for(int l=0;l<w.num_layers;l++) bb_layer(w,w.layers[l],d1,l,1,newL);
         Lkv=newL;
-        k_rms<<<1,256,0,S>>>(d1.resid,w.norm_w,last_hidden,1,H,w.norm_eps);
+        kernels::norm::rmsnorm_bf16(d1.resid,w.norm_w,last_hidden,1,H,w.norm_eps,S);
     }
     CK(cudaStreamSynchronize(S));
 
