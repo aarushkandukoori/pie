@@ -13,10 +13,12 @@
 
 mod admit;
 mod mask;
+mod member;
 mod schedule;
 
 pub use admit::{Refused, admit_recurrent};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
+pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
 pub use schedule::{
     BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,
     find_request, validate_capacity, validate_paged,

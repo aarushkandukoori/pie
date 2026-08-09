@@ -106,11 +106,45 @@ again (`view`). The Rust engine hands the driver an owned
 Nine portable tests, one per refusal plus the whole-row/no-fold admissions
 and the malformed-rows fail-closed cases.
 
+## The member description — `src/batch/member.rs`
+
+The second half of `compose.cpp`: `build_member_forward_desc` and the type
+it fills.
+
+| C++ | Rust | |
+|---|---|---|
+| `MemberForwardDesc` | `ForwardDesc` | ported |
+| `build_member_forward_desc` | `build_member_desc` | ported |
+| `FireGeometry` (the consumed subset) | `ResolvedGeometry` | ported |
+| `has_rs_slot` / `rs_slot_id` / `rs_reset` | `ForwardDesc::rs_slot` | dropped |
+| `kv_last_page_len = 0` as "derive later" | `Option<u32>` | dropped |
+| `StructuredMaskDescriptor` (here) | the `structured_mask` bit | dropped |
+
+The RS dual-indexing fix — the shipped bug where the launch-wide form was
+read from index 0, giving member 1 member 0's slot and barring two decodes
+from ever sharing a forward — is kept with both forms matched explicitly
+and a test that member 1 gets its own slot. The `bool` + out-param + error
+string becomes `Result<ForwardDesc, BuildError>` with the C++'s own words
+as `reason()`. The three-deep nested ternary deriving the final page fill
+is `derive_key_len`, named and documented; the member-level RS triple is
+derived from the per-request vectors instead of stored beside them; a zero
+page size is refused where the C++ silently clamped it to one.
+
+`ForwardDesc::extents`/`extents_from_readout` are
+`m1_extents_from_forward_desc`/`m3_extents_from_forward_desc` — the two
+entries `PARITY-M1.md` carried as missing — as methods on the type that
+owns the fields.
+
+Nine portable tests: wire slicing for both members, the pageless and
+derived-fill paths, both RS forms and the dual-indexing regression, mask
+shape and structured-mask refusals, malformed spans named, and the extents
+round-trip.
+
 ## Not yet started
 
 | C++ | lines | |
 |---|---|---|
-| `compose.cpp` rest: `build_member_forward_desc`, `LaunchMember`, tickets | ~380 | missing — needs `MemberForwardDesc` (`forward.hpp`) |
+| `compose.cpp` rest: `LaunchMember`, `LaunchJobData`, tickets | ~90 | missing — the job container, with the worker port |
 | `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` | 650 | missing |
 | `batch_schedule.hpp` (done above) | — | — |
 | `decode_abi.hpp` | 650 | missing |

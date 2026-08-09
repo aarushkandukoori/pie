@@ -44,14 +44,15 @@ host program cache reach the same number through it. `hex64` and
 | `DeviceValueDesc` | `ValueDesc` | ported |
 | `value_bytes` | `ValueDesc::device_bytes` | ported |
 | `wire_value_bytes` | `ValueDesc::wire_bytes` | ported |
-| `m1_extents_from_forward_desc` | — | missing |
-| `m3_extents_from_forward_desc` | — | missing |
+| `m1_extents_from_forward_desc` | `batch::ForwardDesc::extents` | ported |
+| `m3_extents_from_forward_desc` | `batch::ForwardDesc::extents_from_readout` | ported |
 | `resolve_m1_shape_for_test` | — | dropped |
 | `M1ResolvedShape` | — | dropped |
 
-The two `*_from_forward_desc` constructors are field copies out of
-`batch::MemberForwardDesc`, which has no Rust counterpart yet; they belong with
-the `batch/` port and are missing rather than dropped.
+The two `*_from_forward_desc` constructors were field copies out of
+`batch::MemberForwardDesc`, which had no Rust counterpart when this section
+was written; they landed with the `batch/` port as methods on
+`batch::ForwardDesc`, the type that owns the fields.
 
 `resolve_m1_shape_for_test` and its `M1ResolvedShape` exist because
 `describe_value` is in an anonymous namespace and a test cannot reach it. It is
