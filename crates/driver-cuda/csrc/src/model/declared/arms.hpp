@@ -69,6 +69,34 @@ inline void arm_swiglu(Workspace& ws,
 // wrong buffer. `row_width` is a value's trailing dims, which is what
 // `Hq`, `Hk`, `I`, `H` and the rest were spelling.
 
+// WHAT EVERY ARM TAKES, and nothing more.
+//
+// The five arms below had converged on the same first four parameters —
+// the plan to read the statement from, the arena to resolve its
+// operands in, the rectangle's row count, and the stream. That is the
+// shape D1 is heading for: one context, the statement, and whatever the
+// FAMILY has to add.
+//
+// `win_start` is here rather than in the one arm that reads it because
+// it is the same kind of fact as `rows`: both describe the RECTANGLE a
+// launch covers, and a driver that walked rectangles rather than ops
+// would hand the pair to every arm without asking which cares.
+//
+// What is NOT here is the family's half — a weight pointer, `eps`, a
+// vocabulary size, a quantization descriptor. Those stay explicit
+// arguments, one per arm, because making them a bag would hide which
+// arm needs which, and the whole point of the exercise is that the list
+// gets shorter as the trace states more.
+struct ArmCtx {
+    const pie_forward::ForwardPlan& plan;
+    ValueArena& values;
+    /// Rows of the rectangle this launch covers.
+    int rows;
+    /// Its first row, in the fire's row space. Zero for the plain form.
+    int win_start;
+    cudaStream_t stream;
+};
+
 inline void need(const pie_forward::ForwardPlan::IdSpan& span,
                  std::size_t n, const char* what) {
     if (span.size < n) {
@@ -100,12 +128,13 @@ inline int row_width(const pie_forward::ForwardPlan& plan,
 // `win_start` offsets each operand by whole rows -- the peel's tail
 // splits the hook-visible rows at their absolute offsets, so the
 // full-N consumers see one contiguous buffer. Zero is the plain form.
-inline void arm_split_qkv(const pie_forward::ForwardPlan& plan,
-                          const pie_forward::PieForwardOp& op,
-                          ValueArena& values,
-                          int rows,
-                          int win_start,
-                          cudaStream_t stream) {
+inline void arm_split_qkv(const ArmCtx& c,
+                          const pie_forward::PieForwardOp& op) {
+    const auto& plan = c.plan;
+    auto& values = c.values;
+    const int rows = c.rows;
+    const int win_start = c.win_start;
+    const auto stream = c.stream;
     const auto ins = plan.inputs(op);
     const auto outs = plan.outputs(op);
     need(ins, 1, "split_qkv inputs");
@@ -132,38 +161,36 @@ inline void arm_split_qkv(const pie_forward::ForwardPlan& plan,
 //
 // `token_ids` stays a driver input: the fire's tokens are not a traced
 // value.
-inline void arm_embed(const pie_forward::ForwardPlan& plan,
+inline void arm_embed(const ArmCtx& c,
                       const pie_forward::PieForwardOp& op,
-                      ValueArena& values,
                       const std::int32_t* token_ids,
                       const void* table,
-                      int rows,
-                      int vocab,
-                      cudaStream_t stream) {
+                      int vocab) {
+    const auto& plan = c.plan;
     const auto outs = plan.outputs(op);
     need(outs, 1, "embed outputs");
-    kernels::layout::embed_bf16(token_ids, table, values.slot(outs[0]), rows,
-                                row_width(plan, outs[0]), vocab, stream);
+    kernels::layout::embed_bf16(token_ids, table, c.values.slot(outs[0]),
+                                c.rows, row_width(plan, outs[0]), vocab,
+                                c.stream);
 }
 
 // `residual_add`: `x += residual`, landing on operand 0 — the `kernel!`
 // row aliases the result over it, so the destination is the OUTPUT's
 // slot and the addend is operand 1. Both spellings that reach here
 // (llama_like's post-norm landing, gpt-oss's MoE landing) are this.
-inline void arm_residual_add(const pie_forward::ForwardPlan& plan,
-                             const pie_forward::PieForwardOp& op,
-                             ValueArena& values,
-                             int rows,
-                             cudaStream_t stream) {
+inline void arm_residual_add(const ArmCtx& c,
+                             const pie_forward::PieForwardOp& op) {
+    const auto& plan = c.plan;
+    auto& values = c.values;
     const auto ins = plan.inputs(op);
     const auto outs = plan.outputs(op);
     need(ins, 2, "residual add inputs");
     need(outs, 1, "residual add outputs");
     kernels::norm::residual_add_bf16(
         values.slot(outs[0]), values.slot(ins[1]),
-        static_cast<std::size_t>(rows) *
+        static_cast<std::size_t>(c.rows) *
             static_cast<std::size_t>(row_width(plan, outs[0])),
-        stream);
+        c.stream);
 }
 
 // `Rmsnorm`: the row norm, with the WEIGHT FOLD chosen by the variant
@@ -177,13 +204,14 @@ inline void arm_residual_add(const pie_forward::ForwardPlan& plan,
 //
 // `eps` stays a parameter. It is a config number the trace does not
 // carry, which is the same reason the weight pointer is one.
-inline void arm_rmsnorm(const pie_forward::ForwardPlan& plan,
+inline void arm_rmsnorm(const ArmCtx& c,
                         const pie_forward::PieForwardOp& op,
-                        ValueArena& values,
                         const void* weight,
-                        int rows,
-                        float eps,
-                        cudaStream_t stream) {
+                        float eps) {
+    const auto& plan = c.plan;
+    auto& values = c.values;
+    const int rows = c.rows;
+    const auto stream = c.stream;
     const auto ins = plan.inputs(op);
     const auto outs = plan.outputs(op);
     need(ins, 1, "rmsnorm inputs");
@@ -218,14 +246,15 @@ inline void arm_rmsnorm(const pie_forward::ForwardPlan& plan,
 // the four resolve their head weight differently enough (a name, a
 // bound tensor, a quantized view) that passing the result back is
 // clearer than passing the resolver in.
-inline const void* arm_epilogue_gather(const pie_forward::ForwardPlan& plan,
+inline const void* arm_epilogue_gather(const ArmCtx& c,
                                        const pie_forward::PieForwardOp& op,
-                                       ValueArena& values,
                                        void* gathered,
                                        const std::int32_t* logit_row_indices,
                                        int num_logit_rows,
-                                       int* rows,
-                                       cudaStream_t stream) {
+                                       int* rows) {
+    const auto& plan = c.plan;
+    auto& values = c.values;
+    const auto stream = c.stream;
     const auto ins = plan.inputs(op);
     need(ins, 1, "lm_head inputs");
     const void* input = values.slot(ins[0]);

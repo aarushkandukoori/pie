@@ -1370,8 +1370,7 @@ void llama_like_forward_declared(
             const std::string_view name = plan.weight_name(op);
             if (name != "embed") throw_unknown_weight(name);
             // ISLAND (value arena). `token_ids` stays a driver input.
-            declared::arm_embed(plan, op, values, token_ids,
-                                wb.require(name).data(), N, V, stream);
+            declared::arm_embed({plan, values, N, 0, stream}, op, token_ids, wb.require(name).data(), V);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {
@@ -1413,9 +1412,7 @@ void llama_like_forward_declared(
                 // scratch. Either way it is the statement's operand, so
                 // the branch that picked between two workspace fields
                 // goes away and the width comes off the value.
-                declared::arm_rmsnorm(plan, op, values,
-                                      wb.require(name).data(), N, eps,
-                                      stream);
+                declared::arm_rmsnorm({plan, values, N, 0, stream}, op, wb.require(name).data(), eps);
             } else if (nm.field == "mlp_norm") {
                 const auto& layer = layer_of(w, nm, name);
                 // ISLAND (value arena), both placements. The normed
@@ -1424,9 +1421,7 @@ void llama_like_forward_declared(
                 // the same role `ws.norm_x`. Post-norm the operand is
                 // the down_proj scratch instead of the stream, which is
                 // a different VALUE and not a different buffer rule.
-                declared::arm_rmsnorm(plan, op, values,
-                                      wb.require(name).data(), N, eps,
-                                      stream);
+                declared::arm_rmsnorm({plan, values, N, 0, stream}, op, wb.require(name).data(), eps);
             } else if (nm.field == "q_norm") {
                 // Global qk-norm (olmo2): ONE row RMSNorm over the
                 // flattened [N, heads * head_dim] projection, in place —
@@ -1645,8 +1640,7 @@ void llama_like_forward_declared(
             // SHARED ARM (D1). llama_like's is gemma-4's plus the row
             // WINDOW, which belongs to the rectangle and so is a
             // parameter rather than a second arm.
-            declared::arm_split_qkv(plan, op, values, win_len, win_start,
-                                    stream);
+            declared::arm_split_qkv({plan, values, win_len, win_start, stream}, op);
             break;
         }
         case PieForwardOpKind::RmsnormPerHead: {
@@ -2485,7 +2479,7 @@ void llama_like_forward_declared(
             // on operand 0 — the `kernel!` row aliases the result over
             // it — so the stream is the destination and the sub-layer's
             // normed output is the addend.
-            declared::arm_residual_add(plan, op, values, N, stream);
+            declared::arm_residual_add({plan, values, N, 0, stream}, op);
             break;
         }
         case PieForwardOpKind::LmHead: {

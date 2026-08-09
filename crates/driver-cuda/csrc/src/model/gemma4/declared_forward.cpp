@@ -521,8 +521,8 @@ bool gemma4_forward_declared(
             const std::string_view name = plan.weight_name(op);
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
-            declared::arm_embed(plan, op, values, token_ids,
-                                require(w, name).data(), N, V, stream);
+            declared::arm_embed({plan, values, N, 0, stream}, op,
+                                token_ids, require(w, name).data(), V);
             break;
         }
         case PieForwardOpKind::Matmul: {
@@ -600,8 +600,7 @@ bool gemma4_forward_declared(
         case PieForwardOpKind::SplitQkv: {
             // SHARED ARM (D1). Identical here and in qwen3.5 once both
             // read their operands off the plan, so it exists once.
-            declared::arm_split_qkv(plan, op, values, N, /*win_start=*/0,
-                                    stream);
+            declared::arm_split_qkv({plan, values, N, 0, stream}, op);
             break;
         }
         case PieForwardOpKind::Rope: {
@@ -633,8 +632,8 @@ bool gemma4_forward_declared(
             // executors; only the head weight's resolution is not.
             int rows = N;
             const void* const input = declared::arm_epilogue_gather(
-                plan, op, values, epi_gather, logit_row_indices_d,
-                num_logit_rows, &rows, stream);
+                {plan, values, N, 0, stream}, op, epi_gather,
+                logit_row_indices_d, num_logit_rows, &rows);
             lm_head_rows = rows;
             gemm(input, name, values.slot(outs[0]), rows, V, H, 0.f);
             break;

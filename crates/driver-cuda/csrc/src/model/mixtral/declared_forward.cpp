@@ -540,9 +540,8 @@ bool gpt_oss_forward_declared(
             // else the site named is the trace's.
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
-            declared::arm_embed(plan, op, values, token_ids,
-                                require(w, plan.weight_name(op)).data(),
-                                N, V, stream);
+            declared::arm_embed({plan, values, N, 0, stream}, op,
+                                token_ids, require(w, plan.weight_name(op)).data(), V);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {
@@ -562,8 +561,8 @@ bool gpt_oss_forward_declared(
             const auto outs = plan.outputs(op);
             need(ins, 1, "rmsnorm inputs");
             need(outs, 1, "rmsnorm outputs");
-            declared::arm_rmsnorm(plan, op, values, require(w, name).data(),
-                                  N, eps, stream);
+            declared::arm_rmsnorm({plan, values, N, 0, stream}, op,
+                                  require(w, name).data(), eps);
             break;
         }
         case PieForwardOpKind::Matmul: {
@@ -625,8 +624,8 @@ bool gpt_oss_forward_declared(
             // executors; only the head weight's resolution is not.
             int rows = N;
             const void* const input = declared::arm_epilogue_gather(
-                plan, op, values, values.epilogue_gather(flat), logit_row_indices_d,
-                num_logit_rows, &rows, stream);
+                {plan, values, N, 0, stream}, op, values.epilogue_gather(flat),
+                logit_row_indices_d, num_logit_rows, &rows);
             lm_head_rows = rows;
             (void)lm_head_rows;
             kernels::gemm::act_x_wt_bf16(
@@ -871,7 +870,7 @@ bool gpt_oss_forward_declared(
                 const auto outs = plan.outputs(op);
                 need(ins, 2, "residual add inputs");
                 need(outs, 1, "residual add outputs");
-                declared::arm_residual_add(plan, op, values, N, stream);
+                declared::arm_residual_add({plan, values, N, 0, stream}, op);
                 break;
             }
             }

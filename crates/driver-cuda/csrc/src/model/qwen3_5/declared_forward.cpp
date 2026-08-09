@@ -1364,9 +1364,7 @@ bool forward_declared_tmpl(
             // it is the fire's, not a traced value.
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
-            declared::arm_embed(plan, op, values, token_ids,
-                                wb.require(name).data(), N, cfg.vocab_size,
-                                stream);
+            declared::arm_embed({plan, values, N, 0, stream}, op, token_ids, wb.require(name).data(), cfg.vocab_size);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {
@@ -1389,8 +1387,7 @@ bool forward_declared_tmpl(
             const auto outs = plan.outputs(op);
             need(ins, 1, "rmsnorm inputs");
             need(outs, 1, "rmsnorm outputs");
-            declared::arm_rmsnorm(plan, op, values, wb.require(name).data(),
-                                  N, eps, stream);
+            declared::arm_rmsnorm({plan, values, N, 0, stream}, op, wb.require(name).data(), eps);
             break;
         }
         case PieForwardOpKind::Matmul: {
@@ -1541,8 +1538,7 @@ bool forward_declared_tmpl(
             // ISLAND (value arena). `2 * Hq` and `Hk` are the two
             // result widths, which the results state.
             // SHARED ARM (D1) -- see gemma-4's call site.
-            declared::arm_split_qkv(plan, op, values, N, /*win_start=*/0,
-                                    stream);
+            declared::arm_split_qkv({plan, values, N, 0, stream}, op);
             break;
         }
         case PieForwardOpKind::SplitGdn: {
@@ -2329,8 +2325,8 @@ case PieForwardOpKind::Launch: {
             // executors; only the head weight's resolution is not.
             int head_rows = N;
             const void* const head_in = declared::arm_epilogue_gather(
-                plan, op, values, values.epilogue_gather(flat), logit_row_indices_d,
-                num_logit_rows, &head_rows, stream);
+                {plan, values, N, 0, stream}, op, values.epilogue_gather(flat),
+                logit_row_indices_d, num_logit_rows, &head_rows);
             kernels::gemm::act_x_w(cublas.handle(), head_in, *lm_head,
                                    values.slot(louts[0]), head_rows,
                                    row_width(louts[0]), row_width(lins[0]));
