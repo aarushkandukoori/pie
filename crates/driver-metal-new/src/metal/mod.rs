@@ -20,10 +20,13 @@
 //! other Metal object and it feeds [`crate::tuning`], which is already
 //! complete and tested. [`context`] follows it -- the queue, the allocator
 //! pair and the residency set, which every later object is created against.
-//! The placement heap and the pipeline compiler come next.
+//! [`heap`] places every long-lived buffer inside one resident range. The
+//! pipeline compiler comes next.
 
 mod context;
 mod device;
+mod heap;
 
 pub use context::{ALLOCATOR_COUNT, Context};
 pub use device::DeviceInfo;
+pub use heap::{Heap, Slot};
