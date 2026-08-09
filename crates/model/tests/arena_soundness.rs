@@ -416,3 +416,158 @@ fn a_matmul_operand_has_a_row_width_a_driver_can_derive() {
         println!("  {k}");
     }
 }
+
+/// How close the assignment is to the LIVENESS BOUND.
+///
+/// The reported arena is what the driver's block must hold, and it
+/// scales with the fire's rows — so a block sized for `max_tokens` is
+/// this number times the batch. That only works if the number is near
+/// the floor, and the floor is a property of the text rather than of
+/// the allocator: at each op, the bytes of every value then live. No
+/// assignment can beat that peak; the ratio above it is what the free
+/// list is losing to fragmentation.
+///
+/// Prints rather than gates, because the floor moves with the text and
+/// a threshold here would be a number nobody could act on. What it is
+/// for is deciding whether `ws.declared_values` can be sized from
+/// `arena_bytes` at all.
+#[test]
+fn how_much_the_arena_costs_over_the_liveness_floor() {
+    for (name, class, plan) in families() {
+        let rows = plain(8);
+        let n_tokens = rows.len();
+        let n_requests = rows.len();
+        let buffers = Buffers::assign(&plan, &rows);
+
+        // Last use per value, folded onto nothing: the floor does not
+        // care who owns which bytes, only how many are readable at once.
+        let mut last = vec![0usize; plan.values.len()];
+        let mut def = vec![usize::MAX; plan.values.len()];
+        for (i, op) in plan.ops.iter().enumerate() {
+            for &v in op.inputs.iter().chain(op.outputs.iter()) {
+                if let Some(s) = last.get_mut(v as usize) {
+                    *s = (*s).max(i);
+                }
+            }
+            for &v in &op.outputs {
+                if let Some(s) = def.get_mut(v as usize) {
+                    *s = (*s).min(i);
+                }
+            }
+        }
+        let mut floor = 0usize;
+        for i in 0..plan.ops.len() {
+            let mut live = 0usize;
+            for v in 0..plan.values.len() {
+                if buffers.offset[v] == Buffers::NAMED {
+                    continue;
+                }
+                if def[v] <= i && i <= last[v] {
+                    live += value_bytes(&plan, v as ValueId, n_tokens, n_requests);
+                }
+            }
+            floor = floor.max(live);
+        }
+        let ratio = buffers.bytes as f64 / floor.max(1) as f64;
+        println!(
+            "{name:12} {class:?}  arena {:>9}  floor {:>9}  x{ratio:.2}",
+            buffers.bytes, floor
+        );
+    }
+}
+
+/// WHAT the arena is holding — the largest placed values, by width.
+///
+/// The floor above is ~1.5 MB per row for gemma-4, which is several
+/// times what the hand-written workspace allocates per row, and a block
+/// sized from it at `max_tokens` would be the difference between a
+/// viable plumbing and an impossible one. So this asks which values it
+/// is, rather than reasoning about which it might be.
+#[test]
+fn which_values_the_arena_is_actually_holding() {
+    use std::collections::BTreeMap;
+
+    for (name, class, plan) in families() {
+        if class != FireClass::Decode {
+            continue;
+        }
+        if name != "gemma_4" && name != "glm5" && name != "llama_like" {
+            continue;
+        }
+        let rows = plain(8);
+        let buffers = Buffers::assign(&plan, &rows);
+        // Group by the SHAPE a value has, since the trace is
+        // layer-unrolled and 35 layers name 35 of the same role.
+        let mut by_shape: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+        for v in 0..plan.values.len() {
+            if buffers.offset[v] == Buffers::NAMED {
+                continue;
+            }
+            let info = &plan.values[v];
+            let bytes = value_bytes(&plan, v as ValueId, rows.len(), rows.len());
+            let key = format!("{:?} {:?}", info.shape.0, info.dtype);
+            let e = by_shape.entry(key).or_insert((0, 0));
+            e.0 += 1;
+            e.1 += bytes;
+        }
+        let mut rows_out: Vec<_> = by_shape.into_iter().collect();
+        rows_out.sort_by_key(|(_, (_, b))| std::cmp::Reverse(*b));
+        println!("\n{name} {class:?} — arena {} bytes", buffers.bytes);
+        for (shape, (count, bytes)) in rows_out.into_iter().take(5) {
+            println!("  {count:5} x  {bytes:>10} total  {shape}");
+        }
+    }
+}
+
+/// gemma-4 E2B at ONE row, which is the fire the driver refused.
+///
+/// The driver reported wanting 299 MB of activation block for a
+/// single-token decode, and a number that large at N=1 cannot be the
+/// text: nothing in gemma-4 is 299 MB wide per row. So either the
+/// report is right and the assignment has a defect, or it is wrong --
+/// and this is the cheapest place to tell which.
+#[test]
+fn what_gemma_4_e2b_asks_for_at_one_row() {
+    use model::gemma_4::forward::{self, facts};
+    use std::collections::BTreeMap;
+
+    for n in [1usize, 8] {
+        let plan = forward::gemma4_cuda(
+            &facts::Gemma4Facts::gemma_4_e2b(),
+            // E2B binds no packed banks: the two-gemm MLP pair and the
+            // unfused QKV, which is the branch E4B does not take.
+            &facts::Gemma4CudaFacts {
+                fused_qkv: false,
+                gate_up_fused: false,
+                kv_native_bf16: true,
+            },
+            FireClass::Decode,
+        );
+        let rows = plain(n);
+        let buffers = Buffers::assign(&plan, &rows);
+        println!(
+            "\ngemma_4 E2B, {n} rows: arena {} bytes over {} values, {} ops",
+            buffers.bytes,
+            plan.values.len(),
+            plan.ops.len()
+        );
+        let mut by_shape: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+        for v in 0..plan.values.len() {
+            if buffers.offset[v] == Buffers::NAMED {
+                continue;
+            }
+            let info = &plan.values[v];
+            let bytes = value_bytes(&plan, v as ValueId, rows.len(), rows.len());
+            let e = by_shape
+                .entry(format!("{:?} {:?}", info.shape.0, info.dtype))
+                .or_insert((0, 0));
+            e.0 += 1;
+            e.1 += bytes;
+        }
+        let mut out: Vec<_> = by_shape.into_iter().collect();
+        out.sort_by_key(|(_, (_, b))| std::cmp::Reverse(*b));
+        for (shape, (count, bytes)) in out.into_iter().take(5) {
+            println!("  {count:5} x  {bytes:>12} total  {shape}");
+        }
+    }
+}

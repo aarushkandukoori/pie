@@ -898,6 +898,35 @@ bool gemma4_forward_declared(
             const PieForwardOp& op = plan.op(i);
             const auto outs = plan.outputs(op);
             if (outs.size == 0) continue;
+            // The pin still outranks the host's table, and the attempt
+            // to flip that is REVERTED pending an unexplained number.
+            //
+            // Skipping the pin wherever `Buffers::assign` had placed a
+            // value is the one line that turns the decision on, and it
+            // refuses at load:
+            //
+            //   value 562 sits at offset 232194048, past the
+            //   226492416-byte block — this plan's arena wants
+            //   299302912 bytes
+            //
+            // The refusal is the bounds check working. The number is
+            // what is wrong: 299 MB of activation for a ONE-ROW decode.
+            // The same family's decode text, lowered on the host at one
+            // row, wants 2167296 bytes — 138x less — and the checkpoint
+            // config matches the facts the host test uses (hidden 1536,
+            // intermediate 6144, 35 layers, vocab 262144, ple_dim 256).
+            //
+            // The two plans are NOT the same object, which is as far as
+            // this got: the driver traces 564 ops where the host text
+            // lowers 674, so the offsets cannot be compared entry by
+            // entry from here. Neither number is obviously the wrong
+            // one, and the discrepancy was invisible until now because
+            // nothing had ever READ `value_offsets` -- every value was
+            // pinned, so `slot()` never consulted the table.
+            //
+            // Next: a driver-side diagnostic naming the widest values in
+            // its own lowering. Until then the pins carry the addressing
+            // exactly as they did through every green gate above.
             const auto pin = [&](std::size_t which, void* ptr) {
                 if (which < outs.size) values.pin(outs[which], ptr);
             };
