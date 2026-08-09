@@ -640,6 +640,144 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 live.dn = Some(v);
             }
 
+            // ── gpt-oss: the biased projections thread like the plain
+            // ones (the bias is a weight, not a value); the sink attention
+            // reads q and writes attn like the plain SDPA; the clamped
+            // SwiGLU is silu_mul's shape under its own kind; the combine
+            // reads the sorted outputs through the sort's inverse exactly
+            // as llama's does — it binds the same table. ──
+            Kernel::GoQmvQ => {
+                let v = fresh();
+                rd(&mut uses, bi::QMV_X, have(live.normed, k, "the block norm"));
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.q = Some(v);
+            }
+            Kernel::GoQmvK => {
+                let v = fresh();
+                rd(&mut uses, bi::QMV_X, have(live.normed, k, "the block norm"));
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.kk = Some(v);
+            }
+            Kernel::GoQmvV => {
+                let v = fresh();
+                rd(&mut uses, bi::QMV_X, have(live.normed, k, "the block norm"));
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.vv = Some(v);
+            }
+            Kernel::GoSdpaSink => {
+                let v = fresh();
+                rd(&mut uses, bi::SDPA_Q, have(live.q, k, "the query"));
+                wr(&mut uses, bi::SDPA_OUT, v);
+                live.attn = Some(v);
+            }
+            Kernel::GoQmvO => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::QMV_X,
+                    have(live.attn, k, "the attention output"),
+                );
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.out = Some(v);
+            }
+            Kernel::GoRouter => {
+                let v = fresh();
+                rd(&mut uses, bi::QMV_X, have(live.normed, k, "the FFN norm"));
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.router_logits = Some(v);
+            }
+            Kernel::GoExpertGate => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::QMV_X,
+                    have(live.sorted_x, k, "the gathered stack"),
+                );
+                rd(
+                    &mut uses,
+                    bi::QMV_EXPERT_IDS,
+                    have(live.row_expert, k, "the row experts"),
+                );
+                rd(
+                    &mut uses,
+                    bi::QMV_TILE_EXPERT,
+                    have(live.tile_expert, k, "the tile experts"),
+                );
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.gp = Some(v);
+            }
+            Kernel::GoExpertUp => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::QMV_X,
+                    have(live.sorted_x, k, "the gathered stack"),
+                );
+                rd(
+                    &mut uses,
+                    bi::QMV_EXPERT_IDS,
+                    have(live.row_expert, k, "the row experts"),
+                );
+                rd(
+                    &mut uses,
+                    bi::QMV_TILE_EXPERT,
+                    have(live.tile_expert, k, "the tile experts"),
+                );
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.up = Some(v);
+            }
+            Kernel::GoSwiGlu => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::SILU_GATE,
+                    have(live.gp, k, "the gate projection"),
+                );
+                rd(
+                    &mut uses,
+                    bi::SILU_UP,
+                    have(live.up, k, "the up projection"),
+                );
+                wr(&mut uses, bi::SILU_OUT, v);
+                live.hh = Some(v);
+            }
+            Kernel::GoExpertDown => {
+                let v = fresh();
+                rd(&mut uses, bi::QMV_X, have(live.hh, k, "the expert SwiGLU"));
+                rd(
+                    &mut uses,
+                    bi::QMV_EXPERT_IDS,
+                    have(live.row_expert, k, "the row experts"),
+                );
+                rd(
+                    &mut uses,
+                    bi::QMV_TILE_EXPERT,
+                    have(live.tile_expert, k, "the tile experts"),
+                );
+                wr(&mut uses, bi::QMV_OUT, v);
+                live.sorted_out = Some(v);
+            }
+            Kernel::GoExpertCombine => {
+                let v = fresh();
+                rd(
+                    &mut uses,
+                    bi::COMBINE_Y,
+                    have(live.sorted_out, k, "the sorted outputs"),
+                );
+                rd(
+                    &mut uses,
+                    bi::COMBINE_WEIGHTS,
+                    have(live.expert_weights, k, "the weights"),
+                );
+                rd(
+                    &mut uses,
+                    bi::COMBINE_INV,
+                    have(live.inv, k, "the sort's inverse"),
+                );
+                wr(&mut uses, bi::COMBINE_OUT, v);
+                live.dn = Some(v);
+            }
+
             // The tail lm_head reads the final norm from scratch and writes
             // logits to IO, not scratch; argmax touches IO only.
             Kernel::QmvLmHead | Kernel::LmHeadUntied => {
@@ -708,6 +846,20 @@ mod tests {
             "{} colours over a pool of {SCRATCH_POOL}",
             schedule.coloring.colors_used
         );
+    }
+
+    #[test]
+    fn the_gptoss_dag_schedules_hazard_free_inside_the_pool() {
+        let g = crate::batch::GptOssGeometry::default();
+        let dag = crate::batch::build_gptoss_dag(&g, true);
+        let schedule = build_scratch_schedule(&dag, false).expect("no hazards");
+        assert!(
+            (schedule.coloring.colors_used as usize) <= crate::batch::SCRATCH_POOL,
+            "{} colours over a pool of {}",
+            schedule.coloring.colors_used,
+            crate::batch::SCRATCH_POOL
+        );
+        assert_eq!(schedule.per_dispatch.len(), dag.len());
     }
 
     #[test]
