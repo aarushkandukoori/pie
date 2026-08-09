@@ -90,7 +90,15 @@ int main(int argc, char** argv) {
     const int QD = NH * hd, KD = KV * hd, AV = w.audio_vocab;
     const int maxL = n_prompt + 4;
     auto MAL = [&](long n){ BF* d; HCK(cudaMalloc(&d, n * sizeof(BF))); return d; };
-    BBScratch s; s.hidden=H; s.NH=NH; s.KV=KV; s.hd=hd; s.QD=QD; s.KD=KD; s.inter=w.intermediate; s.maxL=maxL; s.S=0;
+    // This harness builds the scratch itself rather than calling
+    // csm_generate_audio, so every field the forward reads has to be set HERE
+    // too. `cublas` is one of them now that the projections go through
+    // `gemm::act_x_wt_bf16`: leaving it default gave an uninitialised handle
+    // and `cublasGemmEx` answered CUBLAS_STATUS_NOT_INITIALIZED on the first
+    // GEMM. A scratch that mirrors a setup by hand is a second place to keep
+    // in step; this comment is the reminder.
+    pie_cuda_driver::kernels::gemm::CublasHandle cublas(0);
+    BBScratch s; s.cublas=cublas.handle(); s.hidden=H; s.NH=NH; s.KV=KV; s.hd=hd; s.QD=QD; s.KD=KD; s.inter=w.intermediate; s.maxL=maxL; s.S=0;
     int R0 = n_prompt;
     s.resid=MAL((long)R0*H); s.normed=MAL((long)R0*H);
     s.q=MAL((long)R0*QD); s.k=MAL((long)R0*KD); s.v=MAL((long)R0*KD);

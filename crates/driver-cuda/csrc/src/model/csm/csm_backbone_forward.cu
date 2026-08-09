@@ -19,6 +19,7 @@
 
 #include "model/csm/csm_backbone_forward.hpp"
 
+#include "gemm/gemm.hpp"
 #include "mlp/swiglu.hpp"
 #include "norm/rmsnorm.hpp"
 #include "sample/argmax.hpp"
@@ -122,6 +123,7 @@ struct BBScratch {
     bf *resid, *normed, *q, *k, *v, *attn, *attn_o, *gate, *up, *mlp;
     std::vector<bf*> kcache, vcache;   // [maxL, KV, hd] per layer
     cudaStream_t S;
+    cublasHandle_t cublas;   // owned by csm_generate_audio, bound to S
 };
 
 // Run one backbone block over R rows. `resid` holds [R, hidden] in/out. KV cache
@@ -134,9 +136,9 @@ void bb_layer(const CsmBackboneRawWeights& w,const CsmBackboneLayerRaw& L,
     const float scale=1.f/sqrtf((float)hd);
     cudaStream_t S=s.S;
     kernels::norm::rmsnorm_bf16(s.resid,L.in_ln_w,s.normed,R,H,w.norm_eps,S);
-    k_matmul<<<G2(QD,R),B2,0,S>>>(s.normed,L.q,s.q,R,H,QD);
-    k_matmul<<<G2(KD,R),B2,0,S>>>(s.normed,L.k,s.k,R,H,KD);
-    k_matmul<<<G2(KD,R),B2,0,S>>>(s.normed,L.v,s.v,R,H,KD);
+    kernels::gemm::act_x_wt_bf16(s.cublas,s.normed,L.q,s.q,R,QD,H);
+    kernels::gemm::act_x_wt_bf16(s.cublas,s.normed,L.k,s.k,R,KD,H);
+    kernels::gemm::act_x_wt_bf16(s.cublas,s.normed,L.v,s.v,R,KD,H);
     { dim3 g((hd/2+15)/16,(NH+15)/16,R); k_rope_yarn_1d<<<g,B2,0,S>>>(s.q,R,NH,hd,q0,
         w.rope_theta,w.rope_factor,w.rope_low_freq_factor,w.rope_high_freq_factor,(float)w.rope_original_max_position); }
     { dim3 g((hd/2+15)/16,(KV+15)/16,R); k_rope_yarn_1d<<<g,B2,0,S>>>(s.k,R,KV,hd,q0,
@@ -145,13 +147,13 @@ void bb_layer(const CsmBackboneRawWeights& w,const CsmBackboneLayerRaw& L,
     CK(cudaMemcpyAsync(s.kcache[li]+(long)q0*KD,s.k,(long)R*KD*sizeof(bf),cudaMemcpyDeviceToDevice,S));
     CK(cudaMemcpyAsync(s.vcache[li]+(long)q0*KD,s.v,(long)R*KD*sizeof(bf),cudaMemcpyDeviceToDevice,S));
     { dim3 g(NH,R); k_attn_causal_cached<<<g,128,(size_t)Lkv*sizeof(float),S>>>(s.q,s.kcache[li],s.vcache[li],s.attn,R,NH,KV,hd,Lkv,q0,scale); }
-    k_matmul<<<G2(H,R),B2,0,S>>>(s.attn,L.o,s.attn_o,R,QD,H);
+    kernels::gemm::act_x_wt_bf16(s.cublas,s.attn,L.o,s.attn_o,R,H,QD);
     k_add<<<(long)(R*H+255)/256,256,0,S>>>(s.resid,s.attn_o,(long)R*H);
     kernels::norm::rmsnorm_bf16(s.resid,L.post_ln_w,s.normed,R,H,w.norm_eps,S);
-    k_matmul<<<G2(s.inter,R),B2,0,S>>>(s.normed,L.gate,s.gate,R,H,s.inter);
-    k_matmul<<<G2(s.inter,R),B2,0,S>>>(s.normed,L.up,s.up,R,H,s.inter);
+    kernels::gemm::act_x_wt_bf16(s.cublas,s.normed,L.gate,s.gate,R,s.inter,H);
+    kernels::gemm::act_x_wt_bf16(s.cublas,s.normed,L.up,s.up,R,s.inter,H);
     kernels::mlp::swiglu_bf16(s.gate,s.up,s.gate,R*s.inter,S);
-    k_matmul<<<G2(H,R),B2,0,S>>>(s.gate,L.down,s.mlp,R,s.inter,H);
+    kernels::gemm::act_x_wt_bf16(s.cublas,s.gate,L.down,s.mlp,R,H,s.inter);
     k_add<<<(long)(R*H+255)/256,256,0,S>>>(s.resid,s.mlp,(long)R*H);
 }
 
@@ -185,7 +187,13 @@ int csm_generate_audio(const CsmBackboneRawWeights& w,
     const int maxL=n_prompt+max_frames+1;
 
     auto MAL=[&](long n){bf* d;CK(cudaMalloc(&d,n*sizeof(bf)));return d;};
-    BBScratch s; s.hidden=H;s.NH=NH;s.KV=KV;s.hd=hd;s.QD=QD;s.KD=KD;s.inter=w.intermediate;s.maxL=maxL;s.S=S;
+    // One handle for the whole generation, bound to this call's stream.
+    // RAII: cublasCreate is expensive enough to not want per-layer, and
+    // generate_audio is already the coarse entry point (it loops frames
+    // internally). `d1` copies this scratch, so it carries the handle too.
+    kernels::gemm::CublasHandle cublas(S);
+
+    BBScratch s; s.cublas=cublas.handle(); s.hidden=H;s.NH=NH;s.KV=KV;s.hd=hd;s.QD=QD;s.KD=KD;s.inter=w.intermediate;s.maxL=maxL;s.S=S;
     const int R0=n_prompt;            // prefill rows
     s.resid=MAL((long)R0*H); s.normed=MAL((long)R0*H);
     s.q=MAL((long)R0*QD); s.k=MAL((long)R0*KD); s.v=MAL((long)R0*KD);
@@ -227,7 +235,7 @@ int csm_generate_audio(const CsmBackboneRawWeights& w,
 
     for(int f=0; f<max_frames; ++f){
         // cb0 = argmax(lm_head(last_hidden))
-        k_matmul<<<G2(AV,1),B2,0,S>>>(last_hidden,w.lm_head,lm_logits,1,H,AV);
+        kernels::gemm::act_x_wt_bf16(s.cublas,last_hidden,w.lm_head,lm_logits,1,AV,H);
         kernels::sample::argmax_bf16(lm_logits,d_arg,1,AV,S);
         int cb0; CK(cudaMemcpyAsync(&cb0,d_arg,sizeof(int),cudaMemcpyDeviceToHost,S));CK(cudaStreamSynchronize(S));
 
