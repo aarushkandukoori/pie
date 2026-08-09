@@ -586,9 +586,12 @@ bool gemma4_forward_declared(
                 wb, cache, attn_ws, cublas, nullptr,
                 /*state_cache=*/nullptr,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
-                kv_last_page_lens, row_valid_d, nullptr, nullptr, R,
+                kv_last_page_lens, row_valid_d,
+                qo_indptr_h, kv_page_indptr_h,
+                nullptr, nullptr, R,
                 nullptr, false,
-                eps, 0.f,
+                eps, /*sm_scale=*/1.0f, /*lse_fallback=*/nullptr,
+                0.f,
                 cfg.num_attention_heads, cfg.num_key_value_heads, cur_d, cur_d,
                 cur_layer,
             };
@@ -827,18 +830,6 @@ bool gemma4_forward_declared(
                     fwd_cfg.final_logit_softcap,
                     static_cast<std::size_t>(lm_head_rows) * V, stream);
                 break;
-            case declared::Kernel::AttnFlashinferPrefillPlanless: {
-                auto kv_view = cache.layer_view(cur_layer);
-                kernels::attn::attention_flashinfer_prefill(
-                    values.slot(plan.inputs(op)[0]), kv_view,
-                    values.slot(plan.outputs(op)[0]),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
-                    N, R, cfg.num_attention_heads, attn_ws.view(), stream,
-                    declared::stated_window_left(plan, op),
-                    /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
-                break;
-            }
             case declared::Kernel::AttnNaivePaged: {
                 auto kv_view = cache.layer_view(cur_layer);
                 // `num_pages_in_batch` is the host indptr's LAST entry —

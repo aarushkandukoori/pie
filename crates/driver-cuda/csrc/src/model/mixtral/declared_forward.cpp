@@ -604,9 +604,12 @@ bool gpt_oss_forward_declared(
                 wb, cache, attn_ws, cublas, fwd_cfg.tp_comm,
                 /*state_cache=*/nullptr,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
-                kv_last_page_lens, row_valid_d, nullptr, nullptr, R,
+                kv_last_page_lens, row_valid_d,
+                qo_indptr_h, kv_page_indptr_h,
+                nullptr, nullptr, R,
                 nullptr, false,
-                eps, cfg.rope_theta,
+                eps, /*sm_scale=*/-1.f, d_lse.data(),
+                cfg.rope_theta,
                 cfg.num_attention_heads, cfg.num_key_value_heads, d, d,
                 cur_layer,
             };
@@ -636,31 +639,6 @@ bool gpt_oss_forward_declared(
                     wb.require(proj).data(), wb.require(aux(1)).data(),
                     values.slot(outs[0]), N, row_width(outs[0]),
                     row_width(ins[0]), stream);
-                break;
-            }
-            case declared::Kernel::AttnFlashinferPrefillPlanless: {
-                auto kv_view = cache.layer_view(cur_layer);
-                // The plan-free wrapper, and it takes the LSE in the same
-                // last slot the decode dispatch does.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "prefill attention inputs");
-                need(outs, 1, "prefill attention outputs");
-                // The LSE is the dispatch's SECOND output, and gpt-oss's
-                // sink layers state it -- `attention_flashinfer_*_lse`
-                // returns the pair. A layer that states one output has
-                // no sink to rescale against, and `d_lse` catches it.
-                float* lse = outs.size >= 2
-                                 ? static_cast<float*>(values.slot(outs[1]))
-                                 : d_lse.data();
-                kernels::attn::attention_flashinfer_prefill(
-                    values.slot(ins[0]), kv_view, values.slot(outs[0]),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
-                    N, R, cfg.num_attention_heads, attn_ws.view(), stream,
-                    /*window_left=*/declared::stated_window_left(plan, op),
-                    /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
-                    lse);
                 break;
             }
             case declared::Kernel::AttnFlashinferDecode: {
