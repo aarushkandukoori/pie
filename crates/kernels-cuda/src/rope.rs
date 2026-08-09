@@ -137,6 +137,7 @@ pub static KERNELS: &[KernelSig] = &[
     // YaRN, as its paper spells it. A deployment's scaling is a load-time
     // config answer, so it picks a kernel here rather than an argument.
     kernel!(rope_yarn_original "rope::rope_yarn_original_bf16",
+        in_place = &[(0, 0), (1, 1)],
         operands = operands![
             q: BufMut, k: BufMut,
             positions: I32s,

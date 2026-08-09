@@ -420,7 +420,11 @@ pub static KERNELS: &[KernelSig] = &[
             num_rows: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
             page_size: I32, hnd_layout: Bool, theta: F32, eps: F32, stream: Stream,
         ]),
+    // Rescales the attention output IN PLACE against the per-head sink
+    // logit; the LSE is read-only. gpt-oss's sink layers state it right
+    // after the dispatch, so `attn.out` observes the RESCALED result.
     kernel!(attention_sink_rescale "attn::attention_sink_rescale_bf16",
+        in_place = &[(0, 0)],
         operands = operands![
             o: BufMut, lse: F32s, sinks: Buf, N: I32, num_q_heads: I32,
             head_dim: I32, stream: Stream,

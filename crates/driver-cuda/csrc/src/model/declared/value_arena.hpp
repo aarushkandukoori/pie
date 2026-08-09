@@ -213,6 +213,37 @@ class ValueArena {
     std::vector<void*> pinned_;
 };
 
+// How many elements one traced value holds at this fire's extents.
+//
+// An arm needs it wherever a kernel takes an ELEMENT COUNT rather than
+// rows and a width — the casts, the elementwise GLU. Those counts used
+// to be spelled `N * H` and `routes * I` at each site, which is the
+// convention doing arithmetic the value descriptor already carries; and
+// it is the same arithmetic in each, so it lives here once.
+//
+// Dims outside the closed kinds resolve to their stated value, which is
+// what `Const` means and what a padded route count is not — a value on
+// `MoeAlignedRoutes` is not asked for by any arm that uses this.
+inline std::size_t value_elements(const pie_forward::ForwardPlan& plan,
+                                  std::uint32_t id, int n_fire, int r_fire) {
+    const PieForwardValue& val = plan.value(id);
+    std::size_t elements = 1;
+    for (std::uint32_t d = 0; d < val.rank; ++d) {
+        switch (val.dims[d].kind) {
+        case pie_forward::PieForwardDimKind::Tokens:
+            elements *= static_cast<std::size_t>(n_fire);
+            break;
+        case pie_forward::PieForwardDimKind::Requests:
+            elements *= static_cast<std::size_t>(r_fire);
+            break;
+        default:
+            elements *= static_cast<std::size_t>(val.dims[d].value);
+            break;
+        }
+    }
+    return elements;
+}
+
 // The activation block one plan needs for the WIDEST fire a deployment
 // admits — what `ws.declared_values` has to hold.
 //

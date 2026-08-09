@@ -158,6 +158,22 @@ pub fn semantic_in_place(kind: &OpKind) -> &'static [(u32, u32)] {
         // of its own, and rope then rotated the OTHER address and left
         // the real k unread.
         OpKind::Rope { .. } => &[(0, 0), (1, 1)],
+        // `beta_one` IS the accumulate: cuBLAS computes `C = A·Bᵀ + C`,
+        // so C is read as well as written and the residual it folds must
+        // BE C. `try_fold_residual` pushes that residual as input 1 and
+        // gives the op a fresh output id, which is right for dataflow —
+        // a reader after the fold wants the summed stream, not the
+        // pre-fold one — and says nothing about memory. This does.
+        //
+        // Only when it folded: a plain matmul writes its output and
+        // reads nothing of it.
+        OpKind::Matmul {
+            beta_one: true, ..
+        } => &[(0, 1)],
+        // `x[r, :] += bias`. One buffer in both drivers that state it --
+        // gpt-oss's `o_bias`, llama_like's three attention biases -- and
+        // the kernel has no destination parameter to give it another.
+        OpKind::AddBias { .. } => &[(0, 0)],
         _ => &[],
     }
 }
