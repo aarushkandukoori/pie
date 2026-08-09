@@ -99,8 +99,22 @@ fn encoding_and_execution_are_measured_separately() {
             .expect("run")
     };
 
-    let light = run(&cheap);
-    let heavy = run(&dear);
+    let mut light = run(&cheap);
+    let mut heavy = run(&dear);
+    // `gpu_exec` is host-observed (commit to fence), so a busy machine — a
+    // parallel test run is enough — can inflate the cheap step's number and
+    // collapse the heavy/light ratio for one sample. The property under test
+    // is about the boundary, not about one sample: re-measure a few times
+    // and let ANY quiet window decide. If the commit really is on the wrong
+    // side, no window will ever satisfy it and the assertions below still
+    // fail on the last sample.
+    for _ in 0..4 {
+        if heavy.gpu_exec > light.gpu_exec * 4 && heavy.encode < heavy.gpu_exec {
+            break;
+        }
+        light = run(&cheap);
+        heavy = run(&dear);
+    }
 
     println!(
         "cheap: encode {:.3} ms, gpu_exec {:.3} ms, gpu {:?}",

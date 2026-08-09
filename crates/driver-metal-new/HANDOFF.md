@@ -193,15 +193,15 @@ half first, into `src/`, with tests that run anywhere.
 
 ### Also outstanding
 
-- **Two pre-existing test failures**, unrelated to any of this work and present
-  before it: `device_kernels::every_shipped_kernel_compiles_on_this_device` and
-  `real_kernels::every_shipped_shader_splices`. Both come from missing `.metal`
-  assets under `crates/kernels-metal/kernels`. Verified pre-existing by
-  `git stash`. Someone should either restore the assets or mark the tests
-  `#[ignore]` with a reason, because two permanently-red tests train everyone to
-  ignore red.
-- `device_timing::encoding_and_execution_are_measured_separately` is **flaky
-  under load** and passes on rerun.
+- ~~The two permanently-red tests~~ — fixed. The `.metal` assets were never
+  missing: `kernels-metal/kernels/` grew subject directories and the tests
+  scanned only the root. The scans are recursive now; `third_party/` (the
+  MLX steel fragments, which are not standalone translation units) is
+  excluded from standalone compiling but still splice-covered.
+- ~~The flaky timing test~~ — the heavy/light ratio re-measures across a few
+  windows, because host-observed `gpu_exec` inflates under a parallel test
+  run. `cargo test -p driver-metal-new --no-fail-fast` is fully green as of
+  2026-08-09, under load.
 - Nothing here is wired into `crates/driver` or the worker yet. The cutover plan
   — how `driver-metal-new` actually *replaces* `driver-metal` on the serving
   path, and what test gate authorises that — has not been written and should be
