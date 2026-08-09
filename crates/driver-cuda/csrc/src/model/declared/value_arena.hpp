@@ -58,8 +58,11 @@
 // which is only sound while every producer and consumer of a given value
 // have moved TOGETHER. That is why the islands are converted whole.
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -209,5 +212,86 @@ class ValueArena {
     std::size_t count_ = 0;
     std::vector<void*> pinned_;
 };
+
+// `PIE_DECLARED_ARENA_TRACE=1`: print what THIS driver's lowering says
+// its arena needs, and which values are asking.
+//
+// It exists because the host and the driver disagreed by 138x about a
+// one-row gemma-4 decode -- 2167296 bytes computed from the declaration
+// in `model/tests/arena_soundness.rs`, 299302912 reported by
+// `lower()` here -- and the two plans are not the same object, so no
+// host-side test can say which is wrong. This prints the driver's own
+// side of that comparison: the extents it lowered at, the block it got,
+// and the values holding the most bytes, by SHAPE, which is the thing
+// that would make a number that large.
+inline void trace_arena(const char* family,
+                        const pie_forward::ForwardPlan& plan,
+                        const PieForwardLowered& flat,
+                        std::size_t capacity, int n_fire, int r_fire) {
+    const char* v = std::getenv("PIE_DECLARED_ARENA_TRACE");
+    if (v == nullptr || v[0] == '0' || v[0] == '\0') return;
+
+    std::fprintf(stderr,
+                 "[arena/%s] N=%d R=%d ops=%zu values=%zu table=%zu "
+                 "arena_bytes=%zu block=%zu\n",
+                 family, n_fire, r_fire, plan.op_count(), plan.value_count(),
+                 flat.value_offsets_len, flat.arena_bytes, capacity);
+
+    // The widest PLACED values, by the bytes their shape implies at this
+    // fire's extents. Sized here rather than trusted from the offsets,
+    // so a wrong SIZE and a wrong PLACEMENT tell themselves apart.
+    struct Row {
+        std::size_t bytes;
+        std::size_t at;
+        std::uint32_t id;
+    };
+    std::vector<Row> rows;
+    rows.reserve(flat.value_offsets_len);
+    std::size_t placed_total = 0;
+    for (std::uint32_t id = 0; id < flat.value_offsets_len; ++id) {
+        const std::size_t at = flat.value_offsets[id];
+        if (at == ValueArena::kNamed) continue;
+        if (id >= plan.value_count()) continue;
+        const PieForwardValue& val = plan.value(id);
+        std::size_t elements = 1;
+        for (std::uint32_t d = 0; d < val.rank; ++d) {
+            switch (val.dims[d].kind) {
+            case pie_forward::PieForwardDimKind::Tokens:
+                elements *= static_cast<std::size_t>(n_fire);
+                break;
+            case pie_forward::PieForwardDimKind::Requests:
+                elements *= static_cast<std::size_t>(r_fire);
+                break;
+            default:
+                elements *= static_cast<std::size_t>(val.dims[d].value);
+                break;
+            }
+        }
+        const std::size_t width =
+            val.dtype == pie_forward::PieForwardDType::F32 ||
+                    val.dtype == pie_forward::PieForwardDType::I32
+                ? 4u
+                : 2u;
+        const std::size_t bytes = elements * width;
+        placed_total += bytes;
+        rows.push_back(Row{bytes, at, id});
+    }
+    std::fprintf(stderr, "[arena/%s] placed=%zu values, %zu bytes if none reused\n",
+                 family, rows.size(), placed_total);
+    std::sort(rows.begin(), rows.end(),
+              [](const Row& a, const Row& b) { return a.bytes > b.bytes; });
+    for (std::size_t i = 0; i < rows.size() && i < 8; ++i) {
+        const PieForwardValue& val = plan.value(rows[i].id);
+        std::fprintf(stderr, "[arena/%s]   v%-5u at %10zu  %10zu bytes  [",
+                     family, rows[i].id, rows[i].at, rows[i].bytes);
+        for (std::uint32_t d = 0; d < val.rank; ++d) {
+            std::fprintf(stderr, "%s%u:%u", d ? ", " : "",
+                         static_cast<unsigned>(val.dims[d].kind),
+                         val.dims[d].value);
+        }
+        std::fprintf(stderr, "] dtype=%u\n",
+                     static_cast<unsigned>(val.dtype));
+    }
+}
 
 }  // namespace pie_cuda_driver::model::declared

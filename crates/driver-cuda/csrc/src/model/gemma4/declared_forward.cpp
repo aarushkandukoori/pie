@@ -892,41 +892,48 @@ bool gemma4_forward_declared(
     values.reset_pins_only(plan.value_count());
     values.bind_offsets(ws.declared_values.data(),
                         ws.declared_values.nbytes(), flat);
+    declared::trace_arena("gemma4", plan, flat,
+                          ws.declared_values.nbytes(), N, R);
     {
         const std::size_t op_count = plan.op_count();
         for (std::size_t i = 0; i < op_count; ++i) {
             const PieForwardOp& op = plan.op(i);
             const auto outs = plan.outputs(op);
             if (outs.size == 0) continue;
-            // The pin still outranks the host's table, and the attempt
-            // to flip that is REVERTED pending an unexplained number.
+            // The pin still outranks the host's table, and the flip
+            // is HELD BACK for a measured reason rather than a puzzle.
             //
-            // Skipping the pin wherever `Buffers::assign` had placed a
-            // value is the one line that turns the decision on, and it
-            // refuses at load:
+            // Skipping the pin wherever `Buffers::assign` placed a value
+            // is the one line that turns "the host assigns" on. It
+            // refuses at load, and the refusal is correct: the block is
+            // genuinely too small. `PIE_DECLARED_ARENA_TRACE=1` prints
+            // what this driver's own lowering asks for, and it is linear
+            // and unsurprising --
             //
-            //   value 562 sits at offset 232194048, past the
-            //   226492416-byte block — this plan's arena wants
-            //   299302912 bytes
+            //   N=1    arena_bytes=2338304
+            //   N=2    arena_bytes=4676608
+            //   N=512  arena_bytes=1197211648
             //
-            // The refusal is the bounds check working. The number is
-            // what is wrong: 299 MB of activation for a ONE-ROW decode.
-            // The same family's decode text, lowered on the host at one
-            // row, wants 2167296 bytes — 138x less — and the checkpoint
-            // config matches the facts the host test uses (hidden 1536,
-            // intermediate 6144, 35 layers, vocab 262144, ple_dim 256).
+            // -- 2.34 MB PER ROW. The 299 MB that refused was a 128-row
+            // fire, not a one-row one, and nothing about it is wrong.
             //
-            // The two plans are NOT the same object, which is as far as
-            // this got: the driver traces 564 ops where the host text
-            // lowers 674, so the offsets cannot be compared entry by
-            // entry from here. Neither number is obviously the wrong
-            // one, and the discrepancy was invisible until now because
-            // nothing had ever READ `value_offsets` -- every value was
-            // pinned, so `slot()` never consulted the table.
+            // That per-row cost is the finding. The hand-written
+            // workspace beside it holds about 210 KB per row for the
+            // same model, and it gets there by REUSING one buffer for
+            // several roles by convention -- `ws.norm_x` is the o_proj
+            // output, the down output AND the normed activation. SSA
+            // does not do that, and liveness only recovers part of it:
+            // the assignment already runs at 1.6x its liveness FLOOR, so
+            // a better allocator is worth 1.6x and the remaining 4x is
+            // in the trace's value lifetimes, not in the free list.
             //
-            // Next: a driver-side diagnostic naming the widest values in
-            // its own lowering. Until then the pins carry the addressing
-            // exactly as they did through every green gate above.
+            // So sizing `ws.declared_values` from `arena_bytes` at
+            // max_tokens is not a plumbing detail to finish; at 6144
+            // tokens it is several GB, against 1.3 GB for every
+            // per-field buffer combined. What the flip needs first is
+            // either a shorter-lived text or an assignment that reuses
+            // the way the convention did -- and that is a decision about
+            // the DECLARATION, which is where it belongs.
             const auto pin = [&](std::size_t which, void* ptr) {
                 if (which < outs.size) values.pin(outs[which], ptr);
             };
