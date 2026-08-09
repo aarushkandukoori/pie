@@ -1,0 +1,100 @@
+# Cutover: how `driver-metal-new` replaces `driver-metal`
+
+Written 2026-08-09, at the point the `m1_runtime.cpp` port closed out. This
+is the plan the handoff said must exist before the port finishes: what
+"replace" concretely means, what must exist first, what test gate authorises
+the flip, and how it rolls back.
+
+## What the serving path is today
+
+The engine reaches Metal through twelve `extern "C"` entry points —
+`pie_metal_create`, `destroy`, `load_model`, `register_program`,
+`register_channel`, `bind_instance`, `launch`, `copy_kv`, `copy_state`,
+`resize_pool`, `close_channel`, `close_instance` — declared in
+`crates/engine/src/driver/backend/metal.rs` and defined by the C++
+`driver-metal` crate. The backend is chosen at build time by the cargo
+feature chain `worker/driver-metal → engine/driver-metal →
+extern crate driver_metal as _`.
+
+## The decision: replace at the Rust boundary, not the C one
+
+There are two places the new crate could slot in:
+
+* **Behind the same twelve symbols** — a Rust cdylib exporting `pie_metal_*`.
+  Minimal engine churn, and wrong: it rebuilds the exact `void*` boundary
+  whose lifetime bugs are this crate's reason for existing. Every handle
+  crossing that ABI goes back to being a raw pointer with a comment.
+* **As a Rust backend module** — `engine/src/driver/backend/metal.rs` grows a
+  twin that calls `driver_metal_new` directly: `Context`, `Runtime`, `Pool`,
+  `Tables`, `Stepper`, `Ring`, the fire/M2/M3 calls. The `unsafe` count at
+  the boundary drops to zero and the types carry their own lifetimes.
+
+The plan is the second. The C ABI dies with the C++; it is not a fence to
+preserve.
+
+## Prerequisites, in order
+
+The launch path (`m1_runtime.cpp`) is fully ported and device-tested. What
+the twelve entry points need beyond it, and where each lands:
+
+| entry points | need | port |
+|---|---|---|
+| `launch` (the serving hot path) | scheduling, fires, tickets, forward composition | `batch/` (~11.6k lines, mostly portable — portable half first) |
+| `load_model` | weight loading and staging | `loader/` (~3.2k) |
+| `register_program` / `bind_instance` | program/instance registry | `pipeline/registry.cpp` (452) + `descriptor_resolve.hpp` (400) |
+| `register_channel` / `close_channel` | ring registry over [`Ring`] | small; `Ring` exists, the registry is bookkeeping |
+| `copy_kv` / `copy_state` / `resize_pool` | K/V plumbing over `Elastic` | with `batch/` |
+| (verification, not serving) | the CPU reference interpreter | `pipeline/interp.hpp` (1.7k) — a test oracle, port before the gate |
+| `store/`, `model/` | small glue | ~375 |
+
+Nothing else blocks assembly: the compile, the three execute paths, the
+channel rings, the pools, heaps, tables and timing all exist and are tested.
+
+## The gate
+
+The flip is authorised when all of the following hold, and not before:
+
+1. **The crate's own suite is green on device** — `cargo test -p
+   driver-metal-new --no-fail-fast` on the Mac, zero red, under load.
+   (True as of 2026-08-09; keep it true.)
+2. **A/B at the backend seam.** The engine's driver-level tests run against
+   both backends behind one harness, and every observable — registration
+   outcomes, launch outcomes, channel effects, status reports — is equal.
+   Divergences are bugs in one side or unstated behaviour in the other;
+   both get written down before the flip.
+3. **Token-exact decode.** A real checkpoint (qwen3.5 is the one with
+   in-tree semantic coverage), fixed seeds, N ≥ 1000 decoded tokens: the new
+   backend's tokens are bit-identical to the old one's. The PTIR channel
+   plane is deterministic by contract, so any drift is a defect, not noise.
+4. **The interpreter agrees.** The same fires replayed through the ported
+   CPU reference interpreter (`interp.hpp`'s Rust) match the device results
+   within its stated tolerance — the oracle the C++ never had wired to
+   Metal.
+5. **Soak without growth.** A sustained decode (hours, not minutes) with
+   `PoolStats`, `Memory`, and ring counts sampled: no monotone growth, no
+   working-set creep. This is the leak class `release_standalone_buffer`
+   existed to hide.
+6. **The panic regressions.** The elastic drop-under-mapping and keepalive
+   scenarios from 2026-08-08 rerun against the new path. The machine staying
+   up is the assertion.
+
+## Mechanics
+
+1. Land the assembly as feature `driver-metal-new`, additive, alongside
+   `driver-metal`. Both can be compiled into one worker; a config key picks
+   the backend at create time, so a canary flips per process with no
+   rebuild.
+2. Canary on the Mac Studio under real traffic; watch the gate's metrics.
+3. Default flips: `driver-metal` the feature becomes an alias for the new
+   backend; the C++ stays in-tree, buildable, for one full release.
+4. Delete `driver-metal` (the crate, `csrc/`, its CMake), and the twelve
+   `pie_metal_*` declarations with it. `PARITY.md`, `PARITY-M1.md` and the
+   subsystem ledgers are the record of what the C++ was; they stay.
+
+## Rollback
+
+Until step 4, rollback is the config key (minutes) or the feature default
+(one rebuild). That is the reason for step 3's one-release overlap: the
+window where rollback is cheap must outlive the window where surprises are
+likely. After step 4 there is no rollback, only revert — which is why step 4
+waits for a full release of silence.

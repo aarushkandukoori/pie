@@ -202,10 +202,12 @@ half first, into `src/`, with tests that run anywhere.
   windows, because host-observed `gpu_exec` inflates under a parallel test
   run. `cargo test -p driver-metal-new --no-fail-fast` is fully green as of
   2026-08-09, under load.
-- Nothing here is wired into `crates/driver` or the worker yet. The cutover plan
-  — how `driver-metal-new` actually *replaces* `driver-metal` on the serving
-  path, and what test gate authorises that — has not been written and should be
-  before the port finishes.
+- Nothing here is wired into the engine or the worker yet. `CUTOVER.md` is
+  now the plan
+  — replace at the Rust boundary (a backend module in
+  `engine/src/driver/backend/`), not behind the twelve `pie_metal_*` C
+  symbols; a six-point gate (A/B seam equality, token-exact decode, the
+  interpreter oracle, soak, the panic regressions) authorises the flip.
 
 ## How to work on this
 
