@@ -94,20 +94,30 @@ pub struct KernelSig {
     /// Where a sink-writing seam's output lands, if this kernel accepts one
     /// (`sink pages -> kv.pages`).
     pub sink: Option<&'static str>,
-    /// The operand index this kernel ACCUMULATES INTO, if it is in-place.
+    /// Which OUTPUTS this kernel writes over which INPUTS, as
+    /// `(output index, input index)` pairs.
     ///
     /// `launch_residual_add_bf16(y, x, n)` writes its result over `y`, so
-    /// its row says `in_place = 0`. That is a fact about the KERNEL and
-    /// not about any statement using it — every call of it is in-place —
-    /// which is why it lives here rather than at the call site.
+    /// its row says `in_place = &[(0, 0)]`. That is a fact about the
+    /// KERNEL and not about any statement using it — every call of it is
+    /// in-place — which is why it lives here rather than at the call
+    /// site.
+    ///
+    /// A LIST because one pair cannot say it. `launch_rope_bf16(q, k,
+    /// ...)` rotates both tensors where they lie, which is two
+    /// independent aliases, and the single-index form this field used to
+    /// have could express neither of them together nor either of them
+    /// honestly.
     ///
     /// `lower::Buffers` is what reads it: an in-place op's output takes
     /// its operand's OFFSET instead of an allocation of its own. Without
     /// that, a text accumulating into a WINDOW (gemma3n's per-layer
     /// embedding, added back into K-1 corrected AltUp streams) would
     /// produce fresh values nothing downstream reads, and the streams
-    /// would silently stay pre-update.
-    pub in_place: Option<u32>,
+    /// would silently stay pre-update — and an executor that binds
+    /// operands from the trace hands one pointer to a kernel that means
+    /// to read and write it, having written nothing there.
+    pub in_place: &'static [(u32, u32)],
     /// On a union tail layer this dispatch pairs the DEPTH PREFIX plan (and
     /// its dedicated workspace) instead of the fire's own plan.
     ///
@@ -140,7 +150,7 @@ macro_rules! kernel {
                 needs: $crate::Prepare::None,
                 lacks: &[],
                 sink: None,
-                in_place: None,
+                in_place: &[],
                 depth_prefix_plan: false,
             }
         }

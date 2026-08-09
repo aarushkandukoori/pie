@@ -288,6 +288,7 @@ pub fn gemma4_cuda(
             // for the MLP — four statements, one launch.
             let (landed, mlp_in) = dsl::cuda::norm_residual_scale_norm(
                 &attn_out,
+                &y,
                 &w.post_attn_norm,
                 &w.pre_ffw_norm,
                 hidden,
@@ -309,7 +310,7 @@ pub fn gemma4_cuda(
                 dsl::cuda::geglu_tanh_pair(&gate, &up, inter)
             };
             let mlp_out = matmul(&act, &w.down);
-            y = dsl::cuda::norm_residual_add(&mlp_out, &w.post_ffw_norm, hidden);
+            y = dsl::cuda::norm_residual_add(&mlp_out, &y, &w.post_ffw_norm, hidden);
 
             // ── The PLE epilogue ────────────────────────────────────
             // Gate this layer's slice of the per-layer table into the
@@ -322,6 +323,7 @@ pub fn gemma4_cuda(
                 let next = Gemma4LayerW::new(l + 1, facts);
                 let (landed, next_norm) = dsl::cuda::norm_residual_scale_norm(
                     &ple_out,
+                    &y,
                     &w.ple_norm,
                     &next.attn_norm,
                     hidden,
@@ -332,7 +334,7 @@ pub fn gemma4_cuda(
                 // The last layer has no next input norm to fuse, so it
                 // lands unfused and the epilogue norms for itself —
                 // `gemma4.cpp`'s :2010 arm.
-                y = dsl::cuda::norm_residual_add(&ple_out, &w.ple_norm, hidden);
+                y = dsl::cuda::norm_residual_add(&ple_out, &y, &w.ple_norm, hidden);
             }
         }
 

@@ -4948,6 +4948,7 @@ pub mod cuda {
     /// the next block consumes.
     pub fn norm_residual_scale_norm(
         x: &Val,
+        y: &Val,
         w: &NormW,
         next: &NormW,
         hidden: u32,
@@ -4958,7 +4959,12 @@ pub mod cuda {
                 "launch_rmsnorm_residual_add_scale_rmsnorm_bf16",
                 vec![w.name.clone(), next.name.clone()],
                 None,
-                vec![x.id],
+                // The STREAM is an operand. The kernel reads it and
+                // accumulates into it, so a statement that named only `x`
+                // left SSA with no edge from the old stream to the new
+                // one -- and an executor binding buffers from the edges
+                // then handed the launch a fresh buffer to land on.
+                vec![x.id, y.id],
                 vec![shape.clone(), shape],
             )
         });
@@ -4973,14 +4979,17 @@ pub mod cuda {
     /// `kernels::launch_rmsnorm_residual_add_bf16`: the two-statement
     /// form — norm, then land on the stream. gemma-4's
     /// post-feedforward norm, where no next-block norm follows to fuse.
-    pub fn norm_residual_add(x: &Val, w: &NormW, hidden: u32) -> Val {
+    pub fn norm_residual_add(x: &Val, y: &Val, w: &NormW, hidden: u32) -> Val {
         record(
             &x.t,
             w.layer,
             "launch_rmsnorm_residual_add_bf16",
             vec![w.name.clone()],
             None,
-            vec![x.id],
+            // `y` is the residual stream this lands on: read, accumulated
+            // into, and returned. Naming it is what gives the new stream
+            // an SSA edge to the old one.
+            vec![x.id, y.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
         )
         .expect("the fused norm+residual produces its value")

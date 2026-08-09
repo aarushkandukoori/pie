@@ -1194,15 +1194,39 @@ impl Buffers {
             // the window would keep its pre-update value and the streams
             // would silently never see the add.
             if let OpKind::Launch { kernel, .. } = &op.kind {
-                if let Some(idx) = crate::kernels::in_place_operand(plan, kernel) {
+                let pairs = crate::kernels::in_place_pairs(plan, kernel);
+                let mut aliased = false;
+                for &(o, i) in pairs {
+                    // A pair outside this statement's arity is not an
+                    // error: one symbol serves a q-only site and a q/k
+                    // pair, and the row states the widest form.
                     if let (Some(&src), Some(&out)) =
-                        (op.inputs.get(idx as usize), op.outputs.first())
+                        (op.inputs.get(i as usize), op.outputs.get(o as usize))
                     {
                         offset[out as usize] = offset[src as usize];
                         size[out as usize] =
                             value_bytes(plan, out, n_tokens, n_requests);
-                        continue;
+                        aliased = true;
                     }
+                }
+                if aliased {
+                    // Outputs this kernel does NOT write in place still
+                    // need buffers of their own.
+                    for (o, &v) in op.outputs.iter().enumerate() {
+                        if pairs.iter().any(|&(oi, _)| oi as usize == o) {
+                            continue;
+                        }
+                        if pinned.binary_search(&v).is_ok() {
+                            offset[v as usize] = Self::NAMED;
+                            continue;
+                        }
+                        let want = value_bytes(plan, v, n_tokens, n_requests);
+                        let at = take_block(&mut free, &mut used, want);
+                        offset[v as usize] = at;
+                        size[v as usize] = want;
+                        live.push(v);
+                    }
+                    continue;
                 }
             }
             for &v in &op.outputs {
@@ -1214,45 +1238,7 @@ impl Buffers {
                     continue;
                 }
                 let want = value_bytes(plan, v, n_tokens, n_requests);
-                // BEST fit, and SPLIT the remainder back.
-                //
-                // First-fit-and-keep-the-whole-block was costing 4-15x
-                // at the fire shape that sizes the driver's activation
-                // block (`arena_soundness.rs` prices it per family): a
-                // freed logits-sized block satisfying a one-row norm
-                // retired the rest of itself, so the walk bump-allocated
-                // almost everything. It read as cheap because the ratio
-                // had been measured on an eight-row all-sampled fire,
-                // where the logits dominate the arena AND the floor and
-                // the loss hides inside both.
-                let at = match free
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, block)| block.1 >= want)
-                    .min_by_key(|(_, block)| block.1)
-                    .map(|(i, _)| i)
-                {
-                    Some(f) => {
-                        let (off, size_of) = free.remove(f);
-                        // The tail keeps the block's alignment, so a
-                        // split never hands out an address the bump path
-                        // would not have.
-                        let tail = (off + want).div_ceil(256) * 256;
-                        if tail < off + size_of {
-                            insert_free(&mut free, (tail, off + size_of - tail));
-                        }
-                        off
-                    }
-                    None => {
-                        // 256-byte alignment, and BUMP only: a decode
-                        // body runs inside a capture, so the same plan
-                        // must land the same value at the same address
-                        // on every fire.
-                        let at = used.div_ceil(256) * 256;
-                        used = at + want;
-                        at
-                    }
-                };
+                let at = take_block(&mut free, &mut used, want);
                 offset[v as usize] = at;
                 size[v as usize] = want;
                 live.push(v);
@@ -1262,6 +1248,45 @@ impl Buffers {
             offset,
             bytes: used,
             pinned,
+        }
+    }
+}
+
+/// Take `want` bytes from the pool, or bump.
+///
+/// BEST fit, and SPLIT the remainder back. First-fit-and-keep-the-whole-
+/// block was costing 4-15x at the fire shape that sizes the driver's
+/// activation block (`arena_soundness.rs` prices it per family): a freed
+/// logits-sized block satisfying a one-row norm retired the rest of
+/// itself, so the walk bump-allocated almost everything. It read as
+/// cheap because the ratio had been measured on an eight-row
+/// all-sampled fire, where the logits dominate the arena AND the floor
+/// and the loss hides inside both.
+fn take_block(free: &mut Vec<(usize, usize)>, used: &mut usize, want: usize) -> usize {
+    match free
+        .iter()
+        .enumerate()
+        .filter(|(_, block)| block.1 >= want)
+        .min_by_key(|(_, block)| block.1)
+        .map(|(i, _)| i)
+    {
+        Some(f) => {
+            let (off, size_of) = free.remove(f);
+            // The tail keeps the block's alignment, so a split never
+            // hands out an address the bump path would not have.
+            let tail = (off + want).div_ceil(256) * 256;
+            if tail < off + size_of {
+                insert_free(free, (tail, off + size_of - tail));
+            }
+            off
+        }
+        None => {
+            // 256-byte alignment, and BUMP only: a decode body runs
+            // inside a capture, so the same plan must land the same
+            // value at the same address on every fire.
+            let at = used.div_ceil(256) * 256;
+            *used = at + want;
+            at
         }
     }
 }
@@ -1319,25 +1344,31 @@ fn alias_owners(plan: &ForwardPlan) -> Vec<ValueId> {
     }
 
     for op in &plan.ops {
-        let joined = match &op.kind {
-            OpKind::Select { .. } => op.inputs.first().copied(),
-            OpKind::Launch { kernel, .. } => crate::kernels::in_place_operand(plan, kernel)
-                .and_then(|idx| op.inputs.get(idx as usize).copied()),
-            _ => None,
+        let joined: Vec<(ValueId, ValueId)> = match &op.kind {
+            OpKind::Select { .. } => match (op.inputs.first(), op.outputs.first()) {
+                (Some(&src), Some(&out)) => vec![(src, out)],
+                _ => Vec::new(),
+            },
+            OpKind::Launch { kernel, .. } => crate::kernels::in_place_pairs(plan, kernel)
+                .iter()
+                .filter_map(|&(o, i)| {
+                    Some((*op.inputs.get(i as usize)?, *op.outputs.get(o as usize)?))
+                })
+                .collect(),
+            _ => Vec::new(),
         };
-        let (Some(src), Some(&out)) = (joined, op.outputs.first()) else {
-            continue;
-        };
-        if src as usize >= owner.len() || out as usize >= owner.len() {
-            continue;
-        }
-        let (a, b) = (find(&mut owner, src), find(&mut owner, out));
-        if a != b {
-            // The earlier value keeps the allocation; SSA numbering makes
-            // "earlier" and "smaller id" the same thing, and the ops are
-            // walked in order anyway.
-            let (keep, drop) = if a <= b { (a, b) } else { (b, a) };
-            owner[drop as usize] = keep;
+        for (src, out) in joined {
+            if src as usize >= owner.len() || out as usize >= owner.len() {
+                continue;
+            }
+            let (a, b) = (find(&mut owner, src), find(&mut owner, out));
+            if a != b {
+                // The earlier value keeps the allocation; SSA numbering
+                // makes "earlier" and "smaller id" the same thing, and
+                // the ops are walked in order anyway.
+                let (keep, drop) = if a <= b { (a, b) } else { (b, a) };
+                owner[drop as usize] = keep;
+            }
         }
     }
     for v in 0..owner.len() {

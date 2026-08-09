@@ -122,12 +122,12 @@ pub fn check_plan(plan: &ForwardPlan) -> Vec<String> {
     problems
 }
 
-/// The operand a stated kernel accumulates into, if it is in-place.
+/// Which outputs a stated kernel writes over which inputs.
 ///
 /// Reads the BACKEND's table, which is why it takes the plan: the family
 /// name says which backend, exactly as `check_plan` reads it.
-pub fn in_place_operand(plan: &ForwardPlan, kernel: &str) -> Option<u32> {
+pub fn in_place_pairs(plan: &ForwardPlan, kernel: &str) -> &'static [(u32, u32)] {
     Backend::of_family(&plan.family)
         .and_then(|b| sig_in(b, kernel))
-        .and_then(|s| s.in_place)
+        .map_or(&[][..], |s| s.in_place)
 }

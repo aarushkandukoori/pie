@@ -83,13 +83,12 @@ fn aliases(plan: &ForwardPlan) -> Alias {
                 }
             }
             OpKind::Launch { kernel, .. } => {
-                let Some(idx) = model_compiler::kernels::in_place_operand(plan, kernel) else {
-                    continue;
-                };
-                if let (Some(&src), Some(&out)) =
-                    (op.inputs.get(idx as usize), op.outputs.first())
-                {
-                    alias.join(src, out);
+                for &(o, i) in model_compiler::kernels::in_place_pairs(plan, kernel) {
+                    if let (Some(&src), Some(&out)) =
+                        (op.inputs.get(i as usize), op.outputs.get(o as usize))
+                    {
+                        alias.join(src, out);
+                    }
                 }
             }
             _ => {}

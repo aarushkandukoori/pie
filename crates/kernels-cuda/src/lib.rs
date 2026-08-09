@@ -449,26 +449,33 @@ pub static KERNELS: &[KernelSig] = &[
     // GeGLU-tanh is not a swiglu variant: `gelu_pytorch_tanh` on the
     // gate is a different function. The packed/pair split is the same
     // binding question.
-    kernel!(geglu_tanh "launch_geglu_tanh_bf16"),
+    // The PAIR form: `(gate, up, out)` with `out` over `gate`. gemma-4's
+    // PLE gate is the same call with the relay slice as `up`.
+    kernel!(geglu_tanh "launch_geglu_tanh_bf16", in_place = &[(0, 0)]),
     kernel!(chunked_geglu_tanh "launch_chunked_geglu_tanh_bf16"),
     // Weightless per-head norm (the V-norm) — no gamma, so no variant.
-    kernel!(rmsnorm_no_scale "launch_rmsnorm_no_scale_bf16"),
+    kernel!(rmsnorm_no_scale "launch_rmsnorm_no_scale_bf16", in_place = &[(0, 0)]),
     // Four statements in one launch, and two: gemma-4 fuses the next
     // block's input norm into the previous block's landing, which is why
     // its layer body appears to be missing one.
-    kernel!(norm_residual_scale_norm "launch_rmsnorm_residual_add_scale_rmsnorm_bf16"),
-    kernel!(norm_residual_add "launch_rmsnorm_residual_add_bf16"),
-    kernel!(scalar_mul "launch_scalar_mul_bf16"),
+    // `(landed, mlp_in)` over `(x, y)`: the stream operand is the one it
+    // lands on, and the landed stream is output 0.
+    kernel!(norm_residual_scale_norm "launch_rmsnorm_residual_add_scale_rmsnorm_bf16", in_place = &[(0, 1)]),
+    kernel!(norm_residual_add "launch_rmsnorm_residual_add_bf16", in_place = &[(0, 1)]),
+    kernel!(scalar_mul "launch_scalar_mul_bf16", in_place = &[(0, 0)]),
     kernel!(logit_softcap "launch_logit_softcap_bf16"),
     // Q-only rotation: a KV-shared layer's K was rotated at its source
     // layer. One operand is the statement.
-    kernel!(rope_partial_q_only "launch_rope_partial_bf16"),
+    // Rotates q and k WHERE THEY LIE — two aliases, which is what the
+    // pair list exists for. A q-only site states one operand and the
+    // second pair falls outside its arity, which `Buffers` skips.
+    kernel!(rope_partial_q_only "launch_rope_partial_bf16", in_place = &[(0, 0), (1, 1)]),
     // Six statements in one launch; the only value that survives is q.
     kernel!(qkv_packed_post "launch_qkv_packed_qk_norm_rope_vnorm_write_kv_bf16",
         sink = Some("kv.pages")),
     // gemma-4 rounds where qwen3_5 does not, and bf16 rounding is which
     // numbers come out — so the symbol IS the statement.
-    kernel!(qk_rmsnorm_rope_rounded "launch_qk_rmsnorm_rope_bf16_rounded"),
+    kernel!(qk_rmsnorm_rope_rounded "launch_qk_rmsnorm_rope_bf16_rounded", in_place = &[(0, 0), (1, 1)]),
     // The PLE relay: [N, L, D] -> [L, N, D], so a layer reads a
     // contiguous slice. Addressing, not arithmetic.
     kernel!(transpose_nld_to_lnd "launch_transpose_bf16_nld_to_lnd"),
@@ -493,7 +500,7 @@ pub static KERNELS: &[KernelSig] = &[
     // Accumulates into its FIRST argument. Stating it is what lets a
 // text add into a window (`select`) and have the window keep the
 // result — see `KernelSig::in_place`.
-kernel!(residual_add_cuda "launch_residual_add_bf16", in_place = Some(0)),
+kernel!(residual_add_cuda "launch_residual_add_bf16", in_place = &[(0, 0)]),
     // The combine folds the residual when the MoE output lands straight
     // on the stream (tp=1) — one launch where the semantic text has a
     // WeightedSum and a ResidualAdd.
