@@ -44,13 +44,17 @@ use std::time::{Duration, Instant};
 
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
+use objc2_foundation::NSRange;
 use objc2_metal::{
     MTL4ArgumentTable, MTL4ArgumentTableDescriptor, MTL4CommandAllocator, MTL4CommandBuffer,
-    MTL4CommandEncoder, MTL4CommandQueue, MTL4ComputeCommandEncoder, MTL4VisibilityOptions,
-    MTLComputePipelineState, MTLDevice, MTLSharedEvent, MTLSize, MTLStages,
+    MTL4CommandEncoder, MTL4CommandQueue, MTL4ComputeCommandEncoder,
+    MTL4UpdateSparseBufferMappingOperation, MTL4VisibilityOptions, MTLBuffer,
+    MTLComputePipelineState, MTLDevice, MTLHeap, MTLSharedEvent, MTLSize,
+    MTLSparseTextureMappingMode, MTLStages,
 };
 
 use super::context::{Context, describe};
+use super::elastic::{self, Arena, Elastic, Mappings, Need, Pressure};
 use super::feedback::Feedbacks;
 use super::heap::Slot;
 use super::tables::Tables;
@@ -309,6 +313,11 @@ pub struct Stepper<'ctx> {
     /// The newest step whose fault has already been raised, so it is raised
     /// exactly once.
     surfaced: u64,
+    /// The queue sparse remappings go on, built on first use.
+    ///
+    /// Lazy because most steppers never remap anything, and a second command
+    /// queue is not free -- it is a scheduler context in the driver.
+    mappings: Option<Mappings>,
 }
 
 impl<'ctx> Stepper<'ctx> {
@@ -325,6 +334,7 @@ impl<'ctx> Stepper<'ctx> {
             wedged: false,
             feedback: Feedbacks::new(),
             surfaced: 0,
+            mappings: None,
         })
     }
 
@@ -502,6 +512,259 @@ impl<'ctx> Stepper<'ctx> {
         }
     }
 
+    /// Attach memory to `buffer` until at least `bytes` of it is mapped.
+    ///
+    /// On the stepper, not on the buffer, because a remap has to be ordered
+    /// against steps: the mapping waits for the last committed step and the
+    /// next step waits for the mapping. The type that owns the timeline is
+    /// the only one that can express that, and putting the operation
+    /// elsewhere would mean a second counter that has to agree with this one.
+    ///
+    /// Idempotent below the current size, so a caller may ask on every step
+    /// rather than tracking what it last asked for.
+    ///
+    /// # Errors
+    ///
+    /// If `bytes` is past the buffer's length, if the arena has no room under
+    /// `pressure` for a request of this [`Need`], or if a placement heap is
+    /// refused. In every case the buffer is left exactly as it was found,
+    /// minus any tiles that did map -- which are real and stay charged.
+    pub fn ensure(
+        &mut self,
+        buffer: &mut Elastic,
+        bytes: u64,
+        pressure: Pressure,
+        need: Need,
+    ) -> Result<()> {
+        self.remap(|context, schedule| {
+            elastic::grow(context, buffer, bytes, pressure, need, schedule)
+        })
+        .map(|_| ())
+    }
+
+    /// Attach memory to several buffers, or to none of them.
+    ///
+    /// A step that needs three pools grown cannot use two of them. Without
+    /// this, growing them one at a time can leave the first two mapped and
+    /// the third refused, and the caller is holding memory it cannot use and
+    /// did not ask to keep. The whole ask is checked against the budget
+    /// first, and a failure part-way rolls the earlier ones back to where
+    /// they were.
+    ///
+    /// Duplicated buffers collapse to their largest target rather than
+    /// summing, because two asks for the same buffer are one requirement
+    /// stated twice -- summing them would refuse a batch that fits.
+    ///
+    /// # Errors
+    ///
+    /// As [`ensure`](Self::ensure), and nothing is left grown.
+    pub fn ensure_all(
+        &mut self,
+        targets: &mut [(&mut Elastic, u64)],
+        pressure: Pressure,
+        need: Need,
+    ) -> Result<()> {
+        // No two entries can name the same buffer: `&mut Elastic` cannot
+        // alias and `Elastic` is not `Clone`. The C++ collapses duplicates
+        // here because it takes a list of `void*` handles, where the same
+        // buffer twice is a sentence you can say. Here it is not.
+
+        // Priced before anything is mapped. Growing them one at a time and
+        // discovering the last one does not fit means unwinding work that has
+        // already touched the GPU.
+        let mut total = 0u64;
+        for (buffer, bytes) in targets.iter() {
+            if *bytes > buffer.len() {
+                return Err(Error::Create {
+                    what: "elastic growth",
+                    message: format!(
+                        "asked for {bytes} bytes of a buffer that is {} long",
+                        buffer.len()
+                    ),
+                });
+            }
+            total = total.saturating_add(
+                bytes
+                    .next_multiple_of(elastic::TILE)
+                    .saturating_sub(buffer.committed()),
+            );
+        }
+        let arena_room = self.arena_headroom(targets, pressure, need)?;
+        if total > arena_room {
+            return Err(Error::Create {
+                what: "elastic growth",
+                message: format!(
+                    "{total} bytes across {} buffers exceeds the {arena_room} available \
+                     under {pressure:?} pressure for a {need:?} request",
+                    targets.len()
+                ),
+            });
+        }
+
+        let prior: Vec<u64> = targets.iter().map(|(b, _)| b.committed()).collect();
+        for position in 0..targets.len() {
+            let (buffer, bytes) = &mut targets[position];
+            let bytes = *bytes;
+            let grown = self.remap(|context, schedule| {
+                elastic::grow(context, buffer, bytes, pressure, need, schedule)
+            });
+            if let Err(error) = grown {
+                // Only reachable when the allocator itself refuses -- the
+                // price above is exact, so a shortfall here means the machine
+                // could not produce a heap it had budget for. Put each
+                // earlier buffer back exactly where it was, in reverse, so
+                // heaps come off in the order they went on.
+                for earlier in (0..position).rev() {
+                    let (buffer, _) = &mut targets[earlier];
+                    let _ = self.remap_shrink(buffer, prior[earlier]);
+                }
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Detach memory from `buffer` down to `bytes`.
+    ///
+    /// The heaps this empties are not freed until the GPU has been observed
+    /// past the unmap -- see [`Arena`]. Asking for more than is mapped does
+    /// nothing.
+    ///
+    /// # Errors
+    ///
+    /// If the wait for the unmap runs out, which wedges the context for the
+    /// same reason a step's wait running out does: a mapping that may or may
+    /// not have happened is not a state anything can be encoded against.
+    pub fn trim(&mut self, buffer: &mut Elastic, bytes: u64) -> Result<()> {
+        self.remap_shrink(buffer, bytes)
+    }
+
+    /// Declare what `buffer` cannot exist without, so pressure cannot clamp
+    /// below it. See [`Need`].
+    pub fn declare_mandatory(&mut self, buffer: &mut Elastic, bytes: u64) {
+        elastic::declare_mandatory(buffer, bytes);
+    }
+
+    /// Give back every heap whose unmap the GPU has passed.
+    ///
+    /// Called automatically by [`trim`](Self::trim); public so a caller that
+    /// wants the memory back at a moment of its choosing can ask, rather than
+    /// waiting for the next trim to notice.
+    pub fn collect(&self, arena: &Arena) {
+        arena.collect(self.event.signaledValue(), self.context.residency());
+    }
+
+    /// Headroom for a multi-buffer ask, which is just the arena's.
+    /// Headroom for a batch, refusing a batch that spans more than one arena.
+    ///
+    /// A batch is priced once against one budget. If two of the buffers draw
+    /// on different arenas, that one price is a number about neither of them:
+    /// it would check the whole batch against the first arena and let the
+    /// second overrun silently. Refusing is not a limitation of the caller --
+    /// two arenas are two independent budgets and there is no such thing as
+    /// an atomic growth across both.
+    fn arena_headroom(
+        &self,
+        targets: &[(&mut Elastic, u64)],
+        pressure: Pressure,
+        need: Need,
+    ) -> Result<u64> {
+        let mut found: Option<Arena> = None;
+        for (buffer, _) in targets {
+            let Some(arena) = buffer.arena() else {
+                continue;
+            };
+            match &found {
+                Some(first) if !first.is(&arena) => {
+                    return Err(Error::Create {
+                        what: "elastic growth",
+                        message: "a batch growth spans two arenas, which cannot be \
+                                  priced or rolled back as one"
+                            .to_owned(),
+                    });
+                }
+                Some(_) => {}
+                None => found = Some(arena),
+            }
+        }
+        Ok(found.map_or(0, |arena| arena.headroom(pressure, need)))
+    }
+
+    /// Run `body` with a scheduler that puts each remap on the timeline.
+    fn remap<T>(
+        &mut self,
+        body: impl FnOnce(&Context, &mut elastic::Map<'_>) -> Result<T>,
+    ) -> Result<T> {
+        self.preflight()?;
+        if self.mappings.is_none() {
+            self.mappings = Some(Mappings::new(self.context)?);
+        }
+        let queue = &self.mappings.as_ref().expect("just built").queue;
+        let event = &*self.event;
+        let committed = &mut self.committed;
+        let step_queue = self.context.queue();
+
+        let mut schedule = |buffer: &ProtocolObject<dyn MTLBuffer>,
+                            heap: &ProtocolObject<dyn MTLHeap>,
+                            first_tile: u64,
+                            tiles: u64,
+                            heap_tile: u64|
+         -> u64 {
+            issue(
+                queue,
+                step_queue,
+                event,
+                committed,
+                buffer,
+                Some(heap),
+                MTLSparseTextureMappingMode::Map,
+                first_tile,
+                tiles,
+                heap_tile,
+            )
+        };
+        body(self.context, &mut schedule)
+    }
+
+    /// The shrink half, which needs no heap and must be waited for.
+    fn remap_shrink(&mut self, buffer: &mut Elastic, bytes: u64) -> Result<()> {
+        self.preflight()?;
+        if self.mappings.is_none() {
+            self.mappings = Some(Mappings::new(self.context)?);
+        }
+        let through = {
+            let queue = &self.mappings.as_ref().expect("just built").queue;
+            let event = &*self.event;
+            let committed = &mut self.committed;
+            let step_queue = self.context.queue();
+            elastic::shrink(buffer, bytes, &mut |target, first_tile, tiles| {
+                issue(
+                    queue,
+                    step_queue,
+                    event,
+                    committed,
+                    target,
+                    None,
+                    MTLSparseTextureMappingMode::Unmap,
+                    first_tile,
+                    tiles,
+                    0,
+                )
+            })
+        };
+        // Waited for, unlike a grow. Mapping more is safe to leave in flight
+        // because nothing reads a tile it did not ask for; unmapping is not,
+        // because the heap is about to be handed back and the caller is
+        // entitled to believe the bytes are gone when this returns.
+        if let Some(through) = through {
+            self.await_value(through)?;
+            if let Some(arena) = buffer.arena() {
+                arena.collect(self.event.signaledValue(), self.context.residency());
+            }
+        }
+        Ok(())
+    }
+
     /// Refuse before encoding anything, for the two reasons a step cannot run.
     fn preflight(&mut self) -> Result<()> {
         if self.wedged {
@@ -640,4 +903,61 @@ impl std::fmt::Debug for Stepper<'_> {
             .field("wedged", &self.wedged)
             .finish_non_exhaustive()
     }
+}
+
+/// Put one sparse remap on the shared timeline and say where it lands.
+///
+/// The bracket is the whole function. The mapping queue waits for the last
+/// committed step, so no kernel that was already submitted can be reading a
+/// tile while it moves; the step queue then waits for the remap, so nothing
+/// submitted afterwards runs before it. The timeline advances by one, which
+/// is why `committed` is taken by `&mut` -- a remap is a point on the same
+/// counter as a step, and a second counter would be a second truth.
+///
+/// The wait on the mapping queue is skipped at value zero because a shared
+/// event starts at zero and waiting for it would be satisfied immediately
+/// anyway; issuing the wait costs a scheduling round-trip for nothing.
+#[allow(clippy::too_many_arguments)]
+fn issue(
+    mapping_queue: &ProtocolObject<dyn MTL4CommandQueue>,
+    step_queue: &ProtocolObject<dyn MTL4CommandQueue>,
+    event: &ProtocolObject<dyn MTLSharedEvent>,
+    committed: &mut u64,
+    buffer: &ProtocolObject<dyn MTLBuffer>,
+    heap: Option<&ProtocolObject<dyn MTLHeap>>,
+    mode: MTLSparseTextureMappingMode,
+    first_tile: u64,
+    tiles: u64,
+    heap_tile: u64,
+) -> u64 {
+    let as_event = ProtocolObject::from_ref(event);
+    if *committed != 0 {
+        mapping_queue.waitForEvent_value(as_event, *committed);
+    }
+
+    let operation = MTL4UpdateSparseBufferMappingOperation {
+        mode,
+        bufferRange: NSRange {
+            location: usize::try_from(first_tile).unwrap_or(usize::MAX),
+            length: usize::try_from(tiles).unwrap_or(0),
+        },
+        heapOffset: usize::try_from(heap_tile).unwrap_or(0),
+    };
+    // SAFETY: the operation is a live `repr(C)` value for the duration of the
+    // call, `count` is one and matches, and the buffer and heap outlive it --
+    // the heap is borrowed from a `Chunk` the caller still owns.
+    unsafe {
+        mapping_queue.updateBufferMappings_heap_operations_count(
+            buffer,
+            heap,
+            NonNull::from(&operation),
+            1,
+        );
+    }
+
+    *committed += 1;
+    let value = *committed;
+    mapping_queue.signalEvent_value(as_event, value);
+    step_queue.waitForEvent_value(as_event, value);
+    value
 }
