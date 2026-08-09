@@ -186,11 +186,39 @@ shared vocabulary. The porting order that follows from the includes:
 2. `decode_timing` (365) and the scratch schedule (`scratch.hpp/.cpp`,
    ~540) consume `Kernel`/`Dispatch`/`DecodeGeometry`; `Dispatch` and the
    geometry live under `model/<family>/` and land with the family port.
+   (`DecodeGeometry` itself has since landed — see the geometry section.)
 3. `expert_paging.hpp` (195): `plan`'s validation is pure modulo a
    three-field slab shape, but `fire` needs `ExpertSlab` (the loader port)
    and host-callback segments; port whole when the loader lands.
 4. `decode_psos` (582), `golden_tap` (238), `worker.hpp` (171),
    `simple_family` (2176), then `forward.cpp/.hpp` (5393) over everything.
+
+## The geometry — `src/batch/geometry.rs`
+
+`DecodeGeometry` (`model/qwen3_5/geometry.hpp`, generic despite its path)
+and `AffineFormat` (declared beside the quant kernels, shared with them).
+
+| C++ | Rust | |
+|---|---|---|
+| `AffineFormat` / `kernel_suffix` | `AffineFormat` / `kernel_suffix` | ported |
+| `DecodeGeometry` fields + defaults | `DecodeGeometry` / `Default` | ported |
+| `is_full_attn` / `full_attn_layers` | same, interval<=1 semantics kept | ported |
+| `gdn_conv_stride_bytes` / `gdn_recurrent_stride_bytes` | same | ported |
+| `is_moe` / `has_shared_expert` / `ffn_width` | same | ported |
+| `has_alt_quant` | `AffineFormat::is_set` + `has_alt_quant` | ported |
+
+The stories stay on the fields that carry them: the affine width and
+group are one fact (g64/b8 and g128/b4 pack identically; a pipeline built
+for the wrong pair "compiled, bound, dispatched, and lied" — token 3504,
+repeated), and `alt_quant` exists because mlx_lm spares the two routing
+projections at 8 bits inside a 4-bit body — read as 4-bit they route to
+almost the right experts (cosine 0.84) and weight them wrongly.
+
+Deferred from the same neighbourhood: the scratch footprints
+(`scratch_widest_elems`/`scratch_slot_elems`) and `plan_heap`
+(`loader/heap_layout.hpp`) — their MoE bound chains through
+`pie::kernels::moe::sorted_rows` and `DeviceTuning::moe_tile_rows`,
+which have no Rust counterpart yet. They land with the loader port.
 
 ## The decode-step ABI — `src/batch/abi.rs`
 

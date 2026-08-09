@@ -14,6 +14,7 @@
 mod abi;
 mod admit;
 mod color;
+mod geometry;
 mod mask;
 mod member;
 mod psos;
@@ -27,6 +28,7 @@ pub use abi::{
 };
 pub use admit::{Refused, admit_recurrent};
 pub use color::{Coloring, ColoringError, Use, color_live_ranges};
+pub use geometry::{AffineFormat, DecodeGeometry};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
 pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, plan_decode_psos};
