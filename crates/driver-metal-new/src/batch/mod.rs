@@ -70,8 +70,9 @@ pub use dispatch_gptoss::{
 };
 pub use dispatch_llama::{
     LlamaDagStats, build_llama_dag, build_llama_dag_mb, llama_dag_stats, llama_dense_qmm_bm,
-    llama_fp16_format, llama_is_dense_proj, llama_moe_qmm_bn, llama_moe_sorted_rows, llama_qmm_bn,
-    llama_qmm_min_batch, llama_qmm_pool_rows, llama_qmm_rows,
+    llama_fp16_format, llama_is_dense_proj, llama_moe_qmm_bn, llama_moe_sorted_rows,
+    llama_pool_elems, llama_qmm_bn, llama_qmm_min_batch, llama_qmm_pool_rows, llama_qmm_rows,
+    llama_value_extent,
 };
 pub use dispatch_mb::{
     PREFILL_ORDINAL_BASE, PREFILL_ORDINAL_STRIDE, ROUTED_DECODE_BATCHED, SDPA_QUERY_TILE,

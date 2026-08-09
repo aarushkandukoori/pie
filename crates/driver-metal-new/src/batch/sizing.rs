@@ -291,6 +291,7 @@ pub struct ValueExtent {
 /// widest claim, so an in-place pass can never shrink a slot under the
 /// value already living in it.
 #[must_use]
+#[allow(clippy::too_many_arguments)] // one summation; a params struct would hide it
 pub fn pool_colour_elems(
     dag: &[Dispatch],
     uses: &[Use],
