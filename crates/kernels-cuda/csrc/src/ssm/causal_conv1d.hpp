@@ -42,6 +42,35 @@ void causal_conv1d_prefill_bf16(
     int K,
     cudaStream_t stream);
 
+// The same convolution with the silu left off.
+//
+// Gemma-4's audio lconv1d wants exactly this and had its own copy of it
+// (`k_depthwise_causal` in `model/gemma4/gemma4_audio_forward.cu`) --
+// same [N, C] layout, same [C, K] per-channel weight, same
+// `t - (K-1) + j` indexing, same zero pad. The only thing that made it a
+// second kernel was the activation this file had fused in, so the
+// activation became a template parameter and the copy went away.
+//
+// `bias` may be nullptr and `state_out` may be nullptr, which together are
+// the plain zero-padded form that caller wants.
+//
+// It belongs in a `conv/` family rather than under `ssm/` -- it is a
+// convolution, and now with two unrelated callers it is visibly not a
+// state-space detail. It has not moved because the family rename would
+// carry `ssm::causal_conv1d_*` through the kernel table, `dsl::cuda`, the
+// model emitters and their generated .inc, which is a wider change than
+// deleting a duplicate.
+void causal_conv1d_prefill_noact_bf16(
+    const void* x,
+    const void* weight,
+    const void* bias,
+    void*       y,
+    void*       state_out,
+    int N,
+    int C,
+    int K,
+    cudaStream_t stream);
+
 // Single-token decode update. Reads state, appends `x` (one row),
 // writes the conv output to `y` (one row), updates `state` in place.
 void causal_conv1d_update_bf16(

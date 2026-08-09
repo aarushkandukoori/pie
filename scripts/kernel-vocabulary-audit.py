@@ -152,6 +152,11 @@ EXPECTED_RESIDUE = [
     ("maybe_bench_", "prefix", "a benchmark harness."),
     ("lm_head_argmax_chunked", "exact",
      "a host-side chunking helper over the real launcher."),
+    ("causal_conv1d_prefill_noact_bf16", "exact",
+     "same case as `argmax_bf16` below: fired only from a hand-written\n"
+     "forward (`gemma4_audio_forward.cu`'s lconv1d), so no trace records it\n"
+     "and a row would have no DSL statement behind it. The activated form\n"
+     "`causal_conv1d_prefill_bf16` IS declared -- Qwen3.5 traces that one."),
     ("argmax_bf16", "exact",
      "fired only from a HAND-WRITTEN forward (`csm_backbone_forward.cu`), not\n"
      "a traced one. A row for it was written and `model`'s\n"

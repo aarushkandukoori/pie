@@ -21,6 +21,13 @@ __device__ __forceinline__ float silu_f(float z) {
 // padding for first-chunk prefill. The trailing K input rows are written
 // back into `state_out[K, C]` (oldest first) so a follow-up decode or
 // mixed prefill chunk can resume from there.
+//
+// `SILU` is a template parameter and not a runtime flag because the two
+// instantiations are two kernels, which is what the naming rule asks a
+// suffix to mean. Gemma-4's audio lconv1d wants the same convolution with
+// no activation; see `causal_conv1d_prefill_noact_bf16` below for why that
+// is this kernel and not another one.
+template <bool SILU>
 __global__ void causal_conv1d_prefill_kernel(
     const __nv_bfloat16* __restrict__ x,
     const __nv_bfloat16* __restrict__ weight,
@@ -55,7 +62,7 @@ __global__ void causal_conv1d_prefill_kernel(
             const float wv = __bfloat162float(weight[c * K + k]);
             acc += wv * xv;
         }
-        y[t * C + c] = __float2bfloat16(silu_f(acc));
+        y[t * C + c] = __float2bfloat16(SILU ? silu_f(acc) : acc);
     }
 
     __syncthreads();
@@ -325,7 +332,9 @@ __global__ void causal_conv1d_update_batched_kernel(
 
 }  // namespace
 
-void causal_conv1d_prefill_bf16(
+namespace {
+template <bool SILU>
+void prefill_dispatch(
     const void* x, const void* weight, const void* bias,
     void* y, void* state_out,
     int N, int C, int K, cudaStream_t stream)
@@ -334,13 +343,30 @@ void causal_conv1d_prefill_bf16(
     constexpr int BLOCK = 64;
     dim3 grid(C);
     dim3 block(BLOCK);
-    causal_conv1d_prefill_kernel<<<grid, block, 0, stream>>>(
+    causal_conv1d_prefill_kernel<SILU><<<grid, block, 0, stream>>>(
         static_cast<const __nv_bfloat16*>(x),
         static_cast<const __nv_bfloat16*>(weight),
         static_cast<const __nv_bfloat16*>(bias),
         static_cast<__nv_bfloat16*>(y),
         static_cast<__nv_bfloat16*>(state_out),
         N, C, K);
+}
+}  // namespace
+
+void causal_conv1d_prefill_bf16(
+    const void* x, const void* weight, const void* bias,
+    void* y, void* state_out,
+    int N, int C, int K, cudaStream_t stream)
+{
+    prefill_dispatch<true>(x, weight, bias, y, state_out, N, C, K, stream);
+}
+
+void causal_conv1d_prefill_noact_bf16(
+    const void* x, const void* weight, const void* bias,
+    void* y, void* state_out,
+    int N, int C, int K, cudaStream_t stream)
+{
+    prefill_dispatch<false>(x, weight, bias, y, state_out, N, C, K, stream);
 }
 
 void causal_conv1d_update_bf16(
