@@ -355,7 +355,7 @@ fn llama_like_cuda_text(
             let x = if post_norm {
                 y.clone()
             } else {
-                rmsnorm(&y, &w.attn_norm)
+                dsl::cuda::rmsnorm(&y, &w.attn_norm)
             };
 
             // The general QKV arm, produced once and called from every
@@ -411,7 +411,7 @@ fn llama_like_cuda_text(
                     let (q, k) = if f.qk_norm == QkNorm::Off {
                         (q, k)
                     } else {
-                        (rmsnorm(&q, &w.q_norm), rmsnorm(&k, &w.k_norm))
+                        (dsl::cuda::rmsnorm(&q, &w.q_norm), dsl::cuda::rmsnorm(&k, &w.k_norm))
                     };
                     rope(&q, &k, f.rope)
                 };
@@ -681,23 +681,23 @@ fn llama_like_cuda_text(
                 // Post-norm: o_proj to scratch, norm the OUTPUT, then the
                 // separate residual landing (`+=` of a non-matmul records
                 // the explicit ResidualAdd launch).
-                y += rmsnorm(&matmul(&a, &w.o_proj), &w.attn_norm);
+                y += dsl::cuda::rmsnorm(&matmul(&a, &w.o_proj), &w.attn_norm);
                 // ② The activation STATES its kernel: which of the two
                 // swiglu spellings runs is the gate_up BINDING's answer,
                 // known at load, so it erases here instead of being
                 // re-derived from a workspace on every fire.
                 let act = cuda::swiglu(&matmul(&y, &w.gate_up), f.intermediate, cuda.gate_up_fused);
-                y += rmsnorm(&matmul(&act, &w.down), &w.mlp_norm);
+                y += dsl::cuda::rmsnorm(&matmul(&act, &w.down), &w.mlp_norm);
             } else {
                 // Pre-norm: `+=` of a fresh matmul IS the beta=1 fold.
                 y += matmul(&a, &w.o_proj);
-                let x = rmsnorm(&y, &w.mlp_norm);
+                let x = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
                 let act = cuda::swiglu(&matmul(&x, &w.gate_up), f.intermediate, cuda.gate_up_fused);
                 y += matmul(&act, &w.down);
             }
         }
 
-        let logits = m.logits(&rmsnorm(&y, &m.final_norm()));
+        let logits = m.logits(&dsl::cuda::rmsnorm(&y, &m.final_norm()));
         dsl::seam(m.trace(), &dsl::seam::OUT, &[&logits], None);
     })
 }

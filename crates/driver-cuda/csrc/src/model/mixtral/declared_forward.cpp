@@ -562,7 +562,9 @@ bool gpt_oss_forward_declared(
             need(ins, 1, "rmsnorm inputs");
             need(outs, 1, "rmsnorm outputs");
             declared::arm_rmsnorm({plan, values, N, 0, stream}, op,
-                                  require(w, name).data(), eps);
+                                  require(w, name).data(), eps,
+                                  op.param0 == static_cast<std::uint32_t>(
+                                      pie_forward::PieForwardNormVariant::Gemma));
             break;
         }
         case PieForwardOpKind::Matmul: {

@@ -204,10 +204,17 @@ inline void arm_residual_add(const ArmCtx& c,
 //
 // `eps` stays a parameter. It is a config number the trace does not
 // carry, which is the same reason the weight pointer is one.
+//
+// So does `gemma_fold`, and that is the migration showing: a SEMANTIC
+// `Rmsnorm` makes its caller read the variant off `op.param0`, while a
+// text that states `norm::rmsnorm_gemma_bf16` makes its caller pass
+// what the registry already matched. Same arm, and only one of the two
+// callers is choosing.
 inline void arm_rmsnorm(const ArmCtx& c,
                         const pie_forward::PieForwardOp& op,
                         const void* weight,
-                        float eps) {
+                        float eps,
+                        bool gemma_fold) {
     const auto& plan = c.plan;
     auto& values = c.values;
     const int rows = c.rows;
@@ -217,9 +224,6 @@ inline void arm_rmsnorm(const ArmCtx& c,
     need(ins, 1, "rmsnorm inputs");
     need(outs, 1, "rmsnorm outputs");
     const int width = row_width(plan, ins[0]);
-    const bool gemma_fold =
-        op.param0 ==
-        static_cast<std::uint32_t>(pie_forward::PieForwardNormVariant::Gemma);
     if (gemma_fold) {
         kernels::norm::rmsnorm_gemma_bf16(values.slot(ins[0]), weight,
                                           values.slot(outs[0]), rows, width,

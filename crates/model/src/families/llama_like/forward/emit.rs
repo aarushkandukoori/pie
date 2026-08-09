@@ -783,26 +783,14 @@ fn require(layer: u32, member: &str, name: &str) -> String {
     format!("require(w.layers[{layer}].{member}, \"{name}\")->data()")
 }
 
-fn emit_op(
-    b: &mut Body,
-    op: &model_compiler::trace::Op,
-    plan: &ForwardPlan,
-    facts: &LlamaLikeFacts,
-    cuda: &LlamaLikeCudaFacts,
-    is_decode: bool,
-    win: Option<Win>,
-    depth_active: bool,
-) {
-    let _ = plan;
-    match &op.kind {
-        OpKind::Embed { weight } => {
-            assert_eq!(weight, "embed");
-            b.stmt("kernels::layout::embed_bf16(");
-            b.stmt("    token_ids, require(w.embed, \"embed\")->data(), ws.y.data(),");
-            b.stmt("    N, H, V, stream);");
-        }
-        OpKind::Rmsnorm { weight, variant } => {
-            assert_eq!(*variant, NormVariant::Plain, "emitter: Plain only");
+/// The ROW norm's emission, shared by the semantic kind and the stated
+/// symbols.
+///
+/// A CUDA text states `norm::rmsnorm_bf16` or its gemma twin now
+/// (`dsl::cuda::rmsnorm`), so this arrives as a `Launch`; a semantic
+/// text still records the kind. Same buffers, same widths, one body —
+/// which is the point of the migration rather than a side effect of it.
+fn emit_row_norm(b: &mut Body, facts: &LlamaLikeFacts, weight: &str) {
             if weight == "final_norm" {
                 // Deferred into the LmHead epilogue, exactly the
                 // interpreter's arm (gather-then-norm ≡ norm-then-gather).
@@ -834,6 +822,30 @@ fn emit_op(
                 require(layer, field, weight)
             ));
             b.stmt(&format!("    {output}, N, {width}, eps, stream);"));
+}
+
+
+fn emit_op(
+    b: &mut Body,
+    op: &model_compiler::trace::Op,
+    plan: &ForwardPlan,
+    facts: &LlamaLikeFacts,
+    cuda: &LlamaLikeCudaFacts,
+    is_decode: bool,
+    win: Option<Win>,
+    depth_active: bool,
+) {
+    let _ = plan;
+    match &op.kind {
+        OpKind::Embed { weight } => {
+            assert_eq!(weight, "embed");
+            b.stmt("kernels::layout::embed_bf16(");
+            b.stmt("    token_ids, require(w.embed, \"embed\")->data(), ws.y.data(),");
+            b.stmt("    N, H, V, stream);");
+        }
+        OpKind::Rmsnorm { weight, variant } => {
+            assert_eq!(*variant, NormVariant::Plain, "emitter: Plain only");
+            emit_row_norm(b, facts, weight);
         }
         OpKind::AddBias { weight } => {
             // Qwen-2 family qkv biases: the hand-written `maybe_add_bias`
@@ -1885,6 +1897,14 @@ fn emit_launch(
             b.stmt("    prefill_score_capture->publish();");
             strip(b);
             b.stmt("}");
+        }
+        // The ROW norms, now that `cuda::rmsnorm` states which fold it
+        // runs. Same body as the semantic kind's — see `emit_row_norm`.
+        "norm::rmsnorm_bf16" | "norm::rmsnorm_gemma_bf16" => {
+            let weight = weights
+                .first()
+                .expect("a stated row norm names its weight");
+            emit_row_norm(b, facts, weight);
         }
         other => panic!("emitter: stated kernel {other} out of scope"),
     }

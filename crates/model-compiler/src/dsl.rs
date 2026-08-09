@@ -5429,26 +5429,33 @@ pub mod cuda {
     /// PER-HEAD is not here yet: its row count is the operand's width
     /// over the head dim, and `head_dim` has nowhere to ride on a
     /// `Launch`. It moves when it states a kernel that takes it.
-    pub fn rmsnorm(x: &Val, w: &NormW, hidden: u32) -> Val {
-        assert!(
-            w.per_head.is_none(),
-            "cuda::rmsnorm is the ROW form; a per-head weight still takes \
-             the semantic spelling"
-        );
-        let symbol = match w.variant {
-            NormVariant::Gemma => "norm::rmsnorm_gemma_bf16",
-            _ => "norm::rmsnorm_bf16",
-        };
-        record(
-            &x.t,
-            w.layer,
-            symbol,
-            vec![w.name.clone()],
-            None,
-            vec![x.id],
-            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
-        )
-        .expect("the norm produces its value")
+    pub fn rmsnorm(x: &Val, w: &NormW) -> Val {
+        let id = x.t.with(w.layer, |b| match w.per_head {
+            // PER-HEAD falls through to the semantic kind, and the call
+            // site does not have to know which it got: the handle
+            // decides, and the same site is per-head on qwen3 and
+            // row-wise on olmo2.
+            Some(head_dim) => b.rmsnorm_per_head(x.id, &w.name, head_dim, w.variant),
+            None => {
+                let symbol = match w.variant {
+                    NormVariant::Gemma => "norm::rmsnorm_gemma_bf16",
+                    _ => "norm::rmsnorm_bf16",
+                };
+                let shape = b.value_shape(x.id);
+                b.launch(
+                    symbol,
+                    vec![w.name.clone()],
+                    None,
+                    vec![x.id],
+                    vec![(shape, DType::BF16)],
+                )[0]
+            }
+        });
+        Val {
+            t: x.t.clone(),
+            id,
+            layer: w.layer,
+        }
     }
 
     // ── TENSOR PARALLELISM ─────────────────────────────────────────

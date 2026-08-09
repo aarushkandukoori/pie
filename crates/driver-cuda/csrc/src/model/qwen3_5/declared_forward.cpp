@@ -1387,7 +1387,10 @@ bool forward_declared_tmpl(
             const auto outs = plan.outputs(op);
             need(ins, 1, "rmsnorm inputs");
             need(outs, 1, "rmsnorm outputs");
-            declared::arm_rmsnorm({plan, values, N, 0, stream}, op, wb.require(name).data(), eps);
+            declared::arm_rmsnorm({plan, values, N, 0, stream}, op,
+                                  wb.require(name).data(), eps,
+                                  op.param0 == static_cast<std::uint32_t>(
+                                      PieForwardNormVariant::Gemma));
             break;
         }
         case PieForwardOpKind::Matmul: {

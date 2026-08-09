@@ -263,6 +263,12 @@ const DeviceTensor* require(const DeviceTensor* t, std::string_view name) {
 // means the trace and this executor drifted; `build` validates every
 // stated symbol at model load so that drift fails at boot, not mid-fire.
 enum class LaunchKernel {
+    // The ROW norms. Two entries rather than one with a flag, because
+    // the SYMBOL says which fold runs -- `cuda::rmsnorm` picked it from
+    // the weight at trace time. Reading a variant off a param and
+    // choosing here is what this replaces.
+    RmsnormRow,
+    RmsnormRowGemma,
     RopeStandardTable,
     QkvDecodeQkNormRopeWriteKv,
     QkRmsnormRope,
@@ -281,6 +287,9 @@ enum class LaunchKernel {
 };
 
 LaunchKernel resolve_launch_kernel(std::string_view kernel) {
+    if (kernel == "norm::rmsnorm_bf16") return LaunchKernel::RmsnormRow;
+    if (kernel == "norm::rmsnorm_gemma_bf16")
+        return LaunchKernel::RmsnormRowGemma;
     if (kernel == "mlp::chunked_swiglu_bf16") {
         return LaunchKernel::ChunkedSwiglu;
     }
@@ -1412,7 +1421,10 @@ void llama_like_forward_declared(
                 // scratch. Either way it is the statement's operand, so
                 // the branch that picked between two workspace fields
                 // goes away and the width comes off the value.
-                declared::arm_rmsnorm({plan, values, N, 0, stream}, op, wb.require(name).data(), eps);
+                declared::arm_rmsnorm({plan, values, N, 0, stream}, op,
+                                  wb.require(name).data(), eps,
+                                  op.param0 == static_cast<std::uint32_t>(
+                                      PieForwardNormVariant::Gemma));
             } else if (nm.field == "mlp_norm") {
                 const auto& layer = layer_of(w, nm, name);
                 // ISLAND (value arena), both placements. The normed
@@ -1421,7 +1433,10 @@ void llama_like_forward_declared(
                 // the same role `ws.norm_x`. Post-norm the operand is
                 // the down_proj scratch instead of the stream, which is
                 // a different VALUE and not a different buffer rule.
-                declared::arm_rmsnorm({plan, values, N, 0, stream}, op, wb.require(name).data(), eps);
+                declared::arm_rmsnorm({plan, values, N, 0, stream}, op,
+                                  wb.require(name).data(), eps,
+                                  op.param0 == static_cast<std::uint32_t>(
+                                      PieForwardNormVariant::Gemma));
             } else if (nm.field == "q_norm") {
                 // Global qk-norm (olmo2): ONE row RMSNorm over the
                 // flattened [N, heads * head_dim] projection, in place —
@@ -1827,6 +1842,24 @@ void llama_like_forward_declared(
                         ws.gate.data(), ws.up.data(), dst,
                         N * out_w(0), stream);
                 }
+                break;
+            }
+            case LaunchKernel::RmsnormRow:
+            case LaunchKernel::RmsnormRowGemma: {
+                // SHARED ARM (D1). The fold comes from the SYMBOL the
+                // registry matched, not from a param this arm reads --
+                // which is the difference between binding and choosing.
+                const auto aux = plan.aux_names(op);
+                if (aux.size != 1) {
+                    throw std::runtime_error(
+                        "declared forward: a stated row norm names " +
+                        std::to_string(aux.size) + " weights, wants 1");
+                }
+                declared::arm_rmsnorm(
+                    {plan, values, N, 0, stream}, op,
+                    wb.require(plan.name(aux[0])).data(), eps,
+                    resolve_launch_kernel(plan.weight_name(op)) ==
+                        LaunchKernel::RmsnormRowGemma);
                 break;
             }
             case LaunchKernel::RopeStandardTable: {
