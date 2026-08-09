@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "attn/attention_flashinfer.hpp"
 #include "attn/attention_mla.hpp"
 #include "moe/moe_dispatch.hpp"
 #include "moe/topk_sigmoid.hpp"
@@ -596,6 +597,56 @@ inline void arm_mla_prepare(const ArmCtx& c,
         static_cast<int>(qn.dims[1].value),
         static_cast<int>(qn.dims[2].value),
         eps, theta, interleaved, kv_a_row_stride, yarn, c.stream, row_valid);
+}
+
+// ── the FlashInfer decode dispatch ─────────────────────────────────
+//
+// Every family states this symbol and every family reaches it
+// differently: llama_like has one decode plan, gemma-4 picks between a
+// full and a sliding one by layer kind (and BUILDS one when the
+// deployment sized none), qwen3.5 keys its own. So the PLAN stays the
+// caller's and only the call is here.
+//
+// That split is the honest one. An arm is shared when its body stops
+// naming a family's things; a plan cache is a family's thing, and
+// pretending otherwise is what put a wrong theta and a wrong cache slot
+// into two earlier merges. The caller resolves, the arm binds.
+//
+// The LSE is a second OUTPUT where the statement declares one and the
+// caller's scratch otherwise -- gpt-oss's sink dispatch is the only
+// caller that asks, and it asks by stating two results.
+inline void arm_attention_decode(const ArmCtx& c,
+                                 const pie_forward::PieForwardOp& op,
+                                 const kernels::attn::DecodePlanCache& plan_cache,
+                                 KvCacheLayerView kv_view,
+                                 const std::uint32_t* page_indices,
+                                 const std::uint32_t* page_indptr,
+                                 const std::uint32_t* last_page_lens,
+                                 AttentionWorkspaceView attn_ws,
+                                 int window_left,
+                                 float sm_scale,
+                                 float* lse_fallback,
+                                 void* dst_override = nullptr) {
+    const auto& plan = c.plan;
+    const auto ins = plan.inputs(op);
+    const auto outs = plan.outputs(op);
+    need(ins, 1, "decode attention inputs");
+    // A guard-region form declares no value: the guard owns it, and the
+    // caller hands the destination in.
+    void* const dst = dst_override != nullptr
+                          ? dst_override
+                          : (outs.size > 0 ? c.values.slot(outs[0]) : nullptr);
+    if (dst == nullptr) {
+        throw std::runtime_error(
+            "declared arm: a decode dispatch names no destination");
+    }
+    float* const lse = outs.size >= 2
+                           ? static_cast<float*>(c.values.slot(outs[1]))
+                           : lse_fallback;
+    kernels::attn::dispatch_attention_flashinfer_decode(
+        plan_cache, c.values.slot(ins[0]), kv_view, dst, page_indices,
+        page_indptr, last_page_lens, attn_ws, c.stream, window_left,
+        /*logits_soft_cap=*/0.f, sm_scale, lse);
 }
 
 // The EPILOGUE's compaction, which is the half of `LmHead` every

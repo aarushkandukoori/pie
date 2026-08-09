@@ -1712,7 +1712,7 @@ case PieForwardOpKind::Launch: {
             // "stated, and this family executes it its own way".
             const declared::ExecCtx ectx{
                 {plan, values, N, 0, stream},
-                wb, cache, attn_ws, cublas,
+                wb, cache, attn_ws, cublas, nullptr,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens,
                 // NULL, deliberately: this family's KV write arms passed

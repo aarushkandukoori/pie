@@ -601,7 +601,7 @@ bool gpt_oss_forward_declared(
             // "stated, and this family executes it its own way".
             const declared::ExecCtx ectx{
                 {plan, values, N, 0, stream},
-                wb, cache, attn_ws, cublas,
+                wb, cache, attn_ws, cublas, fwd_cfg.tp_comm,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, row_valid_d, nullptr, nullptr, R,
                 nullptr, false,
@@ -663,28 +663,21 @@ bool gpt_oss_forward_declared(
                 break;
             }
             case declared::Kernel::AttnFlashinferDecode: {
-                auto kv_view = cache.layer_view(cur_layer);
-                // The LSE is the second OUTPUT, and asking for it is the
-                // whole difference between this call and the one every
-                // other family makes.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "decode attention inputs");
-                need(outs, 1, "decode attention outputs");
-                float* lse = outs.size >= 2
-                                 ? static_cast<float*>(values.slot(outs[1]))
-                                 : d_lse.data();
-                kernels::attn::dispatch_attention_flashinfer_decode(
-                    *decode_plan, values.slot(ins[0]), kv_view,
-                    values.slot(outs[0]),
-                    kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws.view(), stream,
-                    /*window_left=*/declared::stated_window_left(plan, op),
-                    /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
-                    lse);
+                // SHARED ARM. The plan is this family's -- one decode
+                // plan for the fire -- and the call is not.
+                //
+                // The LSE is the second OUTPUT where the sink layers
+                // ask for it, and `d_lse` where they do not: gpt-oss is
+                // the only family that asks, and it asks by stating two
+                // results.
+                declared::arm_attention_decode(
+                    {plan, values, N, 0, stream}, op, *decode_plan,
+                    cache.layer_view(cur_layer), kv_page_indices,
+                    kv_page_indptr, kv_last_page_lens, attn_ws.view(),
+                    declared::stated_window_left(plan, op),
+                    /*sm_scale=*/-1.f, d_lse.data());
                 break;
-            }
-            case declared::Kernel::AttnSinkRescale: {
+            }            case declared::Kernel::AttnSinkRescale: {
                 // ISLAND (value arena). Rescales the attention output
                 // in place -- now stated, so `outs[0]` and `ins[0]` are
                 // one buffer -- against the LSE, which is input 1 and
