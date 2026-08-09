@@ -17,6 +17,7 @@ pub mod dsv4_geometry;
 pub mod dtoa;
 pub mod json;
 pub mod kv_cache;
+pub mod kv_cache_live;
 pub mod kv_geometry;
 pub mod mla_cache;
 pub mod mla_geometry;

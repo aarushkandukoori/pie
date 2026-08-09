@@ -45,6 +45,7 @@ pub fn gpu_guard() -> MutexGuard<'static, ()> {
 /// Everything else -- a device present, the ABI right, and the bind still
 /// failing -- is a **failure**, because at that point something really is
 /// wrong and skipping would report green for a build that cannot run.
+#[allow(dead_code)] // not every test binary probes the device
 pub fn device_or_skip(what: &str) -> Option<Device> {
     match Device::count() {
         Ok(0) => {

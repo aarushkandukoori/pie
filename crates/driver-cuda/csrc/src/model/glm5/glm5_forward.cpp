@@ -44,19 +44,10 @@ WeightView make_expert_weight_view(
         meta->group_size == 32 &&
         meta->scale->dtype() == DType::UINT8) {
         // MXFP4 expert weight: bytes are nibble-packed and the scale is
-        // E8M0 (uint8). Override the dtype so the GEMM dispatcher routes
-        // to the MXFP4_PACKED path.
-        WeightView v;
-        v.data = w->data();
-        v.dtype = DType::MXFP4_PACKED;
-        v.nbytes = w->nbytes();
-        v.scale_data = meta->scale->data();
-        v.scale_dtype = DType::UINT8;
-        v.scale_numel = meta->scale->numel();
-        v.quant_kind = QuantMeta::Kind::PerGroup;
-        v.group_size = 32;
-        v.channel_axis = meta->channel_axis;
-        return v;
+        // E8M0 (uint8). The factory overrides the dtype so the GEMM
+        // dispatcher routes to the MXFP4_PACKED path; the checkpoint's own
+        // channel axis rides through.
+        return WeightView::mxfp4_marlin(*w, *meta->scale, meta->channel_axis);
     }
     return make_weight_view(w, meta);
 }

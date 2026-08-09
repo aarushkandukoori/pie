@@ -151,6 +151,41 @@ pub enum Ty {
     /// a binding that gets this wrong is a silent stack-layout bug rather
     /// than a compile error, which is why it is its own kind.
     Bool,
+    /// A host scalar spelled `long long` — the recurrent slot strides.
+    /// Not [`Ty::Usize`]: the C++ chose a SIGNED 64-bit here, and not
+    /// [`Ty::I32`] for the same reason `Usize` is not `U32` — the width is
+    /// the contract.
+    I64,
+    /// A read-only device array of `i8` — the int8 lm_head weight the fused
+    /// GEMV+argmax reads.
+    I8s,
+    /// A read-only device array of `i64` — dsv4's token-to-expert hash
+    /// table.
+    I64s,
+    /// A read-only device array of `u16` — bf16 storage the mamba SSU
+    /// spells as `std::uint16_t*` instead of `void*`.
+    U16s,
+    /// A device array of `u16` the launcher WRITES.
+    U16sMut,
+    /// A read-only TABLE of read-only buffers (`const void* const*`) —
+    /// per-expert weight pointers the grouped GEMMs consume.
+    Bufs,
+    /// A read-only table of read-only BYTE buffers
+    /// (`const std::uint8_t* const*`) — the MXFP4 per-expert packed-weight
+    /// and scale banks.
+    U8Bufs,
+    /// A read-only table of read-only `i32` buffers
+    /// (`const std::int32_t* const*`) — the WNA16 per-expert packed banks.
+    I32Bufs,
+    /// A read-only TABLE of WRITABLE buffers (`void* const*`) — the batched
+    /// and grouped GEMMs' output-pointer arrays. The table is not written;
+    /// what it points at is.
+    BufMuts,
+    /// A table of read-only buffer pointers the launcher WRITES
+    /// (`const void**`) — the MoE pointer builders' output.
+    BufTableMut,
+    /// A table of WRITABLE buffer pointers the launcher writes (`void**`).
+    BufMutTableMut,
     /// The stream the launch is ordered on.
     Stream,
     /// The cuBLAS handle a library-issued launch is ordered through.
@@ -160,6 +195,14 @@ pub enum Ty {
     /// and not a kernel of ours. This is what they take instead of a stream —
     /// the stream is set on the handle.
     CublasHandle,
+    /// `moe::MoeActivation`, by value — the activation the fused CUTLASS MoE
+    /// runs between its two grouped GEMMs. An `enum class` with the default
+    /// `int` underlying type, so it crosses the ABI as four bytes.
+    MoeActivation,
+    /// `quant::Mxfp4RowSelect`, by value — which rows of a gpt-oss packed
+    /// MXFP4 scale table the Marlin repack selects (identity / even / odd).
+    /// `enum class : int`, so four bytes.
+    Mxfp4RowSelect,
 
     // ---- The struct-shaped operands. ----
     //
@@ -197,6 +240,18 @@ pub enum Ty {
     /// Original-YaRN scaling, by `const*`. POD, and a pointer rather than a
     /// reference because it is optional: see `nullable`.
     YarnOriginalParams,
+    /// A read-only device array of `attn::StructuredMaskParams` — the
+    /// per-lane structured-mask descriptors `pack_structured_mask` reads.
+    /// POD (three `u32`s), so Rust mirrors it and the array crosses as
+    /// `*const StructuredMaskParams`.
+    StructuredMasks,
+    /// `pie_cuda_driver::WeightView`, by value — the quantized-dispatch
+    /// descriptor `gemm::act_x_w` routes on. POD, mirrored, its layout
+    /// pinned twice (the gate-3 ABI oracle and the launch_abi records).
+    WeightView,
+    /// `pie_cuda_driver::DType`, by value — `enum class : uint8_t`, one
+    /// byte, mirrored by the driver's own `#[repr(u8)]` enum.
+    DType,
 }
 
 impl Ty {
@@ -222,8 +277,21 @@ impl Ty {
             Ty::Usize => "::std::size_t",
             Ty::F32 => "float",
             Ty::Bool => "bool",
+            Ty::I64 => "long long",
+            Ty::I8s => "const ::std::int8_t*",
+            Ty::I64s => "const ::std::int64_t*",
+            Ty::U16s => "const ::std::uint16_t*",
+            Ty::U16sMut => "::std::uint16_t*",
+            Ty::Bufs => "const void* const*",
+            Ty::U8Bufs => "const ::std::uint8_t* const*",
+            Ty::I32Bufs => "const ::std::int32_t* const*",
+            Ty::BufMuts => "void* const*",
+            Ty::BufTableMut => "const void**",
+            Ty::BufMutTableMut => "void**",
             Ty::Stream => "cudaStream_t",
             Ty::CublasHandle => "cublasHandle_t",
+            Ty::MoeActivation => "::pie_cuda_driver::kernels::moe::MoeActivation",
+            Ty::Mxfp4RowSelect => "::pie_cuda_driver::kernels::quant::Mxfp4RowSelect",
             Ty::AttentionWorkspaceView => "::pie_cuda_driver::AttentionWorkspaceView",
             Ty::KvCacheLayerView => "::pie_cuda_driver::KvCacheLayerView",
             Ty::MlaCacheLayerView => "::pie_cuda_driver::MlaCacheLayerView",
@@ -232,6 +300,9 @@ impl Ty {
             Ty::MlaPlanCache => "const ::pie_cuda_driver::kernels::attn::MlaPlanCache&",
             Ty::HopperPrefillPlan => "const ::pie_cuda_driver::kernels::attn::HopperPrefillPlan&",
             Ty::YarnOriginalParams => "const ::pie_cuda_driver::kernels::attn::YarnOriginalParams*",
+            Ty::StructuredMasks => "const ::pie_cuda_driver::kernels::attn::StructuredMaskParams*",
+            Ty::WeightView => "::pie_cuda_driver::WeightView",
+            Ty::DType => "::pie_cuda_driver::DType",
         }
     }
 
@@ -258,7 +329,22 @@ impl Ty {
             Ty::Usize => "usize",
             Ty::F32 => "f32",
             Ty::Bool => "bool",
+            Ty::I64 => "::core::ffi::c_longlong",
+            Ty::I8s => "*const i8",
+            Ty::I64s => "*const i64",
+            Ty::U16s => "*const u16",
+            Ty::U16sMut => "*mut u16",
+            Ty::Bufs => "*const *const ::core::ffi::c_void",
+            Ty::U8Bufs => "*const *const u8",
+            Ty::I32Bufs => "*const *const i32",
+            Ty::BufMuts => "*const *mut ::core::ffi::c_void",
+            Ty::BufTableMut => "*mut *const ::core::ffi::c_void",
+            Ty::BufMutTableMut => "*mut *mut ::core::ffi::c_void",
             Ty::Stream | Ty::CublasHandle => "*mut ::core::ffi::c_void",
+            // By value, like the views: the mirrors (`#[repr(i32)]`) live in
+            // the binding's module scope.
+            Ty::MoeActivation => "MoeActivation",
+            Ty::Mxfp4RowSelect => "Mxfp4RowSelect",
             // Unqualified on purpose: a generated binding is placed in a
             // module that has the mirrors in scope, and this crate does not
             // know — and must not have to know — which module that is.
@@ -272,6 +358,9 @@ impl Ty {
             }
             Ty::HopperPrefillPlan => "*const HopperPrefillPlan",
             Ty::YarnOriginalParams => "*const YarnOriginalParams",
+            Ty::StructuredMasks => "*const StructuredMaskParams",
+            Ty::WeightView => "WeightView",
+            Ty::DType => "DType",
         }
     }
 }
@@ -292,6 +381,31 @@ pub struct Operand {
     /// `row_valid` says "may be null" in a comment today, and a comment is
     /// not something a binding can be generated from.
     pub nullable: bool,
+}
+
+/// What a launcher returns.
+///
+/// Almost always nothing — a launch is an effect. The exception is a TRIED
+/// launch: `ssm::flashinfer_mamba_ssu_bf16` answers "did FlashInfer take
+/// it", and the caller falls back to the in-house kernel when it did not.
+/// The value crosses the ABI, so it is part of the row: the generated shim
+/// forwards it and the generated binding declares it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ret {
+    /// Returns nothing.
+    Void,
+    /// Returns `bool` — whether the launch happened.
+    Bool,
+}
+
+impl Ret {
+    /// How C++ spells this, for a generated declaration.
+    pub const fn cpp(self) -> &'static str {
+        match self {
+            Ret::Void => "void",
+            Ret::Bool => "bool",
+        }
+    }
 }
 
 /// One kernel's contract.
@@ -367,6 +481,9 @@ pub struct KernelSig {
     /// caller that is not C++ cannot omit one — and because a default is a
     /// choice the table should be able to see.
     pub operands: &'static [Operand],
+    /// What `symbol` returns. [`Ret::Void`] for all but the tried launches —
+    /// see [`Ret`].
+    pub ret: Ret,
     /// The axes `symbol` is instantiated over, if it names a FAMILY of
     /// entrypoints rather than one.
     ///
@@ -496,6 +613,7 @@ macro_rules! kernel {
                 in_place: &[],
                 depth_prefix_plan: false,
                 operands: &[],
+                ret: $crate::Ret::Void,
                 axes: &[],
             }
         }

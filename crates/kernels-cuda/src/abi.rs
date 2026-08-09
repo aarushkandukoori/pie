@@ -62,8 +62,16 @@ fn stated(table: &[&'static [KernelSig]]) -> Vec<&'static KernelSig> {
 }
 
 /// The C++ namespace a symbol names, under this crate's root.
+///
+/// One exception, stated here rather than aliased in every shim: the vendored
+/// Marlin tree sits BESIDE `kernels` (`pie_cuda_driver::marlin_moe`), not
+/// under it. The table keeps the `marlin_moe::` family spelling it uses
+/// everywhere else; the path is where the difference belongs.
 fn cpp_path(symbol: &str) -> String {
-    format!("::pie_cuda_driver::kernels::{symbol}")
+    match symbol.strip_prefix("marlin_moe::") {
+        Some(rest) => format!("::pie_cuda_driver::marlin_moe::{rest}"),
+        None => format!("::pie_cuda_driver::kernels::{symbol}"),
+    }
 }
 
 /// Emit the `extern "C"` forwarding shims for every stated row in `tables`.
@@ -131,10 +139,13 @@ pub fn emit_c_shim(
             .collect::<Vec<_>>()
             .join(", ");
 
+        // `return f()` where `f` returns `void` is well-formed C++, so the
+        // one body shape serves both return kinds.
+        let ret = k.ret.cpp();
         out.push_str(&format!(
-            "extern \"C\" void {entry}(\n{params}) {{\n    \
-             static void (*const fwd)({types}) = &{};\n    \
-             fwd({args});\n}}\n\n",
+            "extern \"C\" {ret} {entry}(\n{params}) {{\n    \
+             static {ret} (*const fwd)({types}) = &{};\n    \
+             return fwd({args});\n}}\n\n",
             cpp_path(k.symbol),
         ));
     }
@@ -162,7 +173,10 @@ pub fn emit_rust_bindings(tables: &[&'static [KernelSig]]) -> String {
             let note = if o.nullable { "  // may be null" } else { "" };
             out.push_str(&format!("        {}: {},{note}\n", o.name, o.ty.rust()));
         }
-        out.push_str("    );\n");
+        out.push_str(match k.ret {
+            kernels::Ret::Void => "    );\n",
+            kernels::Ret::Bool => "    ) -> bool;\n",
+        });
     }
     out.push_str("}\n");
     out

@@ -50,6 +50,7 @@
 //! under one lock.
 
 mod alloc;
+pub mod cublas;
 mod device;
 mod graph;
 mod stream;

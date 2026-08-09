@@ -127,6 +127,12 @@ pub mod families;
 #[cfg(feature = "forward")]
 pub mod ffi;
 
+/// The committed static-C++ emissions, as one list — `bin/emit-cuda.rs`
+/// writes it, `tests/generated_cuda.rs` checks it, and neither holds a
+/// copy of its own.
+#[cfg(feature = "forward")]
+pub mod emissions;
+
 // ── The registries ───────────────────────────────────────────────────
 #[cfg(feature = "contract")]
 pub mod contract;

@@ -126,6 +126,13 @@ pub mod dtype;
 // and the layout proof over them needs no driver.
 #[cfg(feature = "_cuda")]
 pub mod launch;
+
+/// The thirteen `pie_cuda_*` exports — the cutover's door. See the
+/// module doc for the one-provider-per-binary rule.
+#[cfg(feature = "abi")]
+pub mod abi_shell;
+
+pub mod model;
 #[cfg(feature = "_cuda")]
 pub mod store;
 

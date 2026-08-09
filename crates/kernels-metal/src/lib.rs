@@ -43,7 +43,7 @@
 //! `model-compiler` wants and all it wants — and `native` adds only the staging
 //! of `ptir_rng.generated.metal` out of `tensor-compiler`.
 
-pub use kernels::{Axis, Cap, KernelSig, Prepare};
+pub use kernels::{Axis, Cap, KernelSig, Prepare, Ret};
 
 pub mod axes;
 
@@ -100,6 +100,7 @@ const EMPTY: KernelSig = KernelSig {
     in_place: &[],
     depth_prefix_plan: false,
     operands: &[],
+    ret: Ret::Void,
     axes: &[],
 };
 
@@ -114,6 +115,7 @@ const fn copy_sig(k: &KernelSig) -> KernelSig {
         in_place: k.in_place,
         depth_prefix_plan: k.depth_prefix_plan,
         operands: k.operands,
+        ret: k.ret,
         axes: k.axes,
     }
 }

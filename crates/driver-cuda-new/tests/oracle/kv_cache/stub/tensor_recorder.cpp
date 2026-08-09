@@ -12,6 +12,7 @@
 #include "tensor.hpp"
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -28,9 +29,24 @@ std::uintptr_t g_next = 0x1000;
 
 }  // namespace
 
+// Symbolic names for the fabricated addresses, `t#K` in allocation order.
+// Added for the kv_cache_live oracle, which reports POINTER WIRING (which
+// tensor lands in which view field); the layout oracles never consult it,
+// and it changes no existing row.
+namespace {
+std::map<const void*, std::string> g_tensor_names;
+}  // namespace
+
+std::string tensor_name(const void* ptr) {
+    if (ptr == nullptr) return "null";
+    auto it = g_tensor_names.find(ptr);
+    return it == g_tensor_names.end() ? "unknown" : it->second;
+}
+
 void reset_alloc_log() {
     g_alloc_log.clear();
     g_next = 0x1000;
+    g_tensor_names.clear();
 }
 
 const std::vector<std::string>& alloc_log() { return g_alloc_log; }
@@ -59,6 +75,8 @@ DeviceTensor DeviceTensor::allocate(DType dtype, std::vector<std::int64_t> shape
         t.ptr_ = reinterpret_cast<void*>(g_next);
         g_next += 4096;
         t.arena_owned_ = false;
+        g_tensor_names[t.ptr_] =
+            "t#" + std::to_string(g_tensor_names.size());
     }
     t.owns_memory_ = true;
     return t;

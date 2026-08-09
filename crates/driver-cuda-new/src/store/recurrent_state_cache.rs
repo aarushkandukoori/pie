@@ -319,6 +319,101 @@ impl RecurrentStateCache {
         self.verify_stash.is_some()
     }
 
+    /// Channels in the causal-conv state — `KvCache`-style forwarding so
+    /// the generated bodies' `state_cache.conv_dim()` reads translate
+    /// one-to-one; the layout remains the single statement of the shape.
+    #[must_use]
+    pub const fn conv_dim(&self) -> u32 {
+        self.layout.conv_dim()
+    }
+
+    /// Taps in the causal-conv kernel.
+    #[must_use]
+    pub const fn conv_kernel(&self) -> u32 {
+        self.layout.conv_kernel()
+    }
+
+    /// Value heads in the linear-attention state.
+    #[must_use]
+    pub const fn v_heads(&self) -> u32 {
+        self.layout.v_heads()
+    }
+
+    /// Key dimension per head.
+    #[must_use]
+    pub const fn head_k_dim(&self) -> u32 {
+        self.layout.head_k_dim()
+    }
+
+    /// Value dimension per head.
+    #[must_use]
+    pub const fn head_v_dim(&self) -> u32 {
+        self.layout.head_v_dim()
+    }
+
+    /// Width of the MTP pending-hidden row, or 0 when there is none.
+    #[must_use]
+    pub const fn hidden_size(&self) -> u32 {
+        self.layout.hidden_size()
+    }
+
+    /// Total layers, linear and full-attention alike.
+    #[must_use]
+    pub fn num_layers(&self) -> u32 {
+        self.layout.num_layers()
+    }
+
+    /// Committed slots per linear layer.
+    #[must_use]
+    pub const fn max_slots(&self) -> u32 {
+        self.layout.max_slots()
+    }
+
+    /// Is the recurrent state stored as bf16 rather than f32?
+    #[must_use]
+    pub const fn recurrent_state_bf16(&self) -> bool {
+        self.layout.recurrent_is_bf16()
+    }
+
+    /// Bytes between consecutive slots of `conv_state`.
+    #[must_use]
+    pub const fn conv_slot_stride_bytes(&self) -> u64 {
+        self.layout.conv_slot_stride_bytes()
+    }
+
+    /// Elements between consecutive slots of `recurrent_state` — the C++
+    /// spells this `recurrent_slot_stride_floats`, a name that predates the
+    /// bf16 storage; the elements have not been floats since.
+    #[must_use]
+    pub const fn recurrent_slot_stride_floats(&self) -> u64 {
+        self.layout.recurrent_slot_stride_elems()
+    }
+
+    /// Bytes between consecutive slots of `recurrent_state`.
+    #[must_use]
+    pub const fn recurrent_slot_stride_bytes(&self) -> u64 {
+        self.layout.recurrent_slot_stride_bytes()
+    }
+
+    /// The verify stash's token capacity, `0` when unconfigured — the C++
+    /// field's resting value.
+    #[must_use]
+    pub const fn verify_stash_max_tokens(&self) -> u32 {
+        match self.verify_stash {
+            Some(d) => d.max_tokens,
+            None => 0,
+        }
+    }
+
+    /// The verify stash's row width, `0` when unconfigured.
+    #[must_use]
+    pub const fn verify_stash_hidden(&self) -> u32 {
+        match self.verify_stash {
+            Some(d) => d.hidden,
+            None => 0,
+        }
+    }
+
     /// The stash dimensions, if configured.
     #[must_use]
     pub const fn verify_stash(&self) -> Option<StashDims> {
