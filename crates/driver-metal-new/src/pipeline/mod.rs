@@ -34,6 +34,7 @@ mod channel;
 mod extent;
 mod identity;
 mod op;
+mod params;
 mod plan;
 mod registry;
 mod resolve;
@@ -47,6 +48,7 @@ pub use channel::{
 };
 pub use extent::{Extents, Role, Unresolvable, ValueDesc, describe};
 pub use identity::{Versions, cache_identity, combined_signature};
+pub use params::{OpParams, Runtime as OpRuntime};
 pub use plan::{
     ConstPortValue, ExecPlan, StagePlan, adopt_launch_package, bounded_mtp_row_base,
     classify_exec_plan, const_port_value, port_consumes,

@@ -209,7 +209,10 @@ mod tests {
             assert!(*offset >= end, "value at {offset} overlaps the one before");
             end = offset + descriptor.device_bytes();
         }
-        assert!(plan.temporary >= end, "the temporary region overlaps a value");
+        assert!(
+            plan.temporary >= end,
+            "the temporary region overlaps a value"
+        );
     }
 
     /// A fire that produces nothing addressable still needs the dummy binding
