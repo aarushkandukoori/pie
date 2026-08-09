@@ -422,7 +422,13 @@ fn llama_like_cuda_text(
                     } else {
                         (dsl::cuda::rmsnorm(&q, &w.q_norm), dsl::cuda::rmsnorm(&k, &w.k_norm))
                     };
-                    rope(&q, &k, f.rope)
+                    // STATED (2a). The build gate admits only Standard
+                    // rope, and the executor's arm asked whether a
+                    // rotary width was set to pick between two
+                    // launchers -- a kernel choice from a param. This
+                    // family rotates the full head, and says which
+                    // kernel that is.
+                    dsl::cuda::rope(&q, &k)
                 };
                 // The KV-write mechanism is a per-fire runtime input
                 // (explicit descriptors when the fire steers a graph

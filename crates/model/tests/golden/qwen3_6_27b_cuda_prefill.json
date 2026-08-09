@@ -11998,9 +11998,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -13352,9 +13354,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -14706,9 +14710,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -16060,9 +16066,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -17414,9 +17422,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -18768,9 +18778,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -20122,9 +20134,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -21476,9 +21490,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -22830,9 +22846,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -24184,9 +24202,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -25538,9 +25558,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -26892,9 +26914,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -28246,9 +28270,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -29600,9 +29626,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -30954,9 +30982,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -32308,9 +32338,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [

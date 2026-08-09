@@ -556,18 +556,6 @@ fn emit_op(
             b.stmt("    la.fa_qg_packed.data(), ws.k.data(), ws.v.data(),");
             b.stmt("    N, 2 * Hq, Hk, stream);");
         }
-        OpKind::SplitGdn { width0, width1 } => {
-            let cd = facts.gdn.conv_dim();
-            let vd = facts.gdn.value_heads * facts.gdn.value_head_dim;
-            if *width0 == cd && *width1 == vd {
-                b.stmt("kernels::layout::split_bf16_rows(");
-                b.stmt("    la.mixed_qkvz.data(), la.mixed_qkv.data(), la.z.data(),");
-                b.stmt("    N, conv_dim, V_dim, stream);");
-            } else {
-                b.stmt("kernels::layout::split_qwen_gdn_ba_bf16(");
-                b.stmt("    la.ba.data(), la.b.data(), la.a.data(), N, V_h, stream);");
-            }
-        }
         OpKind::GdnPrep { a_log, .. } => {
             let (layer, _) = split_layer_weight(a_log)
                 .unwrap_or_else(|| panic!("emitter(q35): prep weight {a_log}"));
@@ -609,13 +597,6 @@ fn emit_op(
                 "    {buf}, require(w.layers[{layer}].{member}, \"{weight}\")->data(),"
             ));
             b.stmt(&format!("    {buf}, N * {heads}, d, eps, stream);"));
-        }
-        OpKind::Rope { partial, .. } => {
-            let rot = partial.expect("qwen3_5 rope is partial");
-            b.stmt("kernels::rope::rope_partial_bf16(");
-            b.stmt("    ws.q.data(), ws.k.data(), positions,");
-            b.stmt("    N, num_q_heads, num_kv_heads,");
-            b.stmt(&format!("    d, {rot}, cfg.rope_theta, stream);"));
         }
         OpKind::SigmoidGateMul => {
             b.stmt("kernels::mlp::sigmoid_gate_inplace_bf16(");
@@ -678,8 +659,9 @@ fn emit_op(
             b.stmt("    static_cast<std::size_t>(N) * H * sizeof(std::uint16_t),");
             b.stmt("    cudaMemcpyDeviceToDevice, stream));");
         }
-        OpKind::Launch { kernel, weights, state } => {
-            emit_launch(b, kernel, weights, state.as_ref(), op, facts, commit, repeat_next_is_k)
+        OpKind::Launch { kernel, weights, state, params } => {
+            emit_launch(b, kernel, weights, state.as_ref(), params, op, facts, commit,
+                        repeat_next_is_k)
         }
         other => panic!("emitter(q35): op kind {other:?} out of scope"),
     }
@@ -690,6 +672,8 @@ fn emit_launch(
     kernel: &str,
     weights: &[String],
     state: Option<&model_compiler::trace::StateRef>,
+    // The statement's scalar arguments -- see `OpKind::Launch::params`.
+    params: &[u32],
     op: &model_compiler::trace::Op,
     facts: &Qwen35HybridFacts,
     commit: bool,
@@ -900,6 +884,36 @@ fn emit_launch(
                 b.stmt("        cudaMemcpyDeviceToDevice, stream));");
             }
             b.stmt("}");
+        }
+        // The ROTATION, now that `cuda::rope_partial` names it and
+        // carries its width. The semantic arm read that width off the
+        // op; this reads it off the statement's params, which is the
+        // same fact through the channel that survives a `Launch`.
+        "rope::rope_partial_bf16" => {
+            let rot = params
+                .first()
+                .expect("a partial rotation states its rotary width");
+            b.stmt("kernels::rope::rope_partial_bf16(");
+            b.stmt("    ws.q.data(), ws.k.data(), positions,");
+            b.stmt("    N, num_q_heads, num_kv_heads,");
+            b.stmt(&format!("    d, {rot}, cfg.rope_theta, stream);"));
+        }
+        "rope::rope_bf16" => {
+            b.stmt("kernels::rope::rope_bf16(");
+            b.stmt("    ws.q.data(), ws.k.data(), positions,");
+            b.stmt("    N, num_q_heads, num_kv_heads, d,");
+            b.stmt("    cfg.rope_theta, stream);");
+        }
+        // The two GDN SPLITS, told apart by their symbols where the
+        // semantic arm compared widths against `conv_dim` / `V_dim`.
+        "layout::split_bf16_rows" => {
+            b.stmt("kernels::layout::split_bf16_rows(");
+            b.stmt("    la.mixed_qkvz.data(), la.mixed_qkv.data(), la.z.data(),");
+            b.stmt("    N, conv_dim, V_dim, stream);");
+        }
+        "layout::split_qwen_gdn_ba_bf16" => {
+            b.stmt("kernels::layout::split_qwen_gdn_ba_bf16(");
+            b.stmt("    la.ba.data(), la.b.data(), la.a.data(), N, V_h, stream);");
         }
         // The ROW norms, now that `cuda::rmsnorm` states the fold.
         "norm::rmsnorm_bf16" | "norm::rmsnorm_gemma_bf16" => {

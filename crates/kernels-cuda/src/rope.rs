@@ -20,6 +20,13 @@ pub static KERNELS: &[KernelSig] = &[
     // kernel as an argument rather than as a second symbol, which is the one
     // place this family does it that way.
     kernel!(rope "rope::rope_bf16",
+        // Rotates q and k WHERE THEY LIE -- `BufMut` on both, and no
+        // destination to give them another. Unstated while the only
+        // caller was the SEMANTIC `OpKind::Rope`, whose alias
+        // `kernels::semantic_in_place` carried; `cuda::rope` states this
+        // symbol now, and a host that assigns addresses reads the pair
+        // list off the row.
+        in_place = &[(0, 0), (1, 1)],
         operands = operands![
             q: BufMut, k: BufMut,
             positions: I32s,

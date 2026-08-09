@@ -318,6 +318,12 @@ enum class LaunchKernel {
     MatmulChannelScaled,
     MatmulGroupedScaled,
     MatmulMxfp4Marlin,
+    // The ROTATION. Two entries because a full rotation and a partial
+    // one are different arithmetic -- the arm used to ask whether a
+    // rotary width param was nonzero, which is a kernel chosen from a
+    // number the driver read.
+    RopeFull,
+    RopePartial,
     RopeStandardTable,
     QkvDecodeQkNormRopeWriteKv,
     QkRmsnormRope,
@@ -353,6 +359,8 @@ LaunchKernel resolve_launch_kernel(std::string_view kernel) {
     if (kernel == "mlp::swiglu_bf16") {
         return LaunchKernel::Swiglu;
     }
+    if (kernel == "rope::rope_bf16") return LaunchKernel::RopeFull;
+    if (kernel == "rope::rope_partial_bf16") return LaunchKernel::RopePartial;
     if (kernel == "rope::rope_standard_table") {
         return LaunchKernel::RopeStandardTable;
     }
@@ -1744,46 +1752,14 @@ void llama_like_forward_declared(
                 N * (in_w(0) / head), head, eps, stream);
             break;
         }
-        case PieForwardOpKind::Rope: {
-            // Reached only when neither peephole consumed it (no qk-norm
-            // in the trace, so the fused decode-QKV predicate — which
-            // requires qk-norm — cannot hold either). Positions go straight
-            // to the kernel, as the hand-written `apply_rope` does for
-            // RopeKind::Standard; the rope_table serves only the fused
-            // decode postprocess above.
-            if (op.param0 !=
-                static_cast<std::uint32_t>(PieForwardRopeKind::Standard)) {
-                throw std::runtime_error(
-                    "declared forward: only standard rope is emitted "
-                    "(build gate admits nothing else)");
-            }
-            // The rotary width crosses as param1, zero for the full
-            // rotation (no real partial width is 0 — the driver clamps to
-            // >= 2 — so the resting value cannot be mistaken). A partial
-            // trace therefore states its own width, and the executor does
-            // not re-derive it from the config.
-            // ISLAND (value arena). Rope rotates where q and k lie and
-            // the trace states that alias, so the two outputs name the
-            // buffers their operands already sit in. The head COUNTS
-            // stay config's: the rotation's geometry is not something a
-            // row width alone gives.
-            void* const rq = values.slot(plan.outputs(op)[0],
-                                         plan.value(plan.outputs(op)[0]));
-            void* const rk = values.slot(plan.outputs(op)[1],
-                                         plan.value(plan.outputs(op)[1]));
-            if (op.param1 != 0) {
-                kernels::rope::rope_partial_bf16(
-                    rq, rk, positions,
-                    N, num_q_heads, num_kv_heads, d,
-                    static_cast<int>(op.param1), cfg.rope_theta, stream);
-            } else {
-                kernels::rope::rope_bf16(
-                    rq, rk, positions,
-                    N, num_q_heads, num_kv_heads, d,
-                    cfg.rope_theta, stream);
-            }
-            break;
-        }
+        case PieForwardOpKind::Rope:
+            // RUNG 5: the width branch is deleted -- every lowered
+            // trace states which rotation it runs (`cuda::rope` /
+            // `cuda::rope_partial`), so the semantic kind cannot reach
+            // this walk.
+            throw std::runtime_error(
+                "declared forward: semantic Rope in a class trace "
+                "(the declaration states the rotation)");
         case PieForwardOpKind::KvAppend: {
             // RUNG 5: the write-mechanism branch is deleted — every
             // lowered trace states the KV write through the HasWriteDesc
@@ -1937,6 +1913,43 @@ void llama_like_forward_declared(
                     wb.require(plan.name(aux[0])).data(), eps,
                     resolve_launch_kernel(plan.weight_name(op)) ==
                         LaunchKernel::RmsnormRowGemma);
+                break;
+            }
+            case LaunchKernel::RopeFull:
+            case LaunchKernel::RopePartial: {
+                // BINDING. Which rotation runs is the SYMBOL; the
+                // partial one's width rides the statement's params, so
+                // nothing here reads the config for it.
+                //
+                // Rope rotates where q and k lie and the trace states
+                // that alias (`semantic_in_place`'s successor: the
+                // `kernel!` rows carry both pairs), so the two outputs
+                // name the buffers their operands already sit in. The
+                // head COUNTS stay config's -- the rotation's geometry
+                // is not something a row width alone gives.
+                const auto rope_outs = plan.outputs(op);
+                declared::need(rope_outs, 2, "rope outputs");
+                void* const rq = values.slot(rope_outs[0],
+                                             plan.value(rope_outs[0]));
+                void* const rk = values.slot(rope_outs[1],
+                                             plan.value(rope_outs[1]));
+                if (resolve_launch_kernel(plan.weight_name(op)) ==
+                    LaunchKernel::RopePartial) {
+                    const auto rp = plan.aux_params(op);
+                    if (rp.size != 1) {
+                        throw std::runtime_error(
+                            "declared forward: a partial rotation states " +
+                            std::to_string(rp.size) +
+                            " scalar arguments, wants 1 (rotary_dim)");
+                    }
+                    kernels::rope::rope_partial_bf16(
+                        rq, rk, positions, N, num_q_heads, num_kv_heads, d,
+                        static_cast<int>(rp[0]), cfg.rope_theta, stream);
+                } else {
+                    kernels::rope::rope_bf16(
+                        rq, rk, positions, N, num_q_heads, num_kv_heads, d,
+                        cfg.rope_theta, stream);
+                }
                 break;
             }
             case LaunchKernel::RopeStandardTable: {

@@ -439,6 +439,18 @@ struct PieForwardOp {
   /// operand ranges index — ids are just u32s; what a range means is
   /// the field's contract). Empty for every other kind.
   PieForwardIdRange aux_names;
+  /// `Launch` only: the stated kernel's SCALAR arguments — a rotary
+  /// width, a padded head dim — as a range of RAW VALUES in the flat
+  /// id array (the same array the operand ranges index; what a range
+  /// means is the field's contract, and `aux_names` above is the same
+  /// array read as NAME indices).
+  ///
+  /// A `Launch`'s two params are spoken for by the state mark, and a
+  /// scalar with nowhere to ride is a scalar the driver re-derives
+  /// from its config. Appended per the ABI discipline; pre-params
+  /// consumers read an empty range, which is what every statement
+  /// without one carries anyway.
+  PieForwardIdRange aux_params;
   /// Values consumed, in operand order.
   /// The op's role under the DEPTH axis ([`model_compiler::trace::DepthRole`]
   /// as wire values: 0 = none, 1 = windowed, 2 = prefix-plan-swap).

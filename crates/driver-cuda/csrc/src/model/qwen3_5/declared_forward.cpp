@@ -241,6 +241,13 @@ enum class Q35Kernel {
     MatmulChannelScaled,
     MatmulGroupedScaled,
     MatmulMxfp4Marlin,
+    // The ROTATION and the two SPLITS. Symbols where the arms used to
+    // read a width param and compare traced extents against config
+    // numbers -- both kernel choices made from numbers.
+    RopeFull,
+    RopePartial,
+    SplitRows,
+    SplitGdnBa,
     ConvUpdateBatched,
     ConvPrefillBatched,
     StepBatched,
@@ -278,6 +285,10 @@ enum class Q35Kernel {
 Q35Kernel resolve_q35_kernel(std::string_view k) {
     if (k == "norm::rmsnorm_bf16") return Q35Kernel::RmsnormRow;
     if (k == "norm::rmsnorm_gemma_bf16") return Q35Kernel::RmsnormRowGemma;
+    if (k == "rope::rope_bf16") return Q35Kernel::RopeFull;
+    if (k == "rope::rope_partial_bf16") return Q35Kernel::RopePartial;
+    if (k == "layout::split_bf16_rows") return Q35Kernel::SplitRows;
+    if (k == "layout::split_qwen_gdn_ba_bf16") return Q35Kernel::SplitGdnBa;
     if (k == "gemm::act_x_wt_tensor_scaled") return Q35Kernel::MatmulTensorScaled;
     if (k == "gemm::act_x_wt_channel_scaled") return Q35Kernel::MatmulChannelScaled;
     if (k == "gemm::act_x_wt_grouped_scaled") return Q35Kernel::MatmulGroupedScaled;
@@ -1098,6 +1109,14 @@ bool forward_declared_tmpl(
                 break;  // see the fallback pass below
             case PieForwardOpKind::Launch: {
                 switch (resolve_q35_kernel(plan.weight_name(op))) {
+                case Q35Kernel::RopeFull:
+                case Q35Kernel::RopePartial:
+                    // The rotation rewrites q and k where they lie; the
+                    // pins follow the statement, exactly as they did
+                    // when this was the semantic kind above.
+                    place(0, ws.q.data());
+                    place(1, ws.k.data());
+                    break;
                 case Q35Kernel::RmsnormRow:
                 case Q35Kernel::RmsnormRowGemma:
                     // All three sites -- attn_norm, mlp_norm,
@@ -1569,38 +1588,12 @@ bool forward_declared_tmpl(
             declared::arm_split_qkv({plan, values, N, 0, stream}, op);
             break;
         }
-        case PieForwardOpKind::SplitGdn: {
-            // Two flavors, told apart by their traced widths: the qkvz row
-            // split ([conv_dim | V_dim]) and the interleaved b/a split
-            // ([V_h | V_h]) — family.rs's fused gdn body.
-            // ISLAND (value arena). The widths still tell the two
-            // flavours apart, because they choose a KERNEL -- a row
-            // split and an interleaved split are different arithmetic,
-            // not different buffers. What they no longer choose is where
-            // the operands live.
-            const auto ins = plan.inputs(op);
-            const auto outs = plan.outputs(op);
-            need(ins, 1, "split_gdn inputs");
-            need(outs, 2, "split_gdn outputs");
-            if (op.param0 == static_cast<std::uint32_t>(conv_dim) &&
-                op.param1 == static_cast<std::uint32_t>(V_dim)) {
-                kernels::layout::split_bf16_rows(
-                    values.slot(ins[0]), values.slot(outs[0]),
-                    values.slot(outs[1]),
-                    N, row_width(outs[0]), row_width(outs[1]), stream);
-            } else if (op.param0 == static_cast<std::uint32_t>(V_h) &&
-                       op.param1 == static_cast<std::uint32_t>(V_h)) {
-                kernels::layout::split_qwen_gdn_ba_bf16(
-                    values.slot(ins[0]), values.slot(outs[0]),
-                    values.slot(outs[1]), N, row_width(outs[0]), stream);
-            } else {
-                throw_drift("SplitGdn widths (" +
-                            std::to_string(op.param0) + ", " +
-                            std::to_string(op.param1) +
-                            ") match neither the qkvz nor the ba split");
-            }
-            break;
-        }
+        case PieForwardOpKind::SplitGdn:
+            // RUNG 5: the width comparison is deleted -- a class trace
+            // names which split it runs (`cuda::split_rows` /
+            // `cuda::split_qwen_gdn_ba`).
+            throw_drift("semantic SplitGdn reached the class-trace walk "
+                        "(the declaration states the split)");
         case PieForwardOpKind::CausalConv1d: {
             // RUNG 5: the semantic cascade is deleted — a class trace
             // states this choice site's kernels.
@@ -1731,20 +1724,12 @@ bool forward_declared_tmpl(
                 eps, stream);
             break;
         }
-        case PieForwardOpKind::Rope: {
-            // Partial rope: param1 is the resolved rotary channel count
-            // (validated against the driver's own derivation at build).
-            if (op.param0 !=
-                    static_cast<std::uint32_t>(PieForwardRopeKind::Standard) ||
-                op.param1 == 0) {
-                throw_drift("only the partial standard rope is emitted");
-            }
-            kernels::rope::rope_partial_bf16(
-                ws.q.data(), ws.k.data(), positions,
-                N, num_q_heads, num_kv_heads,
-                d, static_cast<int>(op.param1), cfg.rope_theta, stream);
-            break;
-        }
+        case PieForwardOpKind::Rope:
+            // RUNG 5: the width branch is deleted -- a class trace
+            // states which rotation it runs (`cuda::rope` /
+            // `cuda::rope_partial`).
+            throw_drift("semantic Rope reached the class-trace walk "
+                        "(the declaration states the rotation)");
         case PieForwardOpKind::KvAppend: {
             // RUNG 5: the semantic cascade is deleted — a class trace
             // states this choice site's kernels.
@@ -1861,6 +1846,58 @@ case PieForwardOpKind::Launch: {
                     // `try_fold_residual` refuses a `Launch`, so a
                     // quantized projection's landing is a stated add.
                     0.f);
+                break;
+            }
+            case Q35Kernel::RopeFull:
+            case Q35Kernel::RopePartial: {
+                // BINDING. The SYMBOL says which rotation; the partial
+                // one's width rides the statement's params, so the
+                // executor reads neither a config nor an op field for
+                // it. `rope_theta` stays config's, like `eps`.
+                const auto ro = plan.outputs(op);
+                need(ro, 2, "rope outputs");
+                void* const rq = values.slot(ro[0]);
+                void* const rk = values.slot(ro[1]);
+                if (resolve_q35_kernel(plan.weight_name(op)) ==
+                    Q35Kernel::RopePartial) {
+                    const auto rp = plan.aux_params(op);
+                    if (rp.size != 1) {
+                        throw_drift("a partial rotation states " +
+                                    std::to_string(rp.size) +
+                                    " scalar arguments, wants 1");
+                    }
+                    kernels::rope::rope_partial_bf16(
+                        rq, rk, positions, N, num_q_heads, num_kv_heads, d,
+                        static_cast<int>(rp[0]), cfg.rope_theta, stream);
+                } else {
+                    kernels::rope::rope_bf16(
+                        rq, rk, positions, N, num_q_heads, num_kv_heads, d,
+                        cfg.rope_theta, stream);
+                }
+                break;
+            }
+            case Q35Kernel::SplitRows:
+            case Q35Kernel::SplitGdnBa: {
+                // The two GDN splits, told apart by their SYMBOLS. The
+                // arm they replace compared `op.param0`/`param1`
+                // against `conv_dim`, `V_dim` and `V_h` -- which works
+                // only while those three stay distinct, and is a kernel
+                // chosen from a coincidence of extents either way.
+                const auto si = plan.inputs(op);
+                const auto so = plan.outputs(op);
+                need(si, 1, "split inputs");
+                need(so, 2, "split outputs");
+                if (resolve_q35_kernel(plan.weight_name(op)) ==
+                    Q35Kernel::SplitRows) {
+                    kernels::layout::split_bf16_rows(
+                        values.slot(si[0]), values.slot(so[0]),
+                        values.slot(so[1]), N, row_width(so[0]),
+                        row_width(so[1]), stream);
+                } else {
+                    kernels::layout::split_qwen_gdn_ba_bf16(
+                        values.slot(si[0]), values.slot(so[0]),
+                        values.slot(so[1]), N, row_width(so[0]), stream);
+                }
                 break;
             }
             case Q35Kernel::ConvUpdateBatched: {

@@ -1029,18 +1029,6 @@ fn emit_op(
                 }
             }
         }
-        OpKind::Rope { kind, partial } => {
-            assert!(partial.is_none(), "emitter: partial rope out of scope");
-            assert_eq!(
-                *kind,
-                model_compiler::trace::RopeKind::Standard,
-                "emitter: only standard rope"
-            );
-            b.stmt("kernels::rope::rope_bf16(");
-            b.stmt("    ws.q.data(), ws.k.data(), positions,");
-            b.stmt("    N, num_q_heads, num_kv_heads, d,");
-            b.stmt("    cfg.rope_theta, stream);");
-        }
         OpKind::ResidualAdd => {
             // The post-norm landing: `y += norm_y` — the interpreter's
             // arm verbatim.
@@ -1120,8 +1108,9 @@ fn emit_op(
             kernel,
             weights,
             state,
+            params,
         } => emit_launch(
-            b, kernel, weights, state.as_ref(), op, facts, cuda,
+            b, kernel, weights, state.as_ref(), params, op, facts, cuda,
             is_decode, win, depth_active,
         ),
         OpKind::HookSite { stage, layer } => {
@@ -1223,6 +1212,8 @@ fn emit_launch(
     kernel: &str,
     weights: &[String],
     state: Option<&model_compiler::trace::StateRef>,
+    // The statement's scalar arguments -- see `OpKind::Launch::params`.
+    params: &[u32],
     op: &model_compiler::trace::Op,
     facts: &LlamaLikeFacts,
     cuda: &LlamaLikeCudaFacts,
@@ -1913,6 +1904,25 @@ fn emit_launch(
             b.stmt("    prefill_score_capture->publish();");
             strip(b);
             b.stmt("}");
+        }
+        // The ROTATION, now that `cuda::rope` names it. Same body the
+        // semantic `OpKind::Rope` arm held, minus its two asserts: the
+        // symbol is the assert.
+        "rope::rope_bf16" => {
+            b.stmt("kernels::rope::rope_bf16(");
+            b.stmt("    ws.q.data(), ws.k.data(), positions,");
+            b.stmt("    N, num_q_heads, num_kv_heads, d,");
+            b.stmt("    cfg.rope_theta, stream);");
+        }
+        // The partial one, whose width the STATEMENT carries.
+        "rope::rope_partial_bf16" => {
+            let rotary = params
+                .first()
+                .expect("a partial rotation states its rotary width");
+            b.stmt("kernels::rope::rope_partial_bf16(");
+            b.stmt("    ws.q.data(), ws.k.data(), positions,");
+            b.stmt("    N, num_q_heads, num_kv_heads, d,");
+            b.stmt(&format!("    {rotary}, cfg.rope_theta, stream);"));
         }
         // The ROW norms, now that `cuda::rmsnorm` states which fold it
         // runs. Same body as the semantic kind's — see `emit_row_norm`.

@@ -27,6 +27,7 @@ fn launch(symbol: &str) -> Op {
             kernel: symbol.to_string(),
             weights: vec![],
             state: None,
+            params: vec![],
         },
         inputs: vec![],
         outputs: vec![],
@@ -161,11 +162,6 @@ const UNSTATED_ROWS: &[&str] = &[
     "comm::all_reduce_residual_rmsnorm_bf16",
     "dist::all_gather_bf16",
     "dist::all_reduce_bf16",
-    // Live, and hand-written: gemma3n, glm5 and gemma-4's bodies call it
-    // directly. No declaration states it because `interleaved` reaches the
-    // kernel as an ARGUMENT rather than as a second symbol, and the families
-    // that pass it true are not declared.
-    "rope::rope_bf16",
     // Nothing calls this one — not a declaration, not a driver body, not a
     // test. It is in the table because `rope.hpp` declares it and the header
     // rule admits no exceptions, which makes it the one row here that would
