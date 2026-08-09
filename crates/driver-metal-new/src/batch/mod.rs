@@ -12,6 +12,7 @@
 //! anything the kernel's own causal predicate does not already enforce.
 
 mod abi;
+mod binds;
 mod admit;
 mod color;
 mod dispatch;
@@ -32,6 +33,7 @@ pub use abi::{
     SCRATCH_POOL,
 };
 pub use admit::{Refused, admit_recurrent};
+pub use binds::{WeightBind, layer_prefix, weight_binds};
 pub use color::{
     Coloring, ColoringError, ScheduleError, ScratchBind, ScratchSchedule, Use, color_live_ranges,
     schedule_scratch,
