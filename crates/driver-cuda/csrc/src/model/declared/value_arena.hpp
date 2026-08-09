@@ -309,41 +309,64 @@ inline void trace_arena(const char* family,
     }
     std::fprintf(stderr, "[arena/%s] placed=%zu values, %zu bytes if none reused\n",
                  family, rows.size(), placed_total);
+    // Name one value and every statement that touches it. Both queries
+    // below end here: a bisect narrows to a KEY, and this is what turns
+    // a key back into text.
+    const auto describe = [&](const Row& r, const char* how, std::size_t key) {
+        const PieForwardValue& val = plan.value(r.id);
+        std::fprintf(stderr, "[arena/%s] %s %zu: v%u at %zu %zu bytes [",
+                     family, how, key, r.id, r.at, r.bytes);
+        for (std::uint32_t d = 0; d < val.rank; ++d) {
+            std::fprintf(stderr, "%s%u:%u", d ? ", " : "",
+                         static_cast<unsigned>(val.dims[d].kind),
+                         val.dims[d].value);
+        }
+        std::fprintf(stderr, "] dtype=%u\n", static_cast<unsigned>(val.dtype));
+        for (std::size_t i = 0; i < plan.op_count(); ++i) {
+            const pie_forward::PieForwardOp& op = plan.op(i);
+            for (const std::uint32_t o : plan.outputs(op)) {
+                if (o != r.id) continue;
+                std::fprintf(stderr,
+                             "[arena/%s]    written by op %zu kind=%u '%.*s'\n",
+                             family, i, static_cast<unsigned>(op.kind),
+                             static_cast<int>(plan.weight_name(op).size()),
+                             plan.weight_name(op).data());
+            }
+            for (const std::uint32_t in : plan.inputs(op)) {
+                if (in != r.id) continue;
+                std::fprintf(stderr,
+                             "[arena/%s]    read by    op %zu kind=%u '%.*s'\n",
+                             family, i, static_cast<unsigned>(op.kind),
+                             static_cast<int>(plan.weight_name(op).size()),
+                             plan.weight_name(op).data());
+            }
+        }
+    };
+
     // `PIE_DECLARED_ARENA_AT=<offset>`: name every value living at one
-    // offset, and the statement that produces it. The bisect narrows to
-    // an offset; this turns that into a statement.
+    // offset. Kept, but it answers a WEAKER question than it looks: an
+    // offset is reused over a fire, so this lists every chain that ever
+    // sat there, not one chain.
     if (const char* want_at = std::getenv("PIE_DECLARED_ARENA_AT")) {
         const std::size_t at = static_cast<std::size_t>(std::atoll(want_at));
         for (const Row& r : rows) {
-            if (r.at != at) continue;
-            const PieForwardValue& val = plan.value(r.id);
-            std::fprintf(stderr, "[arena/%s] AT %zu: v%u %zu bytes [",
-                         family, at, r.id, r.bytes);
-            for (std::uint32_t d = 0; d < val.rank; ++d) {
-                std::fprintf(stderr, "%s%u:%u", d ? ", " : "",
-                             static_cast<unsigned>(val.dims[d].kind),
-                             val.dims[d].value);
-            }
-            std::fprintf(stderr, "] dtype=%u\n", static_cast<unsigned>(val.dtype));
-            for (std::size_t i = 0; i < plan.op_count(); ++i) {
-                const pie_forward::PieForwardOp& op = plan.op(i);
-                for (const std::uint32_t o : plan.outputs(op)) {
-                    if (o != r.id) continue;
-                    std::fprintf(stderr,
-                                 "[arena/%s]    written by op %zu kind=%u '%.*s'\n",
-                                 family, i, static_cast<unsigned>(op.kind),
-                                 static_cast<int>(plan.weight_name(op).size()),
-                                 plan.weight_name(op).data());
-                }
-                for (const std::uint32_t in : plan.inputs(op)) {
-                    if (in != r.id) continue;
-                    std::fprintf(stderr,
-                                 "[arena/%s]    read by    op %zu kind=%u '%.*s'\n",
-                                 family, i, static_cast<unsigned>(op.kind),
-                                 static_cast<int>(plan.weight_name(op).size()),
-                                 plan.weight_name(op).data());
-                }
-            }
+            if (r.at == at) describe(r, "AT", at);
+        }
+    }
+
+    // `PIE_DECLARED_ARENA_OWNER=<value id>`: name every value in one
+    // alias chain. This is the query the owner-keyed bisect leaves you
+    // with, and unlike AT it names exactly the values that share a
+    // buffer BECAUSE they share a buffer -- so what it prints is one
+    // statement's stream, start to end.
+    if (const char* want_owner = std::getenv("PIE_DECLARED_ARENA_OWNER")) {
+        const std::size_t want = static_cast<std::size_t>(std::atoll(want_owner));
+        for (const Row& r : rows) {
+            const std::size_t owner =
+                r.id < flat.value_owners_len
+                    ? static_cast<std::size_t>(flat.value_owners[r.id])
+                    : static_cast<std::size_t>(r.id);
+            if (owner == want) describe(r, "OWNER", want);
         }
     }
 

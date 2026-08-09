@@ -463,7 +463,14 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(norm_residual_scale_norm "launch_rmsnorm_residual_add_scale_rmsnorm_bf16", in_place = &[(0, 1)]),
     kernel!(norm_residual_add "launch_rmsnorm_residual_add_bf16", in_place = &[(0, 1)]),
     kernel!(scalar_mul "launch_scalar_mul_bf16", in_place = &[(0, 0)]),
-    kernel!(logit_softcap "launch_logit_softcap_bf16"),
+    // Caps the logits WHERE THEY LIE — one buffer, no destination. Which
+    // `Buffers::assign` was already relying on ("the logit softcap
+    // accumulates into the logits it was handed", where it widens a
+    // seam's pin over an alias set) while this row said nothing, so the
+    // set had one member and the widening reached nothing. The head
+    // wrote the logits into the arena and the cap ran over `ws.logits`,
+    // which is where the sampler then read an uncapped previous fire.
+    kernel!(logit_softcap "launch_logit_softcap_bf16", in_place = &[(0, 0)]),
     // Q-only rotation: a KV-shared layer's K was rotated at its source
     // layer. One operand is the statement.
     // Rotates q and k WHERE THEY LIE — two aliases, which is what the
