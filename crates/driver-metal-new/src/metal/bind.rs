@@ -48,9 +48,9 @@ pub mod slot {
     pub const QMV_OUT: u8 = 4;
     pub const QMV_K: u8 = 5;
     pub const QMV_N: u8 = 6;
-    pub const GO_QMV_X_SLOT_STRIDE: u8 = 10;
-    pub const GO_QMV_X_ROW_STRIDE: u8 = 11;
-    pub const GO_QMV_SLOTS_PER_ROW: u8 = 12;
+    pub const GO_QMV_X_SLOT_STRIDE: u8 = 9;
+    pub const GO_QMV_X_ROW_STRIDE: u8 = 10;
+    pub const GO_QMV_SLOTS_PER_ROW: u8 = 11;
     /// Bound by the fire path once the router's ids buffer exists.
     #[allow(dead_code)]
     pub const GO_QMV_EXPERT_IDS: u8 = 8;

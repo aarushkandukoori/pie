@@ -1578,3 +1578,239 @@ fn a_thousand_tokens_decode_without_a_wedge_or_a_nan() {
         );
     }
 }
+
+/// The third family's first fired tokens: gpt-oss-20b against the mlx
+/// MXFP4-Q4 publish, greedy, held token-exact to mlx_lm's continuation
+/// of the same prompt ids.
+///
+/// The chain is the qwen assembly with the family's pieces swapped in:
+/// facts → `gptoss_geometry_from_facts` → load plan → staged storage
+/// (all-full-attention view) → the quantization trio SOLVED off the
+/// staged extents → `gptoss_step_plan` → `GptOssStep`. The reference:
+/// "The capital of France is" tokenizes to [976, 9029, 328, 10128, 382]
+/// and mlx_lm continues [12650(' Paris'), 3692, 279, 12, 6240, 1, 976,
+/// 9029] — eight fed-back argmaxes, every one checked.
+#[test]
+fn the_gptoss_assembly_decodes_the_reference_tokens() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_GPTOSS_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_GPTOSS_CHECKPOINT to a gpt-oss MLX snapshot");
+        return;
+    };
+    let snapshot = PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json"))
+        .expect("the snapshot has a config.json");
+    let root: serde_json::Value = serde_json::from_str(&config).expect("config.json parses");
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().expect("utf8 path"))
+        .expect("the config converts to a descriptor");
+    let descriptor_json = descriptor.to_string();
+
+    let facts = ModelFacts::from_descriptor(&descriptor_json)
+        .expect("the driver's facts read the descriptor");
+    let mut geometry =
+        driver_metal_new::batch::gptoss_geometry_from_facts(&facts).expect("a gpt-oss shape");
+    eprintln!(
+        "gpt-oss geometry: {} layers, {} experts top-{}, window {}",
+        geometry.n_layers, geometry.n_experts, geometry.experts_per_token, geometry.sliding_window
+    );
+
+    let target = metal_storage_target();
+    let (plan, _moe) = compile_load_plan(&snapshot, &target, &descriptor_json)
+        .expect("the plan compiles and its files exist");
+
+    // Stage FIRST, then solve: the staging reads no quantization field,
+    // and the staged extents are the only honest witness to the trio.
+    let context = Context::new().expect("a Metal device answers");
+    let max_ctx = 4096u32;
+    let scratch_bytes = driver_metal_new::batch::gptoss_scratch_elems(&geometry) * 4;
+    let shared_view = driver_metal_new::batch::gptoss_decode_geometry(&geometry);
+    let mut storage = stage_decode_storage(
+        &context,
+        &plan,
+        &snapshot,
+        &shared_view,
+        max_ctx,
+        scratch_bytes,
+    )
+    .expect("every region allocates and every tensor stages");
+    driver_metal_new::batch::solve_quant_into(&mut geometry, |name| {
+        storage
+            .weights
+            .get(name)
+            .map(driver_metal_new::region::Region::len)
+    })
+    .expect("the staged tensors carry the trio");
+    eprintln!(
+        "solved: router {} bits, proj {} bits, mxfp4 experts {}",
+        geometry.router_bits, geometry.proj_bits, geometry.mxfp4_experts
+    );
+
+    // The bisect lever: truncated fires against the ordinary recycled
+    // pool — the last dispatch's output slot still holds its value when
+    // the prefix retires, so every stage is readable without the
+    // no-recycle allocation.
+    let taps = std::env::var("PIE_SMOKE_GPTOSS_TAPS").is_ok_and(|v| v == "1");
+    let dag = driver_metal_new::batch::build_gptoss_dag(&geometry, true);
+    let schedule = build_scratch_schedule(&dag, false).expect("the DAG schedules hazard-free");
+    let pso_plan = driver_metal_new::batch::gptoss_step_plan(&geometry);
+    let compiler = Compiler::new(&context).expect("the shader compiler starts");
+    let psos = load_step_psos(&compiler, &context, &kernels_dir(), &pso_plan)
+        .expect("every planned entrypoint compiles");
+
+    let mut step = driver_metal_new::metal::GptOssStep::prepare(
+        &context, &storage, &geometry, &schedule, psos, max_ctx,
+    )
+    .expect("the step binds whole");
+    step.force_barriers = taps;
+
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().expect("io slot");
+    if taps {
+        // Token 976 at position 0, one truncated fire per tapped stage of
+        // the first two layers and the tail.
+        // SAFETY: nothing is encoded yet.
+        unsafe {
+            io(IoSlot::TokenId).write(0, &976u32.to_le_bytes()).unwrap();
+            io(IoSlot::Position).write(0, &0u32.to_le_bytes()).unwrap();
+            io(IoSlot::SeqLen).write(0, &1u32.to_le_bytes()).unwrap();
+        }
+        let dir = std::env::temp_dir().join("pie-gptoss-bisect");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut stepper = Stepper::new(&context).expect("a stepper");
+        for (ordinal, d) in dag.iter().enumerate() {
+            if !matches!(d.layer, None | Some(0) | Some(1)) {
+                continue;
+            }
+            let Some(tap) = driver_metal_new::batch::tap_for(d.kind, &shared_view) else {
+                continue;
+            };
+            step.fire_prefix(&mut stepper, ordinal + 1)
+                .expect("the truncated command buffer retires");
+            let Some(color) = schedule.per_dispatch[ordinal]
+                .iter()
+                .find(|bind| bind.bind_index == tap.out_bind)
+                .map(|bind| bind.color as usize)
+            else {
+                continue;
+            };
+            let slot = &storage.scratch[color];
+            // SAFETY: the prefix retired; nothing after this dispatch ran.
+            let raw = unsafe {
+                std::slice::from_raw_parts(
+                    slot.contents().cast::<u8>().as_ptr(),
+                    tap.width as usize * 2,
+                )
+            };
+            let bf: Vec<u16> = raw
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            let name = match d.layer {
+                None => format!("{ordinal:03}.{}", tap.name),
+                Some(layer) => format!("{ordinal:03}.{layer}.{}", tap.name),
+            };
+            driver_metal_new::batch::dump_bf16(&dir, &name, &bf, 1, tap.width, 0).unwrap();
+        }
+        // The full fire last, for the logits.
+        step.fire(&mut stepper).expect("the command buffer retires");
+        let logits = io(IoSlot::Logits);
+        // SAFETY: as above.
+        let raw = unsafe {
+            std::slice::from_raw_parts(
+                logits.contents().cast::<u8>().as_ptr(),
+                geometry.vocab as usize * 2,
+            )
+        };
+        let bf: Vec<u16> = raw
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        driver_metal_new::batch::dump_bf16(&dir, "logits", &bf, 1, geometry.vocab, 0).unwrap();
+        eprintln!("taps dumped to {}", dir.display());
+        return;
+    }
+    let read_next = || {
+        // SAFETY: called only after the step retired.
+        let raw = unsafe {
+            std::slice::from_raw_parts(io(IoSlot::NextToken).contents().cast::<u8>().as_ptr(), 4)
+        };
+        u32::from_le_bytes(raw.try_into().unwrap())
+    };
+    let mut stepper = Stepper::new(&context).expect("a stepper");
+    let mut fire_at = |token: u32, position: u32| {
+        // SAFETY: the previous fire retired before we rewrite the inputs.
+        unsafe {
+            io(IoSlot::TokenId).write(0, &token.to_le_bytes()).unwrap();
+            io(IoSlot::Position)
+                .write(0, &position.to_le_bytes())
+                .unwrap();
+            io(IoSlot::SeqLen)
+                .write(0, &(position + 1).to_le_bytes())
+                .unwrap();
+        }
+        step.fire(&mut stepper).expect("the command buffer retires");
+        read_next()
+    };
+
+    let prompt: Vec<u32> = std::env::var("PIE_METAL_SMOKE_GPTOSS_PROMPT_IDS")
+        .ok()
+        .map(|csv| {
+            csv.split(',')
+                .map(|t| t.trim().parse().expect("token ids"))
+                .collect()
+        })
+        .unwrap_or_else(|| vec![976, 9029, 328, 10128, 382]);
+    let reference: &[u32] = &[12650, 3692, 279, 12, 6240, 1, 976, 9029];
+    let check_reference = prompt == [976, 9029, 328, 10128, 382];
+
+    let mut position = 0u32;
+    let mut next = 0u32;
+    for &token in &prompt {
+        next = fire_at(token, position);
+        position += 1;
+    }
+    // The first answer sanity, before any comparison: finite,
+    // non-degenerate logits and an argmax the host agrees with.
+    {
+        let logits = io(IoSlot::Logits);
+        let vocab = geometry.vocab as usize;
+        // SAFETY: the step retired.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(logits.contents().cast::<u8>().as_ptr(), vocab * 2)
+        };
+        let mut finite = 0usize;
+        let mut best = (0usize, f32::NEG_INFINITY);
+        for (i, pair) in bytes.chunks_exact(2).enumerate() {
+            let value = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+            if value.is_finite() {
+                finite += 1;
+                if value > best.1 {
+                    best = (i, value);
+                }
+            }
+        }
+        eprintln!(
+            "prompt fed: {finite}/{vocab} finite, host argmax {} ({:.3}), device {next}",
+            best.0, best.1
+        );
+        assert_eq!(
+            finite, vocab,
+            "a NaN in the logits is a wrong kernel upstream"
+        );
+        assert_eq!(next as usize, best.0, "device and host argmax disagree");
+    }
+
+    let mut produced = Vec::new();
+    produced.push(next);
+    while produced.len() < reference.len() {
+        next = fire_at(next, position);
+        position += 1;
+        produced.push(next);
+    }
+    eprintln!("produced {produced:?}");
+    if check_reference {
+        assert_eq!(
+            produced, reference,
+            "the greedy continuation drifted from mlx_lm's"
+        );
+    }
+}

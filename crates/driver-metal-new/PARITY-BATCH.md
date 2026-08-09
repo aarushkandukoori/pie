@@ -503,6 +503,17 @@ step machinery is reused rather than mirrored.
 | `bind.cpp`: `router_bits_from_extents` + the mxfp4/proj probes | `batch/gptoss_solve.rs` | ported portable (name→bytes lookup); refusals carry the extents |
 | `kernels.cpp`: the compile list | `batch/psos_gptoss.rs` | ported; both solver outcomes validated against the signature table |
 | `encode.cpp`: `pso_for` | `psos_gptoss.rs::gptoss_kinds` / `gptoss_step_plan` | ported as plan DATA: the C++ re-decided per fire and fell back to qwen's base table for norms/residuals — the plan is self-contained and a kind nothing claims refuses at prepare, not at dispatch |
-| `bind.cpp`: `bind_gptoss_dag` | `metal/gptoss_bind.rs` | consts walk ported (YaRN table bound once, keepalive returned); weight/IO walk pending the device smoke |
-| device smoke vs gpt-oss-20b-MXFP4-Q4 | — | missing — next on the arc |
+| `bind.cpp`: `bind_gptoss_dag` | `metal/gptoss_bind.rs` + the SHARED `bind_decode_dag` over `gptoss_decode_geometry` | ported; the all-full-attention view gives every layer its KV pair — the window is a property of the attention READ (a per-layer const), not of what is stored |
+| the assembled step | `metal/gptoss_step.rs::GptOssStep` | ported; `fire_prefix` is the bisect's stage probe — truncated fires read any stage off the ordinary recycled pool |
+| device smoke vs gpt-oss-20b-MXFP4-Q4 | `tests/device_smoke.rs::the_gptoss_assembly_decodes_the_reference_tokens` | verified TOKEN-EXACT: the staged trio solves (router 8 / proj 4 / mxfp4), and eight greedy fed-back argmaxes reproduce mlx_lm's continuation of "The capital of France is" |
 | `pso_for_paged` / `pso_for_mb*`, `RowGather` prefill | — | missing — the paged/MB fire path, after the M=1 smoke |
+
+The smoke's first run decoded fluent wrong tokens, and the tap bisect
+(cosine per stage against mlx_lm, first divergence at `0.moe_out`,
+magnitude 25× low with three of four expert rows zero) found the port's
+`GoQmv` stride constants one slot off the ABI: `XSlotStride/XRowStride/
+SlotsPerRow` are 9/10/11 in `decode_abi.hpp` and were 10/11/12 here, so
+the kernel's `slots_per_row` read the row stride (2880) and every expert
+row past the first wrote out of its slot. Qwen3.6-27B is DENSE — no
+dispatch ever read those three slots, so five token-exact verification
+matrices sat green over the defect until the first routed family fired.

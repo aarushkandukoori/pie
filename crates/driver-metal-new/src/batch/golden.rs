@@ -107,6 +107,21 @@ pub fn tap_for(kind: Kernel, g: &DecodeGeometry) -> Option<Tap> {
 
         Kernel::LlRouter => tap("router", 4, g.n_experts),
         Kernel::LlMoeCombine => tap("moe_out", 2, g.hidden),
+
+        // ── gpt-oss, through the shared-geometry view: the sorted stack is
+        // `experts_per_token` rows at decode (tile 1), so the routed taps
+        // carry the whole stack and a comparer reads it row-wise. ──
+        Kernel::GoQmvQ => tap("q_proj", 4, q_dim),
+        Kernel::GoQmvK => tap("k_proj", 4, kv_dim),
+        Kernel::GoQmvV => tap("v_proj", 4, kv_dim),
+        Kernel::GoSdpaSink => tap("sdpa", 3, q_dim),
+        Kernel::GoQmvO => tap("o_proj", 4, g.hidden),
+        Kernel::GoRouter => tap("router", 4, g.n_experts),
+        Kernel::GoExpertGate => tap("expert_gate", 4, g.experts_per_token * g.moe_intermediate),
+        Kernel::GoExpertUp => tap("expert_up", 4, g.experts_per_token * g.moe_intermediate),
+        Kernel::GoSwiGlu => tap("expert_act", 2, g.experts_per_token * g.moe_intermediate),
+        Kernel::GoExpertDown => tap("expert_down", 4, g.experts_per_token * g.hidden),
+        Kernel::GoExpertCombine => tap("moe_out", 2, g.hidden),
         Kernel::LlSharedGate => tap("shared_gate", 4, g.shared_intermediate),
         Kernel::LlSharedUp => tap("shared_up", 4, g.shared_intermediate),
         Kernel::LlSharedDown => tap("shared_down", 4, g.hidden),

@@ -69,7 +69,9 @@ pub use golden::{
     Tap, TapSite, dir_from_env, dump_bf16, dump_bf16_sorted, dump_taps, dump_tokens,
     sorted_dump_rows, tap_for, taps_recycle, write_npy,
 };
-pub use gptoss::{GptOssGeometry, gptoss_geometry_from_facts};
+pub use gptoss::{
+    GptOssGeometry, gptoss_decode_geometry, gptoss_geometry_from_facts, gptoss_scratch_elems,
+};
 pub use gptoss_consts::{RowGatherParams, SwiGluParams, gptoss_qmv_kn, yarn_inv_freq, yarn_mscale};
 pub use gptoss_solve::{StagedQuant, bits_from_extents, solve_quant_into, solve_staged_quant};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};

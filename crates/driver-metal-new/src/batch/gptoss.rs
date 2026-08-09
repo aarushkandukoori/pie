@@ -27,6 +27,7 @@
 
 use crate::facts::ModelFacts;
 
+use super::geometry::{AffineFormat, DecodeGeometry};
 use super::geometry_facts::{GeometryRefused, ROUTER_MAX_EXPERTS, ROUTER_MAX_TOP_K};
 
 /// The family's shape. Defaults are `openai/gpt-oss-20b`'s.
@@ -168,6 +169,75 @@ impl GptOssGeometry {
             None => 1,
         }
     }
+}
+
+/// The shared-geometry VIEW of this family, for the passes that are
+/// genuinely shared: storage staging, the weight/state/IO bind walk, and
+/// the scratch binds all read [`DecodeGeometry`], and every field they
+/// read has a gpt-oss answer.
+///
+/// Every layer reads `full_attn_interval: 1` — KV pairs for all of them,
+/// GDN state for none — because the sliding layers SHARE the full-attn
+/// storage shape: a window is a property of the attention read (the
+/// consts walk binds it per layer), not of what is stored. The GDN
+/// widths stay zero and are never reached: no gpt-oss layer is
+/// recurrent, so the staging loop takes the KV arm at every index.
+#[must_use]
+pub fn gptoss_decode_geometry(g: &GptOssGeometry) -> DecodeGeometry {
+    DecodeGeometry {
+        hidden: g.hidden,
+        n_layers: g.n_layers,
+        vocab: g.vocab,
+        eps: g.eps,
+        tied_embeddings: g.tied_embeddings,
+        n_q_heads: g.n_q_heads,
+        n_kv_heads: g.n_kv_heads,
+        head_dim: g.head_dim,
+        quant: AffineFormat {
+            bits: g.proj_bits,
+            group: 64,
+        },
+        alt_quant: AffineFormat {
+            bits: g.router_bits,
+            group: 64,
+        },
+        rotary_dims: g.head_dim,
+        rope_theta: g.rope_theta,
+        gdn_k_heads: 0,
+        gdn_v_heads: 0,
+        gdn_k_dim: 0,
+        gdn_v_dim: 0,
+        gdn_conv_k: 0,
+        gdn_conv_dim: 0,
+        gdn_v_total: 0,
+        intermediate: g.intermediate,
+        n_experts: g.n_experts,
+        experts_per_token: g.experts_per_token,
+        moe_intermediate: g.intermediate,
+        mxfp4_experts: g.mxfp4_experts,
+        shared_intermediate: 0,
+        max_tokens: g.max_tokens,
+        max_requests: g.max_requests,
+        max_slots: g.max_slots,
+        kv_page_size: g.kv_page_size,
+        total_pages: g.total_pages,
+        paged_kv_enabled: g.paged_kv_enabled,
+        full_attn_interval: 1,
+        ..DecodeGeometry::default()
+    }
+}
+
+/// The widest value the M=1 DAG parks in one scratch slot, in ELEMENTS.
+///
+/// The candidates: the sorted expert stack (`experts_per_token` rows of
+/// `intermediate` — top-4 at tile 1 keeps `sorted_rows` equal to the
+/// top-k) and its `hidden`-wide gather twin, against the packed query.
+/// The caller picks the byte width; four covers the f32 values.
+#[must_use]
+pub fn gptoss_scratch_elems(g: &GptOssGeometry) -> u64 {
+    let sorted = g.experts_per_token.max(1);
+    let stack = u64::from(sorted) * u64::from(g.intermediate.max(g.hidden));
+    stack.max(u64::from(g.q_dim())).max(u64::from(g.n_experts))
 }
 
 fn positive(v: i32) -> Option<u32> {
