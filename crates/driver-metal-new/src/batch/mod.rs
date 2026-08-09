@@ -33,6 +33,7 @@ mod member;
 mod paging;
 mod psos;
 mod psos_gptoss;
+mod psos_llama;
 mod psos_mb;
 mod schedule;
 mod sizing;
@@ -92,6 +93,7 @@ pub use psos_gptoss::{
     GptOssPsoRequest, GptOssSlot, SDPA_MMA_HEAD_DIM, gptoss_kinds, gptoss_mb_kinds, gptoss_mb_plan,
     gptoss_step_plan, plan_gptoss_psos,
 };
+pub use psos_llama::{llama_entry_names, llama_step_plan, llama3_inv_freq};
 pub use psos_mb::{
     MOE_TILE_WIDTHS, MbFeatures, MbRequest, MbSlot, QMM_BMS, QMM_SPLIT_BN, plan_multibatch_psos,
 };

@@ -539,6 +539,6 @@ piece of new arithmetic.
 |---|---|---|
 | `geometry.hpp` | `batch/llama.rs` | ported; the refusal ladder intact, including `norm_topk_prob: false` (softmax-over-all weights sum below one — same tokens, quietly wrong magnitudes) and the `factor` split (llama3's divides FREQUENCIES in the table, linear's divides POSITIONS; one field meaning both applies it twice) |
 | `decode_step.hpp`: the DAG | `batch/dispatch_llama.rs::build_llama_dag` + `llama_dag_stats` | ported; NOT the shared builder under a flag — that walk is qwen3.5's (2×-wide q\|gate, QSplit, AttnGate, structural QK-norm), and one builder trying to be both would carry every difference as a branch the other family dodges. The mixture is the shared nine dispatches minus the shared expert; `RowGather` deliberately absent at M=1, as with gpt-oss |
-| `kernels.cpp`: `llama3_inv_freq` + the compile list | — | missing |
+| `kernels.cpp`: `llama3_inv_freq` + the compile list | `batch/psos_llama.rs` | ported; the table pinned against mlx_lm's `Llama3RoPE` in float32 at both ends and on the ramp; the plan is the SHARED table under this family's features plus the two claims only the geometry can spell — the attention at its OWN width (the C++ records `_d128` as a literal that strode 64-wide heads past their end), and the freq-table rope claimed after the base so `source_of` answers with it |
 | `decode_consts.cpp` / `bind.cpp` / `encode.cpp` | — | missing |
 | device smoke | — | missing; local checkpoints: Qwen3.6-35B-A3B-4bit (routed), gemma-4 pair for the sibling family |
