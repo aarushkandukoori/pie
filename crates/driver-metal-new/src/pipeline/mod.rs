@@ -32,6 +32,7 @@
 
 mod channel;
 mod extent;
+mod group;
 mod identity;
 mod op;
 mod params;
@@ -48,6 +49,11 @@ pub use channel::{
     make_host_instance, make_instance,
 };
 pub use extent::{Extents, Role, Unresolvable, ValueDesc, describe};
+pub use group::{
+    CHANNEL_NEEDS_EMPTY, CHANNEL_NEEDS_FULL, CHANNEL_PUT, CHANNEL_RETRY_INELIGIBLE, CHANNEL_TAKE,
+    CHANNEL_VALID, GroupKey, MAX_CHANNELS, TooManyChannels, channel_flags, schedule_bucket,
+    used_channel_slots,
+};
 pub use identity::{Versions, cache_identity, combined_signature};
 pub use params::{OpParams, Runtime as OpRuntime};
 pub use plan::{
