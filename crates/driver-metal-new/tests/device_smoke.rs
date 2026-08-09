@@ -85,6 +85,40 @@ fn the_assembly_fires_one_token_end_to_end() {
     .expect("every region allocates and every tensor stages");
     eprintln!("staged {} weights", storage.weights.len());
 
+    // Staging integrity: the arena-offset map is new code, and a wrong
+    // offset is a fluent model with the wrong weights — the exact symptom
+    // nothing downstream can diagnose. Re-run the plan on the host and
+    // hold a sample of staged slices to the executor's own bytes.
+    {
+        let host = model_loader::executor::host::execute_plan(&plan, &snapshot)
+            .expect("the host executor agrees to run the plan twice");
+        let mut checked = 0usize;
+        for (name, bytes) in host.tensors.iter().take(4096) {
+            let Some(slice) = storage.weights.get(name) else {
+                continue;
+            };
+            if slice.len() != bytes.len() as u64 {
+                panic!(
+                    "{name}: staged {} bytes, executor produced {}",
+                    slice.len(),
+                    bytes.len()
+                );
+            }
+            // SAFETY: nothing is encoded yet.
+            let staged = unsafe {
+                std::slice::from_raw_parts(slice.contents().cast::<u8>().as_ptr(), bytes.len())
+            };
+            assert_eq!(
+                staged,
+                &bytes[..],
+                "{name}: the staged bytes drifted from the plan's"
+            );
+            checked += 1;
+        }
+        eprintln!("staging verified for {checked} tensors");
+        assert!(checked > 0, "the probe compared nothing");
+    }
+
     let options = DagOptions {
         with_argmax: true,
         ..DagOptions::default()
@@ -177,5 +211,45 @@ fn the_assembly_fires_one_token_end_to_end() {
     assert_eq!(
         next as usize, best.0,
         "the device argmax must agree with the host's read of the same logits"
+    );
+
+    // ── Multi-step decode: feed the argmax back and keep the GDN's
+    // ping-pong honest. Step i reads what i-1 wrote, so the conv binds
+    // swap by the slot's own parity — the counter is the ported
+    // LinearStateSlots, so this exercises the same bookkeeping the
+    // executor will use. ──
+    let mut slots = driver_metal_new::store::LinearStateSlots::new(1);
+    slots.step(0).unwrap(); // the <bos> fire above was step 0
+    let mut step = step;
+    let mut token = next;
+    let mut sequence = vec![bos, token];
+    for position in 1..12u32 {
+        // SAFETY: the previous step retired; the buffers are host-owned
+        // between steps.
+        unsafe {
+            io(IoSlot::TokenId).write(0, &token.to_le_bytes()).unwrap();
+            io(IoSlot::Position)
+                .write(0, &position.to_le_bytes())
+                .unwrap();
+            io(IoSlot::SeqLen)
+                .write(0, &(position + 1).to_le_bytes())
+                .unwrap();
+        }
+        step.set_gdn_parity(&context, &storage, slots.parity(0).unwrap())
+            .expect("the parity rebind holds");
+        step.fire(&mut stepper).expect("the step retires");
+        slots.step(0).unwrap();
+        // SAFETY: retired, as above.
+        let raw = unsafe {
+            std::slice::from_raw_parts(io(IoSlot::NextToken).contents().cast::<u8>().as_ptr(), 4)
+        };
+        token = u32::from_le_bytes(raw.try_into().unwrap());
+        sequence.push(token);
+    }
+    eprintln!("greedy sequence: {sequence:?}");
+    let distinct: std::collections::HashSet<_> = sequence.iter().collect();
+    assert!(
+        distinct.len() > 2,
+        "a decode stuck on one token is this family's classic silent failure: {sequence:?}"
     );
 }

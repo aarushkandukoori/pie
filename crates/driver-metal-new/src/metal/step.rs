@@ -21,7 +21,8 @@ use crate::tuning::Tuning;
 use crate::{Error, Result};
 
 use super::bind::{
-    ConstSlots, StepPsos, bind_decode_consts, bind_decode_dag, bind_scratch, encode_decode_step,
+    ConstSlots, StepPsos, bind_decode_consts, bind_decode_dag, bind_gdn_parity, bind_scratch,
+    encode_decode_step,
 };
 use super::context::Context;
 use super::encoder::Stepper;
@@ -72,6 +73,9 @@ pub struct DecodeStep {
     pub psos: StepPsos,
     /// Whether every barrier is forced (the debug lever).
     pub force_barriers: bool,
+    /// Whether the DAG was built with the GdnPrep split (the recurrent
+    /// core's slots differ).
+    gdn_prep: bool,
 }
 
 impl DecodeStep {
@@ -123,7 +127,33 @@ impl DecodeStep {
             consts,
             psos,
             force_barriers: false,
+            gdn_prep: options.gdn_prep,
         })
+    }
+
+    /// Point every GDN dispatch's conv-state binds at the half that holds
+    /// the LATEST data.
+    ///
+    /// The conv state ping-pongs: the read and write buffers are distinct
+    /// (an in-place shift races the tap reads) and step `i` reads what
+    /// `i - 1` wrote, so the binds swap by the slot's own step parity —
+    /// [`Parity::Even`](crate::store::Parity) is the staged orientation.
+    /// Rebinding rewrites addresses the tables already hold; no encoded
+    /// byte moves.
+    pub fn set_gdn_parity(
+        &mut self,
+        context: &Context,
+        storage: &DecodeStorage,
+        parity: crate::store::Parity,
+    ) -> Result<()> {
+        bind_gdn_parity(
+            context,
+            &mut self.tables,
+            storage,
+            &self.dag,
+            self.gdn_prep,
+            parity,
+        )
     }
 
     /// Encode and run the whole DAG as one command buffer, returning the

@@ -395,6 +395,75 @@ pub fn bind_decode_dag(
     Ok(())
 }
 
+/// Swap every GDN dispatch's conv-state read/write binds to `parity`.
+///
+/// Even is the staged orientation (read `conv_state`, write
+/// `conv_state_out`); Odd is the swap. The recurrent state needs no swap —
+/// it is in place — and the parity is per SLOT in the C++'s slotted world;
+/// at max_slots = 1 the whole pool shares one, which is what this rebinds.
+pub fn bind_gdn_parity(
+    context: &Context,
+    tables: &mut Tables,
+    storage: &DecodeStorage,
+    dag: &[Dispatch],
+    gdn_prep: bool,
+    parity: crate::store::Parity,
+) -> Result<()> {
+    let swapped = parity == crate::store::Parity::Odd;
+    for d in dag {
+        let layer = d.layer.map(|l| l as usize);
+        let Some(s) = layer.and_then(|l| storage.gdn[l].as_ref()) else {
+            continue;
+        };
+        let (read, write) = if swapped {
+            (&s.conv_state_out, &s.conv_state)
+        } else {
+            (&s.conv_state, &s.conv_state_out)
+        };
+        match d.kind {
+            Kernel::GdnPrep => {
+                bind_handle(context, tables, d.ordinal, slot::GDN_PREP_CONV_STATE, read)?;
+                bind_handle(
+                    context,
+                    tables,
+                    d.ordinal,
+                    slot::GDN_PREP_CONV_STATE_OUT,
+                    write,
+                )?;
+            }
+            Kernel::GdnCore => {
+                if gdn_prep {
+                    bind_handle(
+                        context,
+                        tables,
+                        d.ordinal,
+                        slot::GDN_RECURRENT_CONV_STATE,
+                        read,
+                    )?;
+                    bind_handle(
+                        context,
+                        tables,
+                        d.ordinal,
+                        slot::GDN_RECURRENT_CONV_STATE_OUT,
+                        write,
+                    )?;
+                } else {
+                    bind_handle(context, tables, d.ordinal, slot::GDN_CORE_CONV_STATE, read)?;
+                    bind_handle(
+                        context,
+                        tables,
+                        d.ordinal,
+                        slot::GDN_CORE_CONV_STATE_OUT,
+                        write,
+                    )?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Pass (c): the scratch pool, from the colouring's per-dispatch table.
 pub fn bind_scratch(
     context: &Context,
