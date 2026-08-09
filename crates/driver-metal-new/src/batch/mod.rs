@@ -34,6 +34,7 @@ mod mask;
 mod member;
 mod paging;
 mod psos;
+mod psos_gemma4;
 mod psos_gptoss;
 mod psos_llama;
 mod psos_mb;
@@ -98,6 +99,7 @@ pub use paging::{
     Cut, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging, renumber_routing,
 };
 pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, plan_decode_psos};
+pub use psos_gemma4::gemma4_step_plan;
 pub use psos_gptoss::{
     GptOssPsoRequest, GptOssSlot, SDPA_MMA_HEAD_DIM, gptoss_kinds, gptoss_mb_kinds, gptoss_mb_plan,
     gptoss_step_plan, plan_gptoss_psos,
