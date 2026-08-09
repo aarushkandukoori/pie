@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "norm/rmsnorm.hpp"
 #include "model/gemma4/gemma4_naive_kernels.cuh"
 
 namespace pie_cuda_driver::model {
@@ -108,19 +109,19 @@ void run_gemma4_vision(const VisRawWeights& w,
     k_addpos_grid2d<<<G2(Hd,N),B2,0,S>>>(h,w.pos_table,pos,N,Hd,PT);
     int li=0;
     for(const auto& L:w.layers){
-        k_rms<<<N,256,0,S>>>(h,L.in_ln,hn,N,Hd,EPS);
+        kernels::norm::rmsnorm_bf16(h,L.in_ln,hn,N,Hd,EPS,S);
         clin(hn,q,L.q,Hd,Hd);clin(hn,k,L.k,Hd,Hd);clin(hn,v,L.v,Hd,Hd);
-        k_rms<<<N*NH,64,0,S>>>(q,L.q_norm,q,N*NH,64,EPS);k_rms<<<N*NH,64,0,S>>>(k,L.k_norm,k,N*NH,64,EPS);k_rms<<<N*NH,64,0,S>>>(v,nullptr,v,N*NH,64,EPS);
+        kernels::norm::rmsnorm_bf16(q,L.q_norm,q,N*NH,64,EPS,S);kernels::norm::rmsnorm_bf16(k,L.k_norm,k,N*NH,64,EPS,S);kernels::norm::rmsnorm_no_scale_bf16(v,v,N*NH,64,EPS,S);
         dim3 rg(1,NH,N);k_rope_axial2d<<<rg,32,0,S>>>(q,pos,N,NH,THETA);k_rope_axial2d<<<rg,32,0,S>>>(k,pos,N,NH,THETA);
         for(int hh=0;hh<NH;hh++){k_qk<<<G2(N,N),B2,0,S>>>(q,k,scr,N,NH,hh,1.0f);k_softmax<<<N,256,0,S>>>(scr,N);k_av<<<G2(64,N),B2,0,S>>>(scr,v,attn,N,NH,hh);}
         clin(attn,tmp,L.o,Hd,Hd);
-        k_rms<<<N,256,0,S>>>(tmp,L.post_attn_ln,tmp,N,Hd,EPS);
+        kernels::norm::rmsnorm_bf16(tmp,L.post_attn_ln,tmp,N,Hd,EPS,S);
         k_add<<<((long)N*Hd+255)/256,256,0,S>>>(h,tmp,(long)N*Hd);
-        k_rms<<<N,256,0,S>>>(h,L.pre_ff_ln,hn,N,Hd,EPS);
+        kernels::norm::rmsnorm_bf16(h,L.pre_ff_ln,hn,N,Hd,EPS,S);
         clin(hn,gate,L.gate,Hd,IM);clin(hn,up,L.up,Hd,IM);
         k_gelu_mul<<<((long)N*IM+255)/256,256,0,S>>>(gate,up,act,(long)N*IM);
         clin(act,tmp,L.down,IM,Hd);
-        k_rms<<<N,256,0,S>>>(tmp,L.post_ff_ln,tmp,N,Hd,EPS);
+        kernels::norm::rmsnorm_bf16(tmp,L.post_ff_ln,tmp,N,Hd,EPS,S);
         k_add<<<((long)N*Hd+255)/256,256,0,S>>>(h,tmp,(long)N*Hd);
         if(li++==0) tap("layer0",h,(long)N*Hd);
     }
@@ -129,7 +130,7 @@ void run_gemma4_vision(const VisRawWeights& w,
     k_pool<<<G2(Hd,N),B2,0,S>>>(h,grp,pf,N,Hd,9.f);
     bf* pooled=MAL((long)OUTL*Hd);k_pool_finish<<<((long)OUTL*Hd+255)/256,256,0,S>>>(pf,pooled,sqrtf((float)Hd),(long)OUTL*Hd);
     tap("pooled_last_hidden",pooled,(long)OUTL*Hd);
-    bf* pn=MAL((long)OUTL*Hd);k_rms<<<OUTL,256,0,S>>>(pooled,nullptr,pn,OUTL,Hd,EPS);
+    bf* pn=MAL((long)OUTL*Hd);kernels::norm::rmsnorm_no_scale_bf16(pooled,pn,OUTL,Hd,EPS,S);
     k_matmul<<<G2(TXT,OUTL),B2,0,S>>>(pn,w.embed_proj,out_proj,OUTL,Hd,TXT);
     VCK(cudaStreamSynchronize(S));
 }
