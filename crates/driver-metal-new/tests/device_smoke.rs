@@ -17,13 +17,14 @@
 use std::path::PathBuf;
 
 use driver_metal_new::batch::{
-    AffineFormat, DagOptions, EntryNames, PsoFeatures, build_decode_dag, build_scratch_schedule,
-    geometry_from_facts, plan_decode_psos, scratch_slot_elems,
+    AffineFormat, DagOptions, EntryNames, IoSlot, PsoFeatures, build_decode_dag,
+    build_scratch_schedule, geometry_from_facts, plan_decode_psos, scratch_slot_elems,
 };
 use driver_metal_new::facts::ModelFacts;
 use driver_metal_new::loader::{compile_load_plan, metal_storage_target};
 use driver_metal_new::metal::Compiler;
 use driver_metal_new::metal::{Context, DecodeStep, Stepper, load_step_psos, stage_decode_storage};
+use driver_metal_new::region::Region as _;
 use driver_metal_new::tuning::Tuning;
 
 fn kernels_dir() -> PathBuf {
@@ -84,11 +85,15 @@ fn the_assembly_fires_one_token_end_to_end() {
     .expect("every region allocates and every tensor stages");
     eprintln!("staged {} weights", storage.weights.len());
 
-    let options = DagOptions::default();
+    let options = DagOptions {
+        with_argmax: true,
+        ..DagOptions::default()
+    };
     let dag = build_decode_dag(&geometry, &tuning, options);
     let schedule = build_scratch_schedule(&dag, false).expect("the DAG schedules hazard-free");
 
     let features = PsoFeatures {
+        argmax: true,
         gdn: true,
         gated_attention: true,
         sdpa_d256: geometry.head_dim == 256,
@@ -106,9 +111,71 @@ fn the_assembly_fires_one_token_end_to_end() {
     )
     .expect("the step binds whole");
 
-    // Fire <bos> at position 0: TokenId/Position/SeqLen are already zeroed,
-    // which IS that fire.
+    // Fire the checkpoint's own <bos> at position 0. SeqLen is position+1.
+    // A multimodal wrapper keeps its text facts one level down.
+    let bos: u32 = [&root, root.get("text_config").unwrap_or(&root)]
+        .iter()
+        .find_map(|level| level.get("bos_token_id"))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok())
+        .expect("the config states its bos");
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().expect("io slot");
+    // SAFETY: nothing is encoded yet; the buffers are host-owned.
+    unsafe {
+        io(IoSlot::TokenId).write(0, &bos.to_le_bytes()).unwrap();
+        io(IoSlot::Position).write(0, &0u32.to_le_bytes()).unwrap();
+        io(IoSlot::SeqLen).write(0, &1u32.to_le_bytes()).unwrap();
+    }
+
     let mut stepper = Stepper::new(&context).expect("a stepper");
     let timing = step.fire(&mut stepper).expect("the command buffer retires");
     eprintln!("fired: encode {:?}, gpu {:?}", timing.encode, timing.gpu);
+
+    // The first answer check: the logits must be finite, non-degenerate
+    // numbers and the argmax a real token. "Token 0 forever" and "all
+    // zeros" are this family's two historical silent failures; both are
+    // visible from here without a reference.
+    let logits = io(IoSlot::Logits);
+    let vocab = geometry.vocab as usize;
+    // SAFETY: the step retired; the GPU is done with the pool.
+    let bytes =
+        unsafe { std::slice::from_raw_parts(logits.contents().cast::<u8>().as_ptr(), vocab * 2) };
+    let mut finite = 0usize;
+    let mut nonzero = 0usize;
+    let mut best = (0usize, f32::NEG_INFINITY);
+    for (i, pair) in bytes.chunks_exact(2).enumerate() {
+        let value = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+        if value.is_finite() {
+            finite += 1;
+            if value != 0.0 {
+                nonzero += 1;
+            }
+            if value > best.1 {
+                best = (i, value);
+            }
+        }
+    }
+    let next = {
+        // SAFETY: as above.
+        let raw = unsafe {
+            std::slice::from_raw_parts(io(IoSlot::NextToken).contents().cast::<u8>().as_ptr(), 4)
+        };
+        u32::from_le_bytes(raw.try_into().unwrap())
+    };
+    eprintln!(
+        "logits: {finite}/{vocab} finite, {nonzero} nonzero; host argmax {} ({:.3}); device argmax {next}",
+        best.0, best.1
+    );
+    assert_eq!(
+        finite, vocab,
+        "a NaN in the logits is a wrong kernel upstream"
+    );
+    assert!(
+        nonzero > vocab / 2,
+        "logits mostly zero: the head never ran or wrote elsewhere"
+    );
+    assert_eq!(
+        next as usize, best.0,
+        "the device argmax must agree with the host's read of the same logits"
+    );
 }
