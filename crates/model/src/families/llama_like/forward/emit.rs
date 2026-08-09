@@ -40,7 +40,7 @@ use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, OpKind, RopeKin
 /// the live parity gate is what holds them together.
 pub fn facts_digest(facts: &LlamaLikeFacts, cuda: &LlamaLikeCudaFacts) -> String {
     format!(
-        "llama_like/h{}/l{}/qh{}/kvh{}/hd{}/i{}/v{}/rope{}/nv{}/np{}/qk{}/fq{}/te{}/qb{}/xqa{}/dfp{}/rt{}/fpp{}/pad{}/pr{}",
+        "llama_like/h{}/l{}/qh{}/kvh{}/hd{}/i{}/v{}/rope{}/nv{}/np{}/qk{}/fq{}/te{}/qb{}/xqa{}/dfp{}/rt{}/fpp{}/pad{}/pr{}/hdk{}",
         facts.hidden,
         facts.layers,
         facts.q_heads,
@@ -88,6 +88,10 @@ pub fn facts_digest(facts: &LlamaLikeFacts, cuda: &LlamaLikeCudaFacts) -> String
             WeightRepr::Scaled { layout: ScaleLayout::PerGroup, .. } => 3,
             WeightRepr::Mxfp4Marlin => 4,
         },
+        // The WIDTH, not just the fact of padding: the emitted body's
+        // pads and strip carry it as `cfg.head_dim_kernel`, and a
+        // deployment padding to a different one is a different text.
+        cuda.head_dim_kernel,
     )
 }
 
@@ -766,6 +770,19 @@ struct Body {
     out: String,
     /// Extra indent levels while inside an emitted Guard region.
     indent: usize,
+    /// WHICH of q, k, v the next `attn::pad_head_dim_bf16` stages.
+    ///
+    /// The one piece of state that crosses statements here, and it
+    /// exists because this form spells buffers where the interpreter
+    /// resolves values: a padded deployment states pad(q), pad(k),
+    /// pad(v) in that order, and under MHA -- phi-3, the only padded
+    /// deployment in the tree -- the three results have the SAME shape,
+    /// so nothing but the order tells them apart.
+    ///
+    /// The precedent is qwen3.5's `repeat_next_is_k`, and the reason is
+    /// the same: an operand order fixed by the declaration, bound by a
+    /// cursor rather than guessed from an extent.
+    pad_stage: usize,
 }
 
 impl Body {
@@ -1228,6 +1245,10 @@ fn emit_launch(
     // locals become constants of this deployment's text).
     let padded = cuda.head_dim_padded;
     let q_buf = if padded { "attn_q" } else { "ws.q.data()" };
+    // The attention's DESTINATION. Padded, it is the staging buffer the
+    // stated strip then narrows -- which is the same buffer either way
+    // in this form, because the strip is a statement of its own now
+    // (2c) rather than a tail this emitter appended to every dispatch.
     let out_buf = if padded {
         "attn_out_buf"
     } else {
@@ -1241,13 +1262,10 @@ fn emit_launch(
     // The post-attention strip (padded only): the o_proj GEMM reads the
     // logical-width ws.attn_out; every attention launch's output gets
     // stripped into it — the interpreter's name-keyed strip block.
-    let strip = |b: &mut Body| {
-        if padded {
-            b.stmt("kernels::attn::strip_head_dim_bf16(");
-            b.stmt("    attn_out_buf, ws.attn_out.data(),");
-            b.stmt("    N, num_q_heads, d, dk, stream);");
-        }
-    };
+    // The post-attention strip is a STATEMENT now (2c) -- one launch
+    // after the guard chain, emitted by its own arm below -- so no
+    // dispatch appends one here.
+    let strip = |_b: &mut Body| {};
     match kernel {
         // The MLP activation, no longer a per-layer `if` in the emitted
         // file: the binding decided this at load and the trace states
@@ -1360,19 +1378,10 @@ fn emit_launch(
                 None => ("0", "N"),
                 Some(_) => panic!("emitter: KV write in a Peel prefix region"),
             };
-            if padded {
-                // A windowed write never coincides with padding (the Peel
-                // exists only in the fused deployment, whose facts require
-                // the unpadded head dim) — same invariant as the
-                // interpreter's comment, checked at emission.
-                assert!(win.is_none(), "emitter: windowed write under padding");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);");
-            }
+            // The cache is at the KERNEL head dim, so a padded
+            // deployment's write reads the pads' results -- which the
+            // trace names as this statement's operands, and which this
+            // form spells as the staging buffers they land in.
             let (kbuf, vbuf) = if padded {
                 ("attn_k", "attn_v")
             } else {
@@ -1393,15 +1402,6 @@ fn emit_launch(
         }
         "attn::write_kv_to_pages" => {
             let layer = state.expect("kv write addresses kv state").layer;
-            if padded {
-                assert!(win.is_none(), "emitter: windowed write under padding");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);");
-            }
             let kv_bufs = if padded {
                 "kv_view, attn_k, attn_v,"
             } else {
@@ -1905,6 +1905,28 @@ fn emit_launch(
             b.stmt("    prefill_score_capture->publish();");
             strip(b);
             b.stmt("}");
+        }
+        // The head-dim STAGING (2c). Three pads per layer in the order
+        // the text states them -- q, k, v -- and the cursor is what
+        // binds each to its buffer; see `Body::pad_stage`.
+        "attn::pad_head_dim_bf16" => {
+            let (src, dst, heads) = match b.pad_stage % 3 {
+                0 => ("ws.q.data()", "attn_q", "num_q_heads"),
+                1 => ("ws.k.data()", "attn_k", "num_kv_heads"),
+                _ => ("ws.v.data()", "attn_v", "num_kv_heads"),
+            };
+            b.pad_stage += 1;
+            b.stmt("kernels::attn::pad_head_dim_bf16(");
+            b.stmt(&format!("    {src}, {dst}, N, {heads}, d, dk, stream);"));
+        }
+        // The narrowing, after the guard chain. Its destination is the
+        // logical-width `ws.attn_out` that `o_proj` reads -- the same
+        // place an unpadded fire's attention lands directly, which is
+        // why the projection reads one buffer either way.
+        "attn::strip_head_dim_bf16" => {
+            b.stmt("kernels::attn::strip_head_dim_bf16(");
+            b.stmt("    attn_out_buf, ws.attn_out.data(),");
+            b.stmt("    N, num_q_heads, d, dk, stream);");
         }
         // The ROTATION, now that `cuda::rope` names it. Same body the
         // semantic `OpKind::Rope` arm held, minus its two asserts: the

@@ -370,6 +370,20 @@ fn llama_like_cuda_text(
         // here, the load-time backend terms on the facts struct — term
         // for term the hand-written `fused_decode_qkv_post`
         // (declared_forward.cpp:465-479), written where it belongs.
+        // The head width the attention kernels run at, or 0 when that
+        // is the logical one. The single reading of the padding fact in
+        // this text: the three pads and the strip below take their
+        // shapes from it, so nothing re-derives a width.
+        let pad_to = if cuda.head_dim_padded {
+            assert!(
+                cuda.head_dim_kernel > f.head_dim,
+                "a padded deployment states the width its kernels run at"
+            );
+            cuda.head_dim_kernel
+        } else {
+            0
+        };
+
         let fused_post = cuda_of(FireClass::Decode).is_some_and(|c| c.decode_fused_post)
             && f.fused_qkv
             && f.qk_norm == QkNorm::PerHead
@@ -466,6 +480,36 @@ fn llama_like_cuda_text(
                 // replay, page-derived otherwise). Under the fused
                 // deployment's mask arm this guard NESTS inside the
                 // HasCustomMask guard (A1 — the walk keeps a stack).
+                // 2c: the PAD STAGING, stated.
+                //
+                // A deployment whose attention kernels run at a wider
+                // head than the checkpoint's (Phi-3-mini: 96 -> 128)
+                // copies q, k and v into zero-padded buffers before the
+                // KV write, and narrows the attention's output after.
+                // Sixteen executor sites read a boolean and staged into
+                // `ws.{q,k,v,attn_out}_padded` -- workspace fields no
+                // traced value described, which is why the writes could
+                // not move onto the arena and why the strip's
+                // destination needed a lambda of its own.
+                //
+                // Three launches and their results, so the padded
+                // copies are VALUES and every consumer names one.
+                //
+                // Only this path can be padded: the fused decode-QKV
+                // arm's own fact requires `head_dim == head_dim_kernel`
+                // (`cuda.decode_fused_post`), so the region form below
+                // never coincides with staging -- which is the same
+                // thing the executor's Peel comment said, from the
+                // other side.
+                let (q, k, v) = if pad_to > 0 {
+                    (
+                        cuda::pad_head_dim(&q, f.q_heads, pad_to),
+                        cuda::pad_head_dim(&k, f.kv_heads, pad_to),
+                        cuda::pad_head_dim(&v, f.kv_heads, pad_to),
+                    )
+                } else {
+                    (q, k, v)
+                };
                 dsl::guard(
                     m.trace(),
                     GuardPred::HasWriteDesc,
@@ -474,8 +518,15 @@ fn llama_like_cuda_text(
                 );
                 q
             };
+            // The attention's own output width: the PADDED one where
+            // the kernels run wide. The strip below is what brings it
+            // back to `q_w`, and it is a statement rather than a
+            // driver's parting copy.
             let attn_out_shape = (
-                Shape(vec![Dim::Tokens, Dim::Const(q_w)]),
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(if pad_to > 0 { f.q_heads * pad_to } else { q_w }),
+                ]),
                 DType::BF16,
             );
 
@@ -722,6 +773,20 @@ fn llama_like_cuda_text(
                 FireClass::CommitAdvance | FireClass::StateOnly | FireClass::FrozenVerify => {
                     unreachable!("llama_like refuses the service classes at trace start")
                 }
+            };
+            // 2c: the STRIP. The attention wrote at the kernel width;
+            // `o_proj` reads at the logical one, and this is what
+            // narrows it -- one statement, whose result is what every
+            // consumer downstream names.
+            //
+            // It sits after the guard chain rather than inside its
+            // arms, which is also what the executor did: the padded
+            // output is one buffer whichever dispatch filled it, so the
+            // narrowing is one launch and not one per arm.
+            let a = if pad_to > 0 {
+                cuda::strip_head_dim(&a, f.q_heads, f.head_dim)
+            } else {
+                a
             };
             if post_norm {
                 // Post-norm: o_proj to scratch, norm the OUTPUT, then the

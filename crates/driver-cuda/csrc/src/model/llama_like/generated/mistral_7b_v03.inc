@@ -7,10 +7,10 @@
 // three-way parity gate. One TU per deployment; the `mistral_7b_v03` suffix
 // keeps the symbols apart and the digest constant names the pair.
 //
-// Emitted from: llama_like/h4096/l32/qh32/kvh8/hd128/i14336/v32768/rope0/nv0/np0/qk0/fq1/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0
+// Emitted from: llama_like/h4096/l32/qh32/kvh8/hd128/i14336/v32768/rope0/nv0/np0/qk0/fq1/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0/hdk0
 
 constexpr const char* kGeneratedDigest_mistral_7b_v03 =
-    "llama_like/h4096/l32/qh32/kvh8/hd128/i14336/v32768/rope0/nv0/np0/qk0/fq1/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0";
+    "llama_like/h4096/l32/qh32/kvh8/hd128/i14336/v32768/rope0/nv0/np0/qk0/fq1/te0/qb0/xqa0/dfp1/rt1/fpp0/pad0/pr0/hdk0";
 
 inline void generated_llama_like_decode_mistral_7b_v03(
 const Qwen3Weights& w,

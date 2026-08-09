@@ -305,6 +305,21 @@ pub struct LlamaLikeCudaFacts {
     /// Serde-defaulted (append-only discipline).
     #[serde(default)]
     pub head_dim_padded: bool,
+    /// The head width the ATTENTION kernels run at (Phi-3-mini: 128 for
+    /// a logical 96), or 0 for a deployment that runs at the logical
+    /// one.
+    ///
+    /// [`Self::head_dim_padded`] is exactly `head_dim_kernel != 0`, and
+    /// both are here because the bool is in the digest and the WIDTH is
+    /// what a statement needs: `cuda::pad_head_dim` produces a value
+    /// whose shape is `heads * head_dim_kernel`, and a shape is not
+    /// something a boolean gives. Sixteen executor sites read the bool
+    /// and re-derived the width from config; the pads and the strip are
+    /// statements now, so the width crosses with them.
+    ///
+    /// Serde-defaulted (append-only discipline).
+    #[serde(default)]
+    pub head_dim_kernel: u32,
     /// The checkpoint materialised a packed gate‖up bank
     /// (`w.layers[l].gate_up_proj_fused != nullptr`), so the MLP's packed
     /// GEMM lands in one buffer and the activation is the CHUNKED swiglu
@@ -414,6 +429,7 @@ impl LlamaLikeCudaFacts {
             rope_table: true,
             force_prefill_path: false,
             head_dim_padded: false,
+            head_dim_kernel: 0,
             // The loader's `dense_fused_projection_joins` contract packs
             // BF16 dense groups and declines quantized ones, so a plain
             // BF16 deployment carries the bank. VERIFIED LIVE, not

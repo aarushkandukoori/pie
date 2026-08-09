@@ -72,6 +72,7 @@ fn main() {
                 rope_table: true,
                 force_prefill_path: false,
                 head_dim_padded: false,
+                head_dim_kernel: 0,
                 gate_up_fused: true,
                 // Dense: these fixtures are the BF16 deployments
                 // emission was taken against.
@@ -99,6 +100,7 @@ fn main() {
                 rope_table: true,
                 force_prefill_path: true,
                 head_dim_padded: false,
+                head_dim_kernel: 0,
                 gate_up_fused: true,
                 // Dense: these fixtures are the BF16 deployments
                 // emission was taken against.
@@ -126,6 +128,7 @@ fn main() {
                 rope_table: true,
                 force_prefill_path: false,
                 head_dim_padded: false,
+                head_dim_kernel: 0,
                 gate_up_fused: true,
                 // Dense: these fixtures are the BF16 deployments
                 // emission was taken against.
@@ -153,6 +156,7 @@ fn main() {
                 rope_table: true,
                 force_prefill_path: false,
                 head_dim_padded: true,
+                head_dim_kernel: 128,
                 gate_up_fused: true,
                 // Dense: these fixtures are the BF16 deployments
                 // emission was taken against.

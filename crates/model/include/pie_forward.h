@@ -537,6 +537,9 @@ struct PieForwardLlamaLikeCudaFacts {
   /// non-zero is true. Appended field: existing zero-initialized C
   /// callers read as false.
   uint8_t head_dim_padded;
+  /// The head width the attention kernels run at, or 0 when that is
+  /// the logical one. See `LlamaLikeCudaFacts::head_dim_kernel`.
+  uint32_t head_dim_kernel;
   /// The checkpoint bound a packed gate‖up bank, so the MLP activation
   /// is the chunked swiglu over one buffer rather than the pair form
   /// over two. Appended field, same zero-init rule — and note the

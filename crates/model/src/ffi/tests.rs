@@ -1104,6 +1104,7 @@ fn lowered_trace_round_trips_through_the_arena() {
         rope_table: 1,
         force_prefill_path: 0,
         head_dim_padded: 0,
+        head_dim_kernel: 0,
         gate_up_fused: 1,
         // Dense, which is what a zero-initialized C caller means too.
         proj_repr: 0,
@@ -1268,6 +1269,7 @@ fn traced_cuda_decode() -> PieForwardPlan {
         rope_table: 1,
         force_prefill_path: 0,
         head_dim_padded: 0,
+        head_dim_kernel: 0,
         gate_up_fused: 1,
         // Dense, which is what a zero-initialized C caller means too.
         proj_repr: 0,

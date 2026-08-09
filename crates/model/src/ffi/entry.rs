@@ -137,6 +137,9 @@ pub struct PieForwardLlamaLikeCudaFacts {
     /// non-zero is true. Appended field: existing zero-initialized C
     /// callers read as false.
     pub head_dim_padded: u8,
+    /// The head width the attention kernels run at, or 0 when that is
+    /// the logical one. See `LlamaLikeCudaFacts::head_dim_kernel`.
+    pub head_dim_kernel: u32,
     /// The checkpoint bound a packed gate‖up bank, so the MLP activation
     /// is the chunked swiglu over one buffer rather than the pair form
     /// over two. Appended field, same zero-init rule — and note the
@@ -210,6 +213,7 @@ fn read_cuda_facts(facts: &PieForwardLlamaLikeCudaFacts) -> LlamaLikeCudaFacts {
         decode_fused_post: facts.decode_fused_post != 0,
         rope_table: facts.rope_table != 0,
         head_dim_padded: facts.head_dim_padded != 0,
+        head_dim_kernel: facts.head_dim_kernel,
         force_prefill_path: facts.force_prefill_path != 0,
         gate_up_fused: facts.gate_up_fused != 0,
         proj_repr: read_weight_repr(facts.proj_repr, facts.proj_group,
