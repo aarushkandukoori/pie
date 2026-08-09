@@ -262,7 +262,38 @@ wrap attributes zero, not a negative share) is kept and tested.
 | `expert_paging.hpp` | 195 | missing — `fire` needs `ExpertSlab` (loader) |
 | `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` | 650 | missing |
 | `batch_schedule.hpp` (done above) | — | — |
-| `decode_psos.cpp` / `.hpp` | 582 | missing |
+| — | — | — (`decode_psos`'s M=1 half ported below) |
+
+## The PSO plan — `src/batch/psos.rs`
+
+The pure half of `decode_psos.cpp`: which `(file, entrypoint)` pairs a
+configuration compiles and which kinds each serves. The metal half is
+`Compiler::compile_batch`, which already exists.
+
+| C++ | Rust | |
+|---|---|---|
+| `PsoSpec` / the `want` gathering | `PsoRequest` / `plan_decode_psos` | ported |
+| `DecodePsoFeatures` | `Features` | ported |
+| the format-dependent `entrypoint()` names | `EntryNames`, table-checked | ported |
+| `DecodeStepPsos` fan-out | `DecodePsoPlan::source_of` | ported |
+| `load_decode_psos` (the compile loop) | `Compiler::compile_batch` + `source_of` | dropped |
+| `load_multibatch_psos` / `MultiBatchPsos` | — | missing: the qmm tile grammar and tuning constants land with the family port |
+
+The C++ `entrypoint()` refuses a name no shader instantiates, so an
+uninstantiated format fails at load naming the formats that exist instead
+of inside the Metal compiler. The plan holds the same line one step
+earlier and on any host: a dev test validates every emittable name against
+`kernels-metal`'s signature table (a new `default-features = false`
+dev-dependency — the table, no Metal) and every file path against the
+shipped tree. Each feature flag keeps its load-bearing absence documented
+(`untied` once handed llama a wrong-format pipeline that answered wrongly;
+`routed` would let an unrelated shader error fail a dense load), fan-out
+order is later-claims-win (the GDN recurrent override), and `routing_only`
+still clears the world down to the two second-format projections.
+
+Five portable tests: the 25-kind base surface, the full feature set with
+single-claim disjointness, the override ordering, `routing_only`, and the
+signature-table validation.
 | `golden_tap.cpp` | 238 | missing |
 | `worker.hpp` | 171 | missing |
 | `simple_family.cpp` / `.hpp` | 2176 | missing |

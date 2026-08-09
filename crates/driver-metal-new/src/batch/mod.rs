@@ -16,6 +16,7 @@ mod admit;
 mod color;
 mod mask;
 mod member;
+mod psos;
 mod schedule;
 mod timing;
 
@@ -27,6 +28,7 @@ pub use admit::{Refused, admit_recurrent};
 pub use color::{Coloring, ColoringError, Use, color_live_ranges};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
+pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, plan_decode_psos};
 pub use schedule::{
     BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,
     find_request, validate_capacity, validate_paged,

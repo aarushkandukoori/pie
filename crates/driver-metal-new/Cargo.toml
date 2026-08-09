@@ -138,6 +138,10 @@ features = [
 [dev-dependencies]
 tempfile = "3"
 
+# The PSO plan's names are held against the shipped signature table, so a
+# name no shader instantiates fails in CI on any host. Table only, no Metal.
+kernels-metal = { path = "../kernels-metal", default-features = false }
+
 # Tests only. The driver deliberately does not depend on the compiler at build
 # time -- see the `identity::Versions` comment -- but `pipeline::status` mirrors
 # the compiler's fault-code table, and a hand-copied table that nothing checks
