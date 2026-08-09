@@ -67,6 +67,70 @@ pub fn llama_step_plan(g: &LlamaGeometry) -> DecodePsoPlan {
     plan
 }
 
+/// The M>1 compile list: the M=1 plan with the batched forms claimed
+/// AFTER their base entries, so `source_of` answers with them. The MB
+/// embed reads a row per token off `grid.y`; the rope reads
+/// `position[row]`; the attention and the append walk pages. The paged
+/// attention's name carries the page shape too — `_p32` is a separate
+/// instantiation, and a 32-page pool under the generic entry is correct
+/// but leaves the specialised loads on the table. The `_sg8` rung
+/// (d=64/p32) is deferred: its threadgroup is 256 where the generic one
+/// is 1024, and a pipeline choice that does not move the launch with it
+/// is the grid-against-wrong-pipeline mismatch again.
+#[must_use]
+pub fn llama_mb_plan(g: &LlamaGeometry) -> DecodePsoPlan {
+    let names = llama_entry_names(g.quant);
+    let features = Features {
+        argmax: true,
+        routed: g.is_moe(),
+        untied: !g.tied_embeddings,
+        ..Features::default()
+    };
+    let mut plan = plan_decode_psos(&names, features);
+    let s = g.quant.kernel_suffix();
+    let mut want = |file: &'static str, entry: String, kinds: &[Kernel]| {
+        plan.requests.push(PsoRequest {
+            file,
+            entry,
+            kinds: kinds.to_vec(),
+        });
+    };
+    want(
+        "layout/embed_gather.metal",
+        format!("embed_gather_mb_4bit{s}"),
+        &[Kernel::EmbedGather, Kernel::EmbedUntied],
+    );
+    want(
+        "rope/neox.metal",
+        if g.rope_freq_table {
+            "neox_freqs_mb_bfloat16".to_owned()
+        } else {
+            "neox_mb_bfloat16".to_owned()
+        },
+        &[Kernel::Rope, Kernel::RopeK],
+    );
+    want(
+        "attn/kv_write.metal",
+        "kv_append_paged_bfloat16".to_owned(),
+        &[Kernel::KvAppendPaged],
+    );
+    want(
+        "attn/sdpa_paged.metal",
+        format!(
+            "sdpa_paged_decode_bfloat16_d_{}{}",
+            g.head_dim,
+            if g.kv_page_size == 32 { "_p32" } else { "" }
+        ),
+        &[Kernel::SdpaPaged],
+    );
+    want(
+        "layout/row_gather.metal",
+        "row_gather_bfloat16".to_owned(),
+        &[Kernel::G4RowGather],
+    );
+    plan
+}
+
 /// Llama 3.1's rotary frequencies, ported from
 /// `mlx_lm/models/rope_utils.py::Llama3RoPE`.
 ///

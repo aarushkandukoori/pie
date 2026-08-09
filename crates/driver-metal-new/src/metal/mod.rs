@@ -88,7 +88,7 @@ pub use handle::Handle;
 pub use heap::{Heap, Slot};
 pub use keepalive::{Keepalive, MIN_DEPTH, MIN_THREADGROUPS, THREADS_PER_THREADGROUP};
 pub use llama_bind::bind_llama_consts;
-pub use llama_step::LlamaStep;
+pub use llama_step::{LlamaMbStep, LlamaStep, llama_mb_pso};
 pub use memory::{Memory, Pages, reclaimable_pages};
 pub use pipeline::{Archived, Compiled, Compiler, Math};
 pub use pool::{DEFAULT_CAPACITY, Pool, PoolStats, SMALLEST_CLASS, Transient};

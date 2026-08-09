@@ -2166,3 +2166,162 @@ fn the_llama_assembly_decodes_the_reference_tokens() {
         );
     }
 }
+
+/// One packed 17-token paged prefill answers with mlx_lm's next token.
+///
+/// Seventeen rows pad to 32 — a whole GEMM row block plus fifteen
+/// discardable rows the pool must absorb — and every dense projection
+/// takes the shared unbiased GEMM at the unsplit width. The attention
+/// walks pages through the `_p32` instantiation, and the tail compacts
+/// to the ONE sampled row. Reference: mlx_lm greedily continues with
+/// 12366 (' Paris').
+#[test]
+fn the_llama_prefill_answers_in_one_paged_fire() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_LLAMA_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_LLAMA_CHECKPOINT to a llama-family MLX snapshot");
+        return;
+    };
+    let snapshot = PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json"))
+        .expect("the snapshot has a config.json");
+    let root: serde_json::Value = serde_json::from_str(&config).expect("config.json parses");
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().expect("utf8 path"))
+        .expect("the config converts to a descriptor");
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json)
+        .expect("the driver's facts read the descriptor");
+    let mut geometry =
+        driver_metal_new::batch::llama_geometry_from_facts(&facts).expect("a llama shape");
+
+    let prompt: [u32; 17] = [
+        128000, 791, 4062, 14198, 39935, 35308, 927, 279, 16053, 5679, 11, 323, 279, 6864, 315,
+        9822, 374,
+    ];
+    let n = prompt.len() as u32;
+    geometry.max_tokens = driver_metal_new::batch::llama_qmm_pool_rows(n);
+    geometry.max_requests = 1;
+    geometry.paged_kv_enabled = true;
+    geometry.kv_page_size = 32;
+    geometry.total_pages = 128;
+
+    let target = metal_storage_target();
+    let (plan, _moe) = compile_load_plan(&snapshot, &target, &descriptor_json)
+        .expect("the plan compiles and its files exist");
+    let context = Context::new().expect("a Metal device answers");
+    let tuning = Tuning::default();
+    let max_ctx = 4096u32;
+    let shared_view = driver_metal_new::batch::llama_decode_geometry(&geometry);
+    let slot_bytes = scratch_slot_elems(&shared_view, &tuning, geometry.max_tokens) * 4;
+    let storage = stage_decode_storage(
+        &context,
+        &plan,
+        &snapshot,
+        &shared_view,
+        max_ctx,
+        slot_bytes,
+    )
+    .expect("every region allocates and every tensor stages");
+
+    let dag = driver_metal_new::batch::build_llama_dag_mb(&geometry, &tuning, n, 1, 1, 0, false);
+    let schedule = build_scratch_schedule(&dag, false).expect("the MB DAG schedules hazard-free");
+    let compiler = Compiler::new(&context).expect("the shader compiler starts");
+    let base = load_step_psos(
+        &compiler,
+        &context,
+        &kernels_dir(),
+        &driver_metal_new::batch::llama_mb_plan(&geometry),
+    )
+    .expect("every planned MB entrypoint compiles");
+    let mb_plan = driver_metal_new::batch::plan_multibatch_psos(
+        geometry.quant,
+        driver_metal_new::batch::MbFeatures::default(),
+        &tuning,
+    );
+    let mb = driver_metal_new::metal::load_mb_psos(&compiler, &context, &kernels_dir(), &mb_plan)
+        .expect("the shared GEMM lattice compiles");
+
+    let step = driver_metal_new::metal::LlamaMbStep::prepare(
+        &context, &storage, &geometry, &tuning, &schedule, base, mb, n, 1, 1, max_ctx,
+    )
+    .expect("the MB step binds whole");
+    // Seventeen rows must tile the dense side — a smoke that silently
+    // fell back to matvecs would pass without touching the GEMM.
+    assert!(
+        step.dag
+            .iter()
+            .any(|d| d.kind == driver_metal_new::batch::Kernel::QmvQ && d.qmm_bn > 0),
+        "the dense projections must tile at 17 rows"
+    );
+
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().expect("io slot");
+    let write_u32s = |slot: IoSlot, values: &[u32]| {
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        // SAFETY: host-owned; nothing is encoded yet.
+        unsafe { io(slot).write(0, &bytes).expect("io write") };
+    };
+    write_u32s(IoSlot::TokenId, &prompt);
+    let positions: Vec<u32> = (0..n).collect();
+    write_u32s(IoSlot::Position, &positions);
+    write_u32s(
+        IoSlot::SeqLen,
+        &positions.iter().map(|p| p + 1).collect::<Vec<_>>(),
+    );
+    write_u32s(IoSlot::ReqOfToken, &vec![0; prompt.len()]);
+    let pages: Vec<u32> = (0..geometry.total_pages).collect();
+    write_u32s(IoSlot::KvPageIndices, &pages);
+    write_u32s(IoSlot::KvPageIndptr, &[0, geometry.total_pages]);
+    write_u32s(
+        IoSlot::WPage,
+        &positions
+            .iter()
+            .map(|p| p / geometry.kv_page_size)
+            .collect::<Vec<_>>(),
+    );
+    write_u32s(
+        IoSlot::WOff,
+        &positions
+            .iter()
+            .map(|p| p % geometry.kv_page_size)
+            .collect::<Vec<_>>(),
+    );
+    write_u32s(IoSlot::SampleRows, &[n - 1]);
+    write_u32s(IoSlot::AttnMaskStride, &[0]);
+    // SAFETY: host-owned; the mask-enabled flags are u8 rows.
+    unsafe {
+        io(IoSlot::AttnMaskEnabled)
+            .write(0, &vec![0u8; prompt.len()])
+            .expect("io write");
+    }
+
+    let mut stepper = Stepper::new(&context).expect("a stepper");
+    step.fire(&mut stepper).expect("the paged prefill retires");
+
+    let logits = io(IoSlot::Logits);
+    let vocab = geometry.vocab as usize;
+    // SAFETY: the step retired; row 0 is the one sampled row.
+    let bytes =
+        unsafe { std::slice::from_raw_parts(logits.contents().cast::<u8>().as_ptr(), vocab * 2) };
+    let mut finite = 0usize;
+    let mut best = (0usize, f32::NEG_INFINITY);
+    for (i, pair) in bytes.chunks_exact(2).enumerate() {
+        let value = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+        if value.is_finite() {
+            finite += 1;
+            if value > best.1 {
+                best = (i, value);
+            }
+        }
+    }
+    eprintln!(
+        "llama paged prefill: {finite}/{vocab} finite, argmax {} ({:.3})",
+        best.0, best.1
+    );
+    assert_eq!(
+        finite, vocab,
+        "a NaN in the logits is a wrong kernel upstream"
+    );
+    assert_eq!(
+        best.0, 12366,
+        "mlx_lm continues this prompt with 12366 (' Paris')"
+    );
+}
