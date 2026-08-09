@@ -164,6 +164,17 @@ void pin_llama_like_values(const pie_forward::ForwardPlan& plan,
             }
             break;
         }
+        case PieForwardOpKind::RmsnormPerHead: {
+            // The per-head q/k norms rewrite the projections where they
+            // lie by convention; rope and the attention downstream still
+            // name those buffers, so the RESULT has to land on them.
+            const ParsedWeightName nm = parse_weight_name(plan.weight_name(op));
+            if (outs.size > 0) {
+                values.pin(outs[0], nm.field == "k_norm" ? ws.k.data()
+                                                         : ws.q.data());
+            }
+            break;
+        }
         case PieForwardOpKind::SplitQkv:
             if (outs.size >= 3) {
                 values.pin(outs[0], ws.q.data());
@@ -1461,19 +1472,29 @@ void llama_like_forward_declared(
             // full-N consumers (hooks, attention) see one contiguous
             // buffer — the hand-written tail split verbatim. Offset 0 +
             // full length is the plain full-N split.
+            // ISLAND (value arena). The four buffers and the two result
+            // widths are the statement's; the WINDOW is the rectangle's,
+            // which is why the row offsets stay.
+            void* const packed = values.slot(plan.inputs(op)[0],
+                                             plan.value(plan.inputs(op)[0]));
+            void* const q_out = values.slot(plan.outputs(op)[0],
+                                            plan.value(plan.outputs(op)[0]));
+            void* const k_out = values.slot(plan.outputs(op)[1],
+                                            plan.value(plan.outputs(op)[1]));
+            void* const v_out = values.slot(plan.outputs(op)[2],
+                                            plan.value(plan.outputs(op)[2]));
             if (peel_window_d != nullptr && win_region == WinRegion::Tail) {
                 kernels::attn::split_qkv_bf16_devwin(
-                    ws.qkv_fused.data(),
-                    ws.q.data(), ws.k.data(), ws.v.data(),
-                    peel_window_d, N, Hq, Hk, stream);
+                    packed, q_out, k_out, v_out,
+                    peel_window_d, N, out_w(0), out_w(1), stream);
                 break;
             }
             kernels::attn::split_qkv_bf16(
-                bf16_row(ws.qkv_fused.data(), win_start, Hq + 2 * Hk),
-                bf16_row(ws.q.data(), win_start, Hq),
-                bf16_row(ws.k.data(), win_start, Hk),
-                bf16_row(ws.v.data(), win_start, Hk),
-                win_len, Hq, Hk, stream);
+                bf16_row(packed, win_start, in_w(0)),
+                bf16_row(q_out, win_start, out_w(0)),
+                bf16_row(k_out, win_start, out_w(1)),
+                bf16_row(v_out, win_start, out_w(2)),
+                win_len, out_w(0), out_w(1), stream);
             break;
         }
         case PieForwardOpKind::RmsnormPerHead: {
@@ -1486,17 +1507,39 @@ void llama_like_forward_declared(
             const std::string_view name = plan.weight_name(op);
             const ParsedWeightName nm = parse_weight_name(name);
             const auto& layer = layer_of(w, nm, name);
-            if (nm.field == "q_norm") {
-                kernels::norm::rmsnorm_bf16(
-                    ws.q.data(), wb.require(name).data(),
-                    ws.q.data(), N * num_q_heads, d, eps, stream);
-            } else if (nm.field == "k_norm") {
-                kernels::norm::rmsnorm_bf16(
-                    ws.k.data(), wb.require(name).data(),
-                    ws.k.data(), N * num_kv_heads, d, eps, stream);
-            } else {
+            // ISLAND (value arena). Two sites that differed in which
+            // buffer they normed and how many HEAD-WIDE rows that is,
+            // both the statement's: `op.param0` is the head width, so
+            // the row count is the operand's width divided by it.
+            //
+            // The convention passes one pointer twice. That is the
+            // convention choosing to overwrite, not the kernel needing
+            // to -- it computes correctly into a fresh buffer -- so this
+            // reads the operand and writes the result, and the pin pass
+            // keeps both on `ws.q`/`ws.k` until rope and attention move
+            // with them.
+            //
+            // UNEXERCISED BY THE GATE. qwen3-0.6b states the FUSED
+            // `qk_rmsnorm_rope` launch instead, so no `RmsnormPerHead`
+            // op reaches this walk on the model the parity harness runs
+            // -- checked against its golden, which carries 84 `SplitQkv`
+            // and no per-head norm. The deployments that do state it
+            // standalone (`qwen3_0_6b_unfused_qkv`, gemma-4's texts) are
+            // not what this family's A/B loads, so a green gate says
+            // nothing about these three lines.
+            if (nm.field != "q_norm" && nm.field != "k_norm") {
                 throw_unknown_weight(name);
             }
+            const int head = static_cast<int>(op.param0) > 0
+                                 ? static_cast<int>(op.param0)
+                                 : d;
+            kernels::norm::rmsnorm_bf16(
+                values.slot(plan.inputs(op)[0],
+                            plan.value(plan.inputs(op)[0])),
+                wb.require(name).data(),
+                values.slot(plan.outputs(op)[0],
+                            plan.value(plan.outputs(op)[0])),
+                N * (in_w(0) / head), head, eps, stream);
             break;
         }
         case PieForwardOpKind::Rope: {
