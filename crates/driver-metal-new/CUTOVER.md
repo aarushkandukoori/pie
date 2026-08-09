@@ -72,10 +72,17 @@ The flip is authorised when all of the following hold, and not before:
    stream, and a fleet (equal and mixed lengths) — and all reproduce one
    reference sequence exactly over the tested horizon; staging is
    byte-exact for every tensor, and the golden-tap bisect holds every
-   stage function to host arithmetic at cosine 0.999+. What this gate
-   still requires beyond that: the N ≥ 1000 horizon, and the comparison
-   against the OLD backend's tokens rather than against the run's own
-   reference.
+   stage function to host arithmetic at cosine 0.999+. The N ≥ 1000 horizon has
+   since run: 1000 greedy tokens on the paged path at a flat 18.6 tok/s,
+   no faults, no NaNs, no rate creep as the cache grew to position 1006.
+   An mlx-lm cross-check on the same prompt matches tokens 1–2 exactly
+   and then tie-breaks differently at a step where mlx-lm's own top-two
+   gap is 0.0625 — one bf16 ulp at that magnitude — with both backends
+   agreeing on the same top-five set (`PIE_SMOKE_TOP5_AT` is the
+   instrument). A near-tie amplified by greedy, not a defect signal; the
+   BIT-identical standard this item states applies to the comparison
+   against the OLD driver, which shares these kernels and remains the
+   one open leg.
 4. **The interpreter agrees.** The same fires replayed through the ported
    CPU reference interpreter (`interp.hpp`'s Rust) match the device results
    within its stated tolerance — the oracle the C++ never had wired to
