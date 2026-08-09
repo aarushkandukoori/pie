@@ -120,64 +120,76 @@ namespace {
 using pie_forward::PieForwardOp;
 using pie_forward::PieForwardOpKind;
 
-// `PIE_DECLARED_HOST_ARENA=1`: take activation buffers from the HOST's
-// assignment (`Buffers::assign`) wherever it placed a value, instead of
-// from this family's pin table.
+// THE HOST ASSIGNS. gemma-4 takes its activation buffers from
+// `Buffers::assign` wherever it placed a value; the pin table below now
+// speaks only for what the host DECLINED to place.
 //
-// Default OFF, and the default is the honest state rather than caution:
-// with it on, gemma-4 boots, sizes its block and runs -- and produces
-// deterministic garbage. Deterministic matters. It is not uninitialised
-// memory in the random sense; some value is read from a different
-// address than it was written to, or with contents the convention
-// happened to supply.
+// `PIE_DECLARED_HOST_ARENA=0` puts the pin table back in charge. Kept
+// because the next three families convert against it, and because it is
+// the A/B that turned a wrong answer into two named facts.
 //
-// WHAT THE BISECT SAYS (`_LO`/`_HI` below, by offset):
+// WHAT IT COST TO GET HERE, because the shape of the search is the
+// transferable part. The flip produced DETERMINISTIC garbage -- not
+// uninitialised memory in the random sense, but some value read from a
+// different address than it was written to. Deterministic is
+// bisectable, and the axis you bisect on is the whole problem:
 //
-//   [0, 0)        GOOD    nothing host-placed
-//   [0, 1)        BAD     only the buffer at offset 0
-//   [1, huge)     BAD     everything EXCEPT that buffer
+//   by VALUE ID     unsound. Values that share bytes must move
+//                   together, and an id range splits them. It accused
+//                   value 0, which is only the residual stream's first
+//                   link.
+//   by OFFSET       sound but blunt. Sharing bytes is sharing an
+//                   offset, so a window cannot split a chain -- but one
+//                   offset hosts many chains over a fire (slot 20992
+//                   held eleven values), so it bottomed out at a slot
+//                   and could not name a statement.
+//   by OWNER        both. Every member of a chain has one owner, so the
+//                   window is chain-safe; two chains reusing a slot
+//                   have different owners, so it separates them.
 //
-// Both halves fail alone, so this is not one stray reader. Offset 0 is
-// the residual stream -- the Embed output owns the in-place chain, so
-// the whole stream sits there -- and nothing outside `execute_op` in
-// the declared path writes it: multimodal fires, which DO scatter into
-// `ws.y`, are declined by the eligibility test in `gemma4_model.cpp`.
+// On the owner axis it took nine runs to name each of two bugs, and
+// both were the same KIND of thing: an op that writes over its operand
+// while the table describing it said it produced a value. Semantic rope
+// (`kernels::semantic_in_place`) and the logit softcap (`in_place` on
+// its `kernel!` row). Under the pin table both aliases were the same
+// workspace field, so neither had ever been observable.
 //
-// Two candidates were ruled out by fixing them and re-running. The PLE
-// relay: the geglu's signal read `per_layer_token` while the transpose
-// filling it wrote to the arena. The exposed logits: seam pinning
-// inferred the exposed set from a neighbouring op's INPUTS, so a value
-// exposed as an OUTPUT was never pinned. Both fixes are kept and stand
-// on their own; neither was this.
-//
-// THE LEADING HYPOTHESIS, and the reason "both halves" is a clue rather
-// than a puzzle: a per-role workspace buffer is allocated once and
-// reused across fires, so rows a kernel does not write still hold
-// something SHAPE-COMPATIBLE from the previous fire. A packed arena
-// gives those same rows a different value's bytes. Any statement that
-// writes fewer rows than a later one reads -- a peeled region, a live-
-// row window, padding to an alignment -- is correct under the
-// convention and wrong under the arena, and there is no reason such a
-// statement would sit on one side of an offset split. That is a
-// property of the TEXT, checkable on the host: a value read over more
-// rows than its producer wrote.
-//
+// Two earlier candidates were ruled out by fixing them and re-running,
+// and both fixes stand on their own: the PLE relay, whose geglu signal
+// read `per_layer_token` while the transpose filling it wrote to the
+// arena; and seam pinning, which inferred the exposed set from a
+// neighbouring op's INPUTS and so never pinned a value exposed as an
+// OUTPUT.
 bool gemma4_host_arena_enabled() {
     const char* v = std::getenv("PIE_DECLARED_HOST_ARENA");
-    return v != nullptr && v[0] == '1';
+    return v == nullptr || v[0] != '0';
 }
 
 // `PIE_DECLARED_HOST_ARENA_LO` / `_HI`: let the host place only the
-// values whose OFFSET falls in `[lo, hi)`, and pin the rest as before.
+// values whose OWNER falls in `[lo, hi)`, and pin the rest as before.
 //
 // The failure is DETERMINISTIC, which makes it bisectable, and this is
-// the cut. By OFFSET and not by value id, which was the first attempt
-// and was unsound: values that share bytes -- an in-place chain, a
-// select window -- must move together, and an id range splits them. It
+// the cut. Not by value id, which was the first attempt and was
+// unsound: values that share bytes -- an in-place chain, a select
+// window -- must move together, and an id range splits them. It
 // reported value 0 as the culprit, which is just the residual stream's
 // first link; placing it while its own later links stayed pinned put
-// the stream in two buffers. Offsets cannot split a chain, because
-// sharing bytes IS sharing an offset.
+// the stream in two buffers.
+//
+// The second attempt cut by OFFSET, which cannot split a chain --
+// sharing bytes IS sharing an offset -- and that got the first bug.
+// But it could not NAME the second, because the converse fails: one
+// offset hosts many chains over a fire (slot 20992 held eleven values),
+// so a window that isolates an offset still admits everything that ever
+// reused it, and the bisect bottomed out at a slot rather than a
+// statement.
+//
+// So cut by OWNER, which is the axis that was wanted both times. Every
+// member of a chain has the same owner, so a window is still
+// chain-safe; and two chains that reuse a slot have DIFFERENT owners,
+// so the window separates what the offset axis conflated. `value_owner`
+// is what `Buffers::assign` already computes to get liveness right --
+// this only asks the host to say it out loud.
 // `PIE_DECLARED_ARENA_ZERO=1`: clear the activation block before the
 // fire. A DISCRIMINATOR, not a fix.
 //
@@ -1035,8 +1047,14 @@ bool gemma4_forward_declared(
                 const std::uint32_t v = outs[which];
                 if (host_arena && v < flat.value_offsets_len) {
                     const std::size_t at = flat.value_offsets[v];
+                    // The window is on the OWNER, not on `v` and not on
+                    // `at`; a value with no owner table is its own.
+                    const std::size_t owner =
+                        v < flat.value_owners_len
+                            ? static_cast<std::size_t>(flat.value_owners[v])
+                            : static_cast<std::size_t>(v);
                     if (at != declared::ValueArena::kNamed &&
-                        at >= arena_lo && at < arena_hi) {
+                        owner >= arena_lo && owner < arena_hi) {
                         return;
                     }
                 }

@@ -45,6 +45,7 @@
 pub mod bump;
 mod error;
 pub mod facts;
+pub mod pipeline;
 pub mod region;
 pub mod shader;
 pub mod tuning;
@@ -62,5 +63,6 @@ pub use metal::{
     Archived, Archives, ArgumentTable, Compiled, Compiler, Context, DeviceInfo, External,
     Externals, Feedback, Feedbacks, Granularity, Heap, Keepalive, MAX_BINDINGS, MIN_DEPTH,
     MIN_THREADGROUPS, Mapped, Memory, Pool, PoolStats, Slot, StepEncoder, Stepper,
-    THREADS_PER_THREADGROUP, Math, Tables, Timestamps, Timing, Transient, Visibility,
+    Arena, Budget, CHUNK, Elastic, Need, PAGE, Pressure, TILE, THREADS_PER_THREADGROUP, Math,
+    Tables, Timestamps, Timing, Transient, Visibility, create_elastic, pages_for_bytes,
 };

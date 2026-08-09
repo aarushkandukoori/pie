@@ -282,6 +282,16 @@ pub struct Lowered {
     /// been rewritten to walk rectangles — two migrations chained where
     /// one will do.
     pub value_offset: Vec<usize>,
+    /// For each value, the value that OWNS the bytes it lives in.
+    ///
+    /// Most values own their own; the exceptions are the constructs
+    /// whose meaning is that the output does not get memory of its own,
+    /// and they CHAIN — a residual stream is a run of in-place adds, all
+    /// one owner. A driver reading `value_offset` alone cannot tell two
+    /// chains that reuse a slot at different times apart from one chain;
+    /// this says which values must move together, and is what makes a
+    /// per-chain question askable at all.
+    pub value_owner: Vec<ValueId>,
     /// Every launch's operands, concatenated; [`Launch::args`] indexes
     /// it. Flat rather than per-launch so the whole frame is two arrays
     /// and a table — which is the shape a driver can walk without
@@ -351,6 +361,7 @@ pub fn lower(plan: &ForwardPlan, rows: &[Row], fire: Fire) -> Result<Lowered, Un
     };
     let arena_bytes = out.buffers.bytes;
     let value_offset = out.buffers.offset.clone();
+    let value_owner = alias_owners(plan);
     out.region(0..plan.ops.len(), 0..n)?;
     Ok(Lowered {
         rectangles: out.launches.len(),
@@ -358,6 +369,7 @@ pub fn lower(plan: &ForwardPlan, rows: &[Row], fire: Fire) -> Result<Lowered, Un
         kernels: out.kernels,
         arena_bytes,
         value_offset,
+        value_owner,
         args: out.args,
         structural: out.structural,
         residue: out.residue,
@@ -1186,15 +1198,29 @@ impl Buffers {
                 size[out as usize] = want;
                 continue;
             }
-            // An IN-PLACE kernel writes over an operand, so its output
-            // is that operand's bytes — `kernel!`'s `in_place` says
-            // which. Giving it an allocation of its own would be a copy
+            // An IN-PLACE op writes over an operand, so its output is
+            // that operand's bytes. Giving it an allocation of its own
+            // would be a copy
             // the model does not make, and for a text that accumulates
             // into a `select` window it would be worse than wasteful:
             // the window would keep its pre-update value and the streams
             // would silently never see the add.
-            if let OpKind::Launch { kernel, .. } = &op.kind {
-                let pairs = crate::kernels::in_place_pairs(plan, kernel);
+            //
+            // Read from the SAME two tables `alias_owners` reads —
+            // the `kernel!` row for a stated symbol, the kind itself for
+            // a semantic one. They were not the same for a while: the
+            // owner table joined a semantic rope's operand and result
+            // while this loop, which only knew about `Launch`, handed
+            // the result a block of its own. Liveness then freed one
+            // buffer for what placement had made two, and the rotated k
+            // was written to an address nothing read.
+            {
+                let pairs = match &op.kind {
+                    OpKind::Launch { kernel, .. } => {
+                        crate::kernels::in_place_pairs(plan, kernel)
+                    }
+                    other => crate::kernels::semantic_in_place(other),
+                };
                 let mut aliased = false;
                 for &(o, i) in pairs {
                     // A pair outside this statement's arity is not an
@@ -1319,18 +1345,20 @@ fn insert_free(free: &mut Vec<(usize, usize)>, block: (usize, usize)) {
 
 /// For each value, the value that OWNS the bytes it lives in.
 ///
-/// Most values own their own. The exceptions are the two constructs
+/// Most values own their own. The exceptions are the three constructs
 /// whose meaning is that the output does not get memory of its own: a
-/// [`OpKind::Select`] output is a window of its operand, and a launcher
-/// the `kernel!` table marks in-place writes over the operand it
-/// accumulates into. Both chain — a residual stream is a run of in-place
-/// adds — so this is a union-find, and the owner is always the EARLIER
-/// value, i.e. the one whose allocation the rest inherit.
+/// [`OpKind::Select`] output is a window of its operand; a launcher the
+/// `kernel!` table marks in-place writes over the operand it
+/// accumulates into; and a semantic kind that rewrites its operand says
+/// so through [`crate::kernels::semantic_in_place`]. All chain — a
+/// residual stream is a run of in-place adds — so this is a union-find,
+/// and the owner is always the EARLIER value, i.e. the one whose
+/// allocation the rest inherit.
 ///
 /// Buffer assignment needs this in two places: the live range of a
 /// shared buffer is the union's, not any one member's, and only the
 /// owner may return those bytes to the free pool.
-fn alias_owners(plan: &ForwardPlan) -> Vec<ValueId> {
+pub(crate) fn alias_owners(plan: &ForwardPlan) -> Vec<ValueId> {
     let mut owner: Vec<ValueId> = (0..plan.values.len() as ValueId).collect();
 
     fn find(owner: &mut [ValueId], v: ValueId) -> ValueId {
@@ -1355,7 +1383,15 @@ fn alias_owners(plan: &ForwardPlan) -> Vec<ValueId> {
                     Some((*op.inputs.get(i as usize)?, *op.outputs.get(o as usize)?))
                 })
                 .collect(),
-            _ => Vec::new(),
+            // The kinds that name no kernel but still write over their
+            // operand — see `kernels::semantic_in_place`. Read the same
+            // way as the table's, because it is the same fact.
+            other => crate::kernels::semantic_in_place(other)
+                .iter()
+                .filter_map(|&(o, i)| {
+                    Some((*op.inputs.get(i as usize)?, *op.outputs.get(o as usize)?))
+                })
+                .collect(),
         };
         for (src, out) in joined {
             if src as usize >= owner.len() || out as usize >= owner.len() {

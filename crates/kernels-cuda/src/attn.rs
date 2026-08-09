@@ -398,7 +398,15 @@ pub static KERNELS: &[KernelSig] = &[
             stream: Stream, window_left: I32, logits_soft_cap: F32, sm_scale: F32,
             lse_out: F32sMut,
         ]),
+    // Caps the logits WHERE THEY LIE — one buffer, no destination. Which
+    // `Buffers::assign` was already relying on ("the logit softcap
+    // accumulates into the logits it was handed", where it widens a
+    // seam's pin over an alias set) while this row said nothing, so the
+    // set had one member and the widening reached nothing. The head
+    // wrote the logits into the arena and the cap ran over `ws.logits`,
+    // which is where the sampler then read an uncapped previous fire.
     kernel!(logit_softcap "attn::logit_softcap_bf16",
+        in_place = &[(0, 0)],
         operands = operands![
             x: BufMut, cap: F32, n: Usize, stream: Stream,
         ]),

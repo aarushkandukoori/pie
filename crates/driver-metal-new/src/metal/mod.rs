@@ -39,12 +39,17 @@ mod memory;
 mod pipeline;
 mod pool;
 mod tables;
+mod elastic;
 mod timestamp;
 mod timing;
 
 pub use archive::{Archives, CACHE_ENV, EXTENSION, MAX_AGE};
 pub use context::{ALLOCATOR_COUNT, Context};
 pub use device::DeviceInfo;
+pub use elastic::{
+    Arena, Budget, CHUNK, Elastic, Need, PAGE, Pressure, TILE, create as create_elastic,
+    pages_for_bytes,
+};
 pub use encoder::{ArgumentTable, StepEncoder, Stepper, Visibility};
 pub use external::{External, Externals, Mapped, page_size};
 pub use feedback::{Feedback, Feedbacks};

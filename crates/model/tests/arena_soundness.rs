@@ -830,3 +830,70 @@ fn which_values_are_read_wider_than_they_are_written() {
         }
     }
 }
+
+/// A value must be placed INSIDE the bytes its owner holds.
+///
+/// Two facts, from two places that had drifted apart: `alias_owners`
+/// decides who shares a buffer, and the placement loop decides where
+/// each buffer is. Liveness reads only the first, so when the second
+/// disagreed the arena freed ONE block for what it had allocated as
+/// TWO, and handed the survivor's bytes to a later value.
+///
+/// Containment and not equality, because the two ways of sharing share
+/// differently. An in-place write lands on the owner's own address; a
+/// `Select` window lands at an index INTO it, which is the whole of
+/// what the op means. What both owe is that the bytes come out of the
+/// owner's allocation — that is what makes freeing the owner's block
+/// free all of them, which is the property liveness is relying on.
+///
+/// The drift was found the expensive way — a bisect over a real gemma-4
+/// fire, narrowed to one owner, whose two members printed two
+/// addresses — and it is a property of the TEXT. So it is checkable
+/// here, at every fire width, for every family, without a GPU.
+#[test]
+fn an_alias_lands_inside_its_owner() {
+    use model_compiler::lower::{lower, Buffers, Fire};
+
+    for (name, class, plan) in families() {
+        for n in [1usize, 8] {
+            let rows = plain(n);
+            let requests = n.max(1);
+            let Ok(out) = lower(&plan, &rows, Fire::default()) else {
+                continue; // a text that will not lower places nothing
+            };
+            let mut checked = 0usize;
+            for v in 0..out.value_owner.len() {
+                let own = out.value_owner[v] as usize;
+                if own == v {
+                    continue;
+                }
+                checked += 1;
+                // NAMED is not an address, and an alias set that is
+                // exposed must be exposed WHOLE: half a set placed and
+                // half of it bound by the backend is the same defect
+                // wearing the seam's clothes.
+                assert_eq!(
+                    out.value_offset[v] == Buffers::NAMED,
+                    out.value_offset[own] == Buffers::NAMED,
+                    "{name} {class:?} at {n} rows: v{v} and its owner v{own} \
+                     disagree about whether the arena places them"
+                );
+                if out.value_offset[v] == Buffers::NAMED {
+                    continue;
+                }
+                let at = out.value_offset[v];
+                let root = out.value_offset[own];
+                let end = at + value_bytes(&plan, v as ValueId, n, requests);
+                let root_end = root + value_bytes(&plan, own as ValueId, n, requests);
+                assert!(
+                    at >= root && end <= root_end,
+                    "{name} {class:?} at {n} rows: v{v} is owned by v{own} \
+                     but lies at [{at}, {end}) outside its owner's \
+                     [{root}, {root_end}) — one buffer by liveness, two \
+                     by placement"
+                );
+            }
+            println!("{name:12} {class:?} n={n}: {checked} aliases inside their owner");
+        }
+    }
+}

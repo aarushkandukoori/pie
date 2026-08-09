@@ -866,6 +866,11 @@ struct PieForwardLowered {
   /// buffers without first being rewritten to walk rectangles.
   const size_t *value_offsets;
   size_t value_offsets_len;
+  /// For each value, the value that OWNS its bytes — see
+  /// `Lowered::value_owner`. Values sharing an owner share a buffer
+  /// and must be bound together.
+  const uint32_t *value_owners;
+  size_t value_owners_len;
   /// Non-zero when the fire could not be lowered; `launches` is then
   /// empty and the value says which rule refused.
   PieForwardUncovered uncovered;

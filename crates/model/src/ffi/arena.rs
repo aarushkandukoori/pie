@@ -50,6 +50,7 @@ pub struct PlanArena {
     shadow_args: Vec<super::types::PieForwardArg>,
     /// The buffer table, by value id — see `PieForwardLowered`.
     shadow_value_offsets: Vec<usize>,
+    shadow_value_owners: Vec<u32>,
 }
 
 /// Interns strings into the arena's name table during a build.
@@ -482,6 +483,7 @@ pub fn build(plan: &ForwardPlan) -> PieForwardPlan {
         shadow_structural: Vec::new(),
         shadow_args: Vec::new(),
         shadow_value_offsets: Vec::new(),
+        shadow_value_owners: Vec::new(),
     };
     let mut interner = Interner::default();
 
@@ -632,6 +634,7 @@ pub fn lower(
             arena.shadow_name_bytes.clear();
             arena.shadow_structural.clear();
             arena.shadow_value_offsets.clear();
+            arena.shadow_value_owners.clear();
             return PieForwardLowered {
                 uncovered: match why {
                     model_compiler::lower::Uncovered::Rows { .. } => PieForwardUncovered::Rows,
@@ -728,6 +731,9 @@ pub fn lower(
     arena.shadow_value_offsets.clear();
     arena.shadow_value_offsets
         .extend_from_slice(&lowered.value_offset);
+    arena.shadow_value_owners.clear();
+    arena.shadow_value_owners
+        .extend_from_slice(&lowered.value_owner);
 
     arena.shadow_structural.clear();
     arena.shadow_structural.extend(lowered.structural.iter().map(|site| {
@@ -755,6 +761,8 @@ pub fn lower(
         arena_bytes: lowered.arena_bytes,
         value_offsets: arena.shadow_value_offsets.as_ptr(),
         value_offsets_len: arena.shadow_value_offsets.len(),
+        value_owners: arena.shadow_value_owners.as_ptr(),
+        value_owners_len: arena.shadow_value_owners.len(),
         uncovered: PieForwardUncovered::None,
     };
     // Kept so a debugger (and any later accessor) can reach the residue
