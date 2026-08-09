@@ -17,6 +17,7 @@ mod color;
 mod geometry;
 mod mask;
 mod member;
+mod paging;
 mod psos;
 mod schedule;
 mod sizing;
@@ -32,6 +33,9 @@ pub use color::{Coloring, ColoringError, Use, color_live_ranges};
 pub use geometry::{AffineFormat, DecodeGeometry};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
+pub use paging::{
+    Cut, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging, renumber_routing,
+};
 pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, plan_decode_psos};
 pub use schedule::{
     BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,

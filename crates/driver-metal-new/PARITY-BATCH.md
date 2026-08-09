@@ -187,9 +187,7 @@ shared vocabulary. The porting order that follows from the includes:
    ~540) consume `Kernel`/`Dispatch`/`DecodeGeometry`; `Dispatch` and the
    geometry live under `model/<family>/` and land with the family port.
    (`DecodeGeometry` itself has since landed — see the geometry section.)
-3. `expert_paging.hpp` (195): `plan`'s validation is pure modulo a
-   three-field slab shape, but `fire` needs `ExpertSlab` (the loader port)
-   and host-callback segments; port whole when the loader lands.
+3. `expert_paging.hpp` (195): ported -- see "Expert paging" below.
 4. `decode_psos` (582), `golden_tap` (238), `worker.hpp` (171),
    `simple_family` (2176), then `forward.cpp/.hpp` (5393) over everything.
 
@@ -248,6 +246,29 @@ The kernel bound has no Rust home on the kernels side yet: `kernels-metal`
 is a signature table. When it grows launch-shape helpers, `sorted_rows`
 should migrate there; until then the doc names its authority
 (`moe_route.metal`'s sort).
+
+## Expert paging — `src/batch/paging.rs`
+
+The portable half of `batch/expert_paging.hpp` (195), now that
+`ExpertSlab` exists (`src/loader/slab.rs`).
+
+| C++ | Rust | |
+|---|---|---|
+| `ExpertPaging::plan` | `plan_paging(cuts, dag_size, SlabShape, …)` | ported; five refusals become four named `PagingRefused` variants |
+| ids-not-host-readable refusal | — | stays with the device half: a `SlotHandle`'s readability is a Metal fact |
+| the in-place id rewrite inside `fire` | `renumber_routing` | ported; takes the slab's `ensure_resident` as a closure, so the rewrite is tested without a device |
+| `fire`'s segment loop / `run_segments` | — | missing: drives a command queue; lands with the `src/metal/` paging glue. The pins-back-FIRST rule is stated in this module's docs because it is a budget fact, not a queue fact |
+| `PIE_METAL_PAGING_TRACE` stderr dump | — | dropped: the crate denies `print_stderr`; a caller that wants the trace logs the buffer it owns |
+| `[pie-metal] … experts paged through …` banner | `PagingPlan::worst_case_experts` + slab accessors | dropped as a print; the numbers it printed are readable off the plan and the slab |
+
+Arguments preserved: the worst case is every expert ONE dispatch can read
+(`min(n_experts, rows × experts_per_token)`) resident at once -- there is
+no order in which a smaller cache could serve it, which is also why the
+slab never needs to exceed one layer's bank. The strided-vs-packed story
+is pinned by test: reading a strided prefill as packed renumbers row 0
+`rows` times and leaves the rest holding true expert ids -- fluent wrong
+text, not an error. `renumber_routing` refuses a short buffer before
+touching a byte, because a partial rewrite is a state nobody asked for.
 
 ## The decode-step ABI — `src/batch/abi.rs`
 
