@@ -1056,14 +1056,14 @@ bool forward_declared_tmpl(
                 place(2, ws.v.data());
                 break;
             case PieForwardOpKind::SplitGdn:
-                if (op.param0 == static_cast<std::uint32_t>(conv_dim) &&
-                    op.param1 == static_cast<std::uint32_t>(V_dim)) {
-                    place(0, la.mixed_qkv.data());
-                    place(1, la.z.data());
-                } else {
-                    place(0, la.b.data());
-                    place(1, la.a.data());
-                }
+                // The two splits are `Launch` now (2b), so their pin
+                // entries live in the Launch case below, keyed by
+                // SYMBOL rather than by a width comparison. This one
+                // stays for a semantic trace and does nothing for a
+                // CUDA one, which no longer carries the kind -- the
+                // same shape the norms' entries took in 1a, and the
+                // same reason: an entry left keyed on a kind the class
+                // trace stopped emitting stops applying silently.
                 break;
             case PieForwardOpKind::GdnPrep:
                 place(0, la.q_pre.data());
@@ -1109,6 +1109,16 @@ bool forward_declared_tmpl(
                 break;  // see the fallback pass below
             case PieForwardOpKind::Launch: {
                 switch (resolve_q35_kernel(plan.weight_name(op))) {
+                case Q35Kernel::SplitRows:
+                    // `[conv_dim | V_dim]` -- the qkvz row split.
+                    place(0, la.mixed_qkv.data());
+                    place(1, la.z.data());
+                    break;
+                case Q35Kernel::SplitGdnBa:
+                    // The interleaved b/a split.
+                    place(0, la.b.data());
+                    place(1, la.a.data());
+                    break;
                 case Q35Kernel::RopeFull:
                 case Q35Kernel::RopePartial:
                     // The rotation rewrites q and k where they lie; the
