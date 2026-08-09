@@ -22,6 +22,7 @@ mod dispatch_mb;
 mod geometry;
 mod geometry_facts;
 mod golden;
+mod gptoss;
 mod mask;
 mod member;
 mod paging;
@@ -63,6 +64,7 @@ pub use golden::{
     Tap, TapSite, dir_from_env, dump_bf16, dump_bf16_sorted, dump_taps, dump_tokens,
     sorted_dump_rows, tap_for, taps_recycle, write_npy,
 };
+pub use gptoss::{GptOssGeometry, gptoss_geometry_from_facts};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
 pub use paging::{
