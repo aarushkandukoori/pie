@@ -602,6 +602,7 @@ bool gpt_oss_forward_declared(
             const declared::ExecCtx ectx{
                 {plan, values, N, 0, stream},
                 wb, cache, attn_ws, cublas, fwd_cfg.tp_comm,
+                /*state_cache=*/nullptr,
                 positions, qo_indptr, kv_page_indices, kv_page_indptr,
                 kv_last_page_lens, row_valid_d, nullptr, nullptr, R,
                 nullptr, false,
@@ -710,38 +711,6 @@ bool gpt_oss_forward_declared(
                     fwd_cfg.yarn_original_max_position, stream);
                 break;
             }
-            case declared::Kernel::TopkSoftmax: {
-                // ISLAND (value arena). Both results are traced -- the
-                // expert ids and their weights -- so the two `d_topk_*`
-                // buffers are the arena's now.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "topk inputs");
-                need(outs, 2, "topk outputs");
-                kernels::moe::topk_softmax_bf16(
-                    values.slot(ins[0]),
-                    static_cast<std::int32_t*>(values.slot(outs[0])),
-                    static_cast<float*>(values.slot(outs[1])),
-                    N, row_width(ins[0]), top_k, stream);
-                break;
-            }
-            case declared::Kernel::Bf16ToFp16: {
-                // ISLAND (value arena), and the one that pays best. TWO
-                // sites over different extents, told apart here by the
-                // op's OUTPUT RANK -- 2 for the block input, 3 for the
-                // post-activation routes -- because the arm had to pick
-                // a buffer pair and an element count per site. It picks
-                // neither now: both are the statement's, so the sites
-                // stop being distinguishable and stop needing to be.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "cast inputs");
-                need(outs, 1, "cast outputs");
-                kernels::quant::bf16_to_fp16(
-                    values.slot(ins[0]), values.slot(outs[0]),
-                    declared::value_elements(plan, outs[0], N, R), stream);
-                break;
-            }
             case declared::Kernel::Mxfp4GateUp: {
                 // ISLAND (value arena). The expert BANKS stay reached
                 // through `w.layers`: they are per-expert pointer arrays
@@ -793,24 +762,7 @@ bool gpt_oss_forward_declared(
                     values.slot(outs[0]), N, top_k, H, I, stream);
                 break;
             }
-            case declared::Kernel::WeightedSum: {
-                // ISLAND (value arena). `dsl::cuda::weighted_sum` is
-                // spelled `(weights, x)` and RECORDS `[x, weights]` --
-                // the builder's order, not the caller's. Three of these
-                // statements invert that way (both MXFP4 legs put the
-                // expert ids first), which is exactly why an arm reads
-                // operands by POSITION off the plan and never off the
-                // signature it remembers.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 2, "weighted sum inputs");
-                need(outs, 1, "weighted sum outputs");
-                kernels::moe::token_batched_weighted_sum_bf16(
-                    values.slot(outs[0]), values.slot(ins[0]),
-                    static_cast<const float*>(values.slot(ins[1])),
-                    N, top_k, H, stream);
-                break;
-            }}
+            }
             break;
         }
         case PieForwardOpKind::HookSite:
