@@ -58,6 +58,8 @@ fn committed_incs_are_regeneration_clean() {
                 head_dim_kernel: 0,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             "olmo2_1b",
         ),
@@ -75,6 +77,8 @@ fn committed_incs_are_regeneration_clean() {
                 head_dim_kernel: 0,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             "qwen2_5_1_5b",
         ),
@@ -92,6 +96,8 @@ fn committed_incs_are_regeneration_clean() {
                 head_dim_kernel: 0,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             "mistral_7b_v03",
         ),
@@ -109,6 +115,8 @@ fn committed_incs_are_regeneration_clean() {
                 head_dim_kernel: 128,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             "phi3_mini",
         ),

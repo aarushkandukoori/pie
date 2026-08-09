@@ -159,6 +159,9 @@ pub struct PieForwardLlamaLikeCudaFacts {
     /// Which axis `PerChannel` runs along. Zero — the output rows — for
     /// every row-major `[N, K]` checkpoint this driver reads.
     pub proj_axis: u32,
+    /// Ranks this deployment shards across (`tp_size`); 0 or 1 is a
+    /// single GPU. See `LlamaLikeCudaFacts::tp_size`.
+    pub tp_size: u32,
 }
 
 /// Mirrors [`model_compiler::dsl::WeightRepr`]'s discriminants, flattened
@@ -218,6 +221,7 @@ fn read_cuda_facts(facts: &PieForwardLlamaLikeCudaFacts) -> LlamaLikeCudaFacts {
         gate_up_fused: facts.gate_up_fused != 0,
         proj_repr: read_weight_repr(facts.proj_repr, facts.proj_group,
                                     facts.proj_axis, facts.proj_zero_point),
+        tp_size: facts.tp_size,
     }
 }
 

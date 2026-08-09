@@ -362,6 +362,22 @@ pub struct LlamaLikeCudaFacts {
     /// written before this field reads exactly as it did.
     #[serde(default)]
     pub proj_repr: WeightRepr,
+    /// How many ranks this deployment shards its layers across
+    /// (`LlamaLikeForwardCfg::tp_size`), or 0/1 for a single GPU.
+    ///
+    /// SHARDING NEEDS NO VOCABULARY: a rank's trace states ITS widths,
+    /// and the text divides by this the way it divides by anything
+    /// else. What needs vocabulary is the point where the shards are
+    /// recombined, because that is a launch — `dist::all_reduce_bf16`
+    /// and its two friends, which the text states.
+    ///
+    /// So this fact does two things and neither is a switch the driver
+    /// reads: it narrows the projection widths, and it decides whether
+    /// the landing statements exist at all.
+    ///
+    /// Serde-defaulted (append-only discipline); 0 reads as one rank.
+    #[serde(default)]
+    pub tp_size: u32,
 }
 
 /// The METAL backend's load-time facts — what the Metal deployment
@@ -441,6 +457,8 @@ impl LlamaLikeCudaFacts {
             // a BF16 one, so a deployment that carries the bank cannot
             // be quantized.
             proj_repr: WeightRepr::Bf16,
+            // One rank: the L40S fixture is a single GPU.
+            tp_size: 1,
         }
     }
 }

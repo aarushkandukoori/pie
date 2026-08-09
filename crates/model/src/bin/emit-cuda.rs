@@ -77,6 +77,8 @@ fn main() {
                 // Dense: these fixtures are the BF16 deployments
                 // emission was taken against.
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             "olmo2_1b",
         ),
@@ -105,6 +107,8 @@ fn main() {
                 // Dense: these fixtures are the BF16 deployments
                 // emission was taken against.
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             "qwen2_5_1_5b",
         ),
@@ -133,6 +137,8 @@ fn main() {
                 // Dense: these fixtures are the BF16 deployments
                 // emission was taken against.
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             "mistral_7b_v03",
         ),
@@ -161,6 +167,8 @@ fn main() {
                 // Dense: these fixtures are the BF16 deployments
                 // emission was taken against.
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             "phi3_mini",
         ),

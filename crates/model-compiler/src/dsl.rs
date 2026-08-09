@@ -5506,6 +5506,25 @@ pub mod cuda {
         .expect("the collective produces its value")
     }
 
+    /// `dist::all_reduce_bf16_out`: sum this value across ranks into a
+    /// SEPARATE destination.
+    ///
+    /// The two-step landing's first half. It reads as the same
+    /// collective and it is; what differs is that the result is not the
+    /// operand's bytes, because the residual add downstream needs both.
+    pub fn all_reduce_out(x: &Val, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "dist::all_reduce_bf16_out",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the collective produces its value")
+    }
+
     /// `dist::all_gather_bf16`: concatenate this value's shards along
     /// its row width. The result is `parts` times as wide.
     pub fn all_gather(x: &Val, parts: u32, width: u32) -> Val {

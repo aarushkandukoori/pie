@@ -559,6 +559,9 @@ struct PieForwardLlamaLikeCudaFacts {
   /// Which axis `PerChannel` runs along. Zero — the output rows — for
   /// every row-major `[N, K]` checkpoint this driver reads.
   uint32_t proj_axis;
+  /// Ranks this deployment shards across (`tp_size`); 0 or 1 is a
+  /// single GPU. See `LlamaLikeCudaFacts::tp_size`.
+  uint32_t tp_size;
 };
 
 /// The qwen3_5_moe MLP-block facts, as C states them. Mirrors

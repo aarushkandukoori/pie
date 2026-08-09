@@ -147,6 +147,8 @@ fn qwen2_5_1_5b_cuda_decode() {
                 head_dim_kernel: 0,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             FireClass::Decode,
         ),
@@ -168,8 +170,37 @@ fn qwen2_5_1_5b_cuda_prefill() {
                 head_dim_kernel: 0,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             FireClass::Prefill,
+        ),
+    );
+}
+
+/// The first SHARDED trace (3): mistral-7B across two ranks.
+///
+/// What it pins is that sharding costs the text nothing but arithmetic
+/// -- every projection below is the same statement at half the width --
+/// and that the two points where shards RECOMBINE are launches:
+/// `dist::all_reduce_bf16_out` after the attention (whose result the
+/// fused residual-norm reads) and `dist::all_reduce_bf16` after the MLP.
+///
+/// It also pins what is NOT here. The `beta_one` fold is gone from
+/// `o_proj`: under TP that GEMM would accumulate a PARTIAL into the
+/// residual, so the sum has to come first, and the golden is where that
+/// shows as a structural difference rather than a comment.
+#[test]
+fn mistral_7b_v03_cuda_tp2_decode() {
+    check_plan(
+        "mistral_7b_v03.cuda.tp2.decode",
+        &llama_like_cuda(
+            &LlamaLikeFacts::mistral_7b_v03(),
+            &LlamaLikeCudaFacts {
+                tp_size: 2,
+                ..LlamaLikeCudaFacts::qwen3_0_6b_l40s()
+            },
+            FireClass::Decode,
         ),
     );
 }
@@ -193,6 +224,8 @@ fn phi3_mini_cuda_decode() {
                 head_dim_kernel: 128,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             FireClass::Decode,
         ),
@@ -214,6 +247,8 @@ fn phi3_mini_cuda_prefill() {
                 head_dim_kernel: 128,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             FireClass::Prefill,
         ),
@@ -573,6 +608,8 @@ fn mistral_7b_v03_cuda_decode() {
                 head_dim_kernel: 0,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             FireClass::Decode,
         ),
@@ -594,6 +631,8 @@ fn mistral_7b_v03_cuda_prefill() {
                 head_dim_kernel: 0,
                 gate_up_fused: true,
                 proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
             },
             FireClass::Prefill,
         ),
