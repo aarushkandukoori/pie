@@ -1721,9 +1721,11 @@ case PieForwardOpKind::Launch: {
                 // skipping rows they wrote. Whether they SHOULD pass it
                 // is a question for the family, not for a refactor.
                 nullptr,
+                qo_indptr_h, kv_page_indptr_h,
                 w_page_d, w_off_d, R,
                 nullptr, false,
-                eps, cfg.rope_theta,
+                eps, /*sm_scale=*/-1.f, /*lse_fallback=*/nullptr,
+                cfg.rope_theta,
                 num_q_heads, num_kv_heads, d, d,
                 // The CACHE SLOT, not the model layer: only this
                 // family's full-attention layers have one.

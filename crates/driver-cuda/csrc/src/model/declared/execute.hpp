@@ -27,6 +27,7 @@
 #include <stdexcept>
 
 #include "attention_workspace.hpp"
+#include "attn/attention_flashinfer.hpp"
 #include "attn/head_dim_pad.hpp"
 #include "attn/kv_paged.hpp"
 #include "gemm/gemm.hpp"
@@ -84,6 +85,10 @@ struct ExecCtx {
     const std::uint32_t* kv_page_indptr = nullptr;
     const std::uint32_t* kv_last_page_lens = nullptr;
     const std::uint8_t* row_valid = nullptr;
+    // The HOST indptrs the plan-free prefill wrapper builds its own
+    // R-shaped plan from on the way in.
+    const std::uint32_t* qo_indptr_h = nullptr;
+    const std::uint32_t* kv_page_indptr_h = nullptr;
     // The explicit KV write's descriptors; null on a page-derived fire.
     const std::uint32_t* w_page_d = nullptr;
     const std::uint32_t* w_off_d = nullptr;
@@ -97,6 +102,13 @@ struct ExecCtx {
 
     // Config the trace does not carry.
     float eps = 0.f;
+    // The softmax scale a dispatch runs at, or -1 to let the kernel take
+    // `1/sqrt(head_dim)`. gemma-4 overrides it (its query is pre-scaled),
+    // and a padded deployment overrides it to the LOGICAL dim.
+    float sm_scale = -1.f;
+    // Where a dispatch writes its LSE when the statement declares no
+    // second result. gpt-oss is the only family that declares one.
+    float* lse_fallback = nullptr;
     float rope_theta = 0.f;
     int num_q_heads = 0;
     int num_kv_heads = 0;
@@ -388,6 +400,36 @@ inline bool execute_shared(const ExecCtx& c,
                           // residual: `try_fold_residual` refuses a
                           // `Launch`, so the landing is a stated add.
                           0.f);
+        return true;
+    }
+
+    // ── the plan-free prefill dispatch ─────────────────────────────
+    //
+    // A DIFFERENT statement from the planned one, not a spelling of it:
+    // this wrapper builds its own R-shaped plan from the host indptrs on
+    // the way in, which is why it needs no plan cache and why it is the
+    // one attention dispatch that can be shared outright.
+    //
+    // gemma-4 and gpt-oss both state it and differed in two arguments,
+    // both the CALLER's: the softmax scale (gemma-4 pre-scales its
+    // query, so it passes 1.0) and where the LSE lands.
+    case Kernel::AttnFlashinferPrefillPlanless: {
+        need(ins, 1, "prefill attention inputs");
+        need(outs, 1, "prefill attention outputs");
+        if (c.kv_layer < 0) {
+            throw std::runtime_error(
+                "declared arm: a prefill dispatch is stated over a layer "
+                "with no cache slot");
+        }
+        kernels::attn::attention_flashinfer_prefill(
+            values.slot(ins[0]), c.cache.layer_view(c.kv_layer),
+            values.slot(outs[0]), c.qo_indptr, c.kv_page_indices,
+            c.kv_page_indptr, c.kv_last_page_lens, c.qo_indptr_h,
+            c.kv_page_indptr_h, N, c.num_requests, c.num_q_heads,
+            c.attn_ws.view(), stream, stated_window_left(plan, op),
+            /*logits_soft_cap=*/0.f, c.sm_scale,
+            outs.size >= 2 ? static_cast<float*>(values.slot(outs[1]))
+                           : c.lse_fallback);
         return true;
     }
 
