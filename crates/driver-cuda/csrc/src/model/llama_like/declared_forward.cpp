@@ -1007,6 +1007,38 @@ void llama_like_forward_declared(
     const bool post_norm = fwd_cfg.norm_placement == NormPlacement::Post;
     // This family's conventions, stated once over the plan (see the pass).
     pin_llama_like_values(plan, ws, post_norm, values);
+    // WHICH VALUE AN OP BINDS: the enclosing value-producing guard's
+    // result.
+    //
+    // The attention's own launches declare no output, and their guard
+    // does -- `o_proj` reads v3, written by the BODY guard at op 3,
+    // whose 41-op span contains every attention spelling. That is the
+    // ABI's phi: "the guard's outputs are the ONE producer whichever
+    // region runs; region launches bind the same output buffer and
+    // record no outputs of their own."
+    //
+    // Regions are flat and consecutive (`param0` arms, `[kind, payload,
+    // len]` each plus a trailing else length), so the span is
+    // computable. Guards NEST here -- op 3's body contains the lora,
+    // write-kv and attention chains -- so this walks outermost-first and
+    // lets a narrower guard's write overwrite.
+    std::vector<std::uint32_t> binds(plan.op_count(),
+                                     pie_forward::PIE_FORWARD_NO_VALUE);
+    for (std::size_t gi = 0; gi < plan.op_count(); ++gi) {
+        const PieForwardOp& g = plan.op(gi);
+        if (g.kind != PieForwardOpKind::Guard) continue;
+        const auto gouts = plan.outputs(g);
+        if (gouts.size == 0) continue;
+        const auto run = plan.aux_names(g);
+        const std::uint32_t arms = g.param0;
+        if (run.size < static_cast<std::size_t>(arms) * 3 + 1) continue;
+        std::size_t span = 0;
+        for (std::uint32_t a = 0; a < arms; ++a) span += run[a * 3 + 2];
+        span += run[arms * 3];
+        for (std::size_t j = gi + 1; j <= gi + span && j < binds.size(); ++j) {
+            binds[j] = gouts[0];
+        }
+    }
     // Inherit cublas's stream so every launch lands on the captured graph,
     // for the reason llama_like_forward_paged states at its stream setup.
     cudaStream_t stream = cublas.stream();
@@ -1247,6 +1279,7 @@ void llama_like_forward_declared(
     // A `Launch{rows, layers, peel}` rectangle carries every one of
     // them, which is what step 2 will pass instead of the walk's state.
     const auto execute_op = [&](const PieForwardOp& op,
+                                std::size_t at_op,
                                 int N,
                                 int R,
                                 int win_start,
@@ -1294,6 +1327,27 @@ void llama_like_forward_declared(
         //
         // Padded, the query is the pad staging, which is scratch for the
         // reason `kv_src` gives below.
+        // WHERE THE ATTENTION LANDS. Padded, it is the staging buffer
+        // (scratch, stripped afterwards). Unpadded, it is the value the
+        // enclosing guard owns -- which `o_proj` then reads by id, so
+        // the two agree without either naming `ws.attn_out`.
+        const auto attn_dst = [&]() -> void* {
+            if (head_dim_padded) return attn_out_buf;
+            const std::uint32_t b =
+                at_op < binds.size() ? binds[at_op]
+                                     : pie_forward::PIE_FORWARD_NO_VALUE;
+            if (b == pie_forward::PIE_FORWARD_NO_VALUE) return attn_out_buf;
+            return values.slot(b, plan.value(b));
+        };
+        const auto attn_dst_padded_strip = [&]() -> void* {
+            const std::uint32_t b =
+                at_op < binds.size() ? binds[at_op]
+                                     : pie_forward::PIE_FORWARD_NO_VALUE;
+            if (b == pie_forward::PIE_FORWARD_NO_VALUE) {
+                return ws.attn_out.data();
+            }
+            return values.slot(b, plan.value(b));
+        };
         const auto attn_src = [&]() -> const void* {
             if (head_dim_padded) return attn_q;
             const auto ins = plan.inputs(op);
@@ -1920,7 +1974,7 @@ void llama_like_forward_declared(
                 auto kv_view = cache.layer_view(L);
                 kernels::attn::attention_xqa_decode_bf16_prepared(
                     attn_src(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
-                    attn_out_buf,
+                    attn_dst(),
                     R, num_q_heads, num_kv_heads, dk,
                     cache.page_size(), plan_state.xqa_max_pages_per_seq,
                     attn_ws.view(), stream, sm_scale_override);
@@ -1943,7 +1997,7 @@ void llama_like_forward_declared(
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.depth_band_plans
                              [static_cast<std::size_t>(depth_band_index)],
-                        attn_src(), kv_view_b, attn_out_buf,
+                        attn_src(), kv_view_b, attn_dst(),
                         kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         depth_band_attn_ws_public(depth_band_index).view(),
@@ -1961,7 +2015,7 @@ void llama_like_forward_declared(
                     auto kv_view_d = cache.layer_view(L);
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.depth_prefix_decode_plan,
-                        attn_src(), kv_view_d, attn_out_buf,
+                        attn_src(), kv_view_d, attn_dst(),
                         kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         spatial_suffix_attn_ws().view(), stream,
@@ -1994,7 +2048,7 @@ void llama_like_forward_declared(
                     resolve_masked_pages(/*takes_paged_decode=*/true);
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *decode_plan,
-                        attn_src(), kv_view, attn_out_buf,
+                        attn_src(), kv_view, attn_dst(),
                         attn_page_indices, attn_page_indptr,
                         attn_last_page_lens,
                         attn_ws.view(), stream, layer_window_left,
@@ -2004,7 +2058,7 @@ void llama_like_forward_declared(
                 resolve_masked_pages(/*takes_paged_decode=*/true);
                 kernels::attn::dispatch_attention_flashinfer_decode(
                     *decode_plan,
-                    attn_src(), kv_view, attn_out_buf,
+                    attn_src(), kv_view, attn_dst(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
                     attn_ws.view(), stream, layer_window_left,
@@ -2026,7 +2080,7 @@ void llama_like_forward_declared(
                 auto kv_view = cache.layer_view(L);
                 kernels::attn::dispatch_attention_flashinfer_decode_capture(
                     *decode_plan,
-                    attn_src(), kv_view, attn_out_buf,
+                    attn_src(), kv_view, attn_dst(),
                     attn_page_indices, attn_page_indptr,
                     attn_last_page_lens,
                     attn_ws.view(), stream,
@@ -2057,7 +2111,7 @@ void llama_like_forward_declared(
                 kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16(
                     *pp,
                     attn_src(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
-                    attn_out_buf,
+                    attn_dst(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, attn_ws.view(), stream,
                     prefill_score_capture->raw(),
@@ -2137,7 +2191,7 @@ void llama_like_forward_declared(
                     kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                         *tail_plan,
                         bf16_row(attn_src(), split_rows, in_w(0)), kv_view,
-                        bf16_row(attn_out_buf, split_rows, Hq),
+                        bf16_row(attn_dst(), split_rows, Hq),
                         mask_suffix_qo_indptr_d,
                         kv_page_indices,
                         kv_page_indptr + split,
@@ -2152,7 +2206,7 @@ void llama_like_forward_declared(
                 }
                 kernels::attn::dispatch_attention_flashinfer_prefill_custom(
                     *mask_plan,
-                    attn_src(), kv_view, attn_out_buf,
+                    attn_src(), kv_view, attn_dst(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, custom_mask_d, custom_mask_indptr_d,
                     attn_ws.view(), stream);
@@ -2300,7 +2354,7 @@ void llama_like_forward_declared(
                             : fwd_cfg.sliding_window;
                     auto kv_view = cache.layer_view(L);
                     kernels::attn::attention_flashinfer_prefill(
-                        attn_src(), kv_view, attn_out_buf,
+                        attn_src(), kv_view, attn_dst(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         qo_indptr_h, kv_page_indptr_h,
@@ -2326,7 +2380,7 @@ void llama_like_forward_declared(
                             : fwd_cfg.sliding_window;
                     auto kv_view = cache.layer_view(L);
                     kernels::attn::attention_flashinfer_prefill(
-                        attn_src(), kv_view, attn_out_buf,
+                        attn_src(), kv_view, attn_dst(),
                         qo_indptr, kv_page_indices, kv_page_indptr,
                         kv_last_page_lens,
                         qo_indptr_h, kv_page_indptr_h,
@@ -2339,7 +2393,7 @@ void llama_like_forward_declared(
                 kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
                     *pp,
                     attn_src(), kv_view.k_bf16_pages, kv_view.v_bf16_pages,
-                    attn_out_buf,
+                    attn_dst(),
                     qo_indptr, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens,
                     attn_ws.view(), stream, /*logits_soft_cap=*/0.f,
@@ -2364,7 +2418,7 @@ void llama_like_forward_declared(
                     kernels::attn::dispatch_attention_flashinfer_decode(
                         *plan_state.mixed_mid_decode_plan,
                         bf16_row(attn_src(), mid_row, in_w(0)), kv_view,
-                        bf16_row(attn_out_buf, mid_row, Hq),
+                        bf16_row(attn_dst(), mid_row, Hq),
                         kv_page_indices,
                         kv_page_indptr + P,
                         kv_last_page_lens + P,
@@ -2390,8 +2444,11 @@ void llama_like_forward_declared(
                 launch_name == "attn::dispatch_attention_flashinfer_decode_capture" ||
                 launch_name == "attn::dispatch_attention_flashinfer_prefill_capture_bf16";
             if (is_attention_out && head_dim_padded) {
+                // The strip's DESTINATION is the guard's value -- the
+                // same one an unpadded fire lands in directly -- so
+                // `o_proj` reads one place either way.
                 kernels::attn::strip_head_dim_bf16(
-                    attn_out_buf, ws.attn_out.data(),
+                    attn_out_buf, attn_dst_padded_strip(),
                     N, num_q_heads, d, dk, stream);
             }
             break;
@@ -2658,6 +2715,7 @@ void llama_like_forward_declared(
                                      : L.peel_tail ? WinRegion::Tail
                                                    : WinRegion::Prefix;
             execute_op(op,
+                       /*at_op=*/L.at_op,
                        /*N=*/live,
                        /*R=*/live == N_fire ? R_fire : live,
                        /*win_start=*/static_cast<int>(L.row_lo),
