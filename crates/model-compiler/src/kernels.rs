@@ -170,6 +170,11 @@ pub fn semantic_in_place(kind: &OpKind) -> &'static [(u32, u32)] {
         OpKind::Matmul {
             beta_one: true, ..
         } => &[(0, 1)],
+        // `attn_out *= sigmoid(gate)`. The full-attention output gate,
+        // and the kernel qwen3.5 states for it is spelled
+        // `sigmoid_gate_inplace_bf16` -- the gate is read-only, the
+        // gated value is rewritten where it lies.
+        OpKind::SigmoidGateMul => &[(0, 0)],
         // `x[r, :] += bias`. One buffer in both drivers that state it --
         // gpt-oss's `o_bias`, llama_like's three attention biases -- and
         // the kernel has no destination parameter to give it another.

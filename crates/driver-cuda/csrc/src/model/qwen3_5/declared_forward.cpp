@@ -816,7 +816,16 @@ bool forward_declared_tmpl(
     {
         const auto converted = [](PieForwardOpKind k) {
             switch (k) {
+            case PieForwardOpKind::Embed:
+            case PieForwardOpKind::Rmsnorm:
             case PieForwardOpKind::Matmul:
+            case PieForwardOpKind::SplitQkv:
+            case PieForwardOpKind::SplitGdn:
+            case PieForwardOpKind::GdnPrep:
+            case PieForwardOpKind::RmsnormGated:
+            case PieForwardOpKind::SplitQGate:
+            case PieForwardOpKind::RmsnormPerHead:
+            case PieForwardOpKind::SigmoidGateMul:
                 return true;
             default:
                 return false;
@@ -934,11 +943,20 @@ bool forward_declared_tmpl(
                 place(0, ws.q.data());
                 place(1, la.fa_gate.data());
                 break;
-            case PieForwardOpKind::RmsnormPerHead:
+            case PieForwardOpKind::RmsnormPerHead: {
+                // ONE output, and which buffer it is depends on the
+                // weight -- lumping this with rope pinned a k_norm's
+                // result to `ws.q`, which is the whole of what a pin
+                // table is for getting right.
+                const ParsedWeightName nm =
+                    parse_weight_name(plan.weight_name(op));
+                place(0, nm.field == "k_norm" ? ws.k.data() : ws.q.data());
+                break;
+            }
             case PieForwardOpKind::Rope:
-                // Both rewrite q and k where they lie; the trace states
-                // the aliases, so these entries name the same buffers
-                // their operands already sit in.
+                // Two outputs, rewritten where they lie; the trace
+                // states the aliases, so these name the buffers their
+                // operands already sit in.
                 place(0, ws.q.data());
                 place(1, ws.k.data());
                 break;
@@ -951,11 +969,32 @@ bool forward_declared_tmpl(
             case PieForwardOpKind::LmHead:
                 place(0, ws.logits.data());
                 break;
+            case PieForwardOpKind::Guard:
+                break;  // see the fallback pass below
             case PieForwardOpKind::Launch: {
                 switch (resolve_q35_kernel(plan.weight_name(op))) {
                 case Q35Kernel::AttnFlashinferDecode:
                 case Q35Kernel::AttnFlashinferPrefill:
                     place(0, ws.attn_out.data());
+                    break;
+                case Q35Kernel::ConvUpdateBatched:
+                case Q35Kernel::ConvPrefillBatched:
+                    place(0, la.mixed_qkv_post.data());
+                    break;
+                case Q35Kernel::StepBatched:
+                case Q35Kernel::StepBatchedBf16:
+                case Q35Kernel::StepBatchedGqa:
+                case Q35Kernel::StepBatchedGqaBf16:
+                case Q35Kernel::PrefillWarpTiledGqa:
+                case Q35Kernel::PrefillWarpTiledGqaBf16:
+                case Q35Kernel::PrefillCached:
+                case Q35Kernel::PrefillCachedBf16:
+                case Q35Kernel::PrefillFla:
+                case Q35Kernel::PrefillFlaBf16:
+                    // Ten spellings of the recurrence, one result: the
+                    // core the gated norm reads. Which one a fire takes
+                    // is the guard's business and not this table's.
+                    place(0, la.core_out.data());
                     break;
                 case Q35Kernel::Swiglu:
                 case Q35Kernel::ChunkedSwiglu:
@@ -978,6 +1017,58 @@ bool forward_declared_tmpl(
             }
             default:
                 break;
+            }
+        }
+    }
+
+    // THE GUARDS, and why they come second.
+    //
+    // A guard never executes: `lower()` resolves the chain and only the
+    // winning region's launches appear, so a guard's result is written
+    // by that region. Where the region's own launch declares the value,
+    // ITS entry above is the authority and this must not touch it --
+    // which is the bug this pass replaced. Both of this family's guards
+    // produce a `[rows, 2048]` result, so a blanket entry here was
+    // indistinguishable by width and clobbered the recurrence core's
+    // pin with the attention output's buffer.
+    //
+    // What is left is the case that needs an entry at all, and there are
+    // TWO of them: several launches in these chains declare no outputs
+    // -- the attention dispatches, and the recurrence's prefill
+    // spellings -- so their guard's result has no producer to inherit
+    // from. Both results are `[rows, 2048]`, so the width cannot tell
+    // them apart and a blanket entry gave the recurrence core the
+    // attention's buffer.
+    //
+    // The CONSUMER can. A recurrence core is what the gated norm reads;
+    // an attention result is what the output gate reads. That is a
+    // statement of the convention rather than a heuristic -- those two
+    // arms are the only readers either chain has -- and it is exactly
+    // the kind of thing this table exists to record until the guard
+    // states where its regions land.
+    {
+        const std::size_t op_count = plan.op_count();
+        for (std::size_t i = 0; i < op_count; ++i) {
+            const PieForwardOp& op = plan.op(i);
+            if (op.kind != PieForwardOpKind::Guard) continue;
+            for (const std::uint32_t v : plan.outputs(op)) {
+                if (values.is_pinned(v)) continue;
+                void* home = nullptr;
+                for (std::size_t j = i + 1; j < op_count && home == nullptr;
+                     ++j) {
+                    const PieForwardOp& r = plan.op(j);
+                    bool reads = false;
+                    for (const std::uint32_t in : plan.inputs(r)) {
+                        if (in == v) reads = true;
+                    }
+                    if (!reads) continue;
+                    if (r.kind == PieForwardOpKind::RmsnormGated) {
+                        home = la.core_out.data();
+                    } else if (r.kind == PieForwardOpKind::SigmoidGateMul) {
+                        home = ws.attn_out.data();
+                    }
+                }
+                if (home != nullptr) values.pin(v, home);
             }
         }
     }
@@ -1010,14 +1101,91 @@ bool forward_declared_tmpl(
         return static_cast<int>(out);
     };
 
+    // `PIE_Q35_PIN_AUDIT=1`: with `PIE_DECLARED_HOST_ARENA=0` nothing
+    // may move, so EVERY operand a converted arm touches must answer to
+    // the pin table. One that does not is not a fault -- it is a
+    // plausible pointer to bytes no unconverted arm writes -- so it
+    // needs a report rather than a crash. This is the generalisation of
+    // the probe that found the dense swiglu's missing entry.
+    const bool pin_audit = std::getenv("PIE_Q35_PIN_AUDIT") != nullptr;
+    const auto audit = [&](const PieForwardOp& op) {
+        static std::set<std::string> seen;
+        int idx = -1;
+        const auto look = [&](std::uint32_t v, const char* side) {
+            ++idx;
+            if (values.is_pinned(v)) return;
+            std::string key = std::to_string(
+                                  static_cast<std::uint32_t>(op.kind)) +
+                              side + std::string(plan.weight_name(op));
+            if (!seen.insert(key).second) return;
+            // Name the PRODUCER too: a missing entry is fixed where the
+            // value is written, not where it is read.
+            std::string producer = "(none)";
+            for (std::size_t j = 0; j < plan.op_count(); ++j) {
+                const PieForwardOp& q = plan.op(j);
+                bool writes = false;
+                for (const std::uint32_t o : plan.outputs(q)) {
+                    if (o == v) writes = true;
+                }
+                if (!writes) continue;
+                producer = std::to_string(
+                               static_cast<std::uint32_t>(q.kind)) +
+                           ":" + std::string(plan.weight_name(q));
+                break;
+            }
+            std::fprintf(stderr,
+                         "[q35-pin-audit] kind=%u %s v%u UNPINNED '%.*s' "
+                         "written by %s  [operand %d, width %d]\n",
+                         static_cast<std::uint32_t>(op.kind), side, v,
+                         static_cast<int>(plan.weight_name(op).size()),
+                         plan.weight_name(op).data(), producer.c_str(),
+                         idx, row_width(v));
+        };
+        idx = -1;
+        for (const std::uint32_t v : plan.inputs(op)) look(v, "in");
+        idx = -1;
+        for (const std::uint32_t v : plan.outputs(op)) look(v, "out");
+    };
+
+    const bool ext_dump = std::getenv("PIE_Q35_EXTENT_DUMP") != nullptr;
+    const auto extents = [&](const PieForwardOp& op) {
+        static std::set<std::string> seen;
+        std::string key = std::to_string(
+                              static_cast<std::uint32_t>(op.kind)) +
+                          ":" + std::string(plan.weight_name(op));
+        if (!seen.insert(key).second) return;
+        std::string line = "[q35-ext] kind=" +
+                           std::to_string(
+                               static_cast<std::uint32_t>(op.kind)) +
+                           " '" + std::string(plan.weight_name(op)) +
+                           "' p0=" + std::to_string(op.param0) +
+                           " p1=" + std::to_string(op.param1) + "  in:";
+        for (const std::uint32_t v : plan.inputs(op)) {
+            line += " v" + std::to_string(v) + "/w" +
+                    std::to_string(row_width(v));
+        }
+        line += "  out:";
+        for (const std::uint32_t v : plan.outputs(op)) {
+            line += " v" + std::to_string(v) + "/w" +
+                    std::to_string(row_width(v));
+        }
+        std::fprintf(stderr, "%s\n", line.c_str());
+    };
+
     const auto execute_op = [&](const PieForwardOp& op) {
+        if (pin_audit) audit(op);
+        if (ext_dump) extents(op);
         switch (op.kind) {
         case PieForwardOpKind::Embed: {
             const std::string_view name = plan.weight_name(op);
             if (name != "embed") throw_unknown_weight(name);
+            // ISLAND (value arena). `token_ids` stays a driver input --
+            // it is the fire's, not a traced value.
+            const auto outs = plan.outputs(op);
+            need(outs, 1, "embed outputs");
             kernels::layout::embed_bf16(
-                token_ids, wb.require(name).data(), ws.y.data(),
-                N, H, cfg.vocab_size, stream);
+                token_ids, wb.require(name).data(), values.slot(outs[0]),
+                N, row_width(outs[0]), cfg.vocab_size, stream);
             break;
         }
         case PieForwardOpKind::Rmsnorm: {
@@ -1028,32 +1196,21 @@ bool forward_declared_tmpl(
                 throw_drift("only the Gemma rmsnorm variant is emitted "
                             "(the dense hybrid folds (1+w) everywhere)");
             }
+            // ISLAND (value arena). Three sites -- `attn_norm`,
+            // `mlp_norm`, `final_norm` -- that all landed in `norm_x`
+            // and differed only in which value they produce. The note
+            // about qwen3_5's MLP reading `norm_x` where llama_like
+            // reads `norm_y` was the same fact said in buffers: two
+            // readers of one value. The name checks go with them; an
+            // unbound weight still fails, in `wb.require`.
             const std::string_view name = plan.weight_name(op);
-            const ParsedWeightName nm = parse_weight_name(name);
-            if (nm.field == "attn_norm") {
-                const auto& layer = layer_of(w, nm, name);
-                kernels::norm::rmsnorm_gemma_bf16(
-                    ws.y.data(), wb.require(name).data(),
-                    ws.norm_x.data(), N, H, eps, stream);
-            } else if (nm.field == "mlp_norm") {
-                // The qwen3_5 MLP reads norm_x (not llama_like's norm_y):
-                // qwen3_5_forward_paged's post-attention norm, verbatim.
-                const auto& layer = layer_of(w, nm, name);
-                kernels::norm::rmsnorm_gemma_bf16(
-                    ws.y.data(), wb.require(name).data(),
-                    ws.norm_x.data(), N, H, eps, stream);
-            } else if (nm.layer < 0 && nm.field == "final_norm") {
-                // Emitted at its op position: the hand-written epilogue
-                // final-norms ALL rows into norm_x first and gathers the
-                // compact-logit rows afterwards (norm-then-gather — the
-                // opposite interleave from llama_like's epilogue), so the
-                // LmHead arm below only gathers and multiplies.
-                kernels::norm::rmsnorm_gemma_bf16(
-                    ws.y.data(), wb.require(name).data(),
-                    ws.norm_x.data(), N, H, eps, stream);
-            } else {
-                throw_unknown_weight(name);
-            }
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "rmsnorm inputs");
+            need(outs, 1, "rmsnorm outputs");
+            kernels::norm::rmsnorm_gemma_bf16(
+                values.slot(ins[0]), wb.require(name).data(),
+                values.slot(outs[0]), N, row_width(ins[0]), eps, stream);
             break;
         }
         case PieForwardOpKind::Matmul: {
@@ -1201,25 +1358,42 @@ bool forward_declared_tmpl(
             // Fused full-attn bank split: the "q" leg is the 2×-wide
             // [query | gate] pack (`use_fused_qgkv` in the hand-written
             // body: kernels::attn::split_qkv_bf16(packed, qg, k, v, N, 2*Hq, Hk)).
+            // ISLAND (value arena). `2 * Hq` and `Hk` are the two
+            // result widths, which the results state.
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "split_qkv inputs");
+            need(outs, 3, "split_qkv outputs");
             kernels::attn::split_qkv_bf16(
-                ws.gate_up_fused.data(),
-                la.fa_qg_packed.data(), ws.k.data(), ws.v.data(),
-                N, 2 * Hq, Hk, stream);
+                values.slot(ins[0]), values.slot(outs[0]),
+                values.slot(outs[1]), values.slot(outs[2]),
+                N, row_width(outs[0]), row_width(outs[1]), stream);
             break;
         }
         case PieForwardOpKind::SplitGdn: {
             // Two flavors, told apart by their traced widths: the qkvz row
             // split ([conv_dim | V_dim]) and the interleaved b/a split
             // ([V_h | V_h]) — family.rs's fused gdn body.
+            // ISLAND (value arena). The widths still tell the two
+            // flavours apart, because they choose a KERNEL -- a row
+            // split and an interleaved split are different arithmetic,
+            // not different buffers. What they no longer choose is where
+            // the operands live.
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "split_gdn inputs");
+            need(outs, 2, "split_gdn outputs");
             if (op.param0 == static_cast<std::uint32_t>(conv_dim) &&
                 op.param1 == static_cast<std::uint32_t>(V_dim)) {
                 kernels::layout::split_bf16_rows(
-                    la.mixed_qkvz.data(), la.mixed_qkv.data(), la.z.data(),
-                    N, conv_dim, V_dim, stream);
+                    values.slot(ins[0]), values.slot(outs[0]),
+                    values.slot(outs[1]),
+                    N, row_width(outs[0]), row_width(outs[1]), stream);
             } else if (op.param0 == static_cast<std::uint32_t>(V_h) &&
                        op.param1 == static_cast<std::uint32_t>(V_h)) {
                 kernels::layout::split_qwen_gdn_ba_bf16(
-                    la.ba.data(), la.b.data(), la.a.data(), N, V_h, stream);
+                    values.slot(ins[0]), values.slot(outs[0]),
+                    values.slot(outs[1]), N, row_width(outs[0]), stream);
             } else {
                 throw_drift("SplitGdn widths (" +
                             std::to_string(op.param0) + ", " +
@@ -1247,12 +1421,26 @@ bool forward_declared_tmpl(
             }
             const auto& layer = layer_of(w, nm, name);
             if (layer.la_A_log_fp32 == nullptr) throw_unknown_weight(name);
+            // ISLAND (value arena). Three operands in, five results
+            // out, all the statement's. The HEAD GEOMETRY stays read
+            // from config: `K_h`, `V_h`, `K_d`, `V_d` are how the
+            // recurrence carves a row, and a row width divided by a head
+            // count is that carving only once you already know one of
+            // them -- which this op does not state.
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 3, "gdn_prep inputs");
+            need(outs, 5, "gdn_prep outputs");
             kernels::ssm::qwen_gdn_post_conv_prep_bf16(
-                la.mixed_qkv_post.data(), la.a.data(), la.b.data(),
+                values.slot(ins[0]), values.slot(ins[1]),
+                values.slot(ins[2]),
                 layer.la_A_log_fp32,
                 require(layer.la_dt_bias, dt_name)->data(),
-                la.q_pre.data(), la.k_pre.data(), la.v_fp32.data(),
-                la.g_log.data(), la.beta.data(),
+                static_cast<float*>(values.slot(outs[0])),
+                static_cast<float*>(values.slot(outs[1])),
+                static_cast<float*>(values.slot(outs[2])),
+                static_cast<float*>(values.slot(outs[3])),
+                static_cast<float*>(values.slot(outs[4])),
                 N, K_h, V_h, K_d, V_d, conv_dim, stream);
             // GQA materialisation is a LOWERING of the recurrence, not a
             // trace op: the decode GQA step, warp-tiled prefill and
@@ -1279,9 +1467,14 @@ bool forward_declared_tmpl(
             if (nm.field != "gate_norm") throw_unknown_weight(name);
             const auto& layer = layer_of(w, nm, name);
             if (layer.la_norm_w_fp32 == nullptr) throw_unknown_weight(name);
+            // ISLAND (value arena).
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 2, "gated norm inputs");
+            need(outs, 1, "gated norm outputs");
             kernels::norm::rmsnorm_gated_fp32_in_bf16(
-                la.core_out.data(), la.z.data(), layer.la_norm_w_fp32,
-                la.core_out_bf16.data(),
+                values.slot(ins[0]), values.slot(ins[1]),
+                layer.la_norm_w_fp32, values.slot(outs[0]),
                 N * V_h, V_d, /*eps=*/eps, stream);
             break;
         }
@@ -1295,9 +1488,15 @@ bool forward_declared_tmpl(
                             std::to_string(op.param1) +
                             ") != config's heads/head_dim");
             }
+            // ISLAND (value arena). The geometry is checked against the
+            // params above and stays config's, for `GdnPrep`'s reason.
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "split_q_gate inputs");
+            need(outs, 2, "split_q_gate outputs");
             kernels::layout::split_q_gate_bf16(
-                la.fa_qg_packed.data(), ws.q.data(), la.fa_gate.data(),
-                N, num_q_heads, d, stream);
+                values.slot(ins[0]), values.slot(outs[0]),
+                values.slot(outs[1]), N, num_q_heads, d, stream);
             break;
         }
         case PieForwardOpKind::RmsnormPerHead: {
@@ -1310,17 +1509,27 @@ bool forward_declared_tmpl(
             const std::string_view name = plan.weight_name(op);
             const ParsedWeightName nm = parse_weight_name(name);
             const auto& layer = layer_of(w, nm, name);
-            if (nm.field == "q_norm") {
-                kernels::norm::rmsnorm_gemma_bf16(
-                    ws.q.data(), wb.require(name).data(),
-                    ws.q.data(), N * num_q_heads, d, eps, stream);
-            } else if (nm.field == "k_norm") {
-                kernels::norm::rmsnorm_gemma_bf16(
-                    ws.k.data(), wb.require(name).data(),
-                    ws.k.data(), N * num_kv_heads, d, eps, stream);
-            } else {
-                throw_unknown_weight(name);
-            }
+            // ISLAND (value arena). Two sites that differed in which
+            // buffer they normed and how many HEAD-WIDE rows that is --
+            // both the statement's. `op.param0` is the head width, so
+            // the row count is the operand's width divided by it, and
+            // the arm stops needing to know which site it is in.
+            //
+            // The convention passed one pointer twice. That is the
+            // CONVENTION choosing to overwrite, not the kernel needing
+            // to -- it computes correctly into a fresh buffer, and the
+            // declaration says out and in are different values. So this
+            // does NOT claim an alias the way rope's arm does.
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 1, "per-head norm inputs");
+            need(outs, 1, "per-head norm outputs");
+            const int head = static_cast<int>(op.param0);
+            if (head <= 0) throw_drift("per-head norm states no head width");
+            kernels::norm::rmsnorm_gemma_bf16(
+                values.slot(ins[0]), wb.require(name).data(),
+                values.slot(outs[0]), N * (row_width(ins[0]) / head), head,
+                eps, stream);
             break;
         }
         case PieForwardOpKind::Rope: {
@@ -1351,8 +1560,17 @@ bool forward_declared_tmpl(
         }
         case PieForwardOpKind::SigmoidGateMul: {
             // attn_out *= sigmoid(gate) — the full-attention output gate.
+            // ISLAND (value arena). In place over operand 0, which the
+            // trace now states (`kernels::semantic_in_place`) -- the
+            // kernel's own name says so and it has no destination to
+            // give it another.
+            const auto ins = plan.inputs(op);
+            const auto outs = plan.outputs(op);
+            need(ins, 2, "sigmoid gate inputs");
+            need(outs, 1, "sigmoid gate outputs");
             kernels::mlp::sigmoid_gate_inplace_bf16(
-                ws.attn_out.data(), la.fa_gate.data(), N * Hq, stream);
+                values.slot(outs[0]), values.slot(ins[1]),
+                N * row_width(outs[0]), stream);
             break;
         }
         case PieForwardOpKind::Swiglu: {
