@@ -746,3 +746,88 @@ fn what_a_widest_fire_actually_costs() {
         }
     }
 }
+
+/// Values READ over rows their producer never WROTE.
+///
+/// The leading hypothesis for why gemma-4 goes wrong on host-assigned
+/// buffers. A per-role workspace buffer is allocated once and reused
+/// across fires, so rows a kernel skips still hold something
+/// shape-compatible from last time; a packed arena gives those same rows
+/// a different value's bytes. Any statement writing fewer rows than a
+/// later one reads is correct under the convention and wrong under the
+/// arena — and that is a property of the TEXT, visible here.
+///
+/// Reports rather than gates: a gap may be legitimate (a consumer that
+/// masks the rows it did not get), and the point is to see whether any
+/// exist at all before believing the hypothesis.
+#[test]
+fn which_values_are_read_wider_than_they_are_written() {
+    use model_compiler::lower::{lower, Fire};
+    use std::collections::BTreeMap;
+
+    for (name, class, plan) in families() {
+        if class != FireClass::Decode {
+            continue;
+        }
+        // A fire whose rows are NOT uniform, so peels and live-row
+        // windows actually split: half the rows truncated, one sampled.
+        let rows: Vec<Row> = (0..16)
+            .map(|i| Row {
+                samples: i == 0,
+                multi_token: i != 0,
+                depth_k: if i >= 8 { Some(4) } else { None },
+                ..Row::default()
+            })
+            .collect();
+        let Ok(out) = lower(&plan, &rows, Fire::default()) else {
+            continue;
+        };
+        let mut wrote: BTreeMap<ValueId, (u32, u32)> = BTreeMap::new();
+        let mut read: BTreeMap<ValueId, (u32, u32)> = BTreeMap::new();
+        let span = |m: &mut BTreeMap<ValueId, (u32, u32)>, v: ValueId, r: &std::ops::Range<u32>| {
+            let e = m.entry(v).or_insert((u32::MAX, 0));
+            e.0 = e.0.min(r.start);
+            e.1 = e.1.max(r.end);
+        };
+        for l in &out.launches {
+            let op = &plan.ops[l.op as usize];
+            for &v in &op.outputs {
+                span(&mut wrote, v, &l.rows);
+            }
+            for &v in &op.inputs {
+                span(&mut read, v, &l.rows);
+            }
+        }
+        let mut gaps = 0usize;
+        let mut worst: Option<(ValueId, (u32, u32), (u32, u32))> = None;
+        for (&v, &(rlo, rhi)) in &read {
+            let Some(&(wlo, whi)) = wrote.get(&v) else {
+                continue; // an input nothing in this fire produced
+            };
+            if rlo < wlo || rhi > whi {
+                gaps += 1;
+                if worst.is_none() {
+                    worst = Some((v, (wlo, whi), (rlo, rhi)));
+                }
+            }
+        }
+        // READ THE RESULT CAREFULLY. The epilogue's statements run over
+        // `Dim::Requests` while the body runs over `Dim::Tokens`, and
+        // this compares row NUMBERS without knowing which space they
+        // are in -- so a value on that boundary looks like a gap and is
+        // not one. gemma-4, gemma-2 and gemma-3n each report exactly one
+        // such value, and it is the last in the plan.
+        //
+        // llama_like's is the interesting one and is in TOKEN space
+        // both sides: written over the full-depth prefix, read over
+        // every row. That is what a depth window is for, and whether the
+        // consumer masks the truncated rows is the question it raises.
+        match worst {
+            None => println!("{name:12} no value is read wider than written"),
+            Some((v, w, r)) => println!(
+                "{name:12} {gaps} read wider than written; first v{v} of {} written {w:?} read {r:?}",
+                plan.values.len()
+            ),
+        }
+    }
+}

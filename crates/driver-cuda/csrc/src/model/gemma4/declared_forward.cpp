@@ -125,28 +125,66 @@ using pie_forward::PieForwardOpKind;
 // Default OFF, and the default is the honest state rather than caution:
 // with it on, gemma-4 boots, sizes its block and runs -- and produces
 // deterministic garbage. Deterministic matters. It is not uninitialised
-// memory; some value is being read from a different address than it was
-// written to, which is a placement question with a definite answer.
+// memory in the random sense; some value is read from a different
+// address than it was written to, or with contents the convention
+// happened to supply.
 //
-// Two candidates have been ruled out by fixing them and re-running:
+// WHAT THE BISECT SAYS (`_LO`/`_HI` below, by offset):
 //
-//   the PLE relay -- the geglu's signal operand read `per_layer_token`
-//   while the transpose that fills it wrote to the arena, a producer and
-//   consumer in different places. Fixed; still garbage.
+//   [0, 0)        GOOD    nothing host-placed
+//   [0, 1)        BAD     only the buffer at offset 0
+//   [1, huge)     BAD     everything EXCEPT that buffer
 //
-//   the exposed logits -- seam pinning inferred the exposed set from the
-//   neighbouring op's INPUTS, so a value a seam exposes as an OUTPUT was
-//   never pinned, and the sampler reads the logit softcap's RESULT.
-//   Seams now record their own value ids and the fix stands on its own
-//   merits. Still garbage.
+// Both halves fail alone, so this is not one stray reader. Offset 0 is
+// the residual stream -- the Embed output owns the in-place chain, so
+// the whole stream sits there -- and nothing outside `execute_op` in
+// the declared path writes it: multimodal fires, which DO scatter into
+// `ws.y`, are declined by the eligibility test in `gemma4_model.cpp`.
 //
-// What has NOT been checked is whether anything outside `execute_op`
-// reads a workspace field this family now leaves to the arena -- the
-// prepare pass, the KV write's staging, the sampler's own path. That is
-// the next cut, and it is a search over a small set rather than a guess.
+// Two candidates were ruled out by fixing them and re-running. The PLE
+// relay: the geglu's signal read `per_layer_token` while the transpose
+// filling it wrote to the arena. The exposed logits: seam pinning
+// inferred the exposed set from a neighbouring op's INPUTS, so a value
+// exposed as an OUTPUT was never pinned. Both fixes are kept and stand
+// on their own; neither was this.
+//
+// THE LEADING HYPOTHESIS, and the reason "both halves" is a clue rather
+// than a puzzle: a per-role workspace buffer is allocated once and
+// reused across fires, so rows a kernel does not write still hold
+// something SHAPE-COMPATIBLE from the previous fire. A packed arena
+// gives those same rows a different value's bytes. Any statement that
+// writes fewer rows than a later one reads -- a peeled region, a live-
+// row window, padding to an alignment -- is correct under the
+// convention and wrong under the arena, and there is no reason such a
+// statement would sit on one side of an offset split. That is a
+// property of the TEXT, checkable on the host: a value read over more
+// rows than its producer wrote.
+//
 bool gemma4_host_arena_enabled() {
     const char* v = std::getenv("PIE_DECLARED_HOST_ARENA");
     return v != nullptr && v[0] == '1';
+}
+
+// `PIE_DECLARED_HOST_ARENA_LO` / `_HI`: let the host place only the
+// values whose OFFSET falls in `[lo, hi)`, and pin the rest as before.
+//
+// The failure is DETERMINISTIC, which makes it bisectable, and this is
+// the cut. By OFFSET and not by value id, which was the first attempt
+// and was unsound: values that share bytes -- an in-place chain, a
+// select window -- must move together, and an id range splits them. It
+// reported value 0 as the culprit, which is just the residual stream's
+// first link; placing it while its own later links stayed pinned put
+// the stream in two buffers. Offsets cannot split a chain, because
+// sharing bytes IS sharing an offset.
+std::size_t host_arena_lo() {
+    const char* v = std::getenv("PIE_DECLARED_HOST_ARENA_LO");
+    return v != nullptr ? static_cast<std::size_t>(std::atoll(v)) : 0;
+}
+
+std::size_t host_arena_hi() {
+    const char* v = std::getenv("PIE_DECLARED_HOST_ARENA_HI");
+    return v != nullptr ? static_cast<std::size_t>(std::atoll(v))
+                        : static_cast<std::size_t>(-1);
 }
 
 [[noreturn]] void throw_drift(const std::string& what) {
@@ -938,6 +976,8 @@ bool gemma4_forward_declared(
     declared::trace_arena("gemma4", plan, flat,
                           ws.declared_values.nbytes(), N, R);
     const bool host_arena = gemma4_host_arena_enabled();
+    const std::size_t arena_lo = host_arena_lo();
+    const std::size_t arena_hi = host_arena_hi();
     {
         const std::size_t op_count = plan.op_count();
         for (std::size_t i = 0; i < op_count; ++i) {
@@ -969,9 +1009,12 @@ bool gemma4_forward_declared(
             const auto pin = [&](std::size_t which, void* ptr) {
                 if (which >= outs.size) return;
                 const std::uint32_t v = outs[which];
-                if (host_arena && v < flat.value_offsets_len &&
-                    flat.value_offsets[v] != declared::ValueArena::kNamed) {
-                    return;
+                if (host_arena && v < flat.value_offsets_len) {
+                    const std::size_t at = flat.value_offsets[v];
+                    if (at != declared::ValueArena::kNamed &&
+                        at >= arena_lo && at < arena_hi) {
+                        return;
+                    }
                 }
                 values.pin(v, ptr);
             };
