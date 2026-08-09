@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <charconv>
 #include <atomic>
+
+#include "model/declared/value_arena.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
@@ -685,6 +687,109 @@ bool forward_declared_tmpl(
     // piece of state that crosses statements, and it belongs to the
     // arms, not to a traversal.
     bool repeat_next_is_k = false;
+    // The row axes this family does NOT state are what makes the drive
+    // short. No peel (its hooks are observation-only and fire-wide), no
+    // spatial mask split, no depth bands, no lora lanes — so every
+    // rectangle is the whole fire, and the arms keep reading `N`. If any
+    // of those axes is ever declared here, this is where the rectangle's
+    // row count has to start reaching the arms, exactly as llama_like's
+    // does.
+    std::vector<pie_forward::PieForwardRow> rows(
+        static_cast<std::size_t>(N));
+    for (int r = 0; r < N; ++r) {
+        pie_forward::PieForwardRow& row = rows[static_cast<std::size_t>(r)];
+        row.multi_token = is_pure_decode ? 0 : 1;
+        row.custom_mask = 0;
+        row.hooked = stage_hooks != nullptr ? 1 : 0;
+        row.lora = 0;
+        row.write_desc = has_write_desc ? 1 : 0;
+        row.wants_scores =
+            (stage_hooks != nullptr && stage_hooks->wants_attn_score) ? 1 : 0;
+        // Which rows the epilogue reads. A compact-logit fire samples a
+        // subset; anything else samples every row.
+        row.samples =
+            (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
+             num_logit_rows < N)
+                ? 0
+                : 1;
+        row._pad = 0;
+        row.depth_k = -1;
+    }
+    if (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
+        num_logit_rows < N) {
+        // The sampled set is a COUNT here, not a membership test: the
+        // gather reads `logit_row_indices_d` itself, and the lowering
+        // only needs to know how many rows the epilogue covers.
+        for (int r = 0; r < num_logit_rows; ++r) {
+            rows[static_cast<std::size_t>(r)].samples = 1;
+        }
+    }
+    const pie_forward::PieForwardLowered flat =
+        plan.lower(rows.data(), rows.size());
+    if (flat.uncovered != pie_forward::PieForwardUncovered::None) {
+        throw std::runtime_error(
+            "declared qwen35 forward: the lowering refuses this fire, "
+            "reason " +
+            std::to_string(static_cast<std::uint32_t>(flat.uncovered)));
+    }
+
+    // THE HOST ASSIGNS, per island. `PIE_DECLARED_HOST_ARENA=0` puts the
+    // pin table below back in charge, which is the A/B this family's
+    // conversion is checked against (see `cuda_declared_family_parity`'s
+    // `qwen3_5_dense` row).
+    //
+    // ONE STATEMENT THIS FAMILY CANNOT PLACE YET, recorded here because
+    // the conversion has to stop at it rather than around it. The dense
+    // MLP states a single `gate_up` matmul, and the driver materialises
+    // it as ONE buffer or TWO depending on the binding
+    // (`gate_up_proj_fused`, `arm_swiglu`'s fork). Fused, the traced
+    // value is `[N, 2I]` and has a home. Unfused, the two GEMMs write
+    // `ws.gate` and `ws.up`, which is `[gate rows | up rows]` and not
+    // the row-interleaved `[N, 2I]` the value names -- so that
+    // deployment's traced value has no single home and the arena cannot
+    // give it one.
+    //
+    // The fix is a DECLARATION fix of the same kind gpt-oss's
+    // `residual_add` order turned out to be: an unfused binding should
+    // state two matmuls, because that is what it does. It is not made
+    // here blind -- the facts already carry `cuda.gate_up_fused`, and it
+    // wants a deployment that actually takes the unfused branch to check
+    // against.
+    declared::ValueArena values;
+    values.reset_pins_only(plan.value_count());
+    values.bind_offsets(ws.declared_values.data(), ws.declared_values.nbytes(),
+                        flat);
+    declared::trace_arena("qwen35", plan, flat, ws.declared_values.nbytes(),
+                          N, R);
+
+    // An arm indexes operands positionally, and a span SHORTER than the
+    // arm assumes is not a crash — it reads the next statement's
+    // operands and hands the arm a plausible pointer to the wrong
+    // buffer.
+    const auto need = [&](const auto& span, std::size_t n, const char* what) {
+        if (span.size < n) {
+            throw std::runtime_error(
+                std::string("declared qwen35: ") + what + " states " +
+                std::to_string(span.size) + " operands, needs " +
+                std::to_string(n));
+        }
+    };
+
+    // A value's trailing dims ARE its row width — which is how `conv_dim`,
+    // `V_dim`, `V_h`, `qgkv_dim`, `2 * Hq`, `Hk`, `I` and the rest stop
+    // being per-branch constants an arm has to know to pick a buffer.
+    const auto row_width = [&](std::uint32_t id) {
+        const auto& val = plan.value(id);
+        std::uint32_t out = 1;
+        for (std::uint32_t d = 1; d < val.rank; ++d) {
+            if (val.dims[d].kind != pie_forward::PieForwardDimKind::Const) {
+                return 0;
+            }
+            out *= val.dims[d].value;
+        }
+        return static_cast<int>(out);
+    };
+
     const auto execute_op = [&](const PieForwardOp& op) {
         switch (op.kind) {
         case PieForwardOpKind::Embed: {
@@ -1597,51 +1702,6 @@ case PieForwardOpKind::Launch: {
     // that carried a guard-skip cursor and jumped dead regions itself.
     // The switch is untouched; what is gone is the traversal.
     //
-    // The row axes this family does NOT state are what makes the drive
-    // short. No peel (its hooks are observation-only and fire-wide), no
-    // spatial mask split, no depth bands, no lora lanes — so every
-    // rectangle is the whole fire, and the arms keep reading `N`. If any
-    // of those axes is ever declared here, this is where the rectangle's
-    // row count has to start reaching the arms, exactly as llama_like's
-    // does.
-    std::vector<pie_forward::PieForwardRow> rows(
-        static_cast<std::size_t>(N));
-    for (int r = 0; r < N; ++r) {
-        pie_forward::PieForwardRow& row = rows[static_cast<std::size_t>(r)];
-        row.multi_token = is_pure_decode ? 0 : 1;
-        row.custom_mask = 0;
-        row.hooked = stage_hooks != nullptr ? 1 : 0;
-        row.lora = 0;
-        row.write_desc = has_write_desc ? 1 : 0;
-        row.wants_scores =
-            (stage_hooks != nullptr && stage_hooks->wants_attn_score) ? 1 : 0;
-        // Which rows the epilogue reads. A compact-logit fire samples a
-        // subset; anything else samples every row.
-        row.samples =
-            (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
-             num_logit_rows < N)
-                ? 0
-                : 1;
-        row._pad = 0;
-        row.depth_k = -1;
-    }
-    if (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
-        num_logit_rows < N) {
-        // The sampled set is a COUNT here, not a membership test: the
-        // gather reads `logit_row_indices_d` itself, and the lowering
-        // only needs to know how many rows the epilogue covers.
-        for (int r = 0; r < num_logit_rows; ++r) {
-            rows[static_cast<std::size_t>(r)].samples = 1;
-        }
-    }
-    const pie_forward::PieForwardLowered flat =
-        plan.lower(rows.data(), rows.size());
-    if (flat.uncovered != pie_forward::PieForwardUncovered::None) {
-        throw std::runtime_error(
-            "declared qwen35 forward: the lowering refuses this fire, "
-            "reason " +
-            std::to_string(static_cast<std::uint32_t>(flat.uncovered)));
-    }
     // Statements run in op order and both lists are in that order, so
     // this is a merge. Several rectangles can share one statement (an
     // arm that runs more than one kernel), and the arm runs them all
