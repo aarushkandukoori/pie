@@ -155,7 +155,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
         // deliberately live in a disjoint range.
         let o = u32::try_from(index).expect("a DAG is hundreds of dispatches");
         let k = d.kind;
-        let mut rd = |uses: &mut Vec<Use>, b: u8, v: u32| {
+        let rd = |uses: &mut Vec<Use>, b: u8, v: u32| {
             uses.push(Use {
                 ordinal: o,
                 bind_index: b,
@@ -163,7 +163,7 @@ pub fn build_scratch_uses(dag: &[Dispatch]) -> (Vec<Use>, usize) {
                 is_write: false,
             });
         };
-        let mut wr = |uses: &mut Vec<Use>, b: u8, v: u32| {
+        let wr = |uses: &mut Vec<Use>, b: u8, v: u32| {
             uses.push(Use {
                 ordinal: o,
                 bind_index: b,
