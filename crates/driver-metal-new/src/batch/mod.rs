@@ -26,6 +26,7 @@ mod golden;
 mod gptoss;
 mod gptoss_consts;
 mod gptoss_solve;
+mod llama;
 mod mask;
 mod member;
 mod paging;
@@ -78,6 +79,7 @@ pub use gptoss::{
 };
 pub use gptoss_consts::{RowGatherParams, SwiGluParams, gptoss_qmv_kn, yarn_inv_freq, yarn_mscale};
 pub use gptoss_solve::{StagedQuant, bits_from_extents, solve_quant_into, solve_staged_quant};
+pub use llama::{LlamaGeometry, llama_geometry_from_facts};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
 pub use paging::{

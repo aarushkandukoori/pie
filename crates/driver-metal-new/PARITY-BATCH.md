@@ -525,3 +525,20 @@ the kernel's `slots_per_row` read the row stride (2880) and every expert
 row past the first wrote out of its slot. Qwen3.6-27B is DENSE — no
 dispatch ever read those three slots, so five token-exact verification
 matrices sat green over the defect until the first routed family fired.
+
+## The llama family — `csrc/src/model/llama/`
+
+The plain transformer decoder that `llama`, `llama3`, `mistral`,
+`qwen2`, `qwen3` and `qwen3_moe` all are. Two axes vary and both are
+FIELDS (qk_norm; dense-or-routed FFN), so one geometry serves six
+config families. The Ll* mixture kinds are already in the shared enum —
+gpt-oss fires them — and the rope's llama3 table is the family's one
+piece of new arithmetic.
+
+| C++ | Rust | |
+|---|---|---|
+| `geometry.hpp` | `batch/llama.rs` | ported; the refusal ladder intact, including `norm_topk_prob: false` (softmax-over-all weights sum below one — same tokens, quietly wrong magnitudes) and the `factor` split (llama3's divides FREQUENCIES in the table, linear's divides POSITIONS; one field meaning both applies it twice) |
+| `decode_step.hpp`: the DAG | — | missing — next: the builder in the shared vocabulary |
+| `kernels.cpp`: `llama3_inv_freq` + the compile list | — | missing |
+| `decode_consts.cpp` / `bind.cpp` / `encode.cpp` | — | missing |
+| device smoke | — | missing; local checkpoints: Qwen3.6-35B-A3B-4bit (routed), gemma-4 pair for the sibling family |
