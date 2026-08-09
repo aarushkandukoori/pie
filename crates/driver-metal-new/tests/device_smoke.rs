@@ -1500,6 +1500,7 @@ fn a_thousand_tokens_decode_without_a_wedge_or_a_nan() {
     let started = std::time::Instant::now();
     let mut distinct = std::collections::HashSet::new();
     let mut position = prompt.len() as u32;
+    let footprint_at_start = decoder.footprint_bytes();
     for step in 0..horizon {
         decoder
             .fire(&[driver_metal_new::metal::Lane {
@@ -1548,11 +1549,18 @@ fn a_thousand_tokens_decode_without_a_wedge_or_a_nan() {
         position += 1;
         if (step + 1) % 200 == 0 {
             let elapsed = started.elapsed().as_secs_f64();
+            let footprint = decoder.footprint_bytes();
             eprintln!(
-                "{} tokens, {:.1} tok/s, {} distinct",
+                "{} tokens, {:.1} tok/s, {} distinct, {} bytes held",
                 step + 1,
                 f64::from(step + 1) / elapsed,
-                distinct.len()
+                distinct.len(),
+                footprint
+            );
+            assert_eq!(
+                footprint, footprint_at_start,
+                "the decode loop grew the device footprint — the leak class \
+                 the soak gate exists for"
             );
         }
     }

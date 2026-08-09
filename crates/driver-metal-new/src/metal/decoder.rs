@@ -301,6 +301,65 @@ impl<'ctx> Decoder<'ctx> {
         Ok(self.argmax_row(0))
     }
 
+    /// Greedy generation: prefill, then decode until `max_new` tokens or
+    /// an id in `eos` — the serving loop's shape, one lane.
+    pub fn greedy(
+        &mut self,
+        request: u32,
+        slot: u32,
+        prompt: &[u32],
+        max_new: usize,
+        eos: &[u32],
+    ) -> Result<Vec<u32>> {
+        let mut token = self.prefill(request, slot, prompt)?;
+        let mut out = vec![token];
+        let mut position = u32::try_from(prompt.len()).expect("a prompt is small");
+        while out.len() < max_new && !eos.contains(&token) {
+            self.fire(&[Lane {
+                request,
+                slot,
+                token,
+                position,
+            }])?;
+            token = self.argmax_row(0);
+            out.push(token);
+            position += 1;
+        }
+        Ok(out)
+    }
+
+    /// Every byte this runner holds on the device: the staged regions, the
+    /// state, the pools and the const slots. The soak's instrument — a
+    /// decode loop must not move this number.
+    #[must_use]
+    pub fn footprint_bytes(&self) -> u64 {
+        use crate::region::Region as _;
+        let s = &self.storage;
+        let mut total = s.weights_region.len();
+        for state in s.gdn.iter().flatten() {
+            total += state.conv_state.len()
+                + state.conv_state_out.len()
+                + state.recurrent_state.len()
+                + state.conv_bias_zero.len();
+        }
+        for kv in s.kv.iter().flatten() {
+            total += kv.k_pages.len() + kv.v_pages.len();
+        }
+        for io in s.io.iter().flatten() {
+            total += io.len();
+        }
+        for scratch in &s.scratch {
+            total += scratch.len();
+        }
+        total += s.argmax_params.len() + s.eos_flag.len();
+        // Const slots are 256-byte-class buffers; count them by presence so
+        // an unbounded cache shows up as growth.
+        for step in self.steps.values() {
+            total += 256 * step.consts.len() as u64;
+        }
+        total
+    }
+
     /// The device-visible argmax of logits row `row`.
     #[must_use]
     pub fn argmax_row(&self, row: usize) -> u32 {
