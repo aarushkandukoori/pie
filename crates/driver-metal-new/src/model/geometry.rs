@@ -133,10 +133,19 @@ pub fn eval(rule: Rule, dims: Dims) -> Result<Launch, Ungeometric> {
         Rule::Qmm => {
             let bm = shapes::qmm_bm(rows);
             let bn = widest_column_tile(dims.width);
-            // A tile that does not divide the work is a GEMM computing part of
-            // the output. Falling back to the matvec grid computes all of it,
-            // slower — which is the failure worth having.
-            if bn == 0 || !rows.is_multiple_of(bm) {
+            // A PARTIAL tile is still the GEMM's tile: `qmm_t` rounds the row
+            // count up so the last tile covers the rows that are there, and
+            // the kernel bounds-checks within it.
+            //
+            // The old arm fell back to `shapes::qmv_mb` here — the MATVEC
+            // grid, under the GEMM's symbol — on the theory that it "computes
+            // all of it, slower". That would hold if one kernel served both
+            // shapes. `affine_qmm_t` reads its tile FROM the grid, so handed a
+            // matvec grid it addresses a tiling that is not there, and every
+            // prefill shorter than `QMM_BMS[0]` came back NaN. Two rows is the
+            // smallest fire that shows it and sixteen the smallest that does
+            // not.
+            if bn == 0 {
                 shapes::qmv_mb(dims.width, rows)
             } else {
                 shapes::qmm_t(dims.width, rows, bn, bm)
@@ -311,7 +320,7 @@ mod tests {
     /// is what makes the batched lane a row's statement rather than a mode the
     /// driver picks.
     #[test]
-    fn the_gemm_tiles_over_rows_and_falls_back_when_a_tile_would_not_divide() {
+    fn the_gemm_tiles_over_rows_including_a_partial_last_tile() {
         let d = Dims {
             rows: 32,
             width: 4096,
@@ -322,14 +331,26 @@ mod tests {
             shapes::qmm_t(4096, 32, 64, shapes::qmm_bm(32)),
             "a divisible shape tiles"
         );
-        // A row count no rung divides computes part of the output as a GEMM;
-        // the matvec grid computes all of it, slower, which is the failure
-        // worth having.
+        // A row count no rung divides is still the GEMM's: the last tile is
+        // PARTIAL and the kernel bounds-checks within it.
+        //
+        // This expected `shapes::qmv_mb` — the matvec grid — on the theory
+        // that it "computes all of it, slower". It does not: `affine_qmm_t`
+        // reads its tile FROM the grid, so a matvec grid points it at a tiling
+        // that is not there, and a two-token prefill against a real checkpoint
+        // came back entirely NaN. `QMM_BMS` starts at sixteen, so EVERY
+        // prefill shorter than sixteen rows took that path.
         let ragged = Dims { rows: 3, ..d };
         assert_eq!(
             eval(Rule::Qmm, ragged).expect("stated"),
-            shapes::qmv_mb(4096, 3),
-            "an indivisible shape falls back rather than dropping outputs"
+            shapes::qmm_t(4096, 3, 64, shapes::qmm_bm(3)),
+            "an indivisible shape rounds up rather than changing kernels"
+        );
+        // And the rounding is what makes it non-empty: three rows under a
+        // sixteen-row tile truncated to zero threadgroups.
+        assert!(
+            eval(Rule::Qmm, ragged).expect("stated").grid[1] > 0,
+            "a partial tile still launches"
         );
     }
 

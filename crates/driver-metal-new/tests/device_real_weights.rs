@@ -1159,3 +1159,242 @@ fn one_token_at_position_zero_agrees_with_mlx() {
         "the distribution spans [{lo}, {hi}] where MLX spans [-4.613, 6.406]."
     );
 }
+
+/// **A two-token PREFILL, held to the same reference.**
+///
+/// Everything the position-zero gate could not reach: rope at a position that
+/// rotates, attention over a prefix rather than one key, and the M>1 lane's
+/// own symbols — a prefill states `affine_qmm_t` where a decode states
+/// `affine_qmv_fast`, so this is a different half of the kernel table.
+///
+/// The readout is the LAST token's, which is what a prefill produces and what
+/// a sampler wants. MLX's answer for `[128000, 9906]` at position 1 is argmax
+/// **0** with the distribution spanning [-5.42, 18.56].
+///
+/// # Ignored, and the reason is the next work
+///
+/// It no longer returns NaN — that was `Rule::Qmm` falling back to
+/// `shapes::qmv_mb`, **the MATVEC grid under the GEMM's symbol**, whenever the
+/// rows did not divide the tile. Its comment said the fallback "computes all
+/// of it, slower", which would hold if one kernel served both shapes;
+/// `affine_qmm_t` reads its tile FROM the grid, so handed a matvec grid it
+/// addresses a tiling that is not there. `QMM_BMS` starts at sixteen, so every
+/// prefill shorter than sixteen rows took it. `qmm_t` rounds the row axis up
+/// now and the last tile covers the rows that are there.
+///
+/// What it returns instead is a real distribution that is the WRONG one:
+/// argmax 93738 spanning [-8.63, 11.31] where MLX says 0 spanning
+/// [-5.42, 18.56]. Finite, varied, plausible — and not the answer.
+///
+/// So the prefill lane has its own defect and the decode lane's gate cannot
+/// see it. The instrument is already here: point
+/// `the_second_lane_stops_somewhere_and_this_says_where` at
+/// `FireClass::Prefill` and compare the same stages MLX prints, which is how
+/// the decode lane's `w_stride` was found in three narrowing steps.
+#[test]
+#[ignore = "the prefill lane answers a plausible WRONG distribution; the decode lane agrees exactly"]
+fn a_two_token_prefill_agrees_with_mlx() {
+    let Some(snapshot) = snapshot() else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT to an MLX snapshot");
+        return;
+    };
+    let Ok(context) = Context::new() else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+    let compiler = Compiler::new(&context).expect("a compiler");
+    let mut pipelines = Pipelines::new(kernels_dir());
+
+    let descriptor = descriptor_for(&snapshot);
+    let loaded = load(&context, &snapshot, &descriptor).expect("the checkpoint loads");
+    let model_facts = driver_metal_new::facts::ModelFacts::from_descriptor(&descriptor)
+        .expect("the descriptor states the model's facts");
+    let dg =
+        driver_metal_new::batch::geometry_from_facts(&model_facts).expect("a decodable geometry");
+    let (facts, metal) =
+        driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
+
+    // ONE request, TWO tokens: a prefill.
+    let step = Step {
+        token_ids: &[128_000, 9906],
+        qo_indptr: &[0, 2],
+        sampling_indices: &[0],
+        ..Step::default()
+    };
+    let plan = llama_like_metal(&facts, &metal, FireClass::Prefill);
+    let lowered = lower_step(&plan, &step).expect("the step lowers");
+
+    let shape = Shape {
+        layers: facts.layers,
+        kv_heads: facts.kv_heads,
+        head_dim: facts.head_dim,
+        page_size: 16,
+        pages: 16,
+        element_bytes: 2,
+    };
+    let pool = Pool::allocate(&context, shape).expect("a pool");
+    let pages = |layer: u16, values: bool| {
+        pool.layer(u32::from(layer)).map(|l| Slice {
+            address: if values { l.v.gpu_address() } else { l.k.gpu_address() },
+            bytes: shape.layer_bytes(),
+        })
+    };
+    let freqs = driver_metal_new::model::rope::frequencies(
+        facts.head_dim,
+        metal.rope_theta,
+        (dg.rope_freq_factor > 0.0).then_some(driver_metal_new::model::rope::Rescale {
+            factor: dg.rope_freq_factor,
+            low: dg.rope_low_freq_factor,
+            high: dg.rope_high_freq_factor,
+            original_max: dg.rope_original_max_position as f32,
+        }),
+    );
+    // Both tokens are ONE request's, so `req_of_token` is all zeros and both
+    // land in that request's first page at their own offsets. `stage_tables`
+    // states one request per token, which is a decode's shape — so the tables
+    // here are the prefill's own.
+    let (staged, spans) = stage_prefill(&context, &step, shape.page_size, &freqs);
+
+    let named = HashMap::new();
+    let mut live = Live {
+        store: Store::new(Names::mlx(), &loaded.tensors, &named),
+        tables: Slice {
+            address: staged.gpu_address(),
+            bytes: staged.len(),
+        },
+        spans,
+        shape,
+        pages: &pages,
+    };
+
+    let (_, arena) = driver_metal_new::model::run::run_keeping_arena(
+        &context,
+        &compiler,
+        &mut pipelines,
+        &lowered,
+        Geometry {
+            q_heads: facts.q_heads,
+            kv_heads: facts.kv_heads,
+            head_dim: facts.head_dim,
+            rotary_dims: facts.head_dim,
+            n_experts: facts.n_experts,
+            experts_per_token: facts.experts_per_token,
+        },
+        &mut live,
+    )
+    .expect("the prefill runs");
+
+    let mut read = vec![0u8; arena.len() as usize];
+    // SAFETY: the command buffer retired before the call returned.
+    unsafe {
+        let raw = core::slice::from_raw_parts(
+            arena.contents().as_ptr().cast_const().cast::<u8>(),
+            arena.len() as usize,
+        );
+        read.copy_from_slice(raw);
+    }
+
+    let (at, width, element) = lowered
+        .args
+        .iter()
+        .filter_map(|a| match a {
+            model_compiler::lower::Arg::Arena { at, width, bytes } => {
+                Some((*at, *width as usize, *bytes as usize))
+            }
+            _ => None,
+        })
+        .max_by_key(|(_, width, bytes)| width * bytes)
+        .expect("the text states a readout");
+    let logits: Vec<f32> = read[at..at + width * element]
+        .chunks_exact(element)
+        .map(|c| {
+            if element == 4 {
+                f32::from_le_bytes([c[0], c[1], c[2], c[3]])
+            } else {
+                f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16)
+            }
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..logits.len()).collect();
+    order.sort_by(|&a, &b| logits[b].total_cmp(&logits[a]));
+    let (lo, hi) = logits
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+    eprintln!("prefill argmax {} span [{lo}, {hi}]", order[0]);
+    for (i, &t) in order.iter().take(5).enumerate() {
+        eprintln!("  top{i}: {t} logit {:.6}", logits[t]);
+    }
+
+    const MLX: [(usize, f32); 5] = [
+        (0, 18.562_5),
+        (11, 18.234_375),
+        (5127, 17.937_5),
+        (1070, 17.468_75),
+        (323, 17.296_875),
+    ];
+    for (i, (want, logit)) in MLX.iter().enumerate() {
+        assert_eq!(
+            order[i], *want,
+            "rank {i}: MLX says token {want} and this says {}",
+            order[i]
+        );
+        assert!(
+            (logits[order[i]] - logit).abs() < 0.2,
+            "token {want}: MLX logit {logit}, this {} — further apart than bf16 \
+             explains at this magnitude.",
+            logits[order[i]]
+        );
+    }
+    assert!(
+        (hi - 18.5625).abs() < 0.2 && (lo + 5.422).abs() < 0.2,
+        "the distribution spans [{lo}, {hi}] where MLX spans [-5.422, 18.563]."
+    );
+}
+
+/// One request's tables: every token belongs to request zero and lands in that
+/// request's page at its own offset.
+///
+/// `stage_tables` states one request PER TOKEN, which is a decode's shape. A
+/// prefill is the other one, and getting it wrong makes every token its own
+/// sequence — which attends to nothing and is exactly the answer a broken
+/// attention gives.
+fn stage_prefill(
+    context: &Context,
+    step: &Step<'_>,
+    page_size: u32,
+    freqs: &[f32],
+) -> (driver_metal_new::metal::Handle, Vec<(usize, usize)>) {
+    let n = step.token_ids.len() as u32;
+    let tokens: Vec<u32> = step.token_ids.to_vec();
+    let positions: Vec<u32> = (0..n).collect();
+    let req_of_token: Vec<u32> = vec![0; n as usize];
+    let kv_page_indices: Vec<u32> = vec![0];
+    let kv_page_indptr: Vec<u32> = vec![0, 1];
+    let w_page: Vec<u32> = vec![0; n as usize];
+    let w_off: Vec<u32> = positions.iter().map(|p| p % page_size.max(1)).collect();
+    let inv_freq: Vec<u32> = freqs.iter().map(|f| f.to_bits()).collect();
+
+    let mut blob: Vec<u32> = Vec::new();
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for table in [
+        &tokens,
+        &positions,
+        &req_of_token,
+        &kv_page_indices,
+        &kv_page_indptr,
+        &w_page,
+        &w_off,
+        &inv_freq,
+    ] {
+        spans.push((blob.len(), table.len()));
+        blob.extend_from_slice(table);
+    }
+    let staged =
+        allocate(context, (blob.len() * 4) as u64, "fire tables").expect("a table region");
+    // SAFETY: freshly allocated, nothing encoded against it yet.
+    unsafe {
+        let raw = core::slice::from_raw_parts(blob.as_ptr().cast::<u8>(), blob.len() * 4);
+        staged.write(0, raw).expect("the tables stage");
+    }
+    (staged, spans)
+}

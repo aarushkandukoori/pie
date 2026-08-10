@@ -266,7 +266,11 @@ pub fn qmv_mb(out_vec: u32, n: u32) -> Launch {
 #[must_use]
 pub fn qmm_t(out_vec: u32, n: u32, bn: u32, bm: u32) -> Launch {
     Launch {
-        grid: [32 * (out_vec / bn), 2 * (n / bm), 2],
+        // `div_ceil` on the ROW axis: a fire with fewer rows than one tile
+        // still needs the tile launched, and truncating gave it zero
+        // threadgroups. The column axis divides exactly by construction —
+        // `widest_column_tile` picks a `bn` that does.
+        grid: [32 * (out_vec / bn), 2 * n.div_ceil(bm.max(1)), 2],
         tg: [32, 2, 2],
     }
 }
