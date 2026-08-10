@@ -16,6 +16,7 @@ pub mod page_mask;
 pub mod qwen3_5;
 pub mod sideband_arena;
 pub mod stage_hooks;
+pub mod supergraph;
 pub mod weight_bind;
 pub mod weight_view;
 pub mod workspace;

@@ -147,6 +147,25 @@ mod bridge {
             .file(&extras)
             .compile("pie_launch_shim");
 
+        // The supergraph's set-cond kernel, which is the ONE thing in this
+        // crate that has to be device code: `cudaGraphSetConditional` is a
+        // `__device__` function, so arming a conditional handle from inside a
+        // graph — the whole point, since it is what removes the host
+        // round-trip — cannot be spelled in Rust or in `.cpp`.
+        //
+        // Its own archive rather than a `.file` on the one above, because
+        // that build is `cpp(true)` and this needs nvcc. It goes in
+        // `driver-cuda-new` rather than `kernels-cuda` because its argument
+        // is a conditional handle — a shell object — not a tensor; see
+        // `src/cuda/graph.rs`'s header for the same argument.
+        let supergraph = Path::new(env!("CARGO_MANIFEST_DIR")).join("csrc/supergraph.cu");
+        println!("cargo:rerun-if-changed=csrc/supergraph.cu");
+        cc::Build::new()
+            .cuda(true)
+            .include(&cuda_include)
+            .file(&supergraph)
+            .compile("pie_supergraph");
+
         // The kernels archive the shim forwards into. Search paths come from
         // `kernels-cuda`'s own build script (the `native` feature this
         // crate's `bridge` turns on); the `-l` is ours so it lands AFTER the

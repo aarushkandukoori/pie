@@ -252,3 +252,7 @@ required-features = ["_cuda", "bridge"]
 [[test]]
 name = "abi_shell"
 required-features = ["_cuda", "abi"]
+
+[[test]]
+name = "union_lower"
+required-features = ["_cuda"]
