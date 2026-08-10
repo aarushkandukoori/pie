@@ -1,5 +1,12 @@
 # Cutover: how `driver-metal-new` replaces `driver-metal`
 
+> **Superseded in part, 2026-08-10.** Metal is going all in on the
+> `model-compiler` path, so the serving path this document plans a cutover
+> *to* is no longer the per-family executor it assumes. `DIRECTION.md` is the
+> current plan. What stays true here: the decision to replace at the Rust
+> boundary rather than behind the twelve `pie_metal_*` symbols, the gate's six
+> items, and the dependency chain among them.
+
 Written 2026-08-09, at the point the `m1_runtime.cpp` port closed out. This
 is the plan the handoff said must exist before the port finishes: what
 "replace" concretely means, what must exist first, what test gate authorises

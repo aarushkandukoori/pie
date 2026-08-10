@@ -226,6 +226,17 @@ one of the two maintains itself.
 **Before starting anything this ledger calls `missing`, look for it.** The hit
 rate on that check has been nine for eleven.
 
+## Read `DIRECTION.md` first
+
+**2026-08-10: Metal is going all in on the `model-compiler` path.** The
+handwritten per-family forwards — the DAG builders, the PSO plans, the family
+binds, steps and engines, and `forward.cpp` above them — are **retired, not
+outstanding**. `DIRECTION.md` says what that leaves and what to do next.
+
+Everything below this line was written against the older plan. The subsystem
+table is still accurate about what exists; the *remaining* section is not
+advice any more.
+
 ## What is left
 
 **This section goes stale between refreshes and the ledgers do not.** Every
