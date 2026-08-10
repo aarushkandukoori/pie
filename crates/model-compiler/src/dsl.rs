@@ -773,6 +773,56 @@ pub fn rope(q: &Val, k: &Val, kind: RopeKind) -> (Val, Val) {
     (mk(qo), mk(ko))
 }
 
+/// The DENSE GATED MLP, and which activation is a FACT.
+///
+/// Four families wrote this block identically — glm5, kimi-k2, kimi-k3
+/// and deepseek-v4 — and the only thing that differed was one statement:
+/// `swiglu`, `swiglu`, `situ`, `swiglu_clamp`. Four copies of a sequence
+/// with a single varying line is exactly what `cuda.md` §5.C2 means by
+/// "turn the variant forks into data": the fork is not an architecture,
+/// it is a value.
+///
+/// The `_up` binding is load-bearing and easy to lose. The gate and up
+/// projections are SEPARATE weights, and the activation kernel reads them
+/// as one contiguous pair — so the up matmul must be traced (it writes the
+/// second half) even though nothing names its value. Every one of the four
+/// copies had it as `let _up = …`, and a fifth would have to remember.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GatedAct {
+    /// `kernels::mlp::swiglu_bf16` — the plain gated linear unit.
+    SwiGlu,
+    /// deepseek-v4's clamped variant. A DIFFERENT KERNEL, not a
+    /// parameter: the clamp changes the arithmetic.
+    SwiGluClamp,
+    /// kimi-k3's SiTU.
+    Situ,
+}
+
+/// Trace one dense gated MLP: norm-input in, contribution out.
+///
+/// The caller adds the result to its residual, because whether that is
+/// `y += …` or a stated `residual_add` is the family's business and this
+/// block does not have an opinion about it.
+#[must_use]
+pub fn dense_gated_mlp(
+    m: &Val,
+    gate_w: &MatW,
+    up_w: &MatW,
+    down_w: &MatW,
+    intermediate: u32,
+    act: GatedAct,
+) -> Val {
+    let gate = matmul(m, gate_w);
+    // Traced for its WRITE, not its value — see the note above.
+    let _up = matmul(m, up_w);
+    let activated = match act {
+        GatedAct::SwiGlu => cuda::swiglu(&gate, intermediate, false),
+        GatedAct::SwiGluClamp => cuda::swiglu_clamp(&gate, intermediate, false),
+        GatedAct::Situ => cuda::situ(&gate, intermediate, false),
+    };
+    matmul(&activated, down_w)
+}
+
 pub fn swiglu(x: &Val, inter: u32) -> Val {
     let id = x.t.with(x.layer, |b| b.swiglu(x.id, inter));
     Val {

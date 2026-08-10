@@ -137,10 +137,14 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
 
             let m = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
             if !facts.is_moe_layer(l) {
-                let gate = matmul(&m, &w.dense_gate);
-                let _up = matmul(&m, &w.dense_up);
-                let act = dsl::cuda::swiglu(&gate, facts.dense_intermediate, false);
-                y += matmul(&act, &w.dense_down);
+                y += dsl::dense_gated_mlp(
+                    &m,
+                    &w.dense_gate,
+                    &w.dense_up,
+                    &w.dense_down,
+                    facts.dense_intermediate,
+                    dsl::GatedAct::SwiGlu,
+                );
                 continue;
             }
 

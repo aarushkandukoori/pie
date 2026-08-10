@@ -169,12 +169,14 @@ pub fn glm5_cuda(facts: &Glm5Facts, class: FireClass) -> ForwardPlan {
             // ── MLP / MoE ────────────────────────────────────────────
             let m = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
             if !facts.is_moe_layer(l) {
-                // The pair form: glm5 binds gate and up separately and
-                // fires `kernels::mlp::swiglu_bf16` over the two buffers.
-                let gate = matmul(&m, &w.dense_gate);
-                let _up = matmul(&m, &w.dense_up);
-                let act = dsl::cuda::swiglu(&gate, facts.dense_intermediate, false);
-                y += matmul(&act, &w.dense_down);
+                y += dsl::dense_gated_mlp(
+                    &m,
+                    &w.dense_gate,
+                    &w.dense_up,
+                    &w.dense_down,
+                    facts.dense_intermediate,
+                    dsl::GatedAct::SwiGlu,
+                );
                 continue;
             }
 

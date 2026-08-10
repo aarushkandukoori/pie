@@ -174,10 +174,14 @@ pub fn dsv4_cuda(facts: &Dsv4Facts, class: FireClass) -> ForwardPlan {
                 dsl::cuda::hc_pre(&normed_f32, &streams, k, facts.hidden);
 
             let out = if !facts.is_moe_layer(l) {
-                let gate = matmul(&m, &w.dense_gate);
-                let _up = matmul(&m, &w.dense_up);
-                let act = dsl::cuda::swiglu_clamp(&gate, facts.dense_intermediate, false);
-                matmul(&act, &w.dense_down)
+                dsl::dense_gated_mlp(
+                    &m,
+                    &w.dense_gate,
+                    &w.dense_up,
+                    &w.dense_down,
+                    facts.dense_intermediate,
+                    dsl::GatedAct::SwiGluClamp,
+                )
             } else {
                 let logits = matmul(&m, &w.router);
                 let (experts, weights) = dsl::cuda::topk_sqrtsoftplus(
