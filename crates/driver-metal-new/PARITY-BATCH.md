@@ -382,7 +382,7 @@ enum, the argmax params and the graph key.
 | `Kernel` (98 kinds) | `Kernel`, macro-derived | ported |
 | `Kernel::KindCount` | `Kernel::COUNT` via `Kernel::ALL` | ported |
 | `ForwardGraphKey` / `PAGE_BUCKET_GRAN` | `ForwardGraphKey::of` | ported |
-| the ~30 `bind::` layouts | — | missing: each is one kernel's ABI and lands beside the encoder that binds it |
+| the 36 `bind::` layouts (`decode_abi.hpp` 123-475) | `metal::bind::slot`, `bind_mb::slot_mb`, `gptoss_bind::slot` and the family bind walks | ported — audited 2026-08-09, see below |
 
 The argument is the count that was forty kinds short: `KindCount` was once
 spelled `G4PleResidual + 1`, so `psos[LmHeadUntied]` indexed past every
@@ -519,6 +519,32 @@ panic resume + survival, contained post panics, drop-as-barrier.
 | the multi-request fleet contract | `tests/device_smoke.rs::the_llama_engine_isolates_two_requests` | verified: two conversations share every fire — disjoint physical pages (request 1 at page 64 under logical positions 0..17, so the indirection itself is under test), per-request page walks, a 2-row decode fleet — and each continues ITS chain token-exact, same first token and different second, so contamination would show immediately |
 | the M=1 ring engine surface; split-K/fp16/tiled rungs; forward.cpp's remaining runtime (elastic KV, EOS device loop, PTIR hooks, timing) | — | missing/deferred. `copy_state`'s deciding half has since landed in `store/control.rs` (`PARITY-STORE.md`); taps landed as `batch/golden.rs` |
 | `forward.cpp` / `forward.hpp` | 5393 | missing — the executor; last, over everything above |
+
+### The bind audit (2026-08-09)
+
+`decode_abi.hpp`'s `namespace bind` declares **36** `enum class` layouts, one
+per kernel, each naming that kernel's buffer ordinals. The row above carried
+them as missing; they are not.
+
+* All 36 have a Rust home. Twenty-seven are findable by their C++ name; the
+  other nine landed under a family or kernel spelling the row could not have
+  guessed — `MoeRouteSort`/`MoeRouteRows` are `Kernel::LlMoeSort`/`LlMoeGather`
+  with `MoeRouteParams`, `MoeCombineSorted` is `ExpertCombineParams`, and
+  `Embed`, `Geglu`, `Softcap`, `PleCombine`, `SdpaSliding` and `SharedCombine`
+  sit in the family bind files that own them.
+* The ordinals match, spot-checked against the C++ enums:
+  `Sdpa` (`K`=1, `V`=2, `GqaFactor`=4, `N`=5, `KHeadStride`=6),
+  `SdpaPaged` (`GqaFactor`=4, `PageSize`=9, `NKvHeads`=10, `Scale`=11),
+  `KvAppendPaged` (`HeadDim`=5, `KHeadStride`=6, `KSeqStride`=7, `PageSize`=10,
+  `NKvHeads`=12) and `RowGather` (`Rows`=2) are identical on both sides.
+  106 `slot::` constants carry them, plus the per-family walks.
+
+The table is the weaker evidence. The stronger is that four families decode
+**token-exact against mlx_lm** on device, and a bind ordinal that is off by one
+is not a subtle error — it is a different buffer. The one bind the audit found
+genuinely wrong is the C++'s: `KvAppendPaged::SrcRowStride` (ordinal 15) is
+declared and read by the kernel and never bound by the C++ walk, which the
+llama row above already records as found and fixed.
 
 ## The gpt-oss family — `csrc/src/model/gptoss/`
 

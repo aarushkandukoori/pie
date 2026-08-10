@@ -226,7 +226,6 @@ attribution. `BatchStepInputs` is its marshaling container.
 
 | what | where it is ledgered |
 |---|---|
-| the ~30 `bind::` layouts | `PARITY-BATCH.md` — each is one kernel's ABI, beside its encoder |
 | the M=1 ring engine surface | `PARITY-BATCH.md` — diagnostics; `golden_tap.cpp` and the taps landed as `batch/golden.rs` |
 | `compose.cpp` rest (`LaunchMember`, `LaunchJobData`, tickets, ~90) | `PARITY-BATCH.md` — with the worker port |
 | `KvPagePool` (SlotHandles + counters), and the control ops' moving half | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
