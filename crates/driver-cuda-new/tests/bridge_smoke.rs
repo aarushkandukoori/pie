@@ -536,33 +536,36 @@ fn a_resolved_walk_captures_and_replays() {
 /// one fire in flight. This is the single-lane form, and it is the one
 /// that had to work first.
 ///
-/// # Why this is `ignore`d, and what is left
+/// # Why this is `ignore`d: the warm-up paradox
 ///
-/// The arm it was blocked on exists now:
-/// `attn::dispatch_attention_flashinfer_decode_capture` is armed, and
-/// `AttnCtx` carries `score_out` and `score_indptr_d` for it. The warm-up
-/// walks a RESOLVED lowering while the capture takes the union, which is
-/// what a warm-up is for — it makes the launchers allocate their
-/// workspaces, and walking a union eagerly would run both sides of every
-/// guard over the same rows.
+/// Everything structural is in place. The score dispatch is armed, the
+/// tree is right — its launch sits under `cond.slot == 3`,
+/// `SLOT_WANTS_ATTN_SCORE`, exactly where it should — and the buffers can
+/// be valid and EMPTY, because a body the conditional never enters writes
+/// nothing.
 ///
-/// What is left is the score BUFFERS, and the reason it is not a
-/// one-liner is worth writing down. `WantsAttnScore` is a FOLDED
-/// predicate (slot 3), so the exec that records this arm must also serve
-/// a fire that does want scores — a null recorded here faults the instant
-/// the predicate goes true. So the buffers have to be real and
-/// arena-stable at capture time, which is precisely what
-/// `attn_score::DecodeScoreCapturePlan` was built to provide ("arena-stable
-/// folded-row base", "arena-stable device CSR base"). That module is
-/// ported and unwired.
+/// What blocks it is the interaction of two facts each of which is
+/// correct alone:
 ///
-/// Sizing them by guess does not work — the folded rows are a CSR over
-/// each request's captured window, not `rows * heads`, and a wrong extent
-/// is an illegal access rather than a wrong number. Wiring
-/// `prepare_decode_score_capture` is the job, and it is the last thing
-/// between here and A5 at one lane.
+/// * a capture must be taken on a WARM fire, because a launcher that
+///   allocates its workspace on first use cannot do so inside a capture
+///   (established this morning, the hard way — a C++ throw crossing the C
+///   ABI and aborting with no message);
+/// * a warm-up must walk a VALID program, because walking a union eagerly
+///   runs both sides of every guard over the same rows.
+///
+/// Together they say: a union capture must warm every arm it will record,
+/// and a warm-up that walks one valid program cannot warm the arms that
+/// program does not take. The score dispatch's first use therefore lands
+/// inside the capture, and it faults there.
+///
+/// The way out is presumably what the C++ arc calls DUAL-PREPARE — warm
+/// each variant once before recording the union — and that is the next
+/// thing to port. It is not a missing arm and not a missing buffer; both
+/// of those were the answers to the previous two attempts, and both are
+/// now done.
 #[test]
-#[ignore = "the union's score arm needs DecodeScoreCapturePlan wired; see the doc comment"]
+#[ignore = "a union capture must warm every arm it records; see the doc comment"]
 fn the_union_captures_and_replays_the_same_decode() {
     zero_weight_decode(Leg::CapturedUnion);
 }
@@ -844,6 +847,23 @@ fn zero_weight_decode(leg: Leg) {
     ws.end_plan_update(&mut sops, raw_stream);
 
 
+    // SCORE buffers: valid, stable, and EMPTY.
+    //
+    // The union records the score-capturing decode dispatch whether or not
+    // this fire wants scores, so the addresses must be real — a null
+    // faults the instant `WantsAttnScore` goes true. They may be empty,
+    // and that is the trick: the CSR says every request folds zero rows,
+    // so a body that did run would write nothing, and the conditional
+    // means it does not run at all.
+    //
+    // A later fire in this bucket that DOES want scores needs a bigger
+    // slot, and growing it moves the base — which is precisely what
+    // `PlanEpoch` exists to notice. Growth bumps the epoch, the captured
+    // exec goes stale, and the bucket recaptures. A cost, not a wrong
+    // answer.
+    let score_indptr = up(&u32s(&vec![0u32; ROWS + 1]));
+    let scores = alloc.alloc(4).expect("scores");
+
     let attn = AttnCtx {
         decode_plan: dplan_cache.as_ptr(),
         decode_plan_full: core::ptr::null_mut(),
@@ -851,8 +871,8 @@ fn zero_weight_decode(leg: Leg) {
         workspace: ws.view(),
         layers,
         q_out: named_bufs[&q_pin_value].as_ptr(),
-        score_out: core::ptr::null_mut(),
-        score_indptr_d: core::ptr::null(),
+        score_out: scores.as_ptr().cast(),
+        score_indptr_d: score_indptr.as_ptr().cast(),
         o_out: unsafe { arena.as_ptr().cast::<u8>().add(o_off) }.cast(),
         kv_page_indices_d: csr_indices.as_ptr().cast(),
         kv_page_indptr_d: csr_indptr.as_ptr().cast(),
