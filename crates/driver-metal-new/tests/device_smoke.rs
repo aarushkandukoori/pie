@@ -2570,8 +2570,7 @@ fn the_llama_engine_decodes_across_fires() {
     // mlx_lm's greedy continuation of this prompt is
     // [12366, 13, 4314, 527] (' Paris', '.', ' These', ' are').
     let mut produced = vec![next];
-    let mut position = prompt.len() as u32;
-    for _ in 0..3 {
+    for position in (prompt.len() as u32..).take(3) {
         let decode =
             driver_metal_new::batch::FireCsr::decode(next, position, geometry.kv_page_size);
         engine
@@ -2579,7 +2578,6 @@ fn the_llama_engine_decodes_across_fires() {
             .expect("the decode fire retires");
         next = argmax_of(&engine);
         produced.push(next);
-        position += 1;
     }
     eprintln!("engine produced {produced:?}");
     assert_eq!(

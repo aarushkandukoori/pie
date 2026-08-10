@@ -65,6 +65,7 @@ impl LlamaEngine {
     /// # Errors
     ///
     /// A staging or compilation refusal.
+    #[allow(clippy::too_many_arguments)] // one construction; a builder would hide it
     pub fn new(
         context: &Context,
         compiler: &Compiler,
