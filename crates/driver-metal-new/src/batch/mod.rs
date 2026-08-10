@@ -37,6 +37,7 @@ mod logits;
 mod marshal;
 mod mask;
 mod member;
+mod paged_state;
 mod paging;
 mod psos;
 mod psos_gemma4;
@@ -124,6 +125,9 @@ pub use marshal::{
 };
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
+pub use paged_state::{
+    PagedRefused, RsBinding, commit_paged, rs_binding, validate_paged_continuation,
+};
 pub use paging::{
     Cut, IdsLayout, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging,
     renumber_routing,

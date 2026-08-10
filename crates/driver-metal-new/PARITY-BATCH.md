@@ -255,6 +255,9 @@ first arm of `forward.cpp`'s orchestration exists as `metal/decoder.rs`.
 | `LinearSequenceState` | `batch::SequenceState` + `Backing` | ported; the two `*_backed` bools become one enum, because a slot is ring-backed **or** paged **or** neither and the pair could spell a fourth thing |
 | `validate_linear_sequence_geometry` | `batch::validate_continuation` | ported; the nine refusals kept one for one, each a fire that would otherwise answer with someone else's history |
 | `close_linear_sequence` | `batch::close_sequence` | ported, defect fixed — see below |
+| `request_rs_binding` | `batch::rs_binding` | ported; the legacy member-level arm is dropped — `ForwardDesc::rs_slot` already derives that view from the per-request vectors, so there is no arm to pick |
+| `validate_paged_request_state` | `batch::validate_paged_continuation` | ported; the five not-matching cases stay five answers, for the reason the C++ gives |
+| `commit_paged_request_state` | `batch::commit_paged` | ported, defect fixed: the C++ is `void` and returns silently on a guard the validation should have made unreachable — but if it fires, the fire has already run and the slot keeps pre-fire state, so the NEXT continuation validates against a position the device moved past and passes |
 | `forward.cpp`: `copy_state`/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
 
 Verified on device (Qwen3.6-27B, `tests/device_smoke.rs`): the M=1 ring
