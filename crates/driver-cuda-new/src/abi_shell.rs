@@ -1215,6 +1215,145 @@ trait PlannedFamily {
     }
 }
 
+impl PlannedFamily for model::gemma_2::forward::facts::Gemma2Facts {
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::gemma_2::forward::gemma2_cuda(self, class)
+    }
+    fn layers(&self) -> u32 {
+        self.layers
+    }
+    fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
+        self.attn.head_dim
+    }
+    fn window_by_layer(&self, _sliding_window: i32) -> Vec<i32> {
+        self.window_left.clone()
+    }
+    fn tables(&self, _model: &LoadedModel) -> FamilyTables {
+        FamilyTables {
+            softcap: if self.final_logit_softcap { 30.0 } else { 0.0 },
+            ..FamilyTables::default()
+        }
+    }
+}
+
+impl PlannedFamily
+    for (
+        model::gpt_oss::forward::facts::GptOssFacts,
+        model::gpt_oss::forward::facts::GptOssCudaFacts,
+    )
+{
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::gpt_oss::forward::gpt_oss_cuda(&self.0, &self.1, class)
+    }
+    fn layers(&self) -> u32 {
+        self.0.layers
+    }
+    fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
+        self.0.head_dim
+    }
+    fn window_by_layer(&self, _sliding_window: i32) -> Vec<i32> {
+        self.1.window_left.clone()
+    }
+}
+
+impl PlannedFamily for model::glm5::forward::facts::Glm5Facts {
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::glm5::forward::glm5_cuda(self, class)
+    }
+    fn layers(&self) -> u32 {
+        self.layers
+    }
+    fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
+        // MLA's pages hold the LATENT, not a head-split key: one row per
+        // token of `kv_lora_rank + qk_rope_head_dim`.
+        self.attn.kv_lora_rank + self.attn.qk_rope_head_dim
+    }
+}
+
+impl PlannedFamily
+    for (
+        model::kimi_k2::forward::facts::KimiFacts,
+        model::kimi_k2::forward::facts::KimiCudaFacts,
+    )
+{
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::kimi_k2::forward::kimi_cuda(&self.0, &self.1, class)
+    }
+    fn layers(&self) -> u32 {
+        self.0.layers
+    }
+    fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
+        self.0.attn.kv_lora_rank + self.0.attn.qk_rope_head_dim
+    }
+}
+
+impl PlannedFamily for model::kimi_k3::forward::facts::KimiK3Facts {
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::kimi_k3::forward::kimi_k3_cuda(self, class)
+    }
+    fn layers(&self) -> u32 {
+        self.layers
+    }
+    fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
+        self.attn.kv_lora_rank + self.attn.qk_rope_head_dim
+    }
+    fn recurrent(&self) -> bool {
+        // KDA carries per-request recurrent state, so a fire of this
+        // family stays eager for the rule the hybrid states.
+        true
+    }
+}
+
+impl PlannedFamily for model::deepseek_v4::forward::facts::Dsv4Facts {
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::deepseek_v4::forward::dsv4_cuda(self, class)
+    }
+    fn layers(&self) -> u32 {
+        self.layers
+    }
+    fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
+        self.attn.head_dim
+    }
+    fn window_by_layer(&self, _sliding_window: i32) -> Vec<i32> {
+        let w = i32::try_from(self.attn.sliding_window).unwrap_or(0);
+        (0..self.layers).map(|_| if w > 0 { w } else { -1 }).collect()
+    }
+}
+
+impl PlannedFamily for model::nemotron_h::forward::facts::NemotronHFacts {
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::nemotron_h::forward::nemotron_h_cuda(self, class)
+    }
+    fn layers(&self) -> u32 {
+        u32::try_from(self.layer_types.len()).unwrap_or(0)
+    }
+    fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
+        self.attn.head_dim
+    }
+    fn window_by_layer(&self, _sliding_window: i32) -> Vec<i32> {
+        self.window_left.clone()
+    }
+    fn recurrent(&self) -> bool {
+        // The mamba layers' selective-scan state is per request.
+        true
+    }
+}
+
+impl PlannedFamily for model::gemma3n::forward::facts::Gemma3nFacts {
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::gemma3n::forward::gemma3n_cuda(self, class)
+    }
+    fn layers(&self) -> u32 {
+        u32::try_from(self.per_layer_intermediate.len()).unwrap_or(0)
+    }
+    fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
+        self.attn.head_dim
+    }
+    fn window_by_layer(&self, _sliding_window: i32) -> Vec<i32> {
+        self.window_left.clone()
+    }
+}
+
 /// The per-layer tables and named constants a family's prologue reads.
 #[derive(Default)]
 struct FamilyTables {
@@ -1622,6 +1761,15 @@ const FACTS_ROWS: &[(&str, FactsFrom)] = &[
     // service behind `pie_cuda_encode`, not part of this decode plan.
     ("qwen3_vl", llama_like_facts_from_hf),
     ("qwen3_vl_text", llama_like_facts_from_hf),
+    // gemma-3 is a llama-lineage decoder with per-head qk-norm and an
+    // alternating window; the derivation reads both off the checkpoint.
+    ("gemma3", llama_like_facts_from_hf),
+    ("gemma3_text", llama_like_facts_from_hf),
+    // A ROUTED FFN is a fact, not a family: `n_experts > 0` selects the
+    // mixture and the attention is unchanged, which is why these two
+    // reach the same derivation as every dense deployment above.
+    ("mixtral", llama_like_facts_from_hf),
+    ("qwen3_moe", llama_like_facts_from_hf),
     // ── Gemma-4: nested decoder, PLE, two layer kinds.
     ("gemma4", gemma4_facts_from_hf),
     ("gemma4_text", gemma4_facts_from_hf),
@@ -1630,6 +1778,21 @@ const FACTS_ROWS: &[(&str, FactsFrom)] = &[
     ("qwen3_5_text", qwen35_facts_from_hf),
     ("qwen3_5_moe", qwen35_facts_from_hf),
     ("qwen3_5_moe_text", qwen35_facts_from_hf),
+    // ── gemma-2: alternating local/global attention, softcapped twice.
+    ("gemma2", gemma2_facts_from_hf),
+    // ── gpt-oss: MXFP4 mixture, attention sinks, alternating window.
+    ("gpt_oss", gpt_oss_facts_from_hf),
+    // ── The MLA lineage: latent q/kv, a dense prefix, then the mixture.
+    ("glm_moe_dsa", glm5_facts_from_hf),
+    ("deepseek_v2", kimi_k2_facts_from_hf),
+    ("deepseek_v3", kimi_k2_facts_from_hf),
+    ("kimi_k2", kimi_k2_facts_from_hf),
+    ("kimi_k3", kimi_k3_facts_from_hf),
+    ("deepseek_v4", dsv4_facts_from_hf),
+    // ── Hybrids and the per-layer-embedding gemma.
+    ("nemotron_h", nemotron_h_facts_from_hf),
+    ("gemma3n", gemma3n_facts_from_hf),
+    ("gemma3n_text", gemma3n_facts_from_hf),
 ];
 
 /// Every `model_type` this shell can open, in table order.
@@ -1728,6 +1891,332 @@ pub fn fire_class_of(
     // until then the shape answers, and `StateOnly` is reachable only
     // through the lowering tests.
     Ok(if rows == requests { FireClass::Decode } else { FireClass::Prefill })
+}
+
+/// gemma-2's facts off the checkpoint's config.
+///
+/// The window list is the family's own shape: gemma-2 ALTERNATES local
+/// and global attention, odd layers seeing the whole context. `layer_types`
+/// states it when the config ships one; the parity is the fallback the
+/// C++ parse used.
+fn gemma2_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
+    use model::gemma_2::forward::facts::{Gemma2AttnFacts, Gemma2Facts};
+    let hf = &model.hf;
+    let to_u32 = |v: i32| u32::try_from(v).unwrap_or(0);
+    let layers = to_u32(hf.num_hidden_layers);
+    let window_left: Vec<i32> = (0..layers)
+        .map(|l| {
+            let global = hf
+                .layer_types
+                .get(l as usize)
+                .map_or(l % 2 == 1, |t| t == "full_attention");
+            if global { -1 } else { hf.sliding_window.max(0) }
+        })
+        .collect();
+    Ok(Box::new(Gemma2Facts {
+        layers,
+        vocab: to_u32(hf.vocab_size),
+        hidden: to_u32(hf.hidden_size),
+        intermediate: to_u32(hf.intermediate_size),
+        tied_embeddings: hf.tie_word_embeddings,
+        final_logit_softcap: hf.gemma_final_logit_softcap > 0.0,
+        window_left,
+        attn: Gemma2AttnFacts {
+            heads: to_u32(hf.num_attention_heads),
+            kv_heads: to_u32(hf.num_key_value_heads),
+            head_dim: to_u32(hf.head_dim),
+            qk_norm: false,
+            query_pre_attn_scale: true,
+            attn_logit_softcap: true,
+        },
+    }))
+}
+
+/// gpt-oss's facts. The sliding schedule is `layer_types`' when the
+/// config ships one — gpt-oss alternates from layer 0 — and the fused
+/// MXFP4 decode leg is the engine default this text states.
+fn gpt_oss_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
+    use model::gpt_oss::forward::facts::{GptOssCudaFacts, GptOssFacts};
+    let hf = &model.hf;
+    let to_u32 = |v: i32| u32::try_from(v).unwrap_or(0);
+    let layers = to_u32(hf.num_hidden_layers);
+    let experts = to_u32(hf.num_experts);
+    let facts = GptOssFacts {
+        hidden: to_u32(hf.hidden_size),
+        layers,
+        q_heads: to_u32(hf.num_attention_heads),
+        kv_heads: to_u32(hf.num_key_value_heads),
+        head_dim: to_u32(hf.head_dim),
+        intermediate: to_u32(hf.intermediate_size),
+        experts,
+        top_k: to_u32(hf.num_experts_per_tok),
+        vocab: to_u32(hf.vocab_size),
+        tied_embeddings: hf.tie_word_embeddings,
+        swiglu_limit: 7.0,
+        attention_bias: true,
+        rope_yarn_original: true,
+        attn_sinks: true,
+    };
+    let cuda = GptOssCudaFacts {
+        mxfp4_decode_gemv: true,
+        mxfp4_decode_max_routes: 32 * experts.max(1),
+        streamed_experts: false,
+        window_left: (0..layers)
+            .map(|l| {
+                let sliding = hf
+                    .layer_types
+                    .get(l as usize)
+                    .map_or(l % 2 == 0, |t| t == "sliding_attention");
+                if sliding { hf.sliding_window.max(0) } else { -1 }
+            })
+            .collect(),
+    };
+    Ok(Box::new((facts, cuda)))
+}
+
+/// The MLA lineage's shared reading: a dense PREFIX then the mixture,
+/// latent q/kv projections, and the rope half carried beside the nope
+/// half. `first_k_dense_replace` is the prefix length in every config
+/// that ships one.
+fn glm5_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
+    use model::glm5::forward::facts::{Glm5DsaFacts, Glm5Facts, Glm5MlaFacts, Glm5MoeFacts};
+    let hf = &model.hf;
+    let u = |v: i32| u32::try_from(v).unwrap_or(0);
+    Ok(Box::new(Glm5Facts {
+        layers: u(hf.num_hidden_layers),
+        vocab: u(hf.vocab_size),
+        hidden: u(hf.hidden_size),
+        dense_intermediate: u(hf.intermediate_size),
+        dense_layers: u(hf.first_k_dense_replace),
+        attn: Glm5MlaFacts {
+            hidden: u(hf.hidden_size),
+            heads: u(hf.num_attention_heads),
+            q_lora_rank: u(hf.q_lora_rank),
+            kv_lora_rank: u(hf.kv_lora_rank),
+            qk_nope_head_dim: u(hf.qk_nope_head_dim),
+            qk_rope_head_dim: u(hf.qk_rope_head_dim),
+            v_head_dim: u(hf.v_head_dim),
+        },
+        dsa: Glm5DsaFacts {
+            index_n_heads: u(hf.dsv4_index_n_heads),
+            index_head_dim: u(hf.dsv4_index_head_dim),
+            index_topk: u(hf.dsv4_index_topk),
+        },
+        moe: Glm5MoeFacts {
+            hidden: u(hf.hidden_size),
+            num_experts: u(hf.num_experts),
+            top_k: u(hf.num_experts_per_tok),
+            moe_intermediate: u(hf.moe_intermediate_size),
+            shared_intermediate: u(hf.n_shared_experts) * u(hf.moe_intermediate_size),
+            aligned_block: 16,
+        },
+    }))
+}
+
+/// kimi-k2: the same MLA reading as glm5, without the DSA indexer.
+fn kimi_k2_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
+    use model::kimi_k2::forward::facts::{KimiCudaFacts, KimiFacts, KimiMlaFacts, KimiMoeFacts};
+    let hf = &model.hf;
+    let u = |v: i32| u32::try_from(v).unwrap_or(0);
+    let facts = KimiFacts {
+        layers: u(hf.num_hidden_layers),
+        vocab: u(hf.vocab_size),
+        hidden: u(hf.hidden_size),
+        dense_intermediate: u(hf.intermediate_size),
+        dense_layers: u(hf.first_k_dense_replace),
+        attn: KimiMlaFacts {
+            hidden: u(hf.hidden_size),
+            heads: u(hf.num_attention_heads),
+            q_lora_rank: u(hf.q_lora_rank),
+            kv_lora_rank: u(hf.kv_lora_rank),
+            qk_nope_head_dim: u(hf.qk_nope_head_dim),
+            qk_rope_head_dim: u(hf.qk_rope_head_dim),
+            v_head_dim: u(hf.v_head_dim),
+        },
+        moe: KimiMoeFacts {
+            num_experts: u(hf.num_experts),
+            top_k: u(hf.num_experts_per_tok),
+            moe_intermediate: u(hf.moe_intermediate_size),
+            shared_intermediate: u(hf.n_shared_experts) * u(hf.moe_intermediate_size),
+        },
+    };
+    // The BINDING facts: one fused q/kv latent GEMM when the load joined
+    // them, and YaRN when the config asked for it.
+    let cuda = KimiCudaFacts {
+        q_kv_a_fused: model.aliases.contains_key("layer.0.q_kv_a_fused"),
+        rope_yarn_original: matches!(
+            hf.rope_scaling_kind,
+            crate::model::config::RopeScaling::OriginalYarn
+        ),
+    };
+    Ok(Box::new((facts, cuda)))
+}
+
+/// kimi-k3: MLA beside KDA linear attention, on the periodic schedule
+/// `full_attn_at` states.
+fn kimi_k3_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
+    use model::kimi_k3::forward::facts::{
+        KimiK3Facts, KimiK3KdaFacts, KimiK3MlaFacts, KimiK3MoeFacts,
+    };
+    let hf = &model.hf;
+    let u = |v: i32| u32::try_from(v).unwrap_or(0);
+    let interval = u32::try_from(
+        hf.layer_types.iter().position(|t| t == "full_attention").map_or(0, |i| i + 1),
+    )
+    .unwrap_or(0);
+    Ok(Box::new(KimiK3Facts {
+        layers: u(hf.num_hidden_layers),
+        vocab: u(hf.vocab_size),
+        hidden: u(hf.hidden_size),
+        dense_intermediate: u(hf.intermediate_size),
+        dense_layers: u(hf.first_k_dense_replace),
+        full_attn_interval: interval,
+        attn_res_block: 0,
+        attn: KimiK3MlaFacts {
+            hidden: u(hf.hidden_size),
+            heads: u(hf.num_attention_heads),
+            q_lora_rank: u(hf.q_lora_rank),
+            kv_lora_rank: u(hf.kv_lora_rank),
+            qk_nope_head_dim: u(hf.qk_nope_head_dim),
+            qk_rope_head_dim: u(hf.qk_rope_head_dim),
+            v_head_dim: u(hf.v_head_dim),
+            output_gate: true,
+        },
+        kda: KimiK3KdaFacts {
+            value_heads: u(hf.linear_num_value_heads),
+            value_head_dim: u(hf.linear_value_head_dim),
+            conv_kernel: u(hf.linear_conv_kernel_dim),
+            gate_lower_bound_milli: 0,
+        },
+        moe: KimiK3MoeFacts {
+            num_experts: u(hf.num_experts),
+            top_k: u(hf.num_experts_per_tok),
+            moe_intermediate: u(hf.moe_intermediate_size),
+            shared_intermediate: u(hf.n_shared_experts) * u(hf.moe_intermediate_size),
+        },
+    }))
+}
+
+/// deepseek-v4: the DSA indexer, hyper-connections, and a routed MLP
+/// whose activation clamps.
+fn dsv4_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
+    use model::deepseek_v4::forward::facts::{
+        Dsv4AttnFacts, Dsv4Facts, Dsv4HcFacts, Dsv4MoeFacts,
+    };
+    let hf = &model.hf;
+    let u = |v: i32| u32::try_from(v).unwrap_or(0);
+    Ok(Box::new(Dsv4Facts {
+        layers: u(hf.num_hidden_layers),
+        vocab: u(hf.vocab_size),
+        hidden: u(hf.hidden_size),
+        dense_intermediate: u(hf.intermediate_size),
+        dense_layers: u(hf.first_k_dense_replace),
+        attn: Dsv4AttnFacts {
+            hidden: u(hf.hidden_size),
+            heads: u(hf.num_attention_heads),
+            head_dim: u(hf.head_dim),
+            q_lora_rank: u(hf.q_lora_rank),
+            qk_rope_head_dim: u(hf.qk_rope_head_dim),
+            sliding_window: u(hf.sliding_window.max(0)),
+            o_lora_rank: 0,
+            o_groups: 1,
+        },
+        hc: Dsv4HcFacts { mult: 1 },
+        moe: Dsv4MoeFacts {
+            num_experts: u(hf.num_experts),
+            top_k: u(hf.num_experts_per_tok),
+            moe_intermediate: u(hf.moe_intermediate_size),
+            swiglu_limit_milli: 0,
+            hash_routed: false,
+        },
+    }))
+}
+
+/// nemotron-h: three layer kinds, and the schedule is the LIST rather
+/// than an interval — the family has an MLP-only layer no period spells.
+fn nemotron_h_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
+    use model::nemotron_h::forward::facts::{
+        NemotronAttnFacts, NemotronHFacts, NemotronLayerKind, NemotronMambaFacts,
+        NemotronMoeFacts,
+    };
+    let hf = &model.hf;
+    let u = |v: i32| u32::try_from(v).unwrap_or(0);
+    let layer_types: Vec<NemotronLayerKind> = hf
+        .layer_types
+        .iter()
+        .map(|t| match t.as_str() {
+            "attention" | "full_attention" => NemotronLayerKind::Attention,
+            "mlp" => NemotronLayerKind::Mlp,
+            _ => NemotronLayerKind::Mamba,
+        })
+        .collect();
+    if layer_types.is_empty() {
+        eprintln!("[driver-cuda-new] launch: nemotron-h states no layer_types");
+        return Err(PIE_STATUS_UNSUPPORTED);
+    }
+    let window_left = vec![-1; layer_types.len()];
+    Ok(Box::new(NemotronHFacts {
+        vocab: u(hf.vocab_size),
+        hidden: u(hf.hidden_size),
+        layer_types,
+        mamba: NemotronMambaFacts {
+            num_heads: u(hf.mamba_num_heads),
+            head_dim: u(hf.mamba_head_dim),
+            state_size: u(hf.mamba_state_size),
+            n_groups: u(hf.mamba_n_groups),
+            conv_kernel: u(hf.mamba_conv_kernel),
+        },
+        attn: NemotronAttnFacts {
+            heads: u(hf.num_attention_heads),
+            kv_heads: u(hf.num_key_value_heads),
+            head_dim: u(hf.head_dim),
+        },
+        moe: NemotronMoeFacts {
+            num_experts: u(hf.num_experts),
+            top_k: u(hf.num_experts_per_tok),
+            moe_intermediate: u(hf.moe_intermediate_size),
+            shared_intermediate: u(hf.shared_expert_intermediate_size),
+        },
+        window_left,
+    }))
+}
+
+/// gemma-3n: altUp streams, laurel, per-layer embeddings and a per-layer
+/// MLP width the config states as a list.
+fn gemma3n_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
+    use model::gemma3n::forward::facts::{Gemma3nAltUpFacts, Gemma3nAttnFacts, Gemma3nFacts};
+    let hf = &model.hf;
+    let u = |v: i32| u32::try_from(v).unwrap_or(0);
+    let layers = u(hf.num_hidden_layers) as usize;
+    Ok(Box::new(Gemma3nFacts {
+        vocab: u(hf.vocab_size),
+        hidden: u(hf.hidden_size),
+        per_layer_intermediate: vec![u(hf.intermediate_size); layers],
+        laurel_rank: u(hf.laurel_rank),
+        ple_width: u(hf.gemma_hidden_size_per_layer_input),
+        sparsity_layers: u32::try_from(
+            hf.gemma3n_activation_sparsity.iter().filter(|&&s| s > 0.0).count(),
+        )
+        .unwrap_or(0),
+        altup: Gemma3nAltUpFacts {
+            num_streams: u(hf.altup_num_inputs),
+            active: u(hf.altup_active_idx),
+        },
+        attn: Gemma3nAttnFacts {
+            heads: u(hf.num_attention_heads),
+            kv_heads: u(hf.num_key_value_heads),
+            head_dim: u(hf.head_dim),
+        },
+        window_left: (0..layers)
+            .map(|l| {
+                if hf.layer_types.get(l).is_some_and(|t| t == "full_attention") {
+                    -1
+                } else {
+                    hf.sliding_window.max(0)
+                }
+            })
+            .collect(),
+    }))
 }
 
 /// THE GQA RATIO, refused at LOAD rather than discovered at launch.
