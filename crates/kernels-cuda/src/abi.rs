@@ -434,6 +434,47 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
         let binds: Option<Vec<String>> =
             k.operands.iter().map(|o| bind_expr(o, ctx)).collect();
         let Some(binds) = binds else { continue };
+        // THE ARITY THE SOURCES ASK FOR, as part of the match.
+        //
+        // A branch that indexes `outs[1]` must not run on a statement
+        // with one result, and rope is exactly that case: its Q-ONLY
+        // spelling states one, reaches the same launcher with
+        // `num_kv_heads = 0`, and would have read past the span here --
+        // which does not fault, it reads the NEXT statement's operands
+        // (the reason `need` exists at all).
+        //
+        // So the generated branch tests what it is about to index, and
+        // a statement that does not satisfy it falls through to the
+        // hand-written arm that knows the other spelling.
+        let mut need_in = 0u8;
+        let mut need_out = 0u8;
+        let mut need_aux = 0u8;
+        let mut need_ps = 0u8;
+        for o in k.operands {
+            match o.source {
+                Source::In(i) | Source::InWidth(i) | Source::InDim(i, _) => {
+                    need_in = need_in.max(i + 1)
+                }
+                Source::Out(i)
+                | Source::OutWidth(i)
+                | Source::OutDim(i, _)
+                | Source::OutElements(i) => need_out = need_out.max(i + 1),
+                Source::Weight(i) => need_aux = need_aux.max(i + 1),
+                Source::Param(i) => need_ps = need_ps.max(i + 1),
+                _ => {}
+            }
+        }
+        let mut guard = String::new();
+        for (n, span) in [
+            (need_in, "ins"),
+            (need_out, "outs"),
+            (need_aux, "aux"),
+            (need_ps, "ps"),
+        ] {
+            if n > 0 {
+                guard.push_str(&format!(" && {span}.size >= {n}"));
+            }
+        }
         // KEYED BY NAME, not by an enumerator. The registry's enum
         // exists so a HAND-written switch can have cases; a generated
         // one needs no such handle, and taking the symbol directly
@@ -441,11 +482,19 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
         // enumerator and the registry's canonical one are not the same
         // string, and the first version of this generator proved it by
         // emitting `RopeBf16` where the registry says `RopeFull`.
+        // Calls the LAUNCHER, not the flat entry point. The shim is a
+        // PROOF -- it compiles a forward with the header in scope, so a
+        // wrong row does not build -- and it is generated into a test's
+        // temp dir rather than into the archive. The driver is C++ and
+        // can call C++; a flat ABI matters for a consumer that is not,
+        // and there is none yet. When there is, this switches to
+        // `entry_name` and the shim joins the build.
         out.push_str(&format!(
-            "if (sym == \"{}\") {{\n    {}{}(\n        {});\n    return true;\n}}\n",
+            "if (sym == \"{}\"{}) {{\n    {}{}(\n        {});\n    return true;\n}}\n",
             k.symbol,
+            guard,
             if k.returns.is_empty() { "" } else { "(void)" },
-            entry_name(k.symbol),
+            cpp_path(k.symbol),
             binds.join(",\n        "),
         ));
     }
