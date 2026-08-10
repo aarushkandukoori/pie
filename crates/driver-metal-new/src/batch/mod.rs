@@ -68,7 +68,9 @@ pub use consts::{
 };
 pub use dataflow::{build_scratch_schedule, build_scratch_uses};
 pub use dispatch::{
-    DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
+    DagOptions, Dispatch, Launch, attn_gate, barrier_after, build_decode_dag, concurrent_run_ends,
+    embed, gated_rms, kv_append, q_split, qmv, residual, rms, rope, route_rows, route_sort,
+    routed_qmv, router_lane_width, router_topk, sdpa, silu_mul,
 };
 pub use dispatch_gemma4::{
     Gemma4DagStats, build_gemma4_dag, build_gemma4_dag_mb, gemma4_dag_stats, gemma4_moe_qmm_bn,
