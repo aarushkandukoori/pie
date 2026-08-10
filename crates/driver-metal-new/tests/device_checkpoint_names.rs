@@ -30,6 +30,21 @@ fn snapshot() -> Option<PathBuf> {
     std::env::var_os("PIE_METAL_SMOKE_CHECKPOINT").map(PathBuf::from)
 }
 
+/// The `pie.model/1` descriptor for a snapshot.
+///
+/// A TEST may normalize a checkpoint — `crates/model/tests/one_normalizer.rs`
+/// scans `crates/model/src` and `crates/engine/src`, and the rule it enforces
+/// is that the RUNTIME has one normalizer, not that nothing may call it. The
+/// seam itself takes the descriptor the worker hands over.
+fn descriptor_for(snapshot: &std::path::Path) -> String {
+    let raw = std::fs::read_to_string(snapshot.join("config.json"))
+        .expect("the snapshot has a config.json");
+    let root: serde_json::Value = serde_json::from_str(&raw).expect("config.json parses");
+    model::config::descriptor(&root, snapshot.to_str().expect("utf8 path"))
+        .expect("the config normalizes to a descriptor")
+        .to_string()
+}
+
 /// Every weight name the Metal text states, over both fire classes.
 fn names_the_text_states() -> BTreeSet<String> {
     let mut out = BTreeSet::new();
@@ -76,8 +91,7 @@ fn the_checkpoint_answers_the_names_the_text_states() {
         eprintln!("SKIP: no Metal 4 device");
         return;
     };
-    let descriptor = std::fs::read_to_string(snapshot.join("config.json"))
-        .expect("the snapshot has a config.json");
+    let descriptor = descriptor_for(&snapshot);
     let loaded = load(&context, &snapshot, &descriptor).expect("the checkpoint loads");
     assert!(
         !loaded.tensors.is_empty(),
@@ -123,8 +137,7 @@ fn what_this_checkpoint_published() {
         eprintln!("SKIP: no Metal 4 device");
         return;
     };
-    let descriptor = std::fs::read_to_string(snapshot.join("config.json"))
-        .expect("the snapshot has a config.json");
+    let descriptor = descriptor_for(&snapshot);
     let loaded = load(&context, &snapshot, &descriptor).expect("the checkpoint loads");
     let names = loaded.names();
     eprintln!("{} tensors published; layer 0 and the globals:", names.len());

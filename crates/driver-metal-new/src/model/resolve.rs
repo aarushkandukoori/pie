@@ -66,30 +66,34 @@ impl Names {
     ///
     /// # The two names with no tensor
     ///
-    /// `qkv` and `gate_up` are FUSED handles the text states, and this
-    /// checkpoint ships the three and two projections separately —
-    /// `weight_binds` binds `self_attn.q_proj`/`k_proj`/`v_proj` and
-    /// `mlp.gate_proj`/`up_proj`, which is what the working driver does today.
+    /// `qkv` and `gate_up` are FUSED handles, and **no Metal deployment has
+    /// them**: `compile_load_plan` authors with `Projections::InPlace`, and
+    /// `dense_fused_projection_joins` returns before doing anything under that
+    /// policy. So the MLX path publishes the three and two projections
+    /// separately, which is also what `weight_binds` binds.
     ///
-    /// They are mapped to the fused spellings a JOINING plan would publish, so
-    /// a deployment whose loader fuses resolves. A deployment whose loader
-    /// does not will find them missing, by name, in [`Store::missed`] — which
-    /// is the honest outcome: the text should take its non-fused arm, and that
-    /// is a decision for `LlamaLikeFacts::fused_qkv` rather than for a map to
-    /// paper over.
+    /// They are still mapped, to the spelling a JOINING plan would publish —
+    /// `…qkv_proj.fused.weight`, with the loader's own `.fused` infix — so that
+    /// a deployment which does join resolves. The text asks the tensors which
+    /// it is (`LlamaLikeFacts::fused_qkv`, `LlamaLikeMetalFacts::gate_up_fused`)
+    /// rather than either side assuming.
     #[must_use]
     pub fn mlx() -> Self {
         let roles = [
-            // The fused pair — see the note above.
-            ("qkv", "self_attn.qkv_proj"),
-            ("gate_up", "mlp.gate_up_proj"),
+            // The fused pair — see the note above. The `.fused` infix is the
+            // loader's own: `dense_fused_projection_joins` publishes
+            // `…qkv_proj.fused.weight`, not `…qkv_proj.weight`.
+            ("qkv", "self_attn.qkv_proj.fused"),
+            ("gate_up", "mlp.gate_up_proj.fused"),
             // The projections as the checkpoint ships them.
             ("q_proj", "self_attn.q_proj"),
             ("k_proj", "self_attn.k_proj"),
             ("v_proj", "self_attn.v_proj"),
             ("o_proj", "self_attn.o_proj"),
-            ("gate", "mlp.gate_proj"),
-            ("up", "mlp.up_proj"),
+            // The DSL's own handle names (`Layer::gate_proj` / `up_proj`),
+            // which is what the text spells.
+            ("gate_proj", "mlp.gate_proj"),
+            ("up_proj", "mlp.up_proj"),
             ("down", "mlp.down_proj"),
             // The norms.
             ("q_norm", "self_attn.q_norm"),
@@ -248,7 +252,7 @@ mod tests {
         let s = store(&t, &n);
         assert_eq!(
             s.checkpoint_name("layer.3.qkv").as_deref(),
-            Some("layers.3.self_attn.qkv_proj.weight")
+            Some("layers.3.self_attn.qkv_proj.fused.weight")
         );
         assert_eq!(
             s.checkpoint_name("layer.11.attn_norm").as_deref(),
@@ -264,11 +268,11 @@ mod tests {
         let s = store(&t, &n);
         assert_eq!(
             s.checkpoint_name("layer.0.qkv.scales").as_deref(),
-            Some("layers.0.self_attn.qkv_proj.scales")
+            Some("layers.0.self_attn.qkv_proj.fused.scales")
         );
         assert_eq!(
             s.checkpoint_name("layer.0.qkv.zeros").as_deref(),
-            Some("layers.0.self_attn.qkv_proj.biases")
+            Some("layers.0.self_attn.qkv_proj.fused.biases")
         );
     }
 
@@ -299,7 +303,7 @@ mod tests {
         // A fire that cannot bind is diagnosed by the whole list; stopping at
         // the first turns one debugging session into as many as are missing.
         let mut tensors = HashMap::new();
-        tensors.insert("layers.0.self_attn.qkv_proj.weight".to_string(), Slice {
+        tensors.insert("layers.0.self_attn.qkv_proj.fused.weight".to_string(), Slice {
             address: 0x100,
             bytes: 64,
         });

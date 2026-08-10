@@ -496,6 +496,21 @@ pub struct LlamaLikeMetalFacts {
     /// with no tile does not resolve.
     #[serde(default)]
     pub qmm_tile: (u32, u32),
+    /// The deployment bound ONE packed `gate‖up` bank.
+    ///
+    /// A binding fact, exactly as `LlamaLikeFacts::fused_qkv` is, and the
+    /// Metal answer to it is normally **false**: `compile_load_plan` authors
+    /// with `Projections::InPlace`, and `dense_fused_projection_joins` returns
+    /// before doing anything under that policy. So the MLX path publishes
+    /// `mlp.gate_proj` and `mlp.up_proj` separately and the text must state
+    /// two projections.
+    ///
+    /// It matters more than a name: `mlp/gated.metal::silu_mul` takes **gate
+    /// and up as two buffers**, so a text that states one packed value binds
+    /// the OUTPUT where `up` belongs and leaves the output unbound. That is a
+    /// fire that runs.
+    #[serde(default)]
+    pub gate_up_fused: bool,
 }
 
 impl LlamaLikeMetalFacts {
@@ -522,6 +537,9 @@ impl LlamaLikeMetalFacts {
             // window fires; `bn = 32` is the only column tile the residual
             // variant is instantiated at.
             qmm_tile: (16, 32),
+            // `Projections::InPlace` is what `compile_load_plan` authors with,
+            // and the join declines under it.
+            gate_up_fused: false,
         }
     }
 }

@@ -1961,14 +1961,14 @@ pub mod metal {
 
     /// `silu_mul.metal::silu_mul_bfloat16` — the SwiGLU activation over
     /// the packed gate/up bank.
-    pub fn silu_mul(x: &Val, intermediate: u32) -> Val {
+    pub fn silu_mul(gate: &Val, up: &Val, intermediate: u32) -> Val {
         record(
-            &x.t,
-            x.layer,
+            &gate.t,
+            gate.layer,
             "silu_mul_bfloat16",
             vec![],
             None,
-            vec![x.id],
+            vec![gate.id, up.id],
             Some((
                 Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
                 DType::BF16,

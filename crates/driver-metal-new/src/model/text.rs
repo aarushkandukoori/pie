@@ -209,6 +209,11 @@ pub fn facts_from(
         // The narrowest rung, which is what a short window fires; `bn = 32` is
         // the only column tile the residual GEMM is instantiated at.
         qmm_tile: (16, 32),
+        // Asked of the tensors, like the other binding facts. It is false for
+        // every MLX checkpoint -- `compile_load_plan` authors with
+        // `Projections::InPlace` and the join declines under it -- but asking
+        // is what makes that a finding rather than an assumption.
+        gate_up_fused: has_tensor("layers.0.mlp.gate_up_proj.fused.weight"),
     };
     (facts, metal)
 }

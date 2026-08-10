@@ -107,8 +107,9 @@ fn load_model_takes_one_descriptor_because_this_backend_holds_one_model() {
             .expect_err("/nonesuch holds no checkpoint")
     );
     assert!(
-        why.contains("config.json"),
-        "a missing snapshot should fail on the checkpoint it looked for: {why}"
+        why.contains("[model] descriptor"),
+        "model facts come from the descriptor the worker hands over, not from \
+         a checkpoint this seam re-normalizes: {why}"
     );
 }
 

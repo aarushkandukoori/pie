@@ -49,6 +49,15 @@ pub struct MetalDriver {
     arch: String,
     /// The paged KV pool, allocated at load.
     pool: Option<driver_metal_new::model::kv::Pool>,
+    /// `[model] descriptor` from the boot TOML.
+    ///
+    /// The one key this seam reads out of `config_bytes`, and the same one
+    /// `driver-cuda-new`'s shell reads. Model facts come from the
+    /// `pie.model/1` descriptor the worker hands over — **not** from a
+    /// checkpoint's `config.json`, which `model::config` normalizes ONCE and
+    /// which `crates/model/tests/one_normalizer.rs` refuses to let the runtime
+    /// read a second time.
+    boot_descriptor: Option<std::path::PathBuf>,
     /// The deployment's facts, derived at load from the descriptor.
     ///
     /// Held rather than re-derived per fire: they come from a file, and a
@@ -79,7 +88,16 @@ impl MetalDriver {
     ///
     /// No Metal 4 device, or a device whose queue could not be created. Both
     /// are boot conditions, not runtime ones.
-    pub fn create(_config_bytes: &[u8]) -> Result<(Self, driver_abi::DeviceFacts)> {
+    pub fn create(config_bytes: &[u8]) -> Result<(Self, driver_abi::DeviceFacts)> {
+        let boot_descriptor = std::str::from_utf8(config_bytes)
+            .ok()
+            .and_then(|text| text.parse::<toml::Table>().ok())
+            .and_then(|v| {
+                v.get("model")?
+                    .get("descriptor")?
+                    .as_str()
+                    .map(std::path::PathBuf::from)
+            });
         let context = driver_metal_new::metal::Context::new()
             .map_err(|e| anyhow!("metal context: {e:?}"))?;
         let compiler = driver_metal_new::metal::Compiler::new(&context)
@@ -114,6 +132,7 @@ impl MetalDriver {
                 model: None,
                 arch: String::new(),
                 pool: None,
+                boot_descriptor,
                 deployment: None,
                 compiler,
                 pipelines: driver_metal_new::model::encode::Pipelines::new(shader_tree()),
@@ -167,21 +186,20 @@ impl MetalDriver {
                 descs.len()
             );
         };
-        // The load plan is authored from a DESCRIPTOR, and a descriptor is not
-        // a `config.json` — it is what `model::config::descriptor` makes of
-        // one. The driver does not synthesize either: a descriptor that
-        // disagreed with the weights beside it would simply be believed.
-        let config = std::fs::read_to_string(desc.snapshot_dir.join("config.json"))
-            .map_err(|e| anyhow!("{}: config.json: {e}", desc.snapshot_dir.display()))?;
-        let root: serde_json::Value =
-            serde_json::from_str(&config).map_err(|e| anyhow!("config.json does not parse: {e}"))?;
-        let dir = desc
-            .snapshot_dir
-            .to_str()
-            .ok_or_else(|| anyhow!("the snapshot path is not utf-8"))?;
-        let descriptor = model::config::descriptor(&root, dir)
-            .map_err(|e| anyhow!("config.json does not convert to a descriptor: {e}"))?
-            .to_string();
+        // The load plan is authored from the `pie.model/1` DESCRIPTOR, and
+        // this seam does not make one. `model::config` normalizes a snapshot
+        // exactly once, upstream, and `crates/model/tests/one_normalizer.rs`
+        // refuses to let the runtime read a checkpoint's own config a second
+        // time — two normalizers is how they come to disagree.
+        let path = self.boot_descriptor.as_ref().ok_or_else(|| {
+            anyhow!(
+                "driver-metal-new: no `[model] descriptor` in the boot config. \
+                 Model facts come from the descriptor the worker hands over, \
+                 not from the checkpoint — see crates/model/tests/one_normalizer.rs."
+            )
+        })?;
+        let descriptor = std::fs::read_to_string(path)
+            .map_err(|e| anyhow!("{}: {e}", path.display()))?;
         let loaded = driver_metal_new::model::load::load(
             &self.context,
             &desc.snapshot_dir,

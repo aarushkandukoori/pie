@@ -337,6 +337,26 @@ fn llama_like_metal_text(
             }
         };
         let paged = multi_batch && metal.paged_multi_batch;
+        // The gated MLP. `silu_mul` takes gate and up as TWO buffers, so a
+        // deployment whose loader did not join them states two projections —
+        // which on this backend is every deployment, because
+        // `compile_load_plan` authors with `Projections::InPlace` and the join
+        // declines under it. The packed arm stays for one that does.
+        assert!(
+            !metal.gate_up_fused,
+            "llama_like's Metal text has no packed gate\u{2016}up arm: `silu_mul` \
+             takes two buffers and no Metal kernel splits a packed bank into \
+             them. No deployment needs one -- `compile_load_plan` authors with \
+             `Projections::InPlace` and the join declines under it -- so the \
+             arm is refused at trace time rather than written untested."
+        );
+        let gated = |x: &Val, w: &dsl::Layer| {
+            dsl::metal::silu_mul(
+                &gemm(x, &w.gate_proj),
+                &gemm(x, &w.up_proj),
+                f.intermediate,
+            )
+        };
 
         let mut y = dsl::metal::embed_gather(m.trace(), "embed", f.hidden, multi_batch, metal.proj_repr, &point);
 
@@ -376,13 +396,13 @@ fn llama_like_metal_text(
             if post_norm {
                 let o = dsl::metal::rms_norm(&gemm(&a, &w.o_proj), &w.attn_norm);
                 y = dsl::metal::residual_add(&o, &y);
-                let h = dsl::metal::silu_mul(&gemm(&y, &w.gate_up), f.intermediate);
+                let h = gated(&y, &w);
                 let d = dsl::metal::rms_norm(&gemm(&h, &w.down), &w.mlp_norm);
                 y = dsl::metal::residual_add(&d, &y);
             } else {
                 y = gemm_add(&a, &w.o_proj, &y);
                 let x = dsl::metal::rms_norm(&y, &w.mlp_norm);
-                let h = dsl::metal::silu_mul(&gemm(&x, &w.gate_up), f.intermediate);
+                let h = gated(&x, &w);
                 y = gemm_add(&h, &w.down, &y);
             }
         }
