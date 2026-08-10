@@ -403,7 +403,20 @@ fn reorder<S: Resolver>(
             _ => None,
         })
         .max()
-        .unwrap_or(1)
+        // ZERO when the row names no `Out` at all, and that is not a
+        // degenerate case: `kv_append` writes the POOL and produces no traced
+        // value, so it has inputs and no outputs.
+        //
+        // This defaulted to ONE, which took `v_new` -- the last input -- for
+        // an output, so `In(1)` had nothing left to resolve to and the append
+        // bound a region addressing nothing where the values were. Measured
+        // against a real checkpoint: the K pages filled and the V pages were
+        // entirely zero, every layer, and the attention that read them
+        // answered zero without failing.
+        //
+        // A row with no operands at all returns above, so nothing needs the
+        // old default.
+        .unwrap_or(0)
         .min(widthed.len());
     let (ins, outs) = widthed.split_at(widthed.len() - results);
 

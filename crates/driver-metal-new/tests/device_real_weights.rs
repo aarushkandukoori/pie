@@ -26,8 +26,8 @@
 //! Passing here is not correctness; it is the floor beneath which correctness
 //! cannot be discussed.
 //!
-//! It found four defects in its first afternoon, and the fourth is the one
-//! that argues for the file:
+//! It found six defects in its first afternoon, and the last two are the ones
+//! that argue for the file:
 //!
 //!   1. **No barrier between dispatches.** Metal does not order two dispatches
 //!      in one compute encoder and the executor's loop emitted none. Three
@@ -44,13 +44,22 @@
 //!      of four held anything, and NOTHING ELSE WAS WRONG: every launch stated
 //!      four rows, every grid covered them, and every other kernel read the
 //!      row where the grid put it.
+//!   5. **Contiguous attention over a paged pool.** The text chose by CLASS
+//!      where the POOL's layout decides, so a decode walked
+//!      `[page, token, head, dim]` with `sdpa_vector_decode`'s arithmetic.
+//!   6. **`v_new` bound to nothing.** `dispatch::reorder` defaulted a row's
+//!      output count to ONE, and `kv_append` names no `Out` -- it writes the
+//!      POOL. So the last INPUT was taken for an output and `In(1)` had
+//!      nothing to resolve to. The K pages filled, the V pages were zero in
+//!      every layer, and the attention that read them answered zero without
+//!      failing. The widest activation went 1.1 -> 14.75 when it was fixed,
+//!      which is the difference between a residual stream and a rumour of
+//!      one.
 //!
-//! **What is still open**, and the bisection names it: `sdpa_paged_decode`
-//! writes nothing. Every other statement in the first layer writes both rows;
-//! attention writes neither. Its output region survives the census only
-//! because the residual carries the stream past it, which is exactly the shape
-//! of thing that would pass every magnitude check forever. It is the next
-//! thing to look at and the instrument to look with is already here.
+//! Every statement in the first layer writes both rows now, attention
+//! included. What is NOT established is that any of the numbers is the right
+//! number -- that still wants a reference, and this gate is the floor beneath
+//! it rather than a substitute for it.
 //!
 //! Three measurements track what is left, each pinned so it can only improve:
 //! declared outputs nothing fills (**0**, was 5), readout lanes that hold
@@ -369,6 +378,31 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
         live.store.missed().len(),
         live.store.missed()
     );
+
+    // Did the KV pool get anything? An attention that reads a pool nothing
+    // wrote answers zero and looks exactly like an attention that is broken.
+    for l in 0..2.min(shape.layers) {
+        let layer = pool.layer(l).expect("a layer");
+        let n = shape.layer_bytes() as usize;
+        // SAFETY: the command buffer retired.
+        let (k, v) = unsafe {
+            (
+                core::slice::from_raw_parts(
+                    layer.k.contents().as_ptr().cast_const().cast::<u8>(),
+                    n,
+                ),
+                core::slice::from_raw_parts(
+                    layer.v.contents().as_ptr().cast_const().cast::<u8>(),
+                    n,
+                ),
+            )
+        };
+        eprintln!(
+            "  kv layer {l}: {} of {n} K bytes non-zero, {} V",
+            k.iter().filter(|&&b| b != 0).count(),
+            v.iter().filter(|&&b| b != 0).count(),
+        );
+    }
 
     let mut read = vec![0u8; arena.len() as usize];
     // SAFETY: the command buffer retired before `run_keeping_arena` returned,
