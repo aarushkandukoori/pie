@@ -366,16 +366,19 @@ pub static KERNELS: &[KernelSig] = &[
     // statement carries as its THIRD operand (`weighted_sum_add(x,
     // weights, residual)`); the plain spelling above writes a fresh
     // value and aliases nothing.
+    // The route count and the hidden width are the OPERAND's own dims:
+    // the reorder above it produces `[Tokens, top_k, hidden]`, so a row
+    // that reads them there needs neither a config nor a context field.
     kernel!(moe_weighted_sum_add "moe::token_batched_weighted_sum_add_bf16",
         in_place = &[(0, 2)],
         operands = operands![
-            out: BufMut,
-            src: Buf,
-            weights: F32s,
-            num_tokens: I32,
-            top_k: I32,
-            hidden: I32,
-            stream: Stream,
+            out: BufMut <- Source::Out(0),
+            src: Buf <- Source::In(0),
+            weights: F32s <- Source::In(1),
+            num_tokens: I32 <- Source::Rows,
+            top_k: I32 <- Source::InDim(0, 1),
+            hidden: I32 <- Source::InDim(0, 2),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // The routed MXFP4 GEMVs. Like qwen3_5's GEMV leg the expert axis
     // rides INSIDE the value, so each is one rectangle over `N * k`
