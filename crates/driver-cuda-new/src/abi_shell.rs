@@ -63,12 +63,23 @@ struct Shell {
     notify_ctx: *mut std::ffi::c_void,
     /// The hybrid's GDN state slabs, allocated on first hybrid launch.
     gdn: Option<GdnState>,
-    /// The per-fire device arrays, pooled so a capture can outlive the
-    /// fire that recorded it. See [`FireArrays`].
-    fire_arrays: FireArrays,
     /// The unionized supergraph's instantiated graphs, one per (R, N)
     /// bucket. Empty unless `PIE_CUDA_SUPERGRAPH` armed it.
+    ///
+    /// **Declared BEFORE [`Self::fire_arrays`], and that ordering is
+    /// load-bearing.** Struct fields drop in declaration order, an exec
+    /// holds the addresses it recorded, and those addresses are the fire
+    /// arrays — so freeing the arrays first leaves live graph execs
+    /// pointing at returned memory, and destroying them then faults.
+    ///
+    /// Nothing about the types says this; the only thing that says it is
+    /// this comment and the order. Which is why it is a comment and not a
+    /// convention.
     supergraph: crate::model::supergraph::SupergraphCache,
+    /// The per-fire device arrays, pooled so a capture can outlive the
+    /// fire that recorded it. See [`FireArrays`]. Dropped AFTER the execs
+    /// that address it — see above.
+    fire_arrays: FireArrays,
     /// The driver-owned KV pools, allocated on first launch and grown on
     /// demand — decode continuity across launches lives here.
     kv: Option<KvState>,
@@ -1718,7 +1729,24 @@ fn step_impl(
     // replay; `Resolve` answers them here and produces one program. Off by
     // default because the eager leg is what every A/B in the tree pins,
     // and a capture is an optimisation that must prove itself against it.
-    let mut union = supergraph_enabled();
+    // A family carrying RECURRENT STATE is not replayable, and the rule is
+    // decided HERE rather than at the capture, because a fire built
+    // against a union lowering cannot fall back to an eager one — it would
+    // run the union's program, both sides of every guard, over the same
+    // rows.
+    //
+    // The hybrid's GDN slabs are per-fire mutable state reached through a
+    // slot indirection the host rewrites, so a captured body bakes one
+    // fire's slots and a replay would update another instance's
+    // recurrence. Found the hard way: the corruption surfaced as a fault
+    // inside `cudaGraphDestroy`, about as far from the cause as a symptom
+    // gets.
+    //
+    // Third instance of one rule — ungrouped LoRA, an arm whose prepared
+    // state the fire declines to build, and now recurrent state. What
+    // cannot be replayed stays eager.
+    let mut union =
+        supergraph_enabled() && !matches!(&family, FamilyFacts::Qwen35(..));
     let lower_as = |g: GuardMode| {
         lower_with(&plan, &fire_rows, Fire { captures_across_splits: false }, g).map_err(|e| {
             eprintln!("[driver-cuda-new] launch: uncovered: {e:?}");
