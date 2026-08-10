@@ -2573,7 +2573,8 @@ pub mod cuda {
     /// entirely to the executor -- readable, but not a declaration.
     pub fn moe_grouped_gemm(
         act: &Val,
-        sorted_route_ids: &Val,
+        expert_ids: &Val,
+        stage: &Val,
         aligned: Dim,
         width: u32,
         bank: &str,
@@ -2584,7 +2585,14 @@ pub mod cuda {
             "moe::moe_grouped_gemm_bf16",
             vec![bank.to_string()],
             None,
-            vec![act.id, sorted_route_ids.id],
+            // The second operand is the ALIGN's per-block expert id --
+            // what the kernel indexes the bank by. It used to be the
+            // sorted route order, which the kernel never reads: the
+            // statement named one array and the executor bound another
+            // (`mw.aligned_expert_ids`), so the declaration could not be
+            // checked against the call. The third is the DESTINATION,
+            // named by the pointer build above and written in place.
+            vec![act.id, expert_ids.id, stage.id],
             // Block-major rows, not tokens: the operand this multiplies is
             // the gathered aligned bank, and saying `Tokens` here made the
             // routed leg's values indistinguishable from the shared
@@ -4583,28 +4591,62 @@ pub mod cuda {
         .expect("the gather produces its value")
     }
 
-    /// `kernels::moe::build_moe_ptrs_aligned_bf16`: the pointer arrays one
-    /// batched GEMM per projection needs.
+    /// `kernels::moe::build_moe_ptrs_aligned_bf16`: the aligned leg's
+    /// staging, and the pointer arrays one batched GEMM per projection
+    /// needs into it.
     ///
-    /// Produces no tensor — it fills device pointer arrays. Stated anyway,
-    /// because a reader following the dataflow has to see where the batched
-    /// GEMM's operands come from.
+    /// It DECLARES the staging, which is the only SSA-valid way to say
+    /// what this call does. The kernel bakes the three staging buffers'
+    /// BASE ADDRESSES into device pointer arrays, so it has to know
+    /// where they are before anything writes them — and a statement
+    /// cannot take an operand that a later statement produces. So the
+    /// build is what fixes where the aligned staging lives, and the two
+    /// grouped GEMMs and the swiglu between them fill buffers it named:
+    /// each takes its destination as an operand and writes it in place.
+    /// Before this, all three were `mw.aligned_*` in the executor and
+    /// the declaration ended at "a pointer build happens here".
+    ///
+    /// `(gate_up, act, out)` — `[aligned, 2·I]`, `[aligned, I]`,
+    /// `[aligned, H]`, all bf16, all block-major.
+    ///
+    /// The six POINTER ARRAYS are still the driver's: an array of device
+    /// addresses has no dtype in this vocabulary, and inventing one to
+    /// hold `void*` is a wider change than this statement needs. They
+    /// are reachable only from the two GEMMs that this call also serves,
+    /// so the gap is bounded — see the executor's fallback arm.
     pub fn build_moe_ptrs_aligned(
         expert_ids: &Val,
         aligned_in: &Val,
         l: u32,
         gate_up_bank: &str,
         down_bank: &str,
-    ) {
-        record(
+        aligned: Dim,
+        hidden: u32,
+        moe_intermediate: u32,
+    ) -> (Val, Val, Val) {
+        let outs = record_many(
             &expert_ids.t,
             Some(l),
             "moe::build_moe_ptrs_aligned_bf16",
             vec![gate_up_bank.to_string(), down_bank.to_string()],
-            None,
             vec![expert_ids.id, aligned_in.id],
-            None,
+            vec![
+                (
+                    Shape(vec![aligned, Dim::Const(2 * moe_intermediate)]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![aligned, Dim::Const(moe_intermediate)]),
+                    DType::BF16,
+                ),
+                (Shape(vec![aligned, Dim::Const(hidden)]), DType::BF16),
+            ],
         );
+        let mut it = outs.into_iter();
+        let gate_up = it.next().expect("the ptr build states three stages");
+        let act = it.next().expect("the ptr build states three stages");
+        let out = it.next().expect("the ptr build states three stages");
+        (gate_up, act, out)
     }
 
     /// `kernels::moe::reorder_moe_aligned_output_bf16`: undo the block
@@ -5794,6 +5836,33 @@ pub mod cuda {
             )),
         )
         .expect("the activation produces its value")
+    }
+
+    /// `kernels::mlp::chunked_swiglu_bf16` over the ALIGNED leg's
+    /// block-major staging: [`Self::swiglu`]'s shape, plus the
+    /// destination the pointer build named.
+    ///
+    /// Its own statement because the destination is not this call's to
+    /// choose. The aligned staging's addresses are baked into the
+    /// pointer arrays, so the activation has to land on the buffer
+    /// `build_moe_ptrs_aligned` declared — an operand, written in place,
+    /// exactly as the two grouped GEMMs around it do. Stating it any
+    /// other way puts the activation somewhere the down projection's
+    /// pointers do not point.
+    pub fn swiglu_aligned(x: &Val, stage: &Val, aligned: Dim, intermediate: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "mlp::chunked_swiglu_bf16",
+            vec![],
+            None,
+            vec![x.id, stage.id],
+            Some((
+                Shape(vec![aligned, Dim::Const(intermediate)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the aligned activation produces its value")
     }
 
     /// `kernels::mlp::swiglu_bf16` in its PAIR form: two operands, the

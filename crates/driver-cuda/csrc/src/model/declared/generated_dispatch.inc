@@ -9,7 +9,7 @@
 // hand-written switch needed; this needs none, and the symbol
 // is what the statement carries anyway.
 
-if (sym == "layout::split_bf16_rows" && ins.size >= 1 && outs.size >= 2) {
+if (sym == "layout::split_bf16_rows" && ins.size >= 1 && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::layout::split_bf16_rows(
         c.arm.values.slot(ins[0]),
         c.arm.values.slot(outs[0]),
@@ -20,7 +20,7 @@ if (sym == "layout::split_bf16_rows" && ins.size >= 1 && outs.size >= 2) {
         c.arm.stream);
     return true;
 }
-if (sym == "layout::split_qwen_gdn_ba_bf16" && ins.size >= 1 && outs.size >= 2) {
+if (sym == "layout::split_qwen_gdn_ba_bf16" && ins.size >= 1 && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::layout::split_qwen_gdn_ba_bf16(
         c.arm.values.slot(ins[0]),
         c.arm.values.slot(outs[0]),
@@ -30,7 +30,7 @@ if (sym == "layout::split_qwen_gdn_ba_bf16" && ins.size >= 1 && outs.size >= 2) 
         c.arm.stream);
     return true;
 }
-if (sym == "mlp::chunked_swiglu_bf16" && ins.size >= 1 && outs.size >= 1) {
+if (sym == "mlp::chunked_swiglu_bf16" && ins.size >= 1 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::mlp::chunked_swiglu_bf16(
         c.arm.values.slot(ins[0]),
         c.arm.values.slot(outs[0]),
@@ -49,7 +49,7 @@ if (sym == "mlp::swiglu_bf16" && ins.size >= 2 && outs.size >= 1) {
         c.arm.stream);
     return true;
 }
-if (sym == "moe::topk_softmax_bf16" && ins.size >= 1 && outs.size >= 2) {
+if (sym == "moe::topk_softmax_bf16" && ins.size >= 1 && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::moe::topk_softmax_bf16(
         c.arm.values.slot(ins[0]),
         static_cast<::std::int32_t*>(c.arm.values.slot(outs[0])),
@@ -60,7 +60,7 @@ if (sym == "moe::topk_softmax_bf16" && ins.size >= 1 && outs.size >= 2) {
         c.arm.stream);
     return true;
 }
-if (sym == "moe::token_batched_weighted_sum_bf16" && ins.size >= 2 && outs.size >= 1) {
+if (sym == "moe::token_batched_weighted_sum_bf16" && ins.size >= 2 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::moe::token_batched_weighted_sum_bf16(
         c.arm.values.slot(outs[0]),
         c.arm.values.slot(ins[0]),
@@ -71,7 +71,7 @@ if (sym == "moe::token_batched_weighted_sum_bf16" && ins.size >= 2 && outs.size 
         c.arm.stream);
     return true;
 }
-if (sym == "norm::rmsnorm_bf16" && ins.size >= 1 && outs.size >= 1 && aux.size >= 1) {
+if (sym == "norm::rmsnorm_bf16" && ins.size >= 1 && outs.size >= 1 && aux.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::norm::rmsnorm_bf16(
         c.arm.values.slot(ins[0]),
         c.wb.require(c.arm.plan.name(aux[0])).data(),
@@ -82,7 +82,7 @@ if (sym == "norm::rmsnorm_bf16" && ins.size >= 1 && outs.size >= 1 && aux.size >
         c.arm.stream);
     return true;
 }
-if (sym == "norm::rmsnorm_gemma_bf16" && ins.size >= 1 && outs.size >= 1 && aux.size >= 1) {
+if (sym == "norm::rmsnorm_gemma_bf16" && ins.size >= 1 && outs.size >= 1 && aux.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::norm::rmsnorm_gemma_bf16(
         c.arm.values.slot(ins[0]),
         c.wb.require(c.arm.plan.name(aux[0])).data(),
@@ -93,7 +93,7 @@ if (sym == "norm::rmsnorm_gemma_bf16" && ins.size >= 1 && outs.size >= 1 && aux.
         c.arm.stream);
     return true;
 }
-if (sym == "norm::residual_add_rmsnorm_bf16" && ins.size >= 2 && outs.size >= 1 && aux.size >= 1) {
+if (sym == "norm::residual_add_rmsnorm_bf16" && ins.size >= 2 && outs.size >= 1 && aux.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::norm::residual_add_rmsnorm_bf16(
         c.arm.values.slot(ins[0]),
         c.arm.values.slot(ins[1]),
@@ -121,7 +121,7 @@ if (sym == "quant::bf16_to_fp16" && ins.size >= 1 && outs.size >= 1) {
         c.arm.stream);
     return true;
 }
-if (sym == "rope::rope_bf16" && outs.size >= 2) {
+if (sym == "rope::rope_bf16" && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::rope::rope_bf16(
         c.arm.values.slot(outs[0]),
         c.arm.values.slot(outs[1]),
@@ -135,7 +135,7 @@ if (sym == "rope::rope_bf16" && outs.size >= 2) {
         false);
     return true;
 }
-if (sym == "rope::rope_partial_bf16" && outs.size >= 2 && ps.size >= 1) {
+if (sym == "rope::rope_partial_bf16" && outs.size >= 2 && ps.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::rope::rope_partial_bf16(
         c.arm.values.slot(outs[0]),
         c.arm.values.slot(outs[1]),

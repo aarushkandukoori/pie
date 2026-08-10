@@ -11,12 +11,17 @@ use kernels::KernelSig;
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
+    // `c` is an OPERAND as well as the result: the aligned staging's
+    // addresses are baked into the pointer arrays
+    // `build_moe_ptrs_aligned` fills, so this GEMM's destination is the
+    // buffer that build named, not one the arena may pick freshly.
     kernel!(moe_grouped_gemm "moe::moe_grouped_gemm_bf16",
+        in_place = &[(0, 2)],
         operands = operands![
-            a: Buf,
-            weight_base: Buf,
-            c: BufMut,
-            expert_ids: I32s,
+            a: Buf <- Source::In(0),
+            weight_base: Buf <- Source::Weight(0),
+            c: BufMut <- Source::Out(0),
+            expert_ids: I32s <- Source::In(1),
             max_blocks: I32,
             m: I32,
             n: I32,
