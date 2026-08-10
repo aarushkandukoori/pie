@@ -1286,12 +1286,13 @@ bool forward_declared_tmpl(
         // corrects an earlier reading here that they did not -- so it is
         // the statement's value, with the guard's as the fallback and
         // `ws.attn_out` behind that.
-        // What the shared arm is handed: the FALLBACK only, never the
+        // What a shared arm is handed when the statement declares no
+        // result: the enclosing value-producing guard's value, never the
         // statement's own result. The arm reads that itself, and asking
         // for `plan.outputs(op)[0]` here would ask it of every op the
         // walk sees rather than of the dispatches — a slot lookup on a
         // value that may be the backend's to bind, for no reason.
-        const auto attn_dst_fallback = [&]() -> void* {
+        const auto region_dst = [&]() -> void* {
             const std::uint32_t b =
                 at_op < binds.size() ? binds[at_op]
                                      : pie_forward::PIE_FORWARD_NO_VALUE;
@@ -1732,7 +1733,13 @@ case PieForwardOpKind::Launch: {
                 // the value. Both were this family's own attention arms
                 // a moment ago; the arms are one now, and this is what
                 // it took.
-                decode_plan, prefill_plan, attn_dst_fallback(),
+                decode_plan, prefill_plan, region_dst(),
+                // The recurrent state's window for this launch. The slab
+                // is the layer the statement marks; the rest is the
+                // fire's.
+                rs_slot0, slot_ids_d,
+                static_cast<long long>(slot_stride), write_state,
+                commit_lens,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
@@ -1799,84 +1806,21 @@ case PieForwardOpKind::Launch: {
                     commit_lens);
                 break;
             }
-            case declared::Kernel::StepBatched:
-                kernels::ssm::recurrent_gated_delta_step_batched(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
-                    static_cast<float*>(bound_or_out()), R, V_h, K_d, V_d, stream);
-                break;
-            case declared::Kernel::StepBatchedBf16:
-                kernels::ssm::recurrent_gated_delta_step_batched_state_bf16(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    rs_slot0, slot_ids_d, slot_stride,
-                    static_cast<float*>(bound_or_out()), R, V_h, K_d, V_d, stream);
-                break;
-            case declared::Kernel::StepBatchedGqa:
-                kernels::ssm::recurrent_gated_delta_step_batched_gqa(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    static_cast<float*>(rs_slot0), slot_ids_d, slot_stride,
-                    static_cast<float*>(bound_or_out()), R, K_h, V_h, K_d, V_d, stream);
-                break;
-            case declared::Kernel::StepBatchedGqaBf16:
-                kernels::ssm::recurrent_gated_delta_step_batched_gqa_state_bf16(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    rs_slot0, slot_ids_d, slot_stride,
-                    static_cast<float*>(bound_or_out()), R, K_h, V_h, K_d, V_d, stream);
-                break;
-            case declared::Kernel::PrefillWarpTiledGqa:
-                kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
-                    slot_stride, static_cast<float*>(bound_or_out()),
-                    R, K_h, V_h, K_d, V_d, stream, write_state);
-                break;
-            case declared::Kernel::PrefillWarpTiledGqaBf16:
-                kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    rs_slot0, slot_ids_d, qo_indptr,
-                    slot_stride, static_cast<float*>(bound_or_out()),
-                    R, K_h, V_h, K_d, V_d, stream, write_state);
-                break;
-            case declared::Kernel::PrefillCached:
-                kernels::ssm::chunk_gated_delta_prefill_batched_cached(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
-                    slot_stride, static_cast<float*>(bound_or_out()),
-                    R, V_h, K_d, V_d, stream, write_state);
-                break;
-            case declared::Kernel::PrefillCachedBf16:
-                kernels::ssm::chunk_gated_delta_prefill_batched_cached_state_bf16(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    rs_slot0, slot_ids_d, qo_indptr,
-                    slot_stride, static_cast<float*>(bound_or_out()),
-                    R, V_h, K_d, V_d, stream, write_state);
-                break;
-            case declared::Kernel::PrefillFla:
-                kernels::ssm::chunk_gated_delta_prefill_batched(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    static_cast<float*>(rs_slot0), slot_ids_d, qo_indptr,
-                    slot_stride, static_cast<float*>(bound_or_out()),
-                    R, K_h, V_h, K_d, V_d, stream, write_state,
-                    commit_lens);
-                break;
-            case declared::Kernel::PrefillFlaBf16:
-                kernels::ssm::chunk_gated_delta_prefill_batched_state_bf16(
-                    rec_q(), rec_k(),
-                    rec_in(2), rec_in(3), rec_in(4),
-                    rs_slot0, slot_ids_d, qo_indptr,
-                    slot_stride, static_cast<float*>(bound_or_out()),
-                    R, K_h, V_h, K_d, V_d, stream, write_state,
-                    commit_lens);
-                break;
+            // THE RECURRENCE, ten spellings, all GENERATED. What kept
+            // them here was not arithmetic -- the five operands were
+            // already the statement's -- but four things around them:
+            // the recurrent-state slab, the request slot addressing,
+            // the frozen-verify write suppression and the spec-decode
+            // commit lengths. All four are the FIRE's, so they follow
+            // `kv_layer` and the attention plan into the context and the
+            // family hands them over.
+            //
+            // The head geometry comes off the two VALUES: q is
+            // `[Tokens, heads, key_dim]` and v is `[Tokens, value_heads,
+            // value_dim]`, which is every count these kernels take. And
+            // the destination is `ResultOrRegion`: the decode step
+            // declares its result, the six prefill spellings are arms of
+            // a value-producing guard and declare none.
             // The head repeat GENERATES, which it could not while it
             // was output-less: all three counts are dims of the two
             // values -- `[Tokens, key_heads, key_dim]` in, `[Tokens,

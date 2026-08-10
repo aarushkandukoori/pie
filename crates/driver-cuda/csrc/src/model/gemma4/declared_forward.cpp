@@ -636,7 +636,7 @@ bool gemma4_forward_declared(
                 // for. This family states no planned prefill, and every
                 // dispatch it states declares its own result.
                 decode_plan_for(), /*prefill_plan=*/nullptr,
-                /*attn_dst_fallback=*/nullptr,
+                /*region_dst=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {

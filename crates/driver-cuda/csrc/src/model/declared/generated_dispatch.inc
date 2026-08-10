@@ -291,6 +291,212 @@ if (sym == "rope::rope_partial_bf16" && outs.size >= 2 && ps.size >= 1 && c.rope
         c.arm.stream);
     return true;
 }
+if (sym == "ssm::recurrent_gated_delta_step_batched" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::recurrent_gated_delta_step_batched(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        static_cast<float*>(c.rs_slab),
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream);
+    return true;
+}
+if (sym == "ssm::recurrent_gated_delta_step_batched_gqa" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::recurrent_gated_delta_step_batched_gqa(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        static_cast<float*>(c.rs_slab),
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream);
+    return true;
+}
+if (sym == "ssm::recurrent_gated_delta_step_batched_state_bf16" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::recurrent_gated_delta_step_batched_state_bf16(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        c.rs_slab,
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream);
+    return true;
+}
+if (sym == "ssm::recurrent_gated_delta_step_batched_gqa_state_bf16" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::recurrent_gated_delta_step_batched_gqa_state_bf16(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        c.rs_slab,
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream);
+    return true;
+}
+if (sym == "ssm::chunk_gated_delta_prefill_batched" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::chunk_gated_delta_prefill_batched(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        static_cast<float*>(c.rs_slab),
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        static_cast<const ::std::uint32_t*>(c.qo_indptr),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream,
+        c.write_state,
+        static_cast<const ::std::int32_t*>(c.commit_lens),
+        static_cast<const ::std::uint8_t*>(nullptr));
+    return true;
+}
+if (sym == "ssm::chunk_gated_delta_prefill_batched_state_bf16" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::chunk_gated_delta_prefill_batched_state_bf16(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        c.rs_slab,
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        static_cast<const ::std::uint32_t*>(c.qo_indptr),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream,
+        c.write_state,
+        static_cast<const ::std::int32_t*>(c.commit_lens),
+        static_cast<const ::std::uint8_t*>(nullptr));
+    return true;
+}
+if (sym == "ssm::chunk_gated_delta_prefill_batched_cached" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::chunk_gated_delta_prefill_batched_cached(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        static_cast<float*>(c.rs_slab),
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        static_cast<const ::std::uint32_t*>(c.qo_indptr),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream,
+        c.write_state,
+        static_cast<const ::std::uint8_t*>(nullptr));
+    return true;
+}
+if (sym == "ssm::chunk_gated_delta_prefill_batched_cached_state_bf16" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::chunk_gated_delta_prefill_batched_cached_state_bf16(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        c.rs_slab,
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        static_cast<const ::std::uint32_t*>(c.qo_indptr),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream,
+        c.write_state,
+        static_cast<const ::std::uint8_t*>(nullptr));
+    return true;
+}
+if (sym == "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        static_cast<float*>(c.rs_slab),
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        static_cast<const ::std::uint32_t*>(c.qo_indptr),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream,
+        c.write_state,
+        static_cast<const ::std::uint8_t*>(nullptr));
+    return true;
+}
+if (sym == "ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16" && ins.size >= 5) {
+    ::pie_cuda_driver::kernels::ssm::chunk_gated_delta_prefill_batched_warp_tiled_gqa_state_bf16(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.arm.values.slot(ins[2])),
+        static_cast<const float*>(c.arm.values.slot(ins[3])),
+        static_cast<const float*>(c.arm.values.slot(ins[4])),
+        c.rs_slab,
+        static_cast<const ::std::int32_t*>(c.rs_slot_ids),
+        static_cast<const ::std::uint32_t*>(c.qo_indptr),
+        c.rs_slot_stride,
+        static_cast<float*>(result_or_region(c, outs, 0)),
+        c.num_requests,
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        static_cast<int>(c.arm.plan.value(ins[2]).dims[2].value),
+        c.arm.stream,
+        c.write_state,
+        static_cast<const ::std::uint8_t*>(nullptr));
+    return true;
+}
 if (sym == "ssm::repeat_interleave_heads_fp32" && ins.size >= 1 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::ssm::repeat_interleave_heads_fp32(
         static_cast<const float*>(c.arm.values.slot(ins[0])),

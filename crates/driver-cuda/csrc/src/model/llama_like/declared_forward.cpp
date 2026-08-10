@@ -1814,7 +1814,7 @@ void llama_like_forward_declared(
                 // it a plan here would silently take the ordinary case
                 // and leave the depth and mask forms unreachable.
                 /*decode_plan=*/nullptr, /*prefill_plan=*/nullptr,
-                /*attn_dst_fallback=*/nullptr,
+                /*region_dst=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {

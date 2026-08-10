@@ -484,6 +484,17 @@ pub enum Source {
     /// leading extent is the answer, [`Source::OutRows`] says so and
     /// covers this case too.
     Rows,
+    /// The `i`-th result if the statement declares one, and the
+    /// enclosing value-producing guard's value otherwise.
+    ///
+    /// A REGION LAUNCH declares no result: the guard owns the value and
+    /// its arms bind it, so which value that is depends on where the
+    /// statement sits rather than on what it says. qwen3.5's recurrence
+    /// three-way and gpt-oss's attention chain are the same shape, and
+    /// a row whose spellings appear both ways — the decode step states
+    /// its result, the prefill spellings do not — cannot say `Out` and
+    /// cannot say `Ctx`.
+    ResultOrRegion(u8),
     /// The `i`-th result's LEADING extent, resolved for this fire.
     ///
     /// `Rows` for a token-shaped value, a constant for a fixed one, and

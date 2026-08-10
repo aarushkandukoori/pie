@@ -190,15 +190,38 @@ struct ExecCtx {
     const kernels::attn::DecodePlanCache* decode_plan = nullptr;
     const kernels::attn::PrefillPlanCache* prefill_plan = nullptr;
 
-    // Where a dispatch writes when the statement declares no result.
+    // Where a launch writes when the statement declares no result.
     //
-    // The GUARD-region spelling: a value-producing guard owns the
-    // output and its arms record none, so the destination is the
-    // guard's and only the family's walk knows which value that is.
-    // `lse_fallback`'s peer, and null is the honest default — an arm
-    // handed neither a result nor a fallback refuses rather than
-    // writing somewhere plausible.
-    void* attn_dst_fallback = nullptr;
+    // The GUARD-REGION spelling, and it is not the attention's alone: a
+    // value-producing guard owns the output and its arms record none,
+    // so the destination is the guard's and only the family's walk
+    // knows which value that is. qwen3.5's recurrence three-way is the
+    // same shape as gpt-oss's attention chain.
+    //
+    // `lse_fallback`'s peer, and null is the honest default — a launch
+    // handed neither a result nor a region destination refuses rather
+    // than writing somewhere plausible.
+    void* region_dst = nullptr;
+
+    // ── THE RECURRENT STATE, already resolved ──────────────────────
+    //
+    // `state_cache` above is the STORE; these are this launch's window
+    // into it, and resolving them is the family's the way `kv_layer` is.
+    // The slab is `recurrent_state_raw(layer, 0)` for the layer the
+    // statement marks, and null where the statement marks none — which
+    // is a drift if a recurrence is stated over it.
+    //
+    // `slot_ids` and `slot_stride` address a REQUEST's slab inside it;
+    // `write_state` is the frozen-verify pass suppressing its own
+    // writes; `commit_lens` is the spec-decode repair's per-request
+    // length, null on an ordinary fire. All four are the FIRE's, not
+    // the statement's, which is why they ride here and not in the param
+    // channel.
+    void* rs_slab = nullptr;
+    const std::int32_t* rs_slot_ids = nullptr;
+    long long rs_slot_stride = 0;
+    bool write_state = true;
+    const std::int32_t* commit_lens = nullptr;
 };
 
 // Run `op`'s arm if this file owns its symbol.
@@ -236,6 +259,21 @@ inline bool execute_shared(const ExecCtx& c,
     const auto ps = plan.aux_params(op);
     const std::string_view sym = plan.weight_name(op);
     (void)ps;
+    // WHERE A REGION LAUNCH WRITES. The statement's result where it
+    // declares one, the enclosing guard's value otherwise — see
+    // `Source::ResultOrRegion`. A launch that has neither is a drift,
+    // and refusing is the only safe answer: writing somewhere plausible
+    // is how a guard chain silently produces the wrong region's output.
+    const auto result_or_region = [&](const ExecCtx& cc,
+                                      const pie_forward::ForwardPlan::IdSpan& o,
+                                      std::size_t i) -> void* {
+        if (o.size > i) return cc.arm.values.slot(o[i]);
+        if (cc.region_dst != nullptr) return cc.region_dst;
+        throw std::runtime_error(
+            "declared arm: a launch declares no result and sits in no "
+            "value-producing guard, so it has nowhere to write");
+    };
+    (void)result_or_region;
 #include "model/declared/generated_dispatch.inc"
 
     // One weight, required, by the name the statement gave.
@@ -488,7 +526,7 @@ inline bool execute_shared(const ExecCtx& c,
                              c.kv_page_indices, c.kv_page_indptr,
                              c.kv_last_page_lens, c.attn_ws.view(),
                              stated_window_left(plan, op), c.sm_scale,
-                             c.lse_fallback, c.attn_dst_fallback);
+                             c.lse_fallback, c.region_dst);
         return true;
     }
 
@@ -503,7 +541,7 @@ inline bool execute_shared(const ExecCtx& c,
         // The guard-region spelling again: the arms of a value-producing
         // guard record no result, so the destination is the guard's.
         void* const dst = outs.size > 0 ? values.slot(outs[0])
-                                        : c.attn_dst_fallback;
+                                        : c.region_dst;
         if (dst == nullptr) {
             throw std::runtime_error(
                 "declared arm: a prefill dispatch names no destination");

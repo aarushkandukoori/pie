@@ -379,6 +379,9 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
         Source::Unbound => return None,
         Source::In(i) => format!("{ctx}.arm.values.slot(ins[{i}])"),
         Source::Out(i) => format!("{ctx}.arm.values.slot(outs[{i}])"),
+        Source::ResultOrRegion(i) => format!(
+            "result_or_region({ctx}, outs, {i})"
+        ),
         Source::Weight(i) => {
             format!("{ctx}.wb.require({ctx}.arm.plan.name(aux[{i}])).data()")
         }
@@ -479,6 +482,9 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
                 | Source::InElements(i)
                 | Source::InWidth(i)
                 | Source::InDim(i, _) => need_in = need_in.max(i + 1),
+                // `ResultOrRegion` deliberately contributes NO arity
+                // demand: a region launch declares no result, and
+                // requiring one is exactly the case it exists for.
                 Source::Out(i)
                 | Source::OutRows(i)
                 | Source::OutWidth(i)

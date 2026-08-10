@@ -618,7 +618,7 @@ bool gpt_oss_forward_declared(
                 // declares its own result, so there is no fallback to
                 // hand over.
                 decode_plan.get(), /*prefill_plan=*/nullptr,
-                /*attn_dst_fallback=*/nullptr,
+                /*region_dst=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {
