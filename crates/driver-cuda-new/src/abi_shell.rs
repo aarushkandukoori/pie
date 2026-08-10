@@ -96,6 +96,28 @@ struct Shell {
     /// first launch. This is also what the 711-fire soak enforced: the
     /// per-fire version leaked its 48 MB workspace every fire.
     scratch: Option<FireScratch>,
+    /// THE FIRE STREAM AND ITS ALLOCATOR, held per driver.
+    ///
+    /// Both were built per fire — `OwnedStream::new(0)` and
+    /// `Allocator::new()` at the top of every `step_impl` — which is two
+    /// costs and one impossibility.
+    ///
+    /// The costs: a stream create/destroy per fire, and an allocator that
+    /// POOLS discarding its pool every fire, so every buffer a fire wants
+    /// is a fresh `cudaMalloc`.
+    ///
+    /// The impossibility is run-ahead. A second fire cannot be enqueued
+    /// behind the first if there is no stream that outlives the first,
+    /// and `pie_cuda_launch` cannot return before its work retires if the
+    /// stream it queued onto dies with the call. Everything about
+    /// n+1-while-n-runs starts here.
+    ///
+    /// `None` until the first launch, because a driver that never fires
+    /// should not hold a stream.
+    fire_stream: Option<crate::cuda::OwnedStream>,
+    /// The allocator every fire's transient device memory comes from.
+    /// Held for the pool, and dropped with the shell.
+    fire_alloc: Option<crate::cuda::Allocator>,
     /// The PTIR plane: what a registered program adopted to, and what its
     /// generated regions compiled to.
     ///
@@ -474,6 +496,8 @@ pub extern "C" fn pie_cuda_create(
         channels: std::collections::BTreeMap::new(),
         swap: None,
         scratch: None,
+        fire_stream: None,
+        fire_alloc: None,
         ptir: crate::ptir::Runtime::default(),
         ptir_programs: crate::ptir::Programs::new(),
         ptir_plans: std::collections::BTreeMap::new(),
@@ -2914,10 +2938,27 @@ fn step_impl(
     }
     let dplan = DispatchPlan::new(&plan, &lowered);
 
-    // ── Device state: KV pools (persistent), fire arrays (per launch). ──
-    let stream = crate::cuda::OwnedStream::new(0).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+    // ── Device state, and all of it PERSISTENT now. ──
+    //
+    // The stream and the allocator used to be built here, per fire. The
+    // stream because nothing needed it to outlive the call, and the
+    // allocator because it was convenient — but an allocator that POOLS
+    // and is rebuilt every fire has no pool, so every buffer a fire
+    // wanted was a fresh `cudaMalloc`.
+    //
+    // Both are the shell's now. That is a saving on its own and it is the
+    // precondition for run-ahead: a second fire cannot queue behind the
+    // first onto a stream that dies with the first call.
+    if state.fire_stream.is_none() {
+        state.fire_stream =
+            Some(crate::cuda::OwnedStream::new(0).map_err(|_| PIE_STATUS_DRIVER_ERROR)?);
+    }
+    if state.fire_alloc.is_none() {
+        state.fire_alloc = Some(crate::cuda::Allocator::new());
+    }
+    let stream = state.fire_stream.as_ref().expect("just ensured");
     let raw_stream = stream.as_ref().as_raw().cast::<std::ffi::c_void>();
-    let alloc = crate::cuda::Allocator::new();
+    let alloc = state.fire_alloc.as_ref().expect("just ensured");
 
     let need_pages = frame.required_kv_pages.max(
         kv_indices.iter().copied().max().map_or(1, |m| m + 1),
