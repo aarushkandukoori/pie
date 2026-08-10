@@ -677,6 +677,28 @@ pub struct LlamaLikeMetalFacts {
     /// layer until the activations saturate.
     #[serde(default)]
     pub rope_theta: f32,
+    /// Whether each layer scales the stream by a learned SCALAR.
+    ///
+    /// gemma's, for a deployment with no per-layer embeddings: one number per
+    /// layer, read from a buffer rather than stated, because which layer is
+    /// running is the fire's and not the text's.
+    #[serde(default)]
+    pub per_layer_scalar: bool,
+    /// gemma's PER-LAYER EMBEDDING width, or zero for a deployment with none.
+    ///
+    /// A SIDE NETWORK: a second embedding table gathered once per step,
+    /// projected, normed and joined into `[n_layers, ple_dim]` that each layer
+    /// reads its own slice of. Nothing llama-like has a counterpart, which is
+    /// why gemma4 needs a text where qwen3-moe and gpt-oss needed a fixture.
+    #[serde(default)]
+    pub per_layer_emb_dim: u32,
+    /// Layers at the END of the stack that SHARE their KV with an earlier one.
+    ///
+    /// A shared layer rotates its own Q and reads the pages its source wrote:
+    /// no k/v projection, no k/v norm, no append. Suppressing those dispatches
+    /// is not an optimisation — it is which tensors the checkpoint ships.
+    #[serde(default)]
+    pub kv_shared_layers: u32,
     /// The readout's SOFTCAP — `cap * tanh(x / cap)` — or zero for none.
     ///
     /// gemma's. Zero is "no softcap" and the text names nothing, rather than
@@ -757,17 +779,17 @@ impl LlamaLikeMetalFacts {
     /// The three gemma facts that ARE facts, on an otherwise llama-like
     /// deployment.
     ///
-    /// NOT a gemma4 fixture: gemma4's per-layer embeddings are a side network
-    /// of nine kernels with no llama-like counterpart, and no set of facts
-    /// makes them appear. What this pins is that the three which are facts —
-    /// the geglu, the readout softcap, the alternating window — reach the
-    /// device through the same executor, so a gemma4 text when it lands has
-    /// only the PLE and the branch structure left to state.
+    /// The PLE and the KV sharing are here too, which makes this the fixture
+    /// a gemma4 text reads. What it is NOT is a measurement: the widths are
+    /// plausible rather than any published config's, and a real gemma4
+    /// deployment states its own.
     #[must_use]
     pub fn gemma_like() -> Self {
         Self {
             activation: Activation::Geglu,
             logit_softcap: 30.0,
+            per_layer_emb_dim: 256,
+            kv_shared_layers: 4,
             window_left: (0..24).map(|l| if l % 6 == 5 { -1 } else { 512 }).collect(),
             rope_theta: 1_000_000.0,
             ..Self::synthetic()
@@ -811,6 +833,11 @@ impl LlamaLikeMetalFacts {
             // statement hands it `log2(theta)`; handing theta rotates by a
             // frequency ladder that is wrong from the second channel on.
             rope_theta: 1_000_000.0,
+            // qwen3 has no per-layer embeddings, no per-layer scalar, and
+            // shares no KV.
+            per_layer_scalar: false,
+            per_layer_emb_dim: 0,
+            kv_shared_layers: 0,
             // qwen3 caps no logits, has no attention sinks, and takes the
             // plain gated activation.
             logit_softcap: 0.0,

@@ -56,7 +56,21 @@ pub static KERNELS: &[KernelSig] = &[
         ],
         axes = &[BF16, GROUP, BITS]),
     // 6 in embed_gather.metal
+    // The M>1 form, and the one a text should name: it reduces to the
+    // single-row one at N=1, where that one reads `id[0]` whatever grid it is
+    // handed.
     kernel!(embed_gather_scaled_mb_4bit "embed_gather_scaled_mb_4bit",
+        file = Some("layout/embed_gather.metal"),
+        launch = kernels::LaunchRule::ElementwiseRows,
+        operands = kernels::operands![
+            w: Buf <- kernels::Source::Weight(0),
+            scales: Buf <- kernels::Source::Weight(1),
+            biases: Buf <- kernels::Source::Weight(2),
+            id: I32s <- kernels::Source::TokenIds,
+            out: BufMut <- kernels::Source::Out(0),
+            hidden: I32 <- kernels::Source::Param(0),
+            embed_scale: F32 <- kernels::Source::ParamF32(1),
+        ],
         axes = &[BF16, GROUP, BITS]),
     // 1 in ple_combine.metal
     // gemma's PLE join: `(proj + token) * inv_sqrt2`, over the whole

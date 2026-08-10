@@ -507,7 +507,64 @@ fn llama_like_metal_text(
             )
         };
 
-        let mut y = dsl::metal::embed_gather(m.trace(), "embed", f.hidden, multi_batch, metal.proj_repr, &point);
+        // The embedding, with gemma's `sqrt(hidden)` scale folded into the
+        // gather when this deployment wants one. The scale is the statement's
+        // — a kernel that knew it would be a kernel that knew the model.
+        let mut y = if metal.per_layer_emb_dim > 0 {
+            dsl::metal::embed_gather_scaled(
+                m.trace(),
+                "embed",
+                f.hidden,
+                multi_batch,
+                metal.proj_repr,
+                &point,
+                (f.hidden as f32).sqrt(),
+            )
+        } else {
+            dsl::metal::embed_gather(m.trace(), "embed", f.hidden, multi_batch, metal.proj_repr, &point)
+        };
+
+        // ── gemma's PLE prologue, once per step and layer-less. ──
+        //
+        // A SECOND embedding table gathered, projected, normed and joined into
+        // `[n_layers, ple_dim]`, which each layer then reads its own slice of.
+        // Four statements, before the stack, and the reason gemma4 is a family
+        // where qwen3-moe and gpt-oss were fixtures: nothing llama-like has a
+        // counterpart to a side network.
+        let ple = (metal.per_layer_emb_dim > 0).then(|| {
+            let block = f.layers * metal.per_layer_emb_dim;
+            let token = dsl::metal::embed_gather_scaled(
+                m.trace(),
+                "ple_embed",
+                block,
+                multi_batch,
+                metal.proj_repr,
+                &point,
+                1.0,
+            );
+            let proj = dsl::metal::qmv(
+                &token,
+                &dsl::MatW {
+                    name: "ple_proj".to_string(),
+                    width: block,
+                    layer: None,
+                    repr: metal.proj_repr,
+                },
+                &point,
+            );
+            let normed = dsl::metal::rms_norm(
+                &proj,
+                &dsl::NormW {
+                    name: "ple_proj_norm".to_string(),
+                    variant: f.norm_variant,
+                    per_head: None,
+                    layer: None,
+                },
+                metal.per_layer_emb_dim,
+                metal.rms_eps,
+            );
+            dsl::metal::ple_combine(&normed, &token, block)
+        });
 
         for l in 0..f.layers {
             let w = m.layer(l);
@@ -518,8 +575,25 @@ fn llama_like_metal_text(
                 dsl::metal::rms_norm(&y, &w.attn_norm, f.hidden, metal.rms_eps)
             };
 
+            // A KV-SHARED layer rotates its own Q and reads the pages its
+            // source wrote: no k/v projection, no k/v norm, no append.
+            //
+            // Suppressing those statements is not an optimisation — it is
+            // which tensors the checkpoint SHIPS. A shared layer has no
+            // `k_proj` weight at all, so a text that stated one would name a
+            // tensor that is not there and the load would say so.
+            //
+            // gemma's, and the layers that share are the LAST `kv_shared`
+            // of the stack.
+            let shares_kv = l >= f.layers.saturating_sub(metal.kv_shared_layers);
             let (q, k, v) = if f.fused_qkv {
                 dsl::metal::split_qkv(&gemm(&x, &w.qkv), q_w, kv_w)
+            } else if shares_kv {
+                // Q only. `k` and `v` stand for the source layer's pages,
+                // which the attention reads through the pool rather than as
+                // operands, so the values here are never consumed.
+                let q = gemm(&x, &w.q_proj);
+                (q.clone(), q.clone(), q)
             } else {
                 (
                     gemm(&x, &w.q_proj),
@@ -550,7 +624,10 @@ fn llama_like_metal_text(
                 f.head_dim,
                 metal.rope_freq_table,
             );
-            dsl::metal::kv_append(&k, &v, &w.kv, paged, f.head_dim, f.kv_heads);
+            // A shared layer appends nothing: its source already did.
+            if !shares_kv {
+                dsl::metal::kv_append(&k, &v, &w.kv, paged, f.head_dim, f.kv_heads);
+            }
             // The window this layer attends over, `-1` for all of it. A
             // load-time fact, and one the executor sites used to reach into
             // `fwd_cfg.per_layer_window_left` for.
@@ -586,6 +663,55 @@ fn llama_like_metal_text(
                 let x = dsl::metal::rms_norm(&y, &w.mlp_norm, f.hidden, metal.rms_eps);
                 let h = gated(&x, &w);
                 y = gemm_add(&h, &w.down, &y);
+            }
+
+            // ── gemma's per-layer tail. ──
+            //
+            // This layer's slice of the PLE block, gated and projected back
+            // into the residual stream. Four statements, and the middle one is
+            // STRIDED because the gate is a narrow read out of a wide buffer.
+            //
+            // A deployment with no PLE takes the per-layer SCALAR instead —
+            // one number per layer, from a buffer, because which layer is
+            // running is the fire's and not the text's.
+            if let Some(ple) = &ple {
+                let gate = dsl::metal::qmv(
+                    &y,
+                    &dsl::MatW {
+                        name: format!("layer.{l}.ple_gate"),
+                        width: metal.per_layer_emb_dim,
+                        layer: Some(l),
+                        repr: metal.proj_repr,
+                    },
+                    &point,
+                );
+                let h = dsl::metal::geglu_strided(
+                    &gate,
+                    ple,
+                    metal.per_layer_emb_dim,
+                    metal.per_layer_emb_dim,
+                    f.layers * metal.per_layer_emb_dim,
+                );
+                let back = dsl::metal::qmv(
+                    &h,
+                    &dsl::MatW {
+                        name: format!("layer.{l}.ple_out"),
+                        width: f.hidden,
+                        layer: Some(l),
+                        repr: metal.proj_repr,
+                    },
+                    &point,
+                );
+                y = dsl::metal::rms_norm_residual(
+                    &back,
+                    &w.mlp_norm,
+                    &y,
+                    Some(&back),
+                    f.hidden,
+                    metal.rms_eps,
+                );
+            } else if metal.per_layer_scalar {
+                y = dsl::metal::layer_scalar(&y, &format!("layer.{l}.scalar"), f.hidden);
             }
         }
 

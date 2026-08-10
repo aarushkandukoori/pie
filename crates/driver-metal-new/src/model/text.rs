@@ -239,6 +239,11 @@ pub fn facts_from(
         // Whether the ladder is RESCALED, in which case no base expresses it
         // and the driver hands over a table instead.
         rope_freq_table: geometry.rope_freq_factor > 0.0,
+        // gemma's side network, asked of the TENSORS: a checkpoint that ships
+        // a per-layer embedding table is a deployment that has one.
+        per_layer_emb_dim: 0,
+        per_layer_scalar: false,
+        kv_shared_layers: 0,
         // gemma's readout cap. Zero is "none" and the text names nothing.
         logit_softcap: geometry.final_logit_softcap,
         // Asked of the TENSORS: a sink is a weight, and a checkpoint that

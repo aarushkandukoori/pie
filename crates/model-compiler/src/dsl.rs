@@ -2342,6 +2342,27 @@ pub mod metal {
         .expect("the join produces its value")
     }
 
+    /// `mlp/gated.metal::geglu_tanh_strided` — the activation over rows that
+    /// are not contiguous.
+    ///
+    /// gemma's PLE reads a narrow gate out of a wide buffer, so each operand
+    /// states its own pitch. The plain `geglu` is this with all three equal.
+    pub fn geglu_strided(gate: &Val, up: &Val, width: u32, gate_pitch: u32, up_pitch: u32) -> Val {
+        with_params(
+            &gate.t,
+            gate.layer,
+            "geglu_tanh_strided_bfloat16",
+            vec![],
+            None,
+            // `GegluStridedParams`: width, rows, then the three pitches. The
+            // row count is the fire's and rides the shape.
+            vec![width, 1, gate_pitch, up_pitch, width],
+            vec![gate.id, up.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the activation produces its value")
+    }
+
     /// `norm/vector.metal::vnorm_single_row` — a norm with NO gain.
     ///
     /// The row divided by its own RMS and nothing else. The absence of a
