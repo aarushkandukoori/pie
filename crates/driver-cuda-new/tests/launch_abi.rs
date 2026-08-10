@@ -235,6 +235,7 @@ fn the_stated_quant_layout_gemm_and_moe_rows_describe_their_launchers() {
         "layout/deinterleave.hpp",
         "gemm/gemm.hpp",
         "gemm/gemv.hpp",
+        "comm/custom_all_reduce.hpp",
         "moe/dsv4_routing.hpp",
         "moe/moe_dispatch.hpp",
         "moe/moe_grouped_gemm.hpp",
