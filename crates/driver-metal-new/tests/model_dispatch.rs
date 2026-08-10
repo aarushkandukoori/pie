@@ -253,3 +253,84 @@ fn the_batched_lane_is_the_row_count_and_not_a_second_vocabulary() {
         }
     }
 }
+
+/// The whole host path, joined: a sealed frame's step becomes rows, the rows
+/// become rectangles, and the rectangles become grids.
+///
+/// This is `DriverBackend::launch`'s body with the device taken out. What is
+/// missing after it is the buffers, not the decisions.
+mod from_a_frame {
+    use super::*;
+    use driver_metal_new::model::frame::{Step, fire_class, lower_step, sig};
+
+    fn plan_for(class: FireClass) -> model_compiler::trace::ForwardPlan {
+        llama_like_metal(
+            &LlamaLikeFacts::qwen3_0_6b(),
+            &LlamaLikeMetalFacts::synthetic(),
+            class,
+        )
+    }
+
+    #[test]
+    fn a_decode_step_reaches_grids_without_the_driver_deciding_anything() {
+        // One token a request: a decode, four lanes.
+        let step = Step {
+            token_ids: &[11, 22, 33, 44],
+            qo_indptr: &[0, 1, 2, 3, 4],
+            sampling_indices: &[0, 1, 2, 3],
+            ..Step::default()
+        };
+        assert_eq!(fire_class(&step), FireClass::Decode);
+
+        let low = lower_step(&plan_for(fire_class(&step)), &step).expect("the step lowers");
+        let mut store = Sentinels;
+        let mut grids = 0;
+        for launch in &low.launches {
+            match plan_one(
+                &low,
+                launch,
+                kernels_metal::KERNELS,
+                frame(&low),
+                geometry(),
+                &mut store,
+            ) {
+                Ok(d) => {
+                    assert!(d.grid.iter().all(|&n| n > 0));
+                    grids += 1;
+                }
+                Err(Undispatchable::NoRow { symbol, .. }) if symbol == KNOWN_GAP => {}
+                Err(other) => panic!("a frame-driven launch refused: {other:?}"),
+            }
+        }
+        assert!(grids > 300, "only {grids} grids came out of a 24-layer fire");
+    }
+
+    #[test]
+    fn a_region_table_changes_the_rows_and_therefore_the_fire() {
+        // The seriation's output IS the row feature points, so a step whose
+        // regions differ must lower differently from one whose regions do not.
+        // Today the Metal text splits on nothing, so the rectangle COUNT is
+        // unchanged — and that is the monomorphism `tests/polymorphism.rs`
+        // measures, showing up here from the frame end.
+        let plain = Step {
+            token_ids: &[1, 2, 3, 4],
+            qo_indptr: &[0, 4],
+            ..Step::default()
+        };
+        let seriated = Step {
+            region_row_indptr: &[0, 2, 4],
+            region_sig: &[sig::TRUNCATED, 0],
+            region_k: &[4, u32::MAX],
+            ..plain.clone()
+        };
+        let plan = plan_for(FireClass::Prefill);
+        let a = lower_step(&plan, &plain).expect("lowers");
+        let b = lower_step(&plan, &seriated).expect("lowers");
+        assert_eq!(
+            a.launches.len(),
+            b.launches.len(),
+            "the text gained a guard — rewrite this and tests/polymorphism.rs \
+             to assert WHICH axes split"
+        );
+    }
+}

@@ -154,8 +154,7 @@ pub fn eval(rule: Rule, dims: Dims) -> Result<Launch, Ungeometric> {
 fn widest_column_tile(out_vec: u32) -> u32 {
     [16, 32, 64]
         .into_iter()
-        .filter(|bn| out_vec.is_multiple_of(*bn))
-        .next_back()
+        .rfind(|bn| out_vec.is_multiple_of(*bn))
         .unwrap_or(0)
 }
 
