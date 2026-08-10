@@ -1214,9 +1214,19 @@ fn one_token_at_position_zero_agrees_with_mlx() {
 ///
 /// The lane's numbers are still not MLX's. Through the projections it agrees
 /// exactly — q_proj 1.32031 against MLX's 1.320, value for value with the
-/// decode lane — so the arithmetic reaches attention intact. What happens
-/// after wants the same three narrowing steps that found the decode lane's
-/// `w_stride`, and `the_prefill_lane_too` prints the stages to compare.
+/// decode lane — so the arithmetic reaches attention intact.
+///
+/// **The lead**, from `the_prefill_lane_too`: the attention's output carries
+/// the values of **K**, not of V. At position zero one key is attended and the
+/// answer is exactly `v`, so `[0.023804, 0.151367, …]` where `v` holds
+/// `[0.007263, 0.016846, …]` is not an accumulation difference — it is the
+/// wrong tensor. Somewhere between `kv_append_paged`'s two inputs and
+/// `sdpa_paged_decode`'s two pool bindings, K is being read for V.
+///
+/// Worth suspecting first: the decode lane fires `kv_append_paged` and
+/// `sdpa_paged_decode` too and agrees exactly, so it is unlikely to be the
+/// rows themselves. What differs is the ROW COUNT, and both kernels take the
+/// pool's strides — which are per-token quantities.
 ///
 /// The MLX constants below are the target: `[128000, 9906]` at position 1 is
 /// argmax 0 spanning [-5.42, 18.56].
