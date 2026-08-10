@@ -195,12 +195,32 @@ launch. Something has to turn one into the other, and if it is a `match` on
 the symbol in the driver then the arm-per-kernel that Metal was supposed to
 avoid has reappeared under a different name.
 
-Worth deciding before the dispatch half is written, because it determines
-whether that half is a loop or a switch. The three candidates, in the order
-they preserve the rule: the row states it; the lowering states it as params;
-or the shader declares it and the driver reads it back from the compiled
-pipeline (`maxTotalThreadsPerThreadgroup` and friends), which is the only one
-that needs no new authoring at all.
+**Decided, 2026-08-10: the row names a rule, and the rule stays a function.**
+`src/model/geometry.rs` is the vocabulary — eleven variants covering the
+sixteen geometry functions `batch/dispatch.rs` already hand-writes, with a
+test that every one is reproduced exactly.
+
+Why not the alternatives. Numbers on the row cannot work: a geometry is a
+function of the fire, so a row would state a formula rather than a value. A
+`const` expression grammar *can* express all sixteen — they are uniformly
+`source → max → min → divide-rounding-up → multiply` — but writing
+`Term { floor: 1, cap: 1024, div_ceil: 32, mul: 32 }` loses the sentence that
+says why, and in this codebase those sentences are load-bearing: `qmv`'s doc
+records that its round-up is the difference between computing every output and
+silently dropping the last few. Reading it off the compiled pipeline gives a
+*legal* threadgroup, not the intended one — which is wrong for any kernel whose
+algorithm assumes its shape, and those are most of them.
+
+What the decision buys: the executor's dispatch is `sig.launch.eval(dims)` in a
+loop, the match is arm-per-RULE rather than arm-per-kernel (eleven arms shared
+by every family, text and backend), a kernel that launches like an existing one
+costs zero arms, and every doc comment stays beside the arithmetic it explains.
+
+The vocabulary lives in the driver until the tables adopt it, because it had to
+be shown to cover the existing rules first. Moving it is mechanical: the row
+gains `launch = Rule::Qmv` beside `whole`, `needs` and `lacks`, and
+`Rule::Unstated` — the default — refuses, so a symbol whose contract has not
+said cannot be dispatched from a guess.
 
 ## The next step
 

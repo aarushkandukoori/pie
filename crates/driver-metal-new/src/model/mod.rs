@@ -5,7 +5,11 @@
 //! kernel; see `DIRECTION.md` and `model-compiler/DSL-DESIGN.md`.
 //!
 //! * [`executor`] — binding a launch's operands. Host logic, no device.
+//! * [`geometry`] — turning a rectangle into a thread grid: the rule a row
+//!   names, so the executor is a loop rather than a switch.
 
 pub mod executor;
+pub mod geometry;
 
 pub use executor::{BindRefusal, BoundArg, BoundLaunch, Frame, Resolver, Slice, bind, resolve_arg};
+pub use geometry::{Dims, Rule, Ungeometric};
