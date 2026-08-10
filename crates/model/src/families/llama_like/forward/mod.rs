@@ -434,6 +434,21 @@ fn llama_like_metal_text(
         // walks all six exactly as it walks a projection -- symbol, row, file,
         // rule, grid, operands -- and `RouteRows`/`RoutedQmv` read the expert
         // counts off the dims the same way `Qmv` reads `width`.
+        //
+        // # The width this returns, which is NOT the same on both arms
+        //
+        // Dense returns the activated INTERMEDIATE, and the caller owes the
+        // down projection -- which it fuses into the residual add. Routed
+        // returns HIDDEN, because the down projection is per-expert and
+        // happens inside, before the combine puts the rows back.
+        //
+        // Two widths behind one name is a trap, and it sprang: two of the
+        // three call sites applied `w.down` to a value that had already been
+        // down-projected. That is a phantom dense matmul at the wrong width
+        // under a tensor name no mixture checkpoint publishes -- so every
+        // mixture was wrong, and nothing said so, because no mixture had ever
+        // been held to a checkpoint. `owes_down` below is the fact the sites
+        // now ask instead of assuming.
         let gated = |x: &Val, w: &dsl::Layer| {
             // WHICH activation, and it is a symbol rather than a flag:
             // gpt-oss clamps the gate above only, clamps the linear branch
@@ -506,6 +521,10 @@ fn llama_like_metal_text(
                 f.hidden,
             )
         };
+
+        // Whether the caller still owes the down projection after `gated` --
+        // see the note on its two widths.
+        let owes_down = f.n_experts == 0;
 
         // The embedding, with gemma's `sqrt(hidden)` scale folded into the
         // gather when this deployment wants one. The scale is the statement's
@@ -668,13 +687,22 @@ fn llama_like_metal_text(
                 let o = dsl::metal::rms_norm(&gemm(&a, &w.o_proj), &w.attn_norm, f.hidden, metal.rms_eps);
                 y = dsl::metal::residual_add(&o, &y);
                 let h = gated(&y, &w);
-                let d = dsl::metal::rms_norm(&gemm(&h, &w.down), &w.mlp_norm, f.hidden, metal.rms_eps);
+                let ffn = if owes_down { gemm(&h, &w.down) } else { h };
+                let d = dsl::metal::rms_norm(&ffn, &w.mlp_norm, f.hidden, metal.rms_eps);
                 y = dsl::metal::residual_add(&d, &y);
             } else {
                 y = gemm_add(&a, &w.o_proj, &y);
                 let x = dsl::metal::rms_norm(&y, &w.mlp_norm, f.hidden, metal.rms_eps);
                 let h = gated(&x, &w);
-                y = gemm_add(&h, &w.down, &y);
+                // Dense FUSES the down projection into the residual add, which
+                // is one kernel instead of two over the widest activation in
+                // the block. A mixture cannot: its rows were already projected
+                // and combined, so all that is left is the add.
+                y = if owes_down {
+                    gemm_add(&h, &w.down, &y)
+                } else {
+                    dsl::metal::residual_add(&h, &y)
+                };
             }
 
             // ── gemma's BRANCH. ──

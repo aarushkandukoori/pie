@@ -193,7 +193,14 @@ pub fn facts_from(
         // Asked of the TENSORS, like the other binding facts: a router weight
         // in the checkpoint is a mixture and its absence is a dense FFN. The
         // counts come from the geometry, which the fire already states.
-        n_experts: if has_tensor("layers.0.mlp.gate.weight") {
+        // Every router spelling, because a mixture that answers to one the
+        // probe does not know is read as a DENSE model: the text then states
+        // `mlp.gate_proj` against a checkpoint that publishes only expert
+        // banks, and every FFN name misses. gpt-oss spells it `mlp.router`.
+        n_experts: if ["layers.0.mlp.gate.weight", "layers.0.mlp.router.weight"]
+            .into_iter()
+            .any(&has_tensor)
+        {
             geometry.n_experts
         } else {
             0

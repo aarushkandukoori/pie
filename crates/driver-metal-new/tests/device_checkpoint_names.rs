@@ -206,12 +206,11 @@ fn every_name_the_text_states_is_a_tensor_the_load_plan_publishes() {
         .expect("the plan compiles");
     let published: BTreeSet<&str> = plan.tensors.iter().map(|t| t.name.as_str()).collect();
 
-    let gemma4 = std::env::var("PIE_METAL_NAMES_ARCH").is_ok_and(|a| a == "gemma4");
-    let names = if gemma4 {
-        Names::mlx_gemma4()
-    } else {
-        Names::mlx()
-    };
+    // ONE map. gemma4 used to need its own, and the arch variable said which
+    // -- a driver picking a name map per checkpoint. Both conventions are
+    // candidates of `Names::mlx` now, so the checkpoint picks and this does
+    // not.
+    let names = Names::mlx();
     // The DEPLOYMENT's facts, derived from the same descriptor, so a name the
     // text states is one this checkpoint's shape actually asks for.
     let model_facts = driver_metal_new::facts::ModelFacts::from_descriptor(&descriptor)
@@ -226,12 +225,18 @@ fn every_name_the_text_states_is_a_tensor_the_load_plan_publishes() {
     let store = Store::new(names, &tensors, &named);
     let mut missing: BTreeSet<String> = BTreeSet::new();
     for traced in names_the_text_states(&facts, &metal) {
-        let Some(spelled) = store.checkpoint_name(&traced) else {
+        // EVERY spelling, not the first: this store has no staged tensors to
+        // choose with, and a role that has several candidates resolves at run
+        // time against the ones the checkpoint published. Asking only the
+        // first would fail a checkpoint that spells it the second way, which
+        // is every checkpoint but one.
+        let candidates = store.checkpoint_names(&traced);
+        if candidates.is_empty() {
             missing.insert(format!("{traced} -> (no spelling)"));
             continue;
-        };
-        if !published.contains(spelled.as_str()) {
-            missing.insert(format!("{traced} -> {spelled}"));
+        }
+        if !candidates.iter().any(|c| published.contains(c.as_str())) {
+            missing.insert(format!("{traced} -> {}", candidates.join(" | ")));
         }
     }
 
