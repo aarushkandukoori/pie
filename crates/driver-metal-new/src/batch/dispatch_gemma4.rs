@@ -516,7 +516,6 @@ pub fn build_gemma4_dag_mb(
     let n = n_tokens;
     let s = if head_rows == 0 { n } else { head_rows.min(n) };
     let sorted = gemma4_moe_sorted_rows(g, tuning, n);
-    let min_batch = gemma4_qmm_min_batch(g, tuning);
 
     let mut dag: Vec<Dispatch> = Vec::new();
     for base in build_gemma4_dag(g, with_argmax) {
