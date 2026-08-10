@@ -562,6 +562,21 @@ pub enum OpKind {
         weights: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         state: Option<StateRef>,
+        /// Scalar arguments the stated kernel takes that no operand
+        /// shape gives — a rotary width, a padded head dim.
+        ///
+        /// A `Launch`'s two wire params are already spoken for (the
+        /// state mark), and a scalar that has nowhere to ride is a
+        /// scalar the DRIVER re-derives from its config. That is the
+        /// thing this arc removes, so the channel exists rather than
+        /// the derivation.
+        ///
+        /// Not a general escape hatch: a number belongs here only when
+        /// it is a property of THIS STATEMENT that no shape spells.
+        /// `eps`, `rope_theta` and a vocabulary size are properties of
+        /// the deployment, and they stay the arm's parameters.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        params: Vec<u32>,
     },
     /// The one branch a lowered trace may carry: a CHAIN of arms over
     /// per-fire RUNTIME INPUTS ([`GuardPred`], closed vocabulary) — the
@@ -1292,11 +1307,31 @@ impl TraceBuilder {
         inputs: Vec<ValueId>,
         out_shapes: Vec<(Shape, DType)>,
     ) -> Vec<ValueId> {
+        self.launch_with_params(kernel, weights, state, Vec::new(), inputs, out_shapes)
+    }
+
+    /// [`Self::launch`], plus the scalar arguments the symbol takes
+    /// that no operand shape gives — see [`OpKind::Launch::params`].
+    ///
+    /// A separate entry point rather than a sixth argument on `launch`,
+    /// because the overwhelming majority of statements have no such
+    /// scalar and a `Vec::new()` at every one of them would say
+    /// nothing.
+    pub fn launch_with_params(
+        &mut self,
+        kernel: &str,
+        weights: Vec<String>,
+        state: Option<StateRef>,
+        params: Vec<u32>,
+        inputs: Vec<ValueId>,
+        out_shapes: Vec<(Shape, DType)>,
+    ) -> Vec<ValueId> {
         self.push(
             OpKind::Launch {
                 kernel: kernel.to_string(),
                 weights,
                 state,
+                params,
             },
             inputs,
             out_shapes,

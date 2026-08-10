@@ -1156,6 +1156,9 @@ fn the_hybrid_zero_weight_decode_walks_every_launch() {
         moe_streamed_experts: false,
         moe_force_general: false,
         gate_up_fused: true,
+        // Dense BF16, whole context — this fixture's own frame.
+        proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+        window_left: Vec::new(),
     };
     let plan = qwen3_5_hybrid_cuda(&hybrid, &cuda, FireClass::Decode);
     let rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; ROWS];
@@ -1627,6 +1630,9 @@ fn the_hybrid_zero_weight_prefill_walks_every_launch() {
         moe_streamed_experts: false,
         moe_force_general: false,
         gate_up_fused: true,
+        // Dense BF16, whole context — this fixture's own frame.
+        proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+        window_left: Vec::new(),
     };
     let plan = qwen3_5_hybrid_cuda(&hybrid, &cuda, FireClass::Prefill);
     let rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; TOKENS];
@@ -3095,6 +3101,9 @@ fn the_gemma3n_zero_weight_decode_walks_every_launch() {
             kv_heads: KV_HEADS as u32,
             head_dim: HEAD_DIM as u32,
         },
+        // Empty reads as "no window" — what this fixture meant before the
+        // field existed, and what a zero-weight walk needs either way.
+        window_left: Vec::new(),
     };
     let plan = gemma3n_cuda(&facts, FireClass::Decode);
     let rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; ROWS];

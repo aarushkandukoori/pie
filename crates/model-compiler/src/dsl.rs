@@ -56,13 +56,125 @@ pub struct Val {
     layer: Option<u32>,
 }
 
-/// A matmul weight handle: name, out width, layer. Built by the
-/// [`Layer`] namespace; the declaration never spells either.
+/// How a weight is STORED, and therefore which kernel can read it.
+///
+/// The polymorphism axis quantization needs, and it belongs on the
+/// WEIGHT rather than on the statement for the reason [`NormW`] already
+/// gives about its variant: the weight knows. `x @ Wᵀ` is one piece of
+/// arithmetic whatever W is made of; what changes is the kernel that
+/// can read W, and a kernel is what a declaration STATES.
+///
+/// Today the driver picks that kernel — `make_weight_view` builds a
+/// descriptor from a per-layer struct the statement never mentions, and
+/// `gemm::act_x_w` routes on it. Every defect this arc found was that
+/// shape: the driver knowing something the statement did not.
+///
+/// The scales and zero-points are WEIGHTS, so a quantized statement
+/// names more of them. A `Launch` already carries a list.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum WeightRepr {
+    /// Dense, read directly. The implicit `WeightView(const DeviceTensor&)`.
+    #[default]
+    Bf16,
+    /// Scaled storage — the weight's own dtype says int4/int8/fp8, and
+    /// these say where the scales live (`QuantMeta`'s three layouts).
+    Scaled {
+        layout: ScaleLayout,
+        /// Elements per scale under [`ScaleLayout::PerGroup`]; 0 otherwise.
+        group: u32,
+        /// Which axis [`ScaleLayout::PerChannel`] runs along.
+        axis: u32,
+        /// The checkpoint carries zero-points beside the scales.
+        zero_point: bool,
+    },
+    /// MXFP4 with E8M0 block scales — gpt-oss's expert banks, and the
+    /// one representation whose scales are not a separate layout
+    /// question.
+    Mxfp4Marlin,
+}
+
+/// Where a scaled weight's scales apply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ScaleLayout {
+    PerTensor,
+    PerChannel,
+    PerGroup,
+}
+
+/// A matmul weight handle: name, out width, layer, and how it is
+/// STORED. Built by the [`Layer`] namespace; the declaration never
+/// spells any of them.
 #[derive(Clone)]
 pub struct MatW {
     pub name: String,
     pub width: u32,
     pub layer: Option<u32>,
+    /// Dense unless the deployment's facts say otherwise. Defaulted so
+    /// that a text which has never met a quantized checkpoint reads
+    /// exactly as it did.
+    pub repr: WeightRepr,
+}
+
+impl MatW {
+    /// The dense handle, which is what every text builds today.
+    pub fn dense(name: String, width: u32, layer: Option<u32>) -> MatW {
+        MatW {
+            name,
+            width,
+            layer,
+            repr: WeightRepr::Bf16,
+        }
+    }
+
+    /// The same weight, stored some other way. The scale and
+    /// zero-point tensors are named by CONVENTION off the weight's own
+    /// name, which is how the loader already finds them.
+    pub fn with_repr(mut self, repr: WeightRepr) -> MatW {
+        self.repr = repr;
+        self
+    }
+
+    /// The extra tensors this representation makes the statement name.
+    /// Empty for [`WeightRepr::Bf16`], which is why a dense statement
+    /// carries one weight and a quantized one carries three.
+    pub fn scale_names(&self) -> Vec<String> {
+        match &self.repr {
+            WeightRepr::Bf16 => Vec::new(),
+            WeightRepr::Mxfp4Marlin => vec![format!("{}.scales", self.name)],
+            WeightRepr::Scaled { zero_point, .. } => {
+                let mut out = vec![format!("{}.scales", self.name)];
+                if *zero_point {
+                    out.push(format!("{}.zeros", self.name));
+                }
+                out
+            }
+        }
+    }
+
+    /// The launcher symbol a statement over this weight STATES.
+    ///
+    /// `None` for the dense case, which still records the semantic
+    /// [`crate::trace::OpKind::Matmul`] — that kind fans to exactly one
+    /// kernel per backend, so nothing is being chosen. A quantized one
+    /// fans to several, so it names which.
+    pub fn gemm_symbol(&self) -> Option<&'static str> {
+        match &self.repr {
+            WeightRepr::Bf16 => None,
+            WeightRepr::Mxfp4Marlin => Some("gemm::act_x_wt_mxfp4_marlin"),
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerGroup,
+                ..
+            } => Some("gemm::act_x_wt_grouped_scaled"),
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerChannel,
+                ..
+            } => Some("gemm::act_x_wt_channel_scaled"),
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerTensor,
+                ..
+            } => Some("gemm::act_x_wt_tensor_scaled"),
+        }
+    }
 }
 
 /// A norm weight handle. `per_head` carries the head_dim when this
@@ -152,7 +264,14 @@ pub struct Layer {
     pub k_bias: MatW,
     pub v_bias: MatW,
     pub o_proj: MatW,
+    /// The PACKED gate‖up bank, for a deployment whose loader join
+    /// materialised one.
     pub gate_up: MatW,
+    /// The two halves, for a deployment whose did not. A text states
+    /// either the packed handle or this pair — never both — and which
+    /// is a binding fact (`gate_up_fused`).
+    pub gate_proj: MatW,
+    pub up_proj: MatW,
     pub down: MatW,
     pub attn_norm: NormW,
     pub mlp_norm: NormW,
@@ -195,6 +314,15 @@ pub struct ModelShape {
     pub norm_variant: NormVariant,
     /// The readout reads the embedding table rather than its own weight.
     pub tied_embeddings: bool,
+    /// How this deployment STORES its linear projections.
+    ///
+    /// The namespace's field rather than each text's, because it is the
+    /// same answer for every handle [`M::layer`] hands out — a
+    /// checkpoint quantizes uniformly — and because a text that had to
+    /// repeat it per projection would be a text that could get one
+    /// wrong. `Bf16` is the reading every family had before the axis
+    /// existed.
+    pub proj_repr: WeightRepr,
 }
 
 /// The model context a declaration runs against: the shape and the tape.
@@ -215,6 +343,14 @@ impl Val {
     /// needs when the text has no [`M`] or bare [`Trace`] in hand.
     pub fn trace(&self) -> &Trace {
         &self.t
+    }
+
+    /// The layer this value belongs to, or `None` in the prologue and
+    /// epilogue. A text needs it when it opens a value-producing guard
+    /// AROUND an existing value — the guard's own value must be tagged
+    /// the same way, or the depth axis would treat the two differently.
+    pub fn layer(&self) -> Option<u32> {
+        self.layer
     }
 }
 
@@ -257,6 +393,7 @@ impl M {
             name: w(name),
             width,
             layer: Some(l),
+            repr: f.proj_repr,
         };
         let row_norm = |name: &str| NormW {
             name: w(name),
@@ -283,6 +420,8 @@ impl M {
             v_bias: mat("v_bias", f.kv_width),
             o_proj: mat("o_proj", f.hidden),
             gate_up: mat("gate_up", 2 * f.intermediate),
+            gate_proj: mat("gate_proj", f.intermediate),
+            up_proj: mat("up_proj", f.intermediate),
             down: mat("down", f.hidden),
             attn_norm: row_norm("attn_norm"),
             mlp_norm: row_norm("mlp_norm"),
@@ -482,8 +621,38 @@ pub fn select(x: &Val, index: u32) -> Val {
     }
 }
 
+/// `y = x @ Wᵀ`, over a weight stored however [`MatW::repr`] says.
+///
+/// POLYMORPHIC OVER THE REPRESENTATION, and that is the whole of the
+/// quantization axis. A dense weight records the semantic
+/// [`crate::trace::OpKind::Matmul`] — one arithmetic, one kernel per
+/// backend, nothing chosen. Any other representation records a stated
+/// `Launch` naming the kernel that can read it, plus the scale and
+/// zero-point tensors as extra WEIGHTS.
+///
+/// So the driver never sees a descriptor and never routes: it binds the
+/// names the statement gives it and calls the symbol the statement
+/// names. `make_weight_view` and `gemm::act_x_w`'s internal dispatch
+/// have nothing left to decide.
 pub fn matmul(x: &Val, w: &MatW) -> Val {
-    let id = x.t.with(w.layer, |b| b.matmul(x.id, &w.name, w.width));
+    let id = match w.gemm_symbol() {
+        None => x.t.with(w.layer, |b| b.matmul(x.id, &w.name, w.width)),
+        Some(symbol) => {
+            let mut weights = vec![w.name.clone()];
+            weights.extend(w.scale_names());
+            let shape = Shape(vec![Dim::Tokens, Dim::Const(w.width)]);
+            let outs = x.t.with(w.layer, |b| {
+                b.launch(
+                    symbol,
+                    weights,
+                    None,
+                    vec![x.id],
+                    vec![(shape, DType::BF16)],
+                )
+            });
+            outs[0]
+        }
+    };
     Val {
         t: x.t.clone(),
         id,
@@ -492,6 +661,11 @@ pub fn matmul(x: &Val, w: &MatW) -> Val {
 }
 
 /// Row RMSNorm, or per-head RMSNorm when the weight handle says so.
+///
+/// SEMANTIC: this is the backend-independent spelling, and it stays one
+/// because a trace with no backend cannot name a CUDA symbol —
+/// `check_plan` refuses it, correctly. The stated form is
+/// [`cuda::rmsnorm`], which is what a `*.cuda.*` text calls.
 pub fn rmsnorm(x: &Val, w: &NormW) -> Val {
     let id = x.t.with(w.layer, |b| match w.per_head {
         None => b.rmsnorm(x.id, &w.name, w.variant),
@@ -1747,6 +1921,40 @@ pub mod cuda {
     ) -> Option<Val> {
         let ids = t.with(layer, |b| {
             b.launch(kernel, weights, state, inputs, out.into_iter().collect())
+        });
+        ids.first().map(|&id| Val {
+            t: t.clone(),
+            id,
+            layer,
+        })
+    }
+
+    /// [`record`], plus the SCALAR ARGUMENTS the symbol takes that no
+    /// operand shape gives ([`crate::trace::OpKind::Launch`]'s params).
+    ///
+    /// Signed values ride as their two's complement: `window_left = -1`
+    /// is `0xFFFFFFFF`, and the executor casts back. The channel is
+    /// untyped on purpose -- what each slot means is the SYMBOL's
+    /// contract, exactly as `aux_names`' slots are.
+    fn record_with_params(
+        t: &Trace,
+        layer: Option<u32>,
+        kernel: &str,
+        weights: Vec<String>,
+        state: Option<StateRef>,
+        params: Vec<u32>,
+        inputs: Vec<crate::trace::ValueId>,
+        out: Option<(Shape, DType)>,
+    ) -> Option<Val> {
+        let ids = t.with(layer, |b| {
+            b.launch_with_params(
+                kernel,
+                weights,
+                state,
+                params,
+                inputs,
+                out.into_iter().collect(),
+            )
         });
         ids.first().map(|&id| Val {
             t: t.clone(),
@@ -4901,14 +5109,15 @@ pub mod cuda {
     /// The semantic [`super::rope`] cannot: its shape is a (q, k) pair,
     /// and a pair with an empty slot is a different statement, not a
     /// degenerate one.
-    pub fn rope_partial_q_only(q: &Val) -> Val {
+    pub fn rope_partial_q_only(q: &Val, rotary_dim: u32) -> Val {
         let out = (q.t.inner.borrow().value_shape(q.id), DType::BF16);
-        record(
+        record_with_params(
             &q.t,
             q.layer,
             "rope::rope_partial_bf16",
             vec![],
             None,
+            vec![rotary_dim],
             vec![q.id],
             Some(out),
         )
@@ -5290,6 +5499,202 @@ pub mod cuda {
         .expect("the residual add produces its value")
     }
 
+    /// Row RMSNorm, STATING which fold it runs.
+    ///
+    /// Gemma folds `(1 + w)` instead of `w` — different arithmetic, so a
+    /// different kernel — and the fold is a property of the WEIGHT,
+    /// which is why [`NormW`] carries it and why the caller passes no
+    /// variant.
+    ///
+    /// The semantic [`super::rmsnorm`] carries the variant as a param
+    /// instead, and four drivers read it and pick; three had hard-coded
+    /// their own deployment's answer. A `*.cuda.*` text calls this one
+    /// and nothing downstream chooses.
+    ///
+    /// PER-HEAD is not here yet: its row count is the operand's width
+    /// over the head dim, and `head_dim` has nowhere to ride on a
+    /// `Launch`. It moves when it states a kernel that takes it.
+    pub fn rmsnorm(x: &Val, w: &NormW) -> Val {
+        let id = x.t.with(w.layer, |b| match w.per_head {
+            // PER-HEAD falls through to the semantic kind, and the call
+            // site does not have to know which it got: the handle
+            // decides, and the same site is per-head on qwen3 and
+            // row-wise on olmo2.
+            Some(head_dim) => b.rmsnorm_per_head(x.id, &w.name, head_dim, w.variant),
+            None => {
+                let symbol = match w.variant {
+                    NormVariant::Gemma => "norm::rmsnorm_gemma_bf16",
+                    _ => "norm::rmsnorm_bf16",
+                };
+                let shape = b.value_shape(x.id);
+                b.launch(
+                    symbol,
+                    vec![w.name.clone()],
+                    None,
+                    vec![x.id],
+                    vec![(shape, DType::BF16)],
+                )[0]
+            }
+        });
+        Val {
+            t: x.t.clone(),
+            id,
+            layer: w.layer,
+        }
+    }
+
+    // ── TENSOR PARALLELISM ─────────────────────────────────────────
+    //
+    // A collective is a STATEMENT. It is real device work with operands
+    // and a result, and the only reason it has not been one is that the
+    // hand-written passes reached for `tp->` directly.
+    //
+    // Sharding itself needs no vocabulary: a rank's trace states ITS
+    // widths, and the text divides by `tp_size` from the facts the way
+    // it already divides by anything else. What needs vocabulary is the
+    // point where the shards are recombined, because that is a launch.
+
+    /// `comm::all_reduce_bf16`: the NVLink P2P sum, out of place.
+    ///
+    /// ONE ARM OF A CHOICE THE DRIVER USED TO MAKE. `NcclComm::
+    /// all_reduce_bf16` asks `can_handle(bytes)` and routes to this
+    /// kernel below the threshold, `ncclAllReduce` above it — an `if`
+    /// inside a driver method picking between two implementations,
+    /// which is the shape this whole arc removes.
+    ///
+    /// So a text states the pair as a GUARD, the way qwen3.5's
+    /// recurrence states its three spellings and the fused landing
+    /// states its two. The predicate is the message size, which is
+    /// `TokensLE` — the threshold is bytes, and a row of `hidden` bf16
+    /// elements is a fixed number of them, so the token count IS the
+    /// test once the deployment's hidden size is known.
+    ///
+    /// What does NOT reduce to the predicate is buffer REGISTRATION:
+    /// the P2P kernel reads only buffers handed to `register_buffer`,
+    /// which is a placement fact of the deployment rather than a
+    /// property of the fire. It belongs on the facts beside
+    /// `gate_up_fused` — a load-time answer that erases into the trace.
+    pub fn all_reduce_p2p(x: &Val, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "comm::all_reduce_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the collective produces its value")
+    }
+
+    /// `dist::all_reduce_bf16`: sum this value across ranks, in place.
+    ///
+    /// The in-place form, which is what a post-norm landing takes: the
+    /// partial is summed where it lies and the statement's result is the
+    /// same bytes.
+    ///
+    /// THE OTHER ARM of [`all_reduce_p2p`]'s choice, and the one that is
+    /// not a kernel: NCCL is the comm plane, and `custom_all_reduce.hpp`
+    /// says in as many words where that knowledge belongs — with the
+    /// caller, not with a compute kernel. So this symbol has no
+    /// `kernel!` operand signature and cannot get one without moving
+    /// NCCL down a layer, which is a decision that was already made in
+    /// the other direction once.
+    ///
+    /// It is still a STATEMENT. What a symbol needs to be stated is a
+    /// name the declaration can choose and an arm that binds it; a
+    /// generated ABI entry point is a separate benefit that this one
+    /// does not get.
+    pub fn all_reduce(x: &Val, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "dist::all_reduce_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the collective produces its value")
+    }
+
+    /// `dist::all_reduce_bf16_out`: sum this value across ranks into a
+    /// SEPARATE destination.
+    ///
+    /// The two-step landing's first half. It reads as the same
+    /// collective and it is; what differs is that the result is not the
+    /// operand's bytes, because the residual add downstream needs both.
+    pub fn all_reduce_out(x: &Val, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "dist::all_reduce_bf16_out",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the collective produces its value")
+    }
+
+    /// `dist::all_gather_bf16`: concatenate this value's shards along
+    /// its row width. The result is `parts` times as wide.
+    pub fn all_gather(x: &Val, parts: u32, width: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "dist::all_gather_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(width * parts)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the collective produces its value")
+    }
+
+    /// `comm::all_reduce_residual_rmsnorm_bf16`: the FUSED landing —
+    /// sum the shards, add the residual, and norm, in one launch.
+    ///
+    /// TWO results, because the kernel has two effects: the residual
+    /// stream is updated IN PLACE (operand 1, which the `kernel!` row
+    /// aliases output 0 over) and the normed activation is written
+    /// fresh. Returned in that order.
+    ///
+    /// WHETHER TO FUSE IS A GUARD, not a driver test. The hand-written
+    /// pass asks `can_fuse_residual_rmsnorm(tokens, hidden, stream)` at
+    /// fire time; `hidden` and the buffer registration are load-time
+    /// facts that resolve into the trace, and what is left —
+    /// `tokens` — is exactly `GuardPred::TokensLE`. So a text states
+    /// the fused arm under that predicate and the two-step form as the
+    /// else, the same shape qwen3.5's recurrence uses for its three
+    /// spellings.
+    pub fn all_reduce_residual_rmsnorm(
+        x: &Val,
+        residual: &Val,
+        weight: &NormW,
+        hidden: u32,
+    ) -> (Val, Val) {
+        let shape = (Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16);
+        let outs = x.t.with(x.layer, |b| {
+            b.launch(
+                "comm::all_reduce_residual_rmsnorm_bf16",
+                vec![weight.name.clone()],
+                None,
+                vec![x.id, residual.id],
+                vec![shape.clone(), shape],
+            )
+        });
+        let mk = |id| Val {
+            t: x.t.clone(),
+            id,
+            layer: x.layer,
+        };
+        (mk(outs[0]), mk(outs[1]))
+    }
+
     /// `kernels::mlp::sigmoid_dot_scalar_gate_add_bf16`: the shared
     /// expert's landing with its gate logit folded in — one launch that
     /// dots `norm_x` with the `[1, H]` gate row, sigmoids the scalar, and
@@ -5414,6 +5819,37 @@ pub mod cuda {
         .expect("the activation produces its value")
     }
 
+    /// `kernels::mlp::swiglu_bf16` in its PAIR form: two operands, the
+    /// gate and the up projection, into one activation.
+    ///
+    /// The spelling an UNFUSED gate_up binding actually fires, and the
+    /// one the declaration could not carry until now. [`Self::swiglu`]
+    /// above states one packed operand either way and lets `packed` pick
+    /// the kernel — which left the pair form reading two workspace
+    /// buffers (`ws.gate`, `ws.up`) that no traced value described, so
+    /// the executor had to keep that convention and cross-check it
+    /// against the fact on every launch.
+    ///
+    /// With the projections stated as two matmuls the two operands ARE
+    /// values, and the whole `gate_up_used_fused` correspondence between
+    /// the Matmul arm and this one disappears: each statement says what
+    /// it reads.
+    pub fn swiglu_pair(gate: &Val, up: &Val, intermediate: u32) -> Val {
+        record(
+            &gate.t,
+            gate.layer,
+            "mlp::swiglu_bf16",
+            vec![],
+            None,
+            vec![gate.id, up.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the activation produces its value")
+    }
+
     /// `kernels::rope::qk_rmsnorm_rope_bf16`: the fused per-head q/k
     /// norm + Standard rope, one launch — the hand-written
     /// `fuse_qk_norm_rope` branch. bf16 rounding differs between this
@@ -5445,14 +5881,14 @@ pub mod cuda {
     /// `kernels::attn::attention_xqa_decode_bf16_prepared` (whose contract
     /// includes the fire-wide XQA prepare — and which is therefore
     /// declared `whole`; see [`crate::kernels`]).
-    pub fn attention_xqa_decode(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::attention_xqa_decode_bf16_prepared")
+    pub fn attention_xqa_decode(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::attention_xqa_decode_bf16_prepared", window_left)
     }
 
     /// `kernels::attn::dispatch_attention_flashinfer_decode` against the decode
     /// plan its contract obligates.
-    pub fn attention_flashinfer_decode(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_decode")
+    pub fn attention_flashinfer_decode(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_decode", window_left)
     }
 
     /// `kernels::attn::dispatch_attention_flashinfer_prefill_bf16` — the dispatch
@@ -5465,8 +5901,8 @@ pub mod cuda {
     /// and launches only the dispatch. That is not a property of this
     /// kernel — it is a second STATEMENT the text either makes or does
     /// not, so the text makes it ([`dequant_only`] beside this call).
-    pub fn attention_flashinfer_prefill(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_bf16")
+    pub fn attention_flashinfer_prefill(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_bf16", window_left)
     }
 
     /// `kernels::attn::attention_flashinfer_prefill` — the PLAN-FREE
@@ -5480,8 +5916,8 @@ pub mod cuda {
     /// gemma-4's prefill fires this; llama_like's fires the other. The
     /// two are one call apart in C++ and a whole contract apart here,
     /// which is why the table carries both.
-    pub fn attention_flashinfer_prefill_planless(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::attention_flashinfer_prefill")
+    pub fn attention_flashinfer_prefill_planless(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::attention_flashinfer_prefill", window_left)
     }
 
     /// `kernels::attn::dispatch_attention_flashinfer_decode` asked for its LSE.
@@ -5539,6 +5975,69 @@ pub mod cuda {
                 "rope::rope_yarn_original_bf16",
                 vec![],
                 None,
+                vec![q.id, k.id],
+                vec![(q_sh, DType::BF16), (k_sh, DType::BF16)],
+            )
+        });
+        let mk = |id| Val {
+            t: q.t.clone(),
+            id,
+            layer: q.layer,
+        };
+        (mk(ids[0]), mk(ids[1]))
+    }
+
+    /// `kernels::rope::rope_bf16`: the full rotation, named.
+    ///
+    /// The semantic [`super::rope`] carries a `RopeKind` and a rotary
+    /// width, and the driver's arm asked whether the width was zero to
+    /// decide between two launchers. That is a KERNEL CHOICE — a full
+    /// rotation and a partial one are different arithmetic — so it
+    /// belongs in the statement, and the pair below is that statement.
+    pub fn rope(q: &Val, k: &Val) -> (Val, Val) {
+        rope_launch(q, k, "rope::rope_bf16", vec![0])
+    }
+
+    /// `kernels::rope::rope_partial_bf16`: only the first `rotary_dim`
+    /// channels of each head rotate.
+    ///
+    /// `rotary_dim` rides the statement's PARAMS
+    /// ([`crate::trace::OpKind::Launch`]), not the executor's config.
+    ///
+    /// The THETA does not, yet, and the reason is worth writing down
+    /// rather than leaving as an omission: gemma-4 alternates it per
+    /// layer between its local and global attention, so a driver
+    /// reading the single `cfg.rope_theta` reads the wrong one for half
+    /// that model's layers — the fact belongs here. What blocks it is
+    /// the emission fixtures, which would have to state each target's
+    /// real theta, and inventing those numbers is worse than a driver
+    /// reading a config value that is uniform for every family but one.
+    /// It is a property of this rotation and no operand shape spells it
+    /// — the operands are full-width q and k either way — which is
+    /// exactly what that channel is for.
+    pub fn rope_partial(q: &Val, k: &Val, rotary_dim: u32) -> (Val, Val) {
+        assert!(
+            rotary_dim > 0,
+            "a partial rotation with no channels is the full one; state \
+             `cuda::rope`"
+        );
+        rope_launch(q, k, "rope::rope_partial_bf16", vec![rotary_dim])
+    }
+
+    /// The shape both rotations share: two operands in, two results out,
+    /// each landing where its operand lies (the `kernel!` rows alias
+    /// both pairs).
+    fn rope_launch(q: &Val, k: &Val, symbol: &str, params: Vec<u32>) -> (Val, Val) {
+        let (q_sh, k_sh) = {
+            let b = q.t.inner.borrow();
+            (b.value_shape(q.id), b.value_shape(k.id))
+        };
+        let ids = q.t.with(q.layer, |b| {
+            b.launch_with_params(
+                symbol,
+                vec![],
+                None,
+                params,
                 vec![q.id, k.id],
                 vec![(q_sh, DType::BF16), (k_sh, DType::BF16)],
             )
@@ -5762,8 +6261,8 @@ pub mod cuda {
     /// `NUM_MMA_D_QK=32`. So the deployment states a naive paged kernel
     /// on exactly those layers — a per-layer HEAD DIM fact, erased at
     /// trace time, not a runtime fallback the executor discovers.
-    pub fn attention_naive_paged(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::attention_naive_paged")
+    pub fn attention_naive_paged(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::attention_naive_paged", window_left)
     }
 
     /// `kernels::attn::write_kv_explicit_bf16`: the explicit-descriptor
@@ -6040,14 +6539,14 @@ pub mod cuda {
     /// its contract includes the capture publish against the possibly
     /// page-mask-compacted CSR). Region launch of the WantsAttnScore
     /// guard — output-less; the guard owns the attention output.
-    pub fn attention_flashinfer_decode_capture(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_decode_capture")
+    pub fn attention_flashinfer_decode_capture(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_decode_capture", window_left)
     }
 
     /// `kernels::attn::dispatch_attention_flashinfer_prefill_capture_bf16` — the
     /// prefill counterpart, same guard-region contract.
-    pub fn attention_flashinfer_prefill_capture(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_capture_bf16")
+    pub fn attention_flashinfer_prefill_capture(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_capture_bf16", window_left)
     }
 
     /// Output-less [`qkv_decode_qk_norm_rope_write_kv`] for the Peel's
@@ -6081,8 +6580,8 @@ pub mod cuda {
     /// crosses as runtime args of the stated kernel, commit_lens's peer.
     /// Since A1 (the class-collapse amendment) it is stated inside the
     /// `HasCustomMask` guard arm of the Decode/Prefill traces.
-    pub fn attention_flashinfer_prefill_custom(q: &Val, kv: &Kv) -> Option<Val> {
-        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_custom")
+    pub fn attention_flashinfer_prefill_custom(q: &Val, kv: &Kv, window_left: i32) -> Option<Val> {
+        attn_at(q, kv, "attn::dispatch_attention_flashinfer_prefill_custom", window_left)
     }
 
     /// `"pie_lora_qkv_correction"`: the §5.1 adapter correction — every
@@ -6137,15 +6636,32 @@ pub mod cuda {
     /// The output shape is q's own: these kernels are width-preserving
     /// on the query, which is what the retired `q_width` parameter was
     /// re-stating at each call site.
-    fn attn_at(q: &Val, kv: &Kv, kernel: &str) -> Option<Val> {
+    /// Every FlashInfer/XQA dispatch's shape: one query in, the layer's
+    /// cache as state, and the attention output — or none, inside a
+    /// value-producing guard region, where the guard owns the value.
+    ///
+    /// `window_left` is the SLIDING WINDOW this layer attends over,
+    /// `-1` for none. It is a load-time fact (a config's
+    /// `sliding_window`, or its per-layer list where the architecture
+    /// alternates), and it used to be derived inside every executor:
+    /// eleven copies of the same three lines across four families,
+    /// reaching into `fwd_cfg.per_layer_window_left` — a per-layer array
+    /// no statement mentioned.
+    ///
+    /// It rides the statement's PARAMS because no operand shape gives
+    /// it. What is NOT closed by this is the per-FIRE override
+    /// (`runtime_window_left`), which is a runtime input and wants a
+    /// guard predicate; `DeclineReason::SlidingWindow` still names it.
+    fn attn_at(q: &Val, kv: &Kv, kernel: &str, window_left: i32) -> Option<Val> {
         let out = q.t.inner.borrow().inside_value_region();
         let shape = (!out).then(|| q.t.inner.borrow().value_shape(q.id));
-        record(
+        record_with_params(
             &q.t,
             Some(kv.l),
             kernel,
             vec![],
             kv_state(kv),
+            vec![window_left as u32],
             vec![q.id],
             shape.map(|s| (s, DType::BF16)),
         )
@@ -6180,6 +6696,7 @@ mod seam_tests {
             kernel: "pie_lora_qkv_correction".to_string(),
             weights: vec![],
             state: None,
+            params: vec![],
         }
     }
 

@@ -193,6 +193,28 @@ class ValueArena {
         return block_ + at;
     }
 
+    // The epilogue's two intermediates, from the same block.
+    //
+    // They belong to no traced value, because they belong to no traced
+    // STATEMENT: one `LmHead` lowers to a gather, a norm and a GEMM, and
+    // whether the gather runs is a fact about the FIRE's rows. So the
+    // lowering owns them and this hands them over — which is what every
+    // executor's `ws.norm_y` apology was standing in for.
+    void* epilogue_gather(const PieForwardLowered& flat) const {
+        return at_offset(flat.epilogue_gather);
+    }
+    void* epilogue_norm(const PieForwardLowered& flat) const {
+        return at_offset(flat.epilogue_norm);
+    }
+
+    // Whether a value is reached through the PIN table rather than the
+    // host's placement. A bring-up probe: an arm mid-migration whose
+    // operand answers `false` is reading bytes no unconverted arm
+    // writes, which is a silently wrong buffer rather than a fault.
+    bool is_pinned(std::uint32_t value_id) const {
+        return value_id < count_ && pinned_[value_id] != nullptr;
+    }
+
     // Overload kept for the call sites mid-migration, which pass the
     // value descriptor because the arena used to need it for SIZING. It
     // does not any more — the host sized it — so the descriptor is
@@ -202,6 +224,16 @@ class ValueArena {
     }
 
    private:
+    // A lowering-owned offset, bounds-checked like a value's. `kNamed`
+    // means the fire needs none, and a caller that asks anyway gets
+    // nullptr rather than an address into somebody else's bytes.
+    void* at_offset(std::size_t at) const {
+        if (at == kNamed || block_ == nullptr || at >= capacity_) {
+            return nullptr;
+        }
+        return block_ + at;
+    }
+
     std::uint8_t* block_ = nullptr;
     std::size_t capacity_ = 0;
     // What the whole plan's arena wants, for the refusal message: the

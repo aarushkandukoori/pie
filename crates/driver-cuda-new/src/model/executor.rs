@@ -128,6 +128,39 @@ pub struct LaunchSpec {
     /// tables (the C++ hand pass wires them through its workspace).
     /// Order, when present: `[dt_raw, a, d, dt_bias, dt_pre, da_pre]`.
     pub aux: Vec<Arg>,
+    /// `OpKind::Launch::params` — the wire scalars a statement carries
+    /// that no operand shape gives.
+    ///
+    /// One reader today, and it is the reason this field exists: the
+    /// attention dispatches state their `window_left` here. The arms used
+    /// to read it off `AttnCtx::window_left_by_layer`, which the driver
+    /// built from a config — so the trace said one thing about a layer
+    /// and the driver believed another, and nothing made them agree. A
+    /// statement that says which window it attends over is the whole
+    /// point of the field; the ctx stays as the fallback for a statement
+    /// that carries none.
+    ///
+    /// `i32` on the wire as `u32`, so `-1` reads back as `0xFFFF_FFFF` —
+    /// [`window_of`] does the cast in one place rather than at each arm.
+    pub params: Vec<u32>,
+}
+
+/// The window a launch attends over: the STATEMENT's, or the context's
+/// where a statement carries none.
+///
+/// The fallback is not a preference. It is what a trace written before
+/// the dispatches carried a window means, and it disappears when the last
+/// such trace does.
+#[cfg(feature = "bridge")]
+fn window_of(spec: &LaunchSpec, a: &AttnCtx, layer: u32) -> i32 {
+    #[allow(clippy::cast_possible_wrap)]
+    if let Some(&stated) = spec.params.first() {
+        return stated as i32;
+    }
+    a.window_left_by_layer
+        .get(layer as usize)
+        .copied()
+        .unwrap_or(a.window_left)
 }
 
 /// The per-launch op join over a whole lowering.
@@ -295,9 +328,10 @@ impl DispatchPlan {
                     // `Arg::Weight`s; the FIRST also rides the spec so
                     // constant-naming arms (`scale.*`) can read the name
                     // the bound pointer lost.
-                    OpKind::Launch { weights, .. } if !weights.is_empty() => LaunchSpec {
-                        weight: Some(weights[0].clone()),
+                    OpKind::Launch { weights, params, .. } => LaunchSpec {
+                        weight: weights.first().cloned(),
                         weight2: weights.get(1).cloned(),
+                        params: params.clone(),
                         ..LaunchSpec::default()
                     },
                     _ => LaunchSpec::default(),
@@ -947,9 +981,23 @@ pub fn dispatch<R: Resolver>(
         }
         // args: [x, y]; the norm weight is the op's.
         "norm::rmsnorm_bf16" => {
-            need(2)?;
+            // `[x, y]` when the SEMANTIC `Rmsnorm` lowered here and the
+            // weight reached the arm through the resolver; `[x, y, w]`
+            // now that `dsl::cuda::rmsnorm` STATES the kernel and names
+            // its weight, which the binder resolves like any operand.
+            // Both forms are live while both spellings are.
             let (x, y) = (bound.args[0], bound.args[1]);
-            let w = weight(resolver)?;
+            let w = match bound.args.len() {
+                2 => weight(resolver)?,
+                3 => bound.args[2].ptr.cast_const(),
+                got => {
+                    return Err(DispatchRefusal::ArgCount {
+                        kernel: bound.kernel.to_string(),
+                        expected: 3,
+                        got,
+                    });
+                }
+            };
             // A PER-HEAD statement reshapes to `[rows*heads, head_dim]`
             // rows over one head-wide weight — gemma-4's `ple_model_norm`
             // ([256] over an `[N, layers*256]` row) and its full layers'
@@ -978,8 +1026,17 @@ pub fn dispatch<R: Resolver>(
         // args: [act, y] with beta 0, or [act, resid_in, y] with beta 1 —
         // the residual fold, where the output aliases the residual's
         // bytes and cuBLAS accumulates in place. M/K/N come from the
-        // rectangle and the widths; the weight is the op's; the view is
-        // raw bf16 until quantized deployments join.
+        // rectangle and the widths; the weight is the op's.
+        //
+        // The symbol the lowering states is the DENSE matmul — a
+        // `WeightRepr::Bf16` weight, which is the one representation
+        // `MatW::gemm_symbol` declines to name, because there is nothing
+        // to choose. Every other representation states its own symbol
+        // and lands on its own arm. So this arm binds
+        // `gemm::act_x_wt_bf16`, which `gemm.hpp` defines as `act_x_w`
+        // with `WeightView::raw(W, BF16)` — the one view this arm ever
+        // built, now assembled inside the launcher where the routing
+        // lives, rather than crossing the ABI as a descriptor.
         "gemm::act_x_w" => {
             let (act, y, beta) = if spec.beta_one {
                 need(3)?;
@@ -989,19 +1046,16 @@ pub fn dispatch<R: Resolver>(
                 (bound.args[0], bound.args[1], 0.0f32)
             };
             let w = weight(resolver)?;
-            let view = super::weight_view::WeightView::raw(w, crate::dtype::DType::Bf16);
             unsafe {
-                ffi::pie_k_gemm_act_x_w(
+                ffi::pie_k_gemm_act_x_wt_bf16(
                     ctx.cublas,
                     act.ptr,
-                    view,
+                    w,
                     y.ptr,
                     rows,
                     i32::try_from(y.width).expect("N fits i32"),
                     i32::try_from(act.width).expect("K fits i32"),
                     beta,
-                    crate::dtype::DType::Bf16,
-                    crate::dtype::DType::Bf16,
                 );
             }
         }
@@ -1091,11 +1145,7 @@ pub fn dispatch<R: Resolver>(
                     });
                 }
             };
-            let window = a
-                .window_left_by_layer
-                .get(bound.layers.start as usize)
-                .copied()
-                .unwrap_or(a.window_left);
+            let window = window_of(spec, a, u32::from(bound.layers.start));
             // Two-kind families keep a second plan for the FULL layers
             // (gemma-4's 512-wide kind) — the C++'s `cur_full ?
             // decode_plan_full : decode_plan_sliding` selection, keyed
@@ -1322,9 +1372,23 @@ pub fn dispatch<R: Resolver>(
         // per-head q/k norms are the same symbol over `tokens * heads`
         // rows of `head_dim` — the op join says which reading applies.
         "norm::rmsnorm_gemma_bf16" => {
-            need(2)?;
+            // `[x, y]` when the SEMANTIC `Rmsnorm` lowered here and the
+            // weight reached the arm through the resolver; `[x, y, w]`
+            // now that `dsl::cuda::rmsnorm` STATES the kernel and names
+            // its weight, which the binder resolves like any operand.
+            // Both forms are live while both spellings are.
             let (x, y) = (bound.args[0], bound.args[1]);
-            let w = weight(resolver)?;
+            let w = match bound.args.len() {
+                2 => weight(resolver)?,
+                3 => bound.args[2].ptr.cast_const(),
+                got => {
+                    return Err(DispatchRefusal::ArgCount {
+                        kernel: bound.kernel.to_string(),
+                        expected: 3,
+                        got,
+                    });
+                }
+            };
             let (num_rows, hidden) = match spec.per_head_dim {
                 Some(d) => (
                     rows * (i32::try_from(x.width).expect("width") / i32::try_from(d).expect("d")),
@@ -1354,8 +1418,25 @@ pub fn dispatch<R: Resolver>(
                 .layers
                 .get(bound.layers.start as usize)
                 .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
+            // Three places a rotary width can come from, in the order
+            // that prefers what a STATEMENT said:
+            //
+            //   `spec.params[0]`  `dsl::cuda::rope_partial` — the stated
+            //                     form, which carries it as a wire param;
+            //   `spec.rope_partial`  the semantic `Rope { partial }`;
+            //   `ctx.rotary_by_layer`  the fire's table, for a family
+            //                     whose width is per-layer and whose
+            //                     statement carries none.
+            //
+            // The first two are the same fact under two spellings, and
+            // both spellings are live — qwen3_5's prefill states the
+            // launch, its decode records the semantic op.
             let rotary = spec
-                .rope_partial
+                .params
+                .first()
+                .copied()
+                .filter(|r| *r > 0)
+                .or(spec.rope_partial)
                 .or_else(|| {
                     ctx.rotary_by_layer
                         .get(bound.layers.start as usize)
@@ -1865,10 +1946,7 @@ pub fn dispatch<R: Resolver>(
                     i32::try_from(q.width).expect("q width") / layer.head_dim.max(1),
                     a.workspace,
                     ctx.stream,
-                    a.window_left_by_layer
-                        .get(bound.layers.start as usize)
-                        .copied()
-                        .unwrap_or(a.window_left),
+                    window_of(spec, a, u32::from(bound.layers.start)),
                     a.logits_soft_cap,
                     a.sm_scale,
                     a.lse_out_d,
@@ -1900,10 +1978,7 @@ pub fn dispatch<R: Resolver>(
                     a.num_pages_in_batch,
                     i32::try_from(q.width).expect("q width") / layer.head_dim.max(1),
                     ctx.stream,
-                    a.window_left_by_layer
-                        .get(bound.layers.start as usize)
-                        .copied()
-                        .unwrap_or(a.window_left),
+                    window_of(spec, a, u32::from(bound.layers.start)),
                     a.sm_scale,
                 );
             }

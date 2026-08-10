@@ -39,6 +39,14 @@ serde_json = "1.0"
 driver-abi = { path = "../driver-abi" }
 tensor-ir = { path = "../tensor-ir" }
 
+# The load-plan path calls the loader in-process where the C++ went through
+# the C ABI: `model` owns the author registry (the `contract` feature alone --
+# no chat aspect, so no tokenizer or image decoders ride along), and
+# `model-loader` owns the plan compiler and the checkpoint readers. Both are
+# host-portable.
+model = { path = "../model", default-features = false, features = ["contract"] }
+model-loader = { path = "../model-loader" }
+
 # Apple-only. Everything that names a Metal type lives under `src/metal/` and
 # is gated on this cfg, so the crate still builds -- and its portable half
 # still tests -- on the Linux boxes the rest of the workspace is developed on.
@@ -137,3 +145,13 @@ features = [
 
 [dev-dependencies]
 tempfile = "3"
+
+# The PSO plan's names are held against the shipped signature table, so a
+# name no shader instantiates fails in CI on any host. Table only, no Metal.
+kernels-metal = { path = "../kernels-metal", default-features = false }
+
+# Tests only. The driver deliberately does not depend on the compiler at build
+# time -- see the `identity::Versions` comment -- but `pipeline::status` mirrors
+# the compiler's fault-code table, and a hand-copied table that nothing checks
+# drifts. The dev-dependency makes the mirror a test rather than a promise.
+tensor-compiler = { path = "../tensor-compiler" }

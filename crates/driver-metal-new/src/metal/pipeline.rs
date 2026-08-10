@@ -68,11 +68,11 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::{NSArray, NSString, NSURL};
 use objc2_metal::{
-    MTL4Compiler, MTL4CompilerDescriptor, MTL4CompilerTaskOptions,
-    MTL4ComputePipelineDescriptor, MTL4LibraryFunctionDescriptor,
-    MTL4PipelineDataSetSerializer, MTL4PipelineDataSetSerializerConfiguration,
-    MTL4PipelineDataSetSerializerDescriptor, MTLCompileOptions, MTLComputePipelineState, MTLDevice,
-    MTLLanguageVersion, MTLLibrary, MTLMathFloatingPointFunctions, MTLMathMode,
+    MTL4Compiler, MTL4CompilerDescriptor, MTL4CompilerTaskOptions, MTL4ComputePipelineDescriptor,
+    MTL4LibraryFunctionDescriptor, MTL4PipelineDataSetSerializer,
+    MTL4PipelineDataSetSerializerConfiguration, MTL4PipelineDataSetSerializerDescriptor,
+    MTLCompileOptions, MTLComputePipelineState, MTLDevice, MTLLanguageVersion, MTLLibrary,
+    MTLMathFloatingPointFunctions, MTLMathMode,
 };
 
 use super::archive::{Archives, MAX_AGE};
@@ -253,15 +253,14 @@ impl Compiler {
         let lookup = path.as_deref().and_then(|path| self.lookup(context, path));
 
         // Stage one: one library per distinct source file.
-        let libraries: Vec<Result<Retained<ProtocolObject<dyn MTLLibrary>>>> = (0..batch
-            .paths()
-            .len())
-            .map(|index| match batch.source(index) {
-                Some(Ok(source)) => build_library(context, source, "", math),
-                Some(Err(error)) => Err(clone_read_error(error, &batch.paths()[index])),
-                None => unreachable!("index came from paths()"),
-            })
-            .collect();
+        let libraries: Vec<Result<Retained<ProtocolObject<dyn MTLLibrary>>>> =
+            (0..batch.paths().len())
+                .map(|index| match batch.source(index) {
+                    Some(Ok(source)) => build_library(context, source, "", math),
+                    Some(Err(error)) => Err(clone_read_error(error, &batch.paths()[index])),
+                    None => unreachable!("index came from paths()"),
+                })
+                .collect();
 
         // Stage two: every pipeline off those libraries.
         let built: Vec<_> = (0..batch.len())
@@ -280,6 +279,61 @@ impl Compiler {
             // A partial archive would be served back on the next run as if it
             // were the whole batch. Skipping the write costs one slow start;
             // writing it costs every start after this one.
+            (false, Some(_)) if !built.iter().all(Result::is_ok) => Archived::Skipped,
+            (false, Some(path)) => match self.write(path) {
+                Ok(()) => Archived::Written,
+                Err(error) => Archived::Failed(error),
+            },
+        };
+        Compiled {
+            pipelines: built,
+            archive,
+        }
+    }
+
+    /// Build a pipeline for every `(source, entry)` pair, against one archive
+    /// keyed by `key`.
+    ///
+    /// The in-memory counterpart of [`Compiler::compile_batch`]: the launch
+    /// path's kernels arrive as host-emitted text, not files, so the archive
+    /// key cannot be derived from paths. The caller names the batch instead,
+    /// and `key` must capture everything that makes the text what it is — the
+    /// launch path keys on device, program signature and toolchain versions.
+    /// The device and math-mode salt is mixed in here, as it is for a file
+    /// batch, so a caller cannot forget it.
+    ///
+    /// Positional, like the file batch: one result per request, a request
+    /// that fails fails alone, and the archive is written only when every
+    /// request built.
+    pub fn compile_sources(
+        &self,
+        context: &Context,
+        requests: &[(String, String)],
+        key: u64,
+        math: Math,
+    ) -> Compiled {
+        if requests.is_empty() {
+            return Compiled {
+                pipelines: Vec::new(),
+                archive: Archived::Skipped,
+            };
+        }
+        let path = self.archives.path(key ^ self.salt(context, math));
+
+        let _gate = GATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let lookup = path.as_deref().and_then(|path| self.lookup(context, path));
+
+        let built: Vec<_> = requests
+            .iter()
+            .map(|(source, entry)| {
+                build_library(context, source, entry, math)
+                    .and_then(|library| self.build_pipeline(&library, entry, lookup.as_deref()))
+            })
+            .collect();
+
+        let archive = match (lookup.is_some(), path.as_deref()) {
+            (true, _) => Archived::Hit,
+            (false, None) => Archived::Disabled,
             (false, Some(_)) if !built.iter().all(Result::is_ok) => Archived::Skipped,
             (false, Some(path)) => match self.write(path) {
                 Ok(()) => Archived::Written,
@@ -484,8 +538,7 @@ impl Math {
             Self::Fast => {}
             Self::Precise => {
                 options.setMathMode(MTLMathMode::Safe);
-                options
-                    .setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
+                options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
             }
         }
     }

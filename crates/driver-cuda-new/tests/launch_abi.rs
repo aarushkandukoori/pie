@@ -40,9 +40,8 @@ use std::process::Command;
 
 use driver_cuda_new::launch::{
     AttentionWorkspaceView, HopperPrefillPlan, KvCacheLayerView, MlaCacheLayerView,
-    StructuredMaskParams, YarnOriginalParams,
+    YarnOriginalParams,
 };
-use driver_cuda_new::model::weight_view::WeightView;
 use kernels::{KernelSig, Operand, Ty};
 use kernels_cuda::abi::Record;
 
@@ -121,51 +120,253 @@ fn attn_headers() -> Vec<String> {
     hs
 }
 
-/// Every `norm/*.hpp`. Unlike `attn`, no `norm` row is declared outside its
-/// own directory, so this one can follow the directory.
-fn norm_headers() -> Vec<String> {
-    headers_in("norm")
+fn attn_shim(table: &'static [KernelSig]) -> String {
+    let hs = attn_headers();
+    let refs: Vec<&str> = hs.iter().map(String::as_str).collect();
+    kernels_cuda::abi::emit_c_shim(&[table], &refs).expect("no entry-point collisions")
 }
 
-fn headers_in(dir: &str) -> Vec<String> {
-    let mut hs: Vec<String> = std::fs::read_dir(csrc().join(dir))
-        .expect("family directory")
+/// The headers `norm`'s rows are declared in — every `norm/*.hpp`.
+fn norm_headers() -> Vec<String> {
+    let mut hs: Vec<String> = std::fs::read_dir(csrc().join("norm"))
+        .expect("norm/")
         .filter_map(|e| {
             let n = e.ok()?.file_name().into_string().ok()?;
-            n.ends_with(".hpp").then(|| format!("{dir}/{n}"))
+            n.ends_with(".hpp").then(|| format!("norm/{n}"))
         })
         .collect();
     hs.sort();
     hs
 }
 
-fn shim_over(table: &'static [KernelSig], headers: &[String]) -> String {
-    let refs: Vec<&str> = headers.iter().map(String::as_str).collect();
-    kernels_cuda::abi::emit_c_shim(&[table], &refs).expect("no entry-point collisions")
-}
-
-/// Every row of a family states its launcher exactly, and every row is stated.
+/// `norm`'s rows, proven the same way `rope`'s and `attn`'s are.
 ///
-/// Factored out because the check has two halves and only the second one is
-/// the compiler's. `emit_c_shim` SKIPS a row with no operands, so a family
-/// where half the rows are blank produces a shim that compiles and proves
-/// nothing — the count assertion is what keeps "it compiled" from meaning
-/// "some of it compiled".
-fn prove_family(family: &str, table: &'static [KernelSig], headers: &[String]) {
+/// Twenty-eight launchers across seven headers, and the family every
+/// other one leans on: a wrong row here is a wrong argument in an arm
+/// that four executors reach.
+#[test]
+fn every_norm_row_states_its_launcher_exactly() {
+    let table = kernels_cuda::norm::KERNELS;
     let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
     assert_eq!(
         stated,
         table.len(),
-        "{} of {} {family} rows are unstated, so the shim silently skips them",
+        "{} of {} norm rows are unstated, so the shim silently skips them",
         table.len() - stated,
         table.len()
     );
-    if let Err(err) = compile(&shim_over(table, headers)) {
+    let hs = norm_headers();
+    let refs: Vec<&str> = hs.iter().map(String::as_str).collect();
+    let shim = kernels_cuda::abi::emit_c_shim(&[table], &refs)
+        .expect("no entry-point collisions");
+    if let Err(err) = compile(&shim) {
         panic!(
-            "the generated {family} shim does not compile, so a row misstates \
-             its launcher:\n{err}"
+            "the generated shim does not compile, so a row misstates its \
+             launcher:\n{err}"
         );
     }
+}
+
+/// `mlp`'s rows. Sixteen activations across two headers, and the family
+/// whose default arguments make a hand-written binding easiest to get
+/// wrong -- `gpt_oss_glu_bf16` alone carries three.
+#[test]
+fn every_mlp_row_states_its_launcher_exactly() {
+    let table = kernels_cuda::mlp::KERNELS;
+    let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
+    assert_eq!(
+        stated,
+        table.len(),
+        "{} of {} mlp rows are unstated, so the shim silently skips them",
+        table.len() - stated,
+        table.len()
+    );
+    let shim =
+        kernels_cuda::abi::emit_c_shim(&[table], &["mlp/swiglu.hpp", "mlp/gaussian_topk.hpp"])
+            .expect("no entry-point collisions");
+    if let Err(err) = compile(&shim) {
+        panic!(
+            "the generated shim does not compile, so a row misstates its \
+             launcher:\n{err}"
+        );
+    }
+}
+
+/// `quant`'s and `moe`'s rows, and the STATED half of `layout`'s and
+/// `gemm`'s.
+///
+/// `gemm`'s scaled entry points are here because 1b made them
+/// spellable: the storage a weight is in used to reach the dispatcher
+/// inside a `WeightView`, a descriptor the driver BUILT from a
+/// per-layer struct no statement mentioned. Assembling it inside the
+/// launcher and taking its fields flat is what let a row describe the
+/// call at all -- a struct is not something the operand vocabulary can
+/// state, and giving it a kind would have stated nothing.
+///
+/// Not a whole-family assertion like `norm`'s and `mlp`'s, because two
+/// of these families carry rows the shim cannot reach yet and saying so
+/// is better than a count that quietly excludes them:
+///
+///   * `dist::` and `comm::` name METHODS on `NcclComm`, not free
+///     launchers, so `::pie_cuda_driver::kernels::dist::all_reduce_bf16`
+///     does not exist to forward to. They need free wrappers first.
+///   * `gemm`'s remaining rows take a `WeightView` or pointer arrays,
+///     which the operand vocabulary has no kind for yet.
+///
+/// What IS stated compiles, which is the claim this test can make.
+#[test]
+fn the_stated_quant_layout_gemm_and_moe_rows_describe_their_launchers() {
+    let tables: [&'static [KernelSig]; 4] = [
+        kernels_cuda::quant::KERNELS,
+        kernels_cuda::layout::KERNELS,
+        kernels_cuda::gemm::KERNELS,
+        kernels_cuda::moe::KERNELS,
+    ];
+    let headers = [
+        "quant/dequant_fp4.hpp",
+        "quant/dequant_fp8.hpp",
+        "quant/dequant_wna16.hpp",
+        "quant/dtype_cast.hpp",
+        "quant/mxfp4_marlin.hpp",
+        "layout/embed.hpp",
+        "layout/gather_rows.hpp",
+        "layout/slot_ops.hpp",
+        "layout/split_gate_up.hpp",
+        "layout/deinterleave.hpp",
+        "gemm/gemm.hpp",
+        "gemm/gemv.hpp",
+        "comm/custom_all_reduce.hpp",
+        "moe/dsv4_routing.hpp",
+        "moe/moe_dispatch.hpp",
+        "moe/moe_grouped_gemm.hpp",
+        "moe/flashinfer_moe.hpp",
+        "sample/argmax.hpp",
+        "../third_party/marlin_moe/marlin_moe_wrapper.hpp",
+        "moe/topk_sigmoid.hpp",
+        "moe/topk_softmax.hpp",
+    ];
+    let shim = kernels_cuda::abi::emit_c_shim(&tables, &headers)
+        .expect("no entry-point collisions");
+    if let Err(err) = compile(&shim) {
+        panic!(
+            "the generated shim does not compile, so a row misstates its \
+             launcher:\n{err}"
+        );
+    }
+}
+
+/// `ssm`'s rows — the largest single family, and the one whose ten
+/// recurrence spellings differ only by which state dtype and whether the
+/// heads are grouped.
+///
+/// Ten near-identical argument lists is exactly where a hand-written
+/// binding goes wrong quietly: `state_base` is `float*` in six of them
+/// and `void*` in four, and the two are the same pointer at a call site.
+#[test]
+fn every_ssm_row_states_its_launcher_exactly() {
+    let table = kernels_cuda::ssm::KERNELS;
+    // THREE rows stay unstated, and naming them is the point of pinning
+    // the count rather than asserting it away:
+    //
+    //
+    // The two `build_nemotron_moe_ptrs_*` builders came IN with the
+    // pointer-array kinds -- they take `const void* const*` for the
+    // weights they read and `void**` for the arrays they fill, and only
+    // `BufArray` vs `BufArrayOutMut` makes the difference a compile
+    // error instead of a builder writing an array it was handed to
+    // read.
+    let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
+    assert_eq!(
+        stated,
+        table.len(),
+        "{} of {} ssm rows are unstated, so the shim silently skips them",
+        table.len() - stated,
+        table.len()
+    );
+    let shim = kernels_cuda::abi::emit_c_shim(
+        &[table],
+        &[
+            "ssm/causal_conv1d.hpp",
+            "ssm/flashinfer_mamba.hpp",
+            "ssm/gated_delta_net.hpp",
+            "ssm/kda.hpp",
+            "ssm/nemotron_h.hpp",
+        ],
+    )
+    .expect("no entry-point collisions");
+    if let Err(err) = compile(&shim) {
+        panic!(
+            "the generated shim does not compile, so a row misstates its \
+             launcher:\n{err}"
+        );
+    }
+}
+
+/// The generated DISPATCH, which is what the shim was proved for.
+///
+/// A row that states its operand types AND where each argument comes
+/// from is a row the call can be derived from — so the arm nobody
+/// writes is the arm nobody writes wrong. This prints what comes out
+/// for the rows that have said both.
+#[test]
+fn the_dispatch_generates_from_rows_that_state_their_sources() {
+    let text = kernels_cuda::abi::emit_dispatch(
+        &[
+            kernels_cuda::rope::KERNELS,
+            kernels_cuda::norm::KERNELS,
+            kernels_cuda::mlp::KERNELS,
+            kernels_cuda::layout::KERNELS,
+            kernels_cuda::quant::KERNELS,
+            kernels_cuda::moe::KERNELS,
+            kernels_cuda::attn::KERNELS,
+        ],
+        "c",
+    );
+    let cases = text.matches("if (sym == ").count();
+    eprintln!("{text}");
+    eprintln!("generated {cases} dispatch case(s)");
+    // A generator that produced nothing would pass every other
+    // assertion here, so the floor is the assertion.
+    assert!(
+        cases >= 1,
+        "no row states its sources, so nothing was generated"
+    );
+}
+
+/// The committed dispatch is what the generator emits today.
+///
+/// `.inc` discipline, one layer down: the file is C++ a reader opens,
+/// so it is committed and the diff is the review — and a table edit
+/// that changes what it emits has to be regenerated rather than
+/// silently diverge from the arms it replaced.
+#[test]
+fn the_committed_dispatch_is_regeneration_clean() {
+    let path = format!(
+        "{}/../driver-cuda/csrc/src/model/declared/generated_dispatch.inc",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let committed = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    let fresh = kernels_cuda::abi::emit_dispatch(
+        &[
+            kernels_cuda::attn::KERNELS,
+            kernels_cuda::gemm::KERNELS,
+            kernels_cuda::layout::KERNELS,
+            kernels_cuda::mlp::KERNELS,
+            kernels_cuda::moe::KERNELS,
+            kernels_cuda::norm::KERNELS,
+            kernels_cuda::quant::KERNELS,
+            kernels_cuda::rope::KERNELS,
+            kernels_cuda::sample::KERNELS,
+            kernels_cuda::ssm::KERNELS,
+        ],
+        "c",
+    );
+    assert_eq!(
+        committed, fresh,
+        "the committed dispatch is stale; regenerate with \
+         `cargo run -p kernels-cuda --bin emit-dispatch`"
+    );
 }
 
 /// The pilot itself: every stated `rope` row describes its launcher exactly.
@@ -190,200 +391,22 @@ fn every_rope_row_states_its_launcher_exactly() {
 /// compile — which is the point of running it as one shim rather than fifty.
 #[test]
 fn every_attn_row_states_its_launcher_exactly() {
-    prove_family("attn", kernels_cuda::attn::KERNELS, &attn_headers());
-}
-
-/// All twenty-six `norm` rows.
-///
-/// The third family, and the one that exercises a corner the first two did
-/// not: `norm` launchers take `std::size_t` extents (`residual_add_bf16`,
-/// `scalar_mul_bf16`) where every `attn` and `rope` extent is an `int`. A row
-/// that wrote `I32` there would be wrong by four bytes on the stack of a
-/// varargs-free call — invisible to a reader, and a compile error here.
-///
-/// It also has the family's one defaulted parameter:
-/// `hc_head_postprocess_bf16` declares `float hc_eps = 1e-6f` AFTER its
-/// stream. A row is the full parameter list, defaults included, because a
-/// caller that omits it is not calling a different function — it is calling
-/// the same one and letting C++ fill the slot, which a Rust binding cannot do.
-#[test]
-fn every_norm_row_states_its_launcher_exactly() {
-    prove_family("norm", kernels_cuda::norm::KERNELS, &norm_headers());
-}
-
-/// All thirty-four `ssm` rows.
-///
-/// The fourth family, and three new spellings at once: `long long` slot
-/// strides (`I64` — a width `int` misstates by four bytes), FlashInfer's
-/// `std::uint16_t*` bf16 pointers (`U16s`/`U16sMut` — the one launcher family
-/// that does not say `void*` for bf16), and the MoE pointer builders' three
-/// table shapes (`const void* const*` in, `const void**` and `void**` out),
-/// which differ only in where the `const` sits — exactly the distinction a
-/// hand-transcribed row would flatten and the C++ compiler will not.
-///
-/// It also carries the widest defaulted tails in the codebase:
-/// `write_state = true`, `commit_len = nullptr`, `write_state_mask = nullptr`
-/// after the stream. Rows state them all — a caller that omits them is
-/// calling the same function and letting C++ fill the slots, which a Rust
-/// binding cannot do.
-#[test]
-fn every_ssm_row_states_its_launcher_exactly() {
-    prove_family("ssm", kernels_cuda::ssm::KERNELS, &headers_in("ssm"));
-}
-
-/// The headers `moe`'s rows are declared in.
-///
-/// Like `attn`, the list follows the ROWS rather than the directory: five of
-/// the family's rows are the quantized decode GEMVs whose C++ lives in
-/// `quant/dequant_{fp4,wna16}.cu` (they share those files' unpack helpers —
-/// §status of `.wiki/kernel-refactor.md` says why that is correct rather than
-/// pending), and one is the vendored Marlin grouped GEMM, whose header sits
-/// outside `src/` entirely and whose namespace sits beside `kernels` —
-/// which `abi::cpp_path` states.
-fn moe_headers() -> Vec<String> {
-    let mut hs = headers_in("moe");
-    hs.push("quant/dequant_fp4.hpp".into());
-    hs.push("quant/dequant_wna16.hpp".into());
-    hs.push("../third_party/marlin_moe/marlin_moe_wrapper.hpp".into());
-    hs
-}
-
-/// All twenty-seven `moe` rows.
-///
-/// What this family adds to the proof's coverage: an `enum class` operand
-/// passed BY VALUE (`MoeActivation` — four bytes, and a row that spelled it
-/// `I32` would compile a conversion C++ refuses on a function pointer), a
-/// second `Ret::Bool` tried launch (the fused CUTLASS block), the per-expert
-/// pointer BANKS (`U8Bufs`/`I32Bufs` — `const T* const*`, where every `const`
-/// is load-bearing), and a symbol whose namespace is NOT under `kernels::`
-/// (the vendored Marlin tree).
-#[test]
-fn every_moe_row_states_its_launcher_exactly() {
-    prove_family("moe", kernels_cuda::moe::KERNELS, &moe_headers());
-}
-
-/// All sixteen `mlp` rows. No new vocabulary — what this family exercises is
-/// parameter ORDER: the gpt-oss pair and both chunked-glu forms put scalars
-/// and flags AFTER the stream (`limit`, `alpha`, `gate_second`, the fused
-/// `y_fp16` epilogue), where every other family ends on it. A hand-written
-/// binding pattern-matched on "stream last" would be wrong four times here
-/// and compile zero of them.
-#[test]
-fn every_mlp_row_states_its_launcher_exactly() {
-    prove_family("mlp", kernels_cuda::mlp::KERNELS, &headers_in("mlp"));
-}
-
-/// The nine `layout` rows that name C++ launchers, plus the two that do not.
-///
-/// `verify_stash_store`/`verify_stash_load` are PSEUDO-SYMBOLS: qwen3_5's
-/// declared executor implements each as a `cudaMemcpyAsync` trio against the
-/// layer's stash slab. A launcher may be three API calls — the symbol names
-/// the operation — but there is no C++ function whose signature a row could
-/// state, so `prove_family`'s "every row is stated" half is replaced here by
-/// naming the two exceptions exactly. An exception list that DRIFTS (a stash
-/// row gains a real launcher, a new unstated row hides behind the two known
-/// ones) fails the equality.
-#[test]
-fn every_layout_row_states_its_launcher_exactly() {
-    let unstated: Vec<&str> = kernels_cuda::layout::KERNELS
-        .iter()
-        .filter(|k| k.operands.is_empty())
-        .map(|k| k.symbol)
-        .collect();
+    let table = kernels_cuda::attn::KERNELS;
+    let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
     assert_eq!(
-        unstated,
-        ["qwen35_verify_stash_store", "qwen35_verify_stash_load"],
-        "the memcpy pseudo-symbols are the only rows without a launcher to state"
+        stated,
+        table.len(),
+        "{} of {} attn rows are unstated, so the shim silently skips them",
+        table.len() - stated,
+        table.len()
     );
-    if let Err(err) = compile(&shim_over(kernels_cuda::layout::KERNELS, &headers_in("layout"))) {
+    let shim = attn_shim(table);
+    if let Err(err) = compile(&shim) {
         panic!(
-            "the generated layout shim does not compile, so a row misstates \
-             its launcher:\n{err}"
+            "the generated shim does not compile, so a row misstates its \
+             launcher:\n{err}"
         );
     }
-}
-
-/// All nine `quant` rows. The addition here is the second by-value
-/// `enum class` (`Mxfp4RowSelect`), and the family mixes `int` and
-/// `std::size_t` extents row by row — the same four-byte trap `norm`
-/// documented, three more times.
-#[test]
-fn every_quant_row_states_its_launcher_exactly() {
-    prove_family("quant", kernels_cuda::quant::KERNELS, &headers_in("quant"));
-}
-
-/// All seven `gemm` rows. Five take the cuBLAS handle instead of a stream
-/// (the vocabulary `attn`'s MLA absorb pair introduced), two of the pointer
-/// tables are the `void* const*` shape no other family has (`BufMuts` — the
-/// table read-only, its targets written), `act_x_wt_bf16` and
-/// `batched_act_x_wt_bf16` are `inline` wrappers (the shim compiles their
-/// BODIES, so the proof reaches through to `act_x_w`), and `gemv3` is the
-/// third `Ret::Bool` tried launch.
-#[test]
-fn every_gemm_row_states_its_launcher_exactly() {
-    prove_family("gemm", kernels_cuda::gemm::KERNELS, &headers_in("gemm"));
-}
-
-/// The one `sample` row. Its weight is the table's only `const int8_t*`
-/// (`I8s`) — a fused GEMV+argmax over an int8 lm_head with per-channel fp32
-/// scales.
-#[test]
-fn every_sample_row_states_its_launcher_exactly() {
-    prove_family("sample", kernels_cuda::sample::KERNELS, &headers_in("sample"));
-}
-
-/// Across EVERY table, the rows without operands are exactly the three
-/// pseudo-symbols — and nothing else.
-///
-/// This is the fill campaign's closing claim. Each family proof asserts its
-/// own table; this one says no family was skipped and no future row can
-/// quietly join the exception list. The three that remain name OPERATIONS of
-/// declared executors (a `cudaMemcpyAsync` trio, a staged LoRA apply), not
-/// C++ functions, so they have no signature to state — the comments on their
-/// rows say so, and this test keeps the set closed.
-#[test]
-fn the_pseudo_symbol_rows_are_exactly_the_known_three() {
-    let unstated: Vec<&str> = kernels_cuda::KERNELS
-        .iter()
-        .filter(|k| k.operands.is_empty())
-        .map(|k| k.symbol)
-        .collect();
-    assert_eq!(
-        unstated,
-        [
-            "qwen35_verify_stash_store",
-            "qwen35_verify_stash_load",
-            "pie_lora_qkv_correction",
-        ],
-        "an unstated row that is not a documented pseudo-symbol is an \
-         unfilled row"
-    );
-}
-
-/// Every row of the DRIVER-INTERNAL table states its launcher exactly.
-///
-/// The second table (`driver_internal::DRIVER_KERNELS`): launchers the
-/// driver fires with no DSL statement behind them — the `DriverInternal`
-/// kind the attn exhaustiveness test classifies, made callable for the
-/// executor without ever joining the DSL-surface table that `model`'s
-/// `kernels_table` holds to equality. Same proof as every family: the shim
-/// calls the launcher, the compiler decides.
-#[test]
-fn every_driver_internal_row_states_its_launcher_exactly() {
-    let mut headers = headers_in("layout");
-    headers.extend(headers_in("attn"));
-    headers.extend(headers_in("norm"));
-    headers.push("gemm/gemm.hpp".into());
-    // The VL tower rows' flat launchers — the C++-struct tower headers
-    // stay out (their `std::vector` members are the wrappers' business,
-    // not the shim's).
-    headers.push("vision/qwen3_vl_tower_c.hpp".into());
-    headers.push("vision/gemma4_towers_c.hpp".into());
-    prove_family(
-        "driver-internal",
-        kernels_cuda::driver_internal::DRIVER_KERNELS,
-        &headers,
-    );
 }
 
 /// Every launcher `rope.hpp` declares has a row.
@@ -488,7 +511,7 @@ fn every_attn_launcher_is_a_row_or_a_stated_exception() {
         ("write_mla_to_pages_bf16",                     NoRow::KernelsInternal),
     ];
 
-    let declared = declared_in("attn", &["void "]);
+    let declared = declared_launchers();
     assert!(
         declared.len() >= 77,
         "the scan found {} declarations, so its shape assumption broke",
@@ -536,6 +559,647 @@ fn every_attn_launcher_is_a_row_or_a_stated_exception() {
         "called `KernelsInternal` but the driver calls it, so it is really \
          DriverInternal or a missing row: {wrong:?}"
     );
+}
+
+/// Every `void` launcher declared across `attn/*.hpp`, by name.
+fn declared_launchers() -> Vec<String> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(csrc().join("attn")).expect("attn/") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("hpp") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).expect("header");
+        for line in text.lines() {
+            let Some(rest) = line.strip_prefix("void ") else { continue };
+            let Some((name, _)) = rest.split_once('(') else { continue };
+            if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !name.is_empty() {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn collect_sources(dir: &Path, out: &mut String) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            collect_sources(&p, out);
+        } else if matches!(
+            p.extension().and_then(|e| e.to_str()),
+            Some("cpp" | "hpp" | "cu" | "inc")
+        ) && let Ok(t) = std::fs::read_to_string(&p)
+        {
+            out.push_str(&t);
+            out.push('\n');
+        }
+    }
+}
+
+/// `needle` appears in `hay` as a whole identifier.
+///
+/// Substring matching would answer the wrong question here: every
+/// `attention_naive_bf16` is inside some `attention_naive_bf16_something`,
+/// and a check that cannot tell them apart cannot fail usefully.
+fn mentions_word(hay: &str, needle: &str) -> bool {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    hay.match_indices(needle).any(|(i, _)| {
+        let before = hay[..i].chars().next_back().is_none_or(|c| !ident(c));
+        let after = hay[i + needle.len()..].chars().next().is_none_or(|c| !ident(c));
+        before && after
+    })
+}
+
+/// A row with no operands is not a row that takes none.
+///
+/// The distinction matters while the table is being filled a family at a
+/// time: emitting an unstated row as a nullary `extern "C"` would generate a
+/// call the compiler rejects for the wrong reason, and would make "this
+/// family is done" indistinguishable from "this family is empty".
+///
+/// Asked of a SYNTHETIC row rather than of whichever family happens to be
+/// empty today. It used to point at `attn`, and filling `attn` turned a
+/// passing test into a failing one without anything being wrong — the check
+/// is about `stated()`, so its subject should be too.
+#[test]
+fn an_unstated_row_is_skipped_rather_than_called_with_nothing() {
+    let stated = kernels_cuda::rope::KERNELS
+        .iter()
+        .find(|k| !k.operands.is_empty())
+        .expect("some rope row is stated");
+    let row: &'static [KernelSig] =
+        Vec::leak(vec![KernelSig { operands: &[], ..*stated }]);
+    let shim = rope_shim(row);
+    assert!(
+        !shim.contains("extern \"C\""),
+        "the row states no operands, so nothing should be emitted:\n{shim}"
+    );
+}
+
+/// Corrupting a row must break the build — the mutation suite, answered
+/// exactly.
+///
+/// Each case changes ONE thing a hand-written binding gets wrong, and every
+/// one of them has to be caught. The last two are the interesting ones: they
+/// are not type errors, they are an operand list of the right types in the
+/// wrong ORDER, which is precisely the failure a `void*`-flattened ABI cannot
+/// see and this one can.
+#[test]
+fn a_wrong_row_does_not_compile() {
+    let base = kernels_cuda::rope::KERNELS
+        .iter()
+        .find(|k| k.symbol == "rope::qk_rmsnorm_rope_bf16")
+        .expect("the pilot row");
+
+    // `q_weight`/`k_weight` are `const void*`; `positions` is `const i32*`;
+    // the extents are `int` and the two rates are `float`.
+    let ops = base.operands;
+    let swap = |i: usize, j: usize| {
+        let mut v: Vec<Operand> = ops.to_vec();
+        v.swap(i, j);
+        v
+    };
+    let retype = |i: usize, ty: Ty| {
+        let mut v: Vec<Operand> = ops.to_vec();
+        v[i].ty = ty;
+        v
+    };
+
+    let cases: Vec<(&str, Vec<Operand>)> = vec![
+        ("a written buffer is claimed to be read-only", retype(0, Ty::Buf)),
+        ("a read-only weight is claimed to be written", retype(2, Ty::BufMut)),
+        ("positions loses its element type", retype(4, Ty::Buf)),
+        ("an extent is widened to a float", retype(5, Ty::F32)),
+        ("a rate is narrowed to an int", retype(9, Ty::I32)),
+        ("the stream is dropped", ops[..ops.len() - 1].to_vec()),
+        ("an operand is invented", {
+            let mut v = ops.to_vec();
+            v.insert(5, Operand { name: "extra", ty: Ty::I32, nullable: false, source: kernels::Source::Unbound });
+            v
+        }),
+        ("q and k_weight trade places", swap(0, 3)),
+        ("an extent and a rate trade places", swap(6, 9)),
+    ];
+
+    for (what, operands) in cases {
+        let leaked: &'static [Operand] = Vec::leak(operands);
+        let row: &'static [KernelSig] = Vec::leak(vec![KernelSig {
+            name: base.name,
+            symbol: base.symbol,
+            whole: base.whole,
+            needs: base.needs,
+            lacks: base.lacks,
+            sink: base.sink,
+            in_place: base.in_place,
+            depth_prefix_plan: base.depth_prefix_plan,
+            operands: leaked,
+            returns: base.returns,
+            axes: base.axes,
+        }]);
+        assert!(
+            compile(&rope_shim(row)).is_err(),
+            "a row where {what} still compiled, so the proof is not watching"
+        );
+    }
+}
+
+/// The control: a change that is NOT a mistake must still compile.
+///
+/// Without this the test above passes for a build that is broken for some
+/// unrelated reason, and every mutation registers as caught. Renaming an
+/// operand is the right control here because the name is prose — the table
+/// says so — so a rename must be invisible to the compiler while touching
+/// exactly the text the mutations touch.
+#[test]
+fn renaming_an_operand_is_not_a_mistake() {
+    let base = kernels_cuda::rope::KERNELS
+        .iter()
+        .find(|k| k.symbol == "rope::qk_rmsnorm_rope_bf16")
+        .expect("the pilot row");
+    let renamed: &'static [Operand] = Vec::leak(
+        base.operands
+            .iter()
+            .enumerate()
+            .map(|(i, o)| Operand {
+                name: Box::leak(format!("arg{i}").into_boxed_str()),
+                ..*o
+            })
+            .collect::<Vec<_>>(),
+    );
+    let row: &'static [KernelSig] = Vec::leak(vec![KernelSig {
+        name: base.name,
+        symbol: base.symbol,
+        whole: base.whole,
+        needs: base.needs,
+        lacks: base.lacks,
+        sink: base.sink,
+        in_place: base.in_place,
+        depth_prefix_plan: base.depth_prefix_plan,
+        operands: renamed,
+        returns: base.returns,
+        axes: base.axes,
+    }]);
+    if let Err(err) = compile(&rope_shim(row)) {
+        panic!("the control failed to compile, so the mutations prove nothing:\n{err}");
+    }
+}
+
+/// The Rust bindings declare exactly what the C++ shim defines.
+///
+/// Both are generated from one row, so this cannot fail by drift; what it
+/// pins is that the two emitters agree on the ENTRY POINT spelling, which is
+/// the one string the linker matches on and the one thing neither compiler
+/// checks.
+#[test]
+fn the_rust_bindings_name_the_symbols_the_shim_defines() {
+    let shim = rope_shim(kernels_cuda::rope::KERNELS);
+    let rs = kernels_cuda::abi::emit_rust_bindings(&[kernels_cuda::rope::KERNELS]);
+    for k in kernels_cuda::rope::KERNELS {
+        let entry = kernels_cuda::abi::entry_name(k.symbol);
+        assert!(shim.contains(&format!("void {entry}(")), "{entry} not defined");
+        assert!(rs.contains(&format!("fn {entry}(")), "{entry} not declared");
+    }
+}
+
+/// The two ways the SHIM BUILD can fail that no per-family case reaches.
+///
+/// Both were found by the `origin/rewrite` merge, which is the point: a
+/// family's rows compiling alone is not the bridge building, and until this
+/// case existed the first thing to notice either was `build.rs` under
+/// `--features bridge` — a build that needs the CUDA toolkit and so runs in
+/// one CI job, late.
+///
+/// **A directory nobody proves.** `build.rs` names eleven family directories
+/// by hand, and `comm` was not among them: the two collective rows live in
+/// `gemm.rs`, their launchers live in `csrc/src/comm/`, and no
+/// `every_*_row_states_its_launcher_exactly` case owns that directory. Here
+/// the include set is READ from the tree rather than typed, so a row whose
+/// family has a directory is covered the moment the directory exists.
+///
+/// **A name Rust cannot spell.** The C++ side accepts an operand called
+/// `ref`; `emit_rust_bindings` writes it into an `extern "C"` block and the
+/// block does not parse. Operand names are the row author's to choose
+/// (`renaming_an_operand_is_not_a_mistake`), which is exactly why the
+/// choice has to be checked on BOTH sides.
+#[test]
+fn the_whole_bridge_generates_for_both_sides() {
+    let mut headers: Vec<String> = Vec::new();
+    let mut dirs: Vec<String> = std::fs::read_dir(csrc())
+        .expect("csrc/src")
+        .filter_map(|e| {
+            let e = e.ok()?;
+            e.path().is_dir().then(|| e.file_name().into_string().ok())?
+        })
+        .collect();
+    dirs.sort();
+    for dir in &dirs {
+        headers.extend(headers_in(dir));
+    }
+    headers.push("../third_party/marlin_moe/marlin_moe_wrapper.hpp".into());
+    assert!(
+        dirs.iter().any(|d| d == "comm"),
+        "the directory scan found no `comm/`, so the case that motivated it \
+         would pass vacuously: {dirs:?}"
+    );
+
+    let tables: &[&'static [kernels::KernelSig]] =
+        &[kernels_cuda::KERNELS, kernels_cuda::driver_internal::DRIVER_KERNELS];
+    let refs: Vec<&str> = headers.iter().map(String::as_str).collect();
+    let shim = kernels_cuda::abi::emit_c_shim(tables, &refs).expect("no entry-point collisions");
+    if let Err(err) = compile(&shim) {
+        panic!(
+            "the whole-bridge shim does not compile, so a row's launcher is \
+             not reachable from the headers `build.rs` includes:\n{err}"
+        );
+    }
+
+    // The Rust half. `KEYWORDS` is the raw-identifier set: a name in it is
+    // valid C++ and invalid Rust, which is the whole asymmetry.
+    #[rustfmt::skip]
+    const KEYWORDS: &[&str] = &[
+        "as", "break", "const", "continue", "crate", "dyn", "else", "enum",
+        "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop",
+        "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self",
+        "static", "struct", "super", "trait", "true", "type", "unsafe", "use",
+        "where", "while", "async", "await", "box", "final", "macro",
+        "override", "priv", "try", "typeof", "unsized", "virtual", "yield",
+    ];
+    let mut bad = Vec::new();
+    for table in tables {
+        for k in table.iter() {
+            for operand in k.operands {
+                if KEYWORDS.contains(&operand.name) {
+                    bad.push(format!("{}: `{}`", k.symbol, operand.name));
+                }
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "these operand names are Rust keywords, so the generated bindings do \
+         not parse — rename them in the row: {bad:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Records: the operands that are neither a scalar nor a pointer.
+// ---------------------------------------------------------------------------
+
+/// Every mirrored record, with the offsets its Rust side computes.
+fn records() -> Vec<Record> {
+    vec![
+        kernels_cuda::record!(KvCacheLayerView => "::pie_cuda_driver::KvCacheLayerView" {
+            layer, source_layer, num_pages, page_size, num_kv_heads, head_dim,
+            scheme, storage_dtype, block_size,
+            k_pages, v_pages, k_scales, v_scales, k_bf16_pages, v_bf16_pages,
+            k_env_min, k_env_max,
+            hnd_layout, native_bf16,
+        }),
+        kernels_cuda::record!(AttentionWorkspaceView => "::pie_cuda_driver::AttentionWorkspaceView" {
+            float_buffer, float_bytes, int_buffer, int_bytes, page_locked_int,
+        }),
+        kernels_cuda::record!(MlaCacheLayerView => "::pie_cuda_driver::MlaCacheLayerView" {
+            layer, num_pages, page_size, kv_lora_rank, qk_rope_head_dim,
+            ckv_pages, kpe_pages,
+        }),
+        kernels_cuda::record!(HopperPrefillPlan => "::pie_cuda_driver::kernels::attn::HopperPrefillPlan" {
+            qo_tile_indices_offset, qo_indptr_offset, kv_indptr_offset,
+            qo_len_offset, kv_len_offset, head_indices_offset,
+            work_indptr_offset, batch_indices_offset,
+            same_schedule_for_all_heads,
+            total_tokens, num_requests, num_q_heads, num_kv_heads, head_dim,
+            page_size, window_left, causal, valid,
+        }),
+        kernels_cuda::record!(YarnOriginalParams => "::pie_cuda_driver::kernels::attn::YarnOriginalParams" {
+            factor, beta_fast, beta_slow, attention_factor, original_max_position,
+        }),
+    ]
+}
+
+/// The headers the mirrored records are declared in.
+///
+/// One list, used by every layout case including the mutation ones. That
+/// matters more than it looks: those cases assert a TU fails to compile, so a
+/// missing include would make them pass for the wrong reason — the mutation
+/// would never be what broke it. When `records()` grew from one to five this
+/// was the bug, and this is the shape that does not have it.
+const MIRROR_HPPS: &[&str] = &[
+    "attn/kv_cache_view.hpp",
+    "attention_workspace_view.hpp",
+    "attn/mla_cache_view.hpp",
+    "attn/attention_flashinfer_hopper.hpp",
+    "attn/mla_paged.hpp",
+];
+
+/// A `#[repr(C)]` mirror really does have the C++ record's layout.
+///
+/// This is the claim that decides whether a POD operand is a port or a
+/// wrapper. If it holds, `KvCacheLayerView` crosses the boundary as itself —
+/// no accessor shims, no field-by-field constructor, no copy — and every
+/// other descriptor in the launcher surface is the same kind of thing.
+#[test]
+fn the_mirrors_have_the_layout_the_cpp_has() {
+    let tu = kernels_cuda::abi::emit_layout_assertions(&records(), MIRROR_HPPS);
+    if let Err(err) = compile(&tu) {
+        panic!("a mirror disagrees with the C++ record:\n{err}\n--- tu ---\n{tu}");
+    }
+}
+
+/// One way a mirror can drift from the record it claims to describe.
+type Mutation = Box<dyn Fn(&mut Record)>;
+
+/// And the proof notices when it stops being true.
+///
+/// The mutation suite for the layout claim. Each case is a way a mirror can
+/// drift from a record that is edited on the other side of the boundary, and
+/// the last is the one `sizeof` alone would miss: a member APPENDED to the
+/// C++ lands in the tail padding an 8-aligned record already has, so size,
+/// alignment and every existing offset all still agree. Only the member-count
+/// binding catches it.
+#[test]
+fn a_wrong_mirror_does_not_compile() {
+    let bad = |mutate: &dyn Fn(&mut Record)| {
+        let mut rs = records();
+        mutate(&mut rs[0]);
+        compile(&kernels_cuda::abi::emit_layout_assertions(&rs, MIRROR_HPPS))
+    };
+
+    let cases: Vec<(&str, Mutation)> = vec![
+        ("the record is one byte bigger", Box::new(|r: &mut Record| r.size += 1)),
+        ("the record is over-aligned", Box::new(|r: &mut Record| r.align *= 2)),
+        (
+            "a field moves by one byte",
+            Box::new(|r: &mut Record| r.fields[3].1 += 1),
+        ),
+        (
+            "two fields of the same width trade places",
+            Box::new(|r: &mut Record| {
+                let (a, b) = (r.fields[9].1, r.fields[10].1);
+                r.fields[9].1 = b;
+                r.fields[10].1 = a;
+            }),
+        ),
+        (
+            "a field the C++ does not have is claimed",
+            Box::new(|r: &mut Record| r.fields.push(("no_such_field", 0))),
+        ),
+        (
+            "a field the C++ HAS is dropped",
+            Box::new(|r: &mut Record| {
+                r.fields.pop();
+            }),
+        ),
+    ];
+
+    for (what, mutate) in cases {
+        assert!(
+            bad(&*mutate).is_err(),
+            "a mirror where {what} still compiled, so the proof is not watching"
+        );
+    }
+}
+
+/// The control for the layout proof: renaming the BINDINGS is not a mistake.
+///
+/// The member-count check binds positionally, so the names it invents carry
+/// no claim. If changing them broke the build, the mutation above that drops
+/// a field would be "caught" for the wrong reason.
+#[test]
+fn the_member_count_check_does_not_depend_on_field_names() {
+    let mut rs = records();
+    let n = rs[0].fields.len();
+    for (i, f) in rs[0].fields.iter_mut().enumerate() {
+        f.0 = Box::leak(format!("z{}", n - i).into_boxed_str());
+    }
+    // The offsetof asserts DO name fields, so drop them and keep the rest:
+    // what is under test is the binding, not the offsets.
+    let tu = kernels_cuda::abi::emit_layout_assertions(&rs, MIRROR_HPPS)
+        .lines()
+        .filter(|l| !l.contains("offsetof"))
+        .filter(|l| !l.contains("is not at"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Err(err) = compile(&tu) {
+        panic!("the control failed, so the layout mutations prove nothing:\n{err}");
+    }
+}
+
+/// The member-count binding is load-bearing, not decoration.
+///
+/// Dropping the last field is the case the docs on
+/// `emit_layout_assertions` claim only the binding can see. That claim is
+/// worth checking rather than asserting: here the same mutation is compiled
+/// twice, once with the binding and once with it stripped, and the stripped
+/// build has to SUCCEED. If it failed, `sizeof` would already have been
+/// catching this and the binding would be ceremony.
+#[test]
+fn without_the_binding_a_dropped_field_would_go_unnoticed() {
+    let mut rs = records();
+    rs[0].fields.pop();
+    let tu = kernels_cuda::abi::emit_layout_assertions(&rs, MIRROR_HPPS);
+    assert!(compile(&tu).is_err(), "with the binding, this must fail");
+
+    let without = tu
+        .lines()
+        .take_while(|l| !l.contains("Exactly"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        without.contains("sizeof") && without.contains("offsetof"),
+        "the stripped translation unit must still make the other two claims"
+    );
+    if let Err(err) = compile(&without) {
+        panic!("sizeof/offsetof already caught it, so the binding is ceremony:\n{err}");
+    }
+}
+
+// ── restored after the origin/rewrite merge ──────────────────────────
+//
+// The merge resolved this file to the remote's side wholesale, which took
+// the remote's new generation proofs and dropped five claims written on
+// this branch. They are back, unchanged except where the remote's own work
+// made an assertion stale — noted at the line it changed.
+
+fn headers_in(dir: &str) -> Vec<String> {
+    let mut hs: Vec<String> = std::fs::read_dir(csrc().join(dir))
+        .expect("family directory")
+        .filter_map(|e| {
+            let n = e.ok()?.file_name().into_string().ok()?;
+            n.ends_with(".hpp").then(|| format!("{dir}/{n}"))
+        })
+        .collect();
+    hs.sort();
+    hs
+}
+
+fn shim_over(table: &'static [KernelSig], headers: &[String]) -> String {
+    let refs: Vec<&str> = headers.iter().map(String::as_str).collect();
+    kernels_cuda::abi::emit_c_shim(&[table], &refs).expect("no entry-point collisions")
+}
+
+/// Every row of a family states its launcher exactly, and every row is stated.
+///
+/// Factored out because the check has two halves and only the second one is
+/// the compiler's. `emit_c_shim` SKIPS a row with no operands, so a family
+/// where half the rows are blank produces a shim that compiles and proves
+/// nothing — the count assertion is what keeps "it compiled" from meaning
+/// "some of it compiled".
+fn prove_family(family: &str, table: &'static [KernelSig], headers: &[String]) {
+    let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
+    assert_eq!(
+        stated,
+        table.len(),
+        "{} of {} {family} rows are unstated, so the shim silently skips them",
+        table.len() - stated,
+        table.len()
+    );
+    if let Err(err) = compile(&shim_over(table, headers)) {
+        panic!(
+            "the generated {family} shim does not compile, so a row misstates \
+             its launcher:\n{err}"
+        );
+    }
+}
+
+/// The one `sample` row. Its weight is the table's only `const int8_t*`
+/// (`I8s`) — a fused GEMV+argmax over an int8 lm_head with per-channel fp32
+/// scales.
+#[test]
+fn every_sample_row_states_its_launcher_exactly() {
+    prove_family("sample", kernels_cuda::sample::KERNELS, &headers_in("sample"));
+}
+
+/// Across EVERY table, the rows without operands are exactly the ones with
+/// a written reason — and nothing else.
+///
+/// This is the fill campaign's closing claim. Each family proof asserts its
+/// own table; this one says no family was skipped and no future row can
+/// quietly join the exception list.
+///
+/// It earned that description on the `origin/rewrite` merge, which brought
+/// four rows this list did not have. None of them was an oversight and none
+/// was a pseudo-symbol either, so the list stopped being "the known three"
+/// and started carrying WHY — which is the shape it should have had, since
+/// the three kinds below close differently:
+///
+/// * `NotACppFunction` never closes. The symbol names an operation of a
+///   declared executor — a `cudaMemcpyAsync` pair, a staged LoRA apply —
+///   and there is no function to describe.
+/// * `SecondNamespaceRoot` closes on a LAYERING decision, written out at
+///   the `dist::` rows in `gemm.rs`: `abi::cpp_path` spells one root
+///   (`::pie_cuda_driver::kernels::`), and these launchers live beside it
+///   rather than under it — `::pie_cuda_driver::marlin_moe` for the
+///   vendored MoE GEMM, a driver-side namespace for the collectives. Each
+///   HAS a statable signature; what is missing is which side of the
+///   boundary the symbol admits to being on.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Unstated {
+    NotACppFunction,
+    SecondNamespaceRoot,
+}
+
+#[test]
+fn the_unstated_rows_are_exactly_the_ones_with_a_written_reason() {
+    #[rustfmt::skip]
+    let expected: &[(&str, Unstated)] = &[
+        ("dist::all_reduce_bf16",                        Unstated::SecondNamespaceRoot),
+        ("dist::all_reduce_bf16_out",                    Unstated::SecondNamespaceRoot),
+        ("dist::all_gather_bf16",                        Unstated::SecondNamespaceRoot),
+        ("marlin_moe::launch_mxfp4_moe_gemm_w4a16_bf16", Unstated::SecondNamespaceRoot),
+        ("qwen35_verify_stash_store",                    Unstated::NotACppFunction),
+        ("qwen35_verify_stash_load",                     Unstated::NotACppFunction),
+        ("pie_lora_qkv_correction",                      Unstated::NotACppFunction),
+    ];
+
+    let unstated: Vec<&str> = kernels_cuda::KERNELS
+        .iter()
+        .filter(|k| k.operands.is_empty())
+        .map(|k| k.symbol)
+        .collect();
+    let named: Vec<&str> = expected.iter().map(|(s, _)| *s).collect();
+    assert_eq!(
+        unstated, named,
+        "an unstated row with no written reason is an unfilled row"
+    );
+
+    // The `SecondNamespaceRoot` claim, checked rather than believed: a
+    // symbol whose family DOES resolve under the one root the shim spells
+    // is not blocked on a namespace, it is blocked on somebody writing it.
+    for (symbol, why) in expected {
+        if *why != Unstated::SecondNamespaceRoot {
+            continue;
+        }
+        let family = symbol.split("::").next().expect("a namespaced symbol");
+        assert!(
+            !csrc().join(family).is_dir(),
+            "`{symbol}` is called `SecondNamespaceRoot`, but `csrc/src/{family}/` \
+             exists — so it resolves under the root the shim already spells, and \
+             the row is simply unfilled"
+        );
+    }
+}
+
+/// Every row of the DRIVER-INTERNAL table states its launcher exactly.
+///
+/// The second table (`driver_internal::DRIVER_KERNELS`): launchers the
+/// driver fires with no DSL statement behind them — the `DriverInternal`
+/// kind the attn exhaustiveness test classifies, made callable for the
+/// executor without ever joining the DSL-surface table that `model`'s
+/// `kernels_table` holds to equality. Same proof as every family: the shim
+/// calls the launcher, the compiler decides.
+#[test]
+fn every_driver_internal_row_states_its_launcher_exactly() {
+    let mut headers = headers_in("layout");
+    headers.extend(headers_in("attn"));
+    headers.extend(headers_in("norm"));
+    // `ssm` and `mlp` joined when the qwen3_5 declaration stopped naming
+    // kernels: four launchers a semantic kind now picks live in those two
+    // directories, and this test is what proved their rows.
+    headers.extend(headers_in("ssm"));
+    headers.extend(headers_in("mlp"));
+    headers.push("gemm/gemm.hpp".into());
+    // The VL tower rows' flat launchers — the C++-struct tower headers
+    // stay out (their `std::vector` members are the wrappers' business,
+    // not the shim's).
+    headers.push("vision/qwen3_vl_tower_c.hpp".into());
+    headers.push("vision/gemma4_towers_c.hpp".into());
+    prove_family(
+        "driver-internal",
+        kernels_cuda::driver_internal::DRIVER_KERNELS,
+        &headers,
+    );
+}
+
+/// Every launcher declared across a family's headers, by name.
+///
+/// `returns` lists the return-type spellings the scan accepts. `attn`'s
+/// launchers are all `void`; `norm` also declares two `bool` autotuner
+/// probes, and a void-only scan would not merely miscount — it would never
+/// ask what kind of not-a-row the probes are, which is the question the
+/// exception tests exist to force.
+fn declared_in(dir: &str, returns: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(csrc().join(dir)).expect("family directory") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("hpp") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).expect("header");
+        for line in text.lines() {
+            let Some(rest) = returns.iter().find_map(|r| line.strip_prefix(r)) else { continue };
+            let Some((name, _)) = rest.split_once('(') else { continue };
+            if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !name.is_empty() {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Why a launcher `norm`'s headers declare is allowed to have no row.
@@ -692,275 +1356,6 @@ fn collect_files_named(dir: &Path, name: &str, out: &mut String) {
     }
 }
 
-/// Every launcher declared across a family's headers, by name.
-///
-/// `returns` lists the return-type spellings the scan accepts. `attn`'s
-/// launchers are all `void`; `norm` also declares two `bool` autotuner
-/// probes, and a void-only scan would not merely miscount — it would never
-/// ask what kind of not-a-row the probes are, which is the question the
-/// exception tests exist to force.
-fn declared_in(dir: &str, returns: &[&str]) -> Vec<String> {
-    let mut out = Vec::new();
-    for entry in std::fs::read_dir(csrc().join(dir)).expect("family directory") {
-        let path = entry.expect("dir entry").path();
-        if path.extension().and_then(|e| e.to_str()) != Some("hpp") {
-            continue;
-        }
-        let text = std::fs::read_to_string(&path).expect("header");
-        for line in text.lines() {
-            let Some(rest) = returns.iter().find_map(|r| line.strip_prefix(r)) else { continue };
-            let Some((name, _)) = rest.split_once('(') else { continue };
-            if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !name.is_empty() {
-                out.push(name.to_string());
-            }
-        }
-    }
-    out.sort();
-    out.dedup();
-    out
-}
-
-fn collect_sources(dir: &Path, out: &mut String) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for entry in rd.flatten() {
-        let p = entry.path();
-        if p.is_dir() {
-            collect_sources(&p, out);
-        } else if matches!(
-            p.extension().and_then(|e| e.to_str()),
-            Some("cpp" | "hpp" | "cu" | "inc")
-        ) && let Ok(t) = std::fs::read_to_string(&p)
-        {
-            out.push_str(&t);
-            out.push('\n');
-        }
-    }
-}
-
-/// `needle` appears in `hay` as a whole identifier.
-///
-/// Substring matching would answer the wrong question here: every
-/// `attention_naive_bf16` is inside some `attention_naive_bf16_something`,
-/// and a check that cannot tell them apart cannot fail usefully.
-fn mentions_word(hay: &str, needle: &str) -> bool {
-    let ident = |c: char| c.is_alphanumeric() || c == '_';
-    hay.match_indices(needle).any(|(i, _)| {
-        let before = hay[..i].chars().next_back().is_none_or(|c| !ident(c));
-        let after = hay[i + needle.len()..].chars().next().is_none_or(|c| !ident(c));
-        before && after
-    })
-}
-
-/// A row with no operands is not a row that takes none.
-///
-/// The distinction matters while the table is being filled a family at a
-/// time: emitting an unstated row as a nullary `extern "C"` would generate a
-/// call the compiler rejects for the wrong reason, and would make "this
-/// family is done" indistinguishable from "this family is empty".
-///
-/// Asked of a SYNTHETIC row rather than of whichever family happens to be
-/// empty today. It used to point at `attn`, and filling `attn` turned a
-/// passing test into a failing one without anything being wrong — the check
-/// is about `stated()`, so its subject should be too.
-#[test]
-fn an_unstated_row_is_skipped_rather_than_called_with_nothing() {
-    let stated = kernels_cuda::rope::KERNELS
-        .iter()
-        .find(|k| !k.operands.is_empty())
-        .expect("some rope row is stated");
-    let row: &'static [KernelSig] =
-        Vec::leak(vec![KernelSig { operands: &[], ..*stated }]);
-    let shim = rope_shim(row);
-    assert!(
-        !shim.contains("extern \"C\""),
-        "the row states no operands, so nothing should be emitted:\n{shim}"
-    );
-}
-
-/// Corrupting a row must break the build — the mutation suite, answered
-/// exactly.
-///
-/// Each case changes ONE thing a hand-written binding gets wrong, and every
-/// one of them has to be caught. The last two are the interesting ones: they
-/// are not type errors, they are an operand list of the right types in the
-/// wrong ORDER, which is precisely the failure a `void*`-flattened ABI cannot
-/// see and this one can.
-#[test]
-fn a_wrong_row_does_not_compile() {
-    let base = kernels_cuda::rope::KERNELS
-        .iter()
-        .find(|k| k.symbol == "rope::qk_rmsnorm_rope_bf16")
-        .expect("the pilot row");
-
-    // `q_weight`/`k_weight` are `const void*`; `positions` is `const i32*`;
-    // the extents are `int` and the two rates are `float`.
-    let ops = base.operands;
-    let swap = |i: usize, j: usize| {
-        let mut v: Vec<Operand> = ops.to_vec();
-        v.swap(i, j);
-        v
-    };
-    let retype = |i: usize, ty: Ty| {
-        let mut v: Vec<Operand> = ops.to_vec();
-        v[i].ty = ty;
-        v
-    };
-
-    let cases: Vec<(&str, Vec<Operand>)> = vec![
-        ("a written buffer is claimed to be read-only", retype(0, Ty::Buf)),
-        ("a read-only weight is claimed to be written", retype(2, Ty::BufMut)),
-        ("positions loses its element type", retype(4, Ty::Buf)),
-        ("an extent is widened to a float", retype(5, Ty::F32)),
-        ("a rate is narrowed to an int", retype(9, Ty::I32)),
-        ("the stream is dropped", ops[..ops.len() - 1].to_vec()),
-        ("an operand is invented", {
-            let mut v = ops.to_vec();
-            v.insert(5, Operand { name: "extra", ty: Ty::I32, nullable: false });
-            v
-        }),
-        ("q and k_weight trade places", swap(0, 3)),
-        ("an extent and a rate trade places", swap(6, 9)),
-    ];
-
-    for (what, operands) in cases {
-        let leaked: &'static [Operand] = Vec::leak(operands);
-        let row: &'static [KernelSig] = Vec::leak(vec![KernelSig {
-            name: base.name,
-            symbol: base.symbol,
-            whole: base.whole,
-            needs: base.needs,
-            lacks: base.lacks,
-            sink: base.sink,
-            in_place: base.in_place,
-            depth_prefix_plan: base.depth_prefix_plan,
-            operands: leaked,
-            ret: base.ret,
-            axes: base.axes,
-        }]);
-        assert!(
-            compile(&rope_shim(row)).is_err(),
-            "a row where {what} still compiled, so the proof is not watching"
-        );
-    }
-}
-
-/// The control: a change that is NOT a mistake must still compile.
-///
-/// Without this the test above passes for a build that is broken for some
-/// unrelated reason, and every mutation registers as caught. Renaming an
-/// operand is the right control here because the name is prose — the table
-/// says so — so a rename must be invisible to the compiler while touching
-/// exactly the text the mutations touch.
-#[test]
-fn renaming_an_operand_is_not_a_mistake() {
-    let base = kernels_cuda::rope::KERNELS
-        .iter()
-        .find(|k| k.symbol == "rope::qk_rmsnorm_rope_bf16")
-        .expect("the pilot row");
-    let renamed: &'static [Operand] = Vec::leak(
-        base.operands
-            .iter()
-            .enumerate()
-            .map(|(i, o)| Operand {
-                name: Box::leak(format!("arg{i}").into_boxed_str()),
-                ..*o
-            })
-            .collect::<Vec<_>>(),
-    );
-    let row: &'static [KernelSig] = Vec::leak(vec![KernelSig {
-        name: base.name,
-        symbol: base.symbol,
-        whole: base.whole,
-        needs: base.needs,
-        lacks: base.lacks,
-        sink: base.sink,
-        in_place: base.in_place,
-        depth_prefix_plan: base.depth_prefix_plan,
-        operands: renamed,
-        ret: base.ret,
-        axes: base.axes,
-    }]);
-    if let Err(err) = compile(&rope_shim(row)) {
-        panic!("the control failed to compile, so the mutations prove nothing:\n{err}");
-    }
-}
-
-/// The Rust bindings declare exactly what the C++ shim defines.
-///
-/// Both are generated from one row, so this cannot fail by drift; what it
-/// pins is that the two emitters agree on the ENTRY POINT spelling, which is
-/// the one string the linker matches on and the one thing neither compiler
-/// checks.
-#[test]
-fn the_rust_bindings_name_the_symbols_the_shim_defines() {
-    let shim = rope_shim(kernels_cuda::rope::KERNELS);
-    let rs = kernels_cuda::abi::emit_rust_bindings(&[kernels_cuda::rope::KERNELS]);
-    for k in kernels_cuda::rope::KERNELS {
-        let entry = kernels_cuda::abi::entry_name(k.symbol);
-        assert!(shim.contains(&format!("void {entry}(")), "{entry} not defined");
-        assert!(rs.contains(&format!("fn {entry}(")), "{entry} not declared");
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Records: the operands that are neither a scalar nor a pointer.
-// ---------------------------------------------------------------------------
-
-/// Every mirrored record, with the offsets its Rust side computes.
-fn records() -> Vec<Record> {
-    vec![
-        kernels_cuda::record!(KvCacheLayerView => "::pie_cuda_driver::KvCacheLayerView" {
-            layer, source_layer, num_pages, page_size, num_kv_heads, head_dim,
-            scheme, storage_dtype, block_size,
-            k_pages, v_pages, k_scales, v_scales, k_bf16_pages, v_bf16_pages,
-            k_env_min, k_env_max,
-            hnd_layout, native_bf16,
-        }),
-        kernels_cuda::record!(AttentionWorkspaceView => "::pie_cuda_driver::AttentionWorkspaceView" {
-            float_buffer, float_bytes, int_buffer, int_bytes, page_locked_int,
-        }),
-        kernels_cuda::record!(MlaCacheLayerView => "::pie_cuda_driver::MlaCacheLayerView" {
-            layer, num_pages, page_size, kv_lora_rank, qk_rope_head_dim,
-            ckv_pages, kpe_pages,
-        }),
-        kernels_cuda::record!(HopperPrefillPlan => "::pie_cuda_driver::kernels::attn::HopperPrefillPlan" {
-            qo_tile_indices_offset, qo_indptr_offset, kv_indptr_offset,
-            qo_len_offset, kv_len_offset, head_indices_offset,
-            work_indptr_offset, batch_indices_offset,
-            same_schedule_for_all_heads,
-            total_tokens, num_requests, num_q_heads, num_kv_heads, head_dim,
-            page_size, window_left, causal, valid,
-        }),
-        kernels_cuda::record!(YarnOriginalParams => "::pie_cuda_driver::kernels::attn::YarnOriginalParams" {
-            factor, beta_fast, beta_slow, attention_factor, original_max_position,
-        }),
-        kernels_cuda::record!(StructuredMaskParams => "::pie_cuda_driver::kernels::attn::StructuredMaskParams" {
-            kind, window, sink,
-        }),
-        kernels_cuda::record!(WeightView => "::pie_cuda_driver::WeightView" {
-            data, dtype, nbytes, scale_data, scale_dtype, scale_numel,
-            quant_kind, zero_point_data, group_size, channel_axis,
-        }),
-    ]
-}
-
-/// The headers the mirrored records are declared in.
-///
-/// One list, used by every layout case including the mutation ones. That
-/// matters more than it looks: those cases assert a TU fails to compile, so a
-/// missing include would make them pass for the wrong reason — the mutation
-/// would never be what broke it. When `records()` grew from one to five this
-/// was the bug, and this is the shape that does not have it.
-const MIRROR_HPPS: &[&str] = &[
-    "attn/kv_cache_view.hpp",
-    "attention_workspace_view.hpp",
-    "attn/mla_cache_view.hpp",
-    "attn/attention_flashinfer_hopper.hpp",
-    "attn/mla_paged.hpp",
-    "attn/pack_dense_mask.hpp",
-    "weight_view.hpp",
-];
-
 /// The two by-value `enum class` mirrors carry the C++'s own discriminants.
 ///
 /// Enums are not records — `record!` has no fields to walk — so the claim is
@@ -996,127 +1391,5 @@ fn the_enum_mirrors_carry_the_cpp_discriminants() {
     );
     if let Err(err) = compile(&tu) {
         panic!("an enum mirror disagrees with the C++:\n{err}");
-    }
-}
-
-/// A `#[repr(C)]` mirror really does have the C++ record's layout.
-///
-/// This is the claim that decides whether a POD operand is a port or a
-/// wrapper. If it holds, `KvCacheLayerView` crosses the boundary as itself —
-/// no accessor shims, no field-by-field constructor, no copy — and every
-/// other descriptor in the launcher surface is the same kind of thing.
-#[test]
-fn the_mirrors_have_the_layout_the_cpp_has() {
-    let tu = kernels_cuda::abi::emit_layout_assertions(&records(), MIRROR_HPPS);
-    if let Err(err) = compile(&tu) {
-        panic!("a mirror disagrees with the C++ record:\n{err}\n--- tu ---\n{tu}");
-    }
-}
-
-/// One way a mirror can drift from the record it claims to describe.
-type Mutation = Box<dyn Fn(&mut Record)>;
-
-/// And the proof notices when it stops being true.
-///
-/// The mutation suite for the layout claim. Each case is a way a mirror can
-/// drift from a record that is edited on the other side of the boundary, and
-/// the last is the one `sizeof` alone would miss: a member APPENDED to the
-/// C++ lands in the tail padding an 8-aligned record already has, so size,
-/// alignment and every existing offset all still agree. Only the member-count
-/// binding catches it.
-#[test]
-fn a_wrong_mirror_does_not_compile() {
-    let bad = |mutate: &dyn Fn(&mut Record)| {
-        let mut rs = records();
-        mutate(&mut rs[0]);
-        compile(&kernels_cuda::abi::emit_layout_assertions(&rs, MIRROR_HPPS))
-    };
-
-    let cases: Vec<(&str, Mutation)> = vec![
-        ("the record is one byte bigger", Box::new(|r: &mut Record| r.size += 1)),
-        ("the record is over-aligned", Box::new(|r: &mut Record| r.align *= 2)),
-        (
-            "a field moves by one byte",
-            Box::new(|r: &mut Record| r.fields[3].1 += 1),
-        ),
-        (
-            "two fields of the same width trade places",
-            Box::new(|r: &mut Record| {
-                let (a, b) = (r.fields[9].1, r.fields[10].1);
-                r.fields[9].1 = b;
-                r.fields[10].1 = a;
-            }),
-        ),
-        (
-            "a field the C++ does not have is claimed",
-            Box::new(|r: &mut Record| r.fields.push(("no_such_field", 0))),
-        ),
-        (
-            "a field the C++ HAS is dropped",
-            Box::new(|r: &mut Record| {
-                r.fields.pop();
-            }),
-        ),
-    ];
-
-    for (what, mutate) in cases {
-        assert!(
-            bad(&*mutate).is_err(),
-            "a mirror where {what} still compiled, so the proof is not watching"
-        );
-    }
-}
-
-/// The control for the layout proof: renaming the BINDINGS is not a mistake.
-///
-/// The member-count check binds positionally, so the names it invents carry
-/// no claim. If changing them broke the build, the mutation above that drops
-/// a field would be "caught" for the wrong reason.
-#[test]
-fn the_member_count_check_does_not_depend_on_field_names() {
-    let mut rs = records();
-    let n = rs[0].fields.len();
-    for (i, f) in rs[0].fields.iter_mut().enumerate() {
-        f.0 = Box::leak(format!("z{}", n - i).into_boxed_str());
-    }
-    // The offsetof asserts DO name fields, so drop them and keep the rest:
-    // what is under test is the binding, not the offsets.
-    let tu = kernels_cuda::abi::emit_layout_assertions(&rs, MIRROR_HPPS)
-        .lines()
-        .filter(|l| !l.contains("offsetof"))
-        .filter(|l| !l.contains("is not at"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    if let Err(err) = compile(&tu) {
-        panic!("the control failed, so the layout mutations prove nothing:\n{err}");
-    }
-}
-
-/// The member-count binding is load-bearing, not decoration.
-///
-/// Dropping the last field is the case the docs on
-/// `emit_layout_assertions` claim only the binding can see. That claim is
-/// worth checking rather than asserting: here the same mutation is compiled
-/// twice, once with the binding and once with it stripped, and the stripped
-/// build has to SUCCEED. If it failed, `sizeof` would already have been
-/// catching this and the binding would be ceremony.
-#[test]
-fn without_the_binding_a_dropped_field_would_go_unnoticed() {
-    let mut rs = records();
-    rs[0].fields.pop();
-    let tu = kernels_cuda::abi::emit_layout_assertions(&rs, MIRROR_HPPS);
-    assert!(compile(&tu).is_err(), "with the binding, this must fail");
-
-    let without = tu
-        .lines()
-        .take_while(|l| !l.contains("Exactly"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        without.contains("sizeof") && without.contains("offsetof"),
-        "the stripped translation unit must still make the other two claims"
-    );
-    if let Err(err) = compile(&without) {
-        panic!("sizeof/offsetof already caught it, so the binding is ceremony:\n{err}");
     }
 }

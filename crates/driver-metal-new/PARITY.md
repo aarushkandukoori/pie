@@ -99,26 +99,29 @@ is ordered by the timeline rather than by a queue the caller has to flush.
 | `use_external_buffer` | `Externals::insert` | ported |
 | `release_external_buffer` | `External::drop` | ported |
 | `external_buffer_count` | `Externals::len` | ported |
-| `create_standalone_buffer` | — | **missing** |
-| `release_standalone_buffer` | — | **missing** |
-| `standalone_buffer_count` | — | **missing** |
-| `standalone_bytes` | — | **missing** |
+| `create_standalone_buffer` | `Ring::new` | ported |
+| `release_standalone_buffer` | `Ring`'s `Drop` | dropped |
+| `standalone_buffer_count` | — | dropped |
+| `standalone_bytes` | — | dropped |
 
 `set_transient_buffer_pool_limit_for_test` keeps its behaviour but loses its
 name: a cache limit is configuration, and the fact that only a test currently
 sets it is not a reason to name it after the test.
 
-**The standalone buffers are the one real gap.** Three of their four C++ uses
-are already covered by something better — K/V storage by `Elastic`, command
-scratch by `Pool`, and adopting a buffer somebody else allocated by
-`Externals`. What is left is "allocate me a plain shared buffer outside the
-heap and keep it resident", which the PTIR channel rings need. It belongs to
-`context-cpp`, which is the todo that ports the layer that calls it. Note
-that `release_standalone_buffer` exists in the C++ only because
-`create_standalone_buffer` hands back a `SlotHandle` with no owner: the
-comment records that without it, `resize_pool` leaked every previous K/V
-buffer, retained and resident, forever. An owning Rust type has no such
-method and cannot have that bug.
+**The standalone buffers were the one real gap, and are now closed.** Three
+of their four C++ uses were already covered by something better — K/V storage
+by `Elastic`, command scratch by `Pool`, and adopting a buffer somebody else
+allocated by `Externals`. The fourth — "allocate me a plain shared buffer
+outside the heap and keep it resident", which the PTIR channel rings need —
+is `src/metal/ring.rs`: the allocation is a step of `Ring::new` rather than
+a primitive that hands out unowned handles. `release_standalone_buffer`
+existed only because `create_standalone_buffer` handed back a `SlotHandle`
+with no owner — the C++'s own comment records that without the release,
+`resize_pool` leaked every previous K/V buffer, retained and resident,
+forever. `Ring`'s `Drop` is that release with no call to forget, and
+`tests/device_ring.rs` proves the buffers die with the ring. The two
+counters existed to audit the registry of unowned handles; there is no
+registry to audit.
 
 ## Argument tables
 
@@ -226,6 +229,6 @@ not reproduced. A sweep that needs it can pass the argument.
 
 ## Summary
 
-Sixty-one entries. Fifty-one ported, six dropped with a reason above, four
-missing and all four are the same standalone-buffer hole, assigned to
-`context-cpp`. Nothing in the header is unaccounted for.
+Sixty-one entries. Fifty-two ported, nine dropped with a reason above,
+nothing missing. The last four to close were the standalone-buffer hole,
+closed by `src/metal/ring.rs`. Nothing in the header is unaccounted for.

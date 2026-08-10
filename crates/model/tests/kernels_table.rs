@@ -27,6 +27,7 @@ fn launch(symbol: &str) -> Op {
             kernel: symbol.to_string(),
             weights: vec![],
             state: None,
+            params: vec![],
         },
         inputs: vec![],
         outputs: vec![],
@@ -141,17 +142,20 @@ fn the_metal_table_admits_its_rows_and_refuses_the_rest() {
 /// remainder rather than an equality.
 ///
 /// Sorted, because it is compared against a sorted difference.
+/// SORTED, because the assertion compares against a sorted remainder.
 const UNSTATED_ROWS: &[&str] = &[
-    // Live, and hand-written: gemma3n, glm5 and gemma-4's bodies call it
-    // directly. No declaration states it because `interleaved` reaches the
-    // kernel as an ARGUMENT rather than as a second symbol, and the families
-    // that pass it true are not declared.
-    "rope::rope_bf16",
-    // Nothing calls this one — not a declaration, not a driver body, not a
-    // test. It is in the table because `rope.hpp` declares it and the header
-    // rule admits no exceptions, which makes it the one row here that would
-    // be better DELETED than pinned: the launcher and its definition in
-    // `rope.cu` are dead too.
+    // The collectives came OUT (3). `dist::` and `comm::` joined the
+    // prefix scan above, which is what this test measures: a symbol a
+    // `dsl::cuda` wrapper RECORDS. Whether a model text calls one is a
+    // different question, and the goldens are where it is answered --
+    // `mistral_7b_v03.cuda.tp2.decode` is llama_like's sharded trace,
+    // and it fires both all-reduce spellings 32 times each.
+    //
+    // Two remain recorded-but-uncalled, and neither has an entry here
+    // because the scan cannot tell: `comm::all_reduce_residual_rmsnorm_bf16`
+    // (the fused landing, waiting on a guard whose arms produce a PAIR)
+    // and `dist::all_gather_bf16` (no text gathers; column-parallel
+    // outputs here are consumed shard-local).
     "rope::rope_partial_bf16_position_delta",
 ];
 
@@ -228,6 +232,13 @@ fn the_table_covers_the_dsl_surface() {
                 "ssm::",
                 "mlp::",
                 "sample::",
+                // The COLLECTIVES' namespaces. Their absence here was a
+                // hole in the coverage rule rather than a fact about
+                // them: `dsl::cuda::all_reduce` and friends record
+                // these symbols like any other, and without the prefix
+                // the scan simply could not see them.
+                "dist::",
+                "comm::",
             ]
                 .iter()
                 .any(|p| s.starts_with(p))
@@ -340,6 +351,11 @@ fn the_depth_axis_derives_from_the_layer_tag() {
         &facts,
         &LlamaLikeCudaFacts {
             head_dim_padded: true,
+            // SYNTHETIC: this fixture's model facts are qwen3-0.6B's
+            // (head_dim 128), which pads nowhere. The width only has to
+            // be wider than the logical one for the pad statements to
+            // be well-formed; what the test is about is the AXIS.
+            head_dim_kernel: 256,
             ..LlamaLikeCudaFacts::qwen3_0_6b_l40s()
         },
         FireClass::Prefill,
@@ -421,4 +437,115 @@ fn live_traces_satisfy_the_table() {
         let problems = check_plan(plan);
         assert!(problems.is_empty(), "{problems:#?}");
     }
+}
+
+/// A quantized weight makes its statement name MORE tensors, and a
+/// dense one names exactly what it did before.
+///
+/// The quantization axis lives on the weight handle
+/// (`MatW::repr`), so `matmul(x, &w)` resolves to a stated symbol at
+/// TRACE time and the scales ride as declared weights. This asserts the
+/// two halves that matter: the dense path is untouched (every existing
+/// golden depends on that), and each representation names a symbol the
+/// `kernel!` table declares — which is what stops `check_plan` refusing
+/// it at load.
+#[test]
+fn a_weight_representation_states_its_kernel() {
+    use model_compiler::dsl::{MatW, ScaleLayout, WeightRepr};
+
+    let dense = MatW::dense("layer.0.q_proj".into(), 2048, Some(0));
+    assert_eq!(dense.gemm_symbol(), None, "a dense weight chooses nothing");
+    assert!(dense.scale_names().is_empty());
+
+    let cases = [
+        (
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerGroup,
+                group: 128,
+                axis: 0,
+                zero_point: true,
+            },
+            "gemm::act_x_wt_grouped_scaled",
+            2,
+        ),
+        (
+            WeightRepr::Scaled {
+                layout: ScaleLayout::PerChannel,
+                group: 0,
+                axis: 0,
+                zero_point: false,
+            },
+            "gemm::act_x_wt_channel_scaled",
+            1,
+        ),
+        (WeightRepr::Mxfp4Marlin, "gemm::act_x_wt_mxfp4_marlin", 1),
+    ];
+    for (repr, symbol, extra) in cases {
+        let w = dense.clone().with_repr(repr.clone());
+        assert_eq!(
+            w.gemm_symbol(),
+            Some(symbol),
+            "{repr:?} must name the kernel that can read it"
+        );
+        assert_eq!(
+            w.scale_names().len(),
+            extra,
+            "{repr:?} names its scales (and zero-points) as weights"
+        );
+        // The name the loader already looks for, derived off the
+        // weight's own — not a second naming convention.
+        assert!(w.scale_names()[0].starts_with("layer.0.q_proj."));
+        assert!(
+            sig_in(Backend::Cuda, symbol).is_some(),
+            "{symbol} needs a kernel! row or `check_plan` refuses it at load"
+        );
+    }
+}
+
+/// Every kernel a SEMANTIC op kind can fan to has a row.
+///
+/// A semantic kind names no symbol, so the driver picks one — and the
+/// table's coverage rule cannot see those picks, because `check_plan`
+/// only walks `OpKind::Launch`. That is the hole this closes: a kernel
+/// reachable only through a driver's fan has no operand contract
+/// anywhere, and nothing notices.
+///
+/// It found exactly one pair when written — `norm::rmsnorm_bf16` and
+/// `norm::rmsnorm_gemma_bf16`, the two `OpKind::Rmsnorm` chooses
+/// between from its variant. Every other fan target is also stated by
+/// some `dsl::cuda` wrapper, so it already had a row for that reason.
+///
+/// The list is written by hand because there is no machine-readable
+/// link from a kind to the kernels its arms call; a kind that grows a
+/// third spelling has to be added here, and that is the point — the
+/// addition is where someone notices the driver is choosing.
+#[test]
+fn the_kernels_a_semantic_kind_fans_to_are_declared() {
+    // (kind, the symbols its driver arms pick between)
+    const FANS: &[(&str, &[&str])] = &[
+        ("Rmsnorm", &["norm::rmsnorm_bf16", "norm::rmsnorm_gemma_bf16"]),
+        (
+            "RmsnormPerHead",
+            &["norm::rmsnorm_bf16", "norm::rmsnorm_gemma_bf16"],
+        ),
+        ("Rope", &["rope::rope_bf16", "rope::rope_partial_bf16"]),
+        (
+            "SplitGdn",
+            &["layout::split_bf16_rows", "layout::split_qwen_gdn_ba_bf16"],
+        ),
+    ];
+    let mut missing: Vec<String> = Vec::new();
+    for (kind, symbols) in FANS {
+        for s in *symbols {
+            if sig_in(Backend::Cuda, s).is_none() {
+                missing.push(format!("{kind} -> {s}"));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "a semantic kind fans to kernels with no `kernel!` row, so their \
+         operand contract is written nowhere and `check_plan` cannot see \
+         them (it walks Launch only): {missing:?}"
+    );
 }

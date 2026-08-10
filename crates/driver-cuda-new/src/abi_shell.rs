@@ -1071,7 +1071,21 @@ fn gemma4_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
     };
     // The LIVE binding: both banks fused (the load's joins built them),
     // native bf16 pages — the A/B's proven set.
-    let cuda = Gemma4CudaFacts { fused_qkv: true, gate_up_fused: true, kv_native_bf16: true };
+    //
+    // `window_left` is NOT empty here, and gemma-4 is the family that
+    // makes the difference visible: full-attention layers see the whole
+    // context and the rest attend a sliding window, on the family's own
+    // interval. The shell already derived exactly this list for its
+    // decode plans; now the declaration carries it too, and an empty list
+    // would have the trace say "no window" while the plan applied one.
+    let cuda = Gemma4CudaFacts {
+        fused_qkv: true,
+        gate_up_fused: true,
+        kv_native_bf16: true,
+        window_left: (0..facts.layers)
+            .map(|l| if facts.is_full_attn(l) { -1 } else { hf.sliding_window.max(0) })
+            .collect(),
+    };
     Ok(FamilyFacts::Gemma4(facts, cuda))
 }
 
@@ -1149,6 +1163,9 @@ fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
         moe_streamed_experts: false,
         moe_force_general: false,
         gate_up_fused: true,
+        // As llama_like's, and for the same reason.
+        proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+        window_left: Vec::new(),
     };
     Ok(FamilyFacts::Qwen35(facts, cuda))
 }
@@ -1212,7 +1229,19 @@ fn facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
         rope_table: true,
         force_prefill_path: false,
         head_dim_padded: hf.head_dim != hf.head_dim_kernel,
+        // The padded width itself, from the same place the flag reads.
+        head_dim_kernel: to_u32(hf.head_dim_kernel),
         gate_up_fused: true,
+        // The shell's own frame: one GPU, no collectives, bf16
+        // checkpoints. `window_left` empty reads as "no window", which is
+        // what this assembly meant before the declaration carried one —
+        // the shell derives its own per-layer windows from
+        // `hf.sliding_window` where a family has them, and that path is
+        // unchanged.
+        proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+        tp_size: 1,
+        window_left: Vec::new(),
+        all_reduce_p2p_max_rows: 0,
     };
     Ok(FamilyFacts::LlamaLike(facts, cuda))
 }

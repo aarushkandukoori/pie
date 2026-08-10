@@ -69,6 +69,11 @@ pub fn committed_cuda_emissions() -> Vec<CudaEmission> {
         emit_llama_like_cuda_inc(
             &LlamaLikeFacts::olmo2_1b(),
             &LlamaLikeCudaFacts {
+                head_dim_kernel: 0,
+                proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+                tp_size: 1,
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
                 xqa_decode: false,
                 // TRUE as a deployment FACT (env on, native bf16,
                 // head_dim == kernel — the build's derivation; the live
@@ -98,6 +103,11 @@ pub fn committed_cuda_emissions() -> Vec<CudaEmission> {
         emit_llama_like_cuda_inc(
             &LlamaLikeFacts::qwen2_5_1_5b(),
             &LlamaLikeCudaFacts {
+                head_dim_kernel: 0,
+                proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+                tp_size: 1,
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
                 xqa_decode: false,
                 // The derivation's !use_qkv_bias term forces this off —
                 // the fused epilogue has no bias step.
@@ -124,6 +134,11 @@ pub fn committed_cuda_emissions() -> Vec<CudaEmission> {
         emit_llama_like_cuda_inc(
             &LlamaLikeFacts::mistral_7b_v03(),
             &LlamaLikeCudaFacts {
+                head_dim_kernel: 0,
+                proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+                tp_size: 1,
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
                 xqa_decode: false,
                 decode_fused_post: true,
                 rope_table: true,
@@ -148,6 +163,11 @@ pub fn committed_cuda_emissions() -> Vec<CudaEmission> {
         emit_llama_like_cuda_inc(
             &LlamaLikeFacts::phi3_mini(),
             &LlamaLikeCudaFacts {
+                head_dim_kernel: 128,
+                proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+                tp_size: 1,
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
                 xqa_decode: false,
                 decode_fused_post: false,
                 rope_table: true,
@@ -169,6 +189,8 @@ pub fn committed_cuda_emissions() -> Vec<CudaEmission> {
         text: emit_qwen35_cuda_inc(
             &Qwen35HybridFacts::qwen3_5_0_8b(),
             &Qwen35CudaFacts {
+                // Attends the whole context.
+                window_left: Vec::new(),
                 // LIVE-anchored (digest-corrected on first boot — the
                 // mechanism's fourth catch: the synthetic fixture said
                 // wt1/cm4096, the live env defaults say wt0/cm0):
@@ -193,6 +215,8 @@ pub fn committed_cuda_emissions() -> Vec<CudaEmission> {
                 // 0.8B binds the packed bank; the emitted body states the
                 // chunked activation rather than reading a workspace.
                 gate_up_fused: true,
+                // 0.8B is a BF16 checkpoint.
+                proj_repr: model_compiler::dsl::WeightRepr::Bf16,
             },
             "qwen3_5_0_8b",
         ),

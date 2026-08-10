@@ -116,6 +116,9 @@ struct OpParts {
     param1: u32,
     selector: u32,
     aux_names: PieForwardIdRange,
+    /// `Launch` only: the stated kernel's scalar arguments, as a range
+    /// of RAW VALUES in the flat id array. Empty for every other kind.
+    aux_params: PieForwardIdRange,
 }
 
 impl OpParts {
@@ -128,6 +131,7 @@ impl OpParts {
             param1,
             selector,
             aux_names: PieForwardIdRange { offset: 0, len: 0 },
+            aux_params: PieForwardIdRange { offset: 0, len: 0 },
         }
     }
 }
@@ -334,10 +338,16 @@ fn flatten_kind(arena: &mut PlanArena, interner: &mut Interner, kind: &OpKind) -
             kernel,
             weights,
             state,
+            params,
         } => {
             let kernel = name(arena, kernel);
             let ids: Vec<u32> = weights.iter().map(|w| name(arena, w)).collect();
             let aux = store_ids(arena, &ids);
+            // The scalar arguments, in the SAME flat id array. Ids are
+            // just u32s; what a range means is the field's contract,
+            // and this one's is "raw values, in signature order" where
+            // `aux_names`' is "name indices".
+            let aux_params = store_ids(arena, params);
             let (store, layer) = match state {
                 None => (0, 0),
                 Some(StateRef {
@@ -356,6 +366,7 @@ fn flatten_kind(arena: &mut PlanArena, interner: &mut Interner, kind: &OpKind) -
                 param1: layer,
                 selector: PIE_FORWARD_NO_VALUE,
                 aux_names: aux,
+                aux_params,
             };
         }
         // The hook site: stage wire value in param0, layer in param1 (and
@@ -391,6 +402,9 @@ fn flatten_kind(arena: &mut PlanArena, interner: &mut Interner, kind: &OpKind) -
                 param1: 0,
                 selector: PIE_FORWARD_NO_VALUE,
                 aux_names: aux,
+                // A Guard's aux run is its predicate encoding, not a
+                // kernel's arguments -- no scalars to carry.
+                aux_params: PieForwardIdRange { offset: 0, len: 0 },
             };
         }
         // Loop peeling (A3): prefix-region length in param0, tail-region
@@ -415,6 +429,9 @@ fn flatten_kind(arena: &mut PlanArena, interner: &mut Interner, kind: &OpKind) -
                 param1: *tail_ops,
                 selector: PIE_FORWARD_NO_VALUE,
                 aux_names: aux,
+                // A Guard's aux run is its predicate encoding, not a
+                // kernel's arguments -- no scalars to carry.
+                aux_params: PieForwardIdRange { offset: 0, len: 0 },
             };
         }
     })
@@ -447,6 +464,7 @@ fn flatten_op(
         param1: parts.param1,
         selector: parts.selector,
         aux_names: parts.aux_names,
+        aux_params: parts.aux_params,
         // Derived at the boundary now (migration step 5): the wire word
         // is unchanged, but it is no longer IR vocabulary — 2 is the
         // kernel table's `depth_prefix_plan`, 1 is "layer-tagged under a
@@ -763,6 +781,8 @@ pub fn lower(
         value_offsets_len: arena.shadow_value_offsets.len(),
         value_owners: arena.shadow_value_owners.as_ptr(),
         value_owners_len: arena.shadow_value_owners.len(),
+        epilogue_gather: lowered.epilogue_gather,
+        epilogue_norm: lowered.epilogue_norm,
         uncovered: PieForwardUncovered::None,
     };
     // Kept so a debugger (and any later accessor) can reach the residue

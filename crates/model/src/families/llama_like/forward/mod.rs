@@ -118,6 +118,87 @@ pub fn llama_like(facts: &LlamaLikeFacts) -> ForwardPlan {
 
 /// The LOWERED llama_like: the SAME text as [`llama_like`], traced with
 /// the CUDA backend facts and a fire class in hand, so the class arms run
+/// The all-reduce, as the pair of arms it actually is.
+///
+/// `NcclComm::all_reduce_bf16` asks `can_handle(bytes)` and routes to
+/// the NVLink P2P kernel below the threshold and `ncclAllReduce` above
+/// it. That is an `if` inside a driver method choosing between two
+/// implementations, which is the shape this arc removes everywhere
+/// else, and it was left standing because a collective did not look
+/// like a kernel choice. It is one.
+///
+/// So the text states both and the fire picks: `TokensLE(n)` where `n`
+/// is the threshold in ROWS ([`LlamaLikeCudaFacts::all_reduce_p2p_max_rows`],
+/// converted from bytes at load, because a row is `hidden` bf16
+/// elements). A deployment with no threshold — no registered P2P
+/// buffers, or no custom all-reduce at all — states the NCCL arm alone,
+/// which is the truth rather than a guard whose predicate never holds.
+fn all_reduce(
+    t: &model_compiler::dsl::Trace,
+    x: &Val,
+    hidden: u32,
+    cuda: &LlamaLikeCudaFacts,
+) -> Val {
+    if cuda.all_reduce_p2p_max_rows == 0 {
+        return cuda::all_reduce_out(x, hidden);
+    }
+    let shape = (
+        Shape(vec![Dim::Tokens, Dim::Const(hidden)]),
+        DType::BF16,
+    );
+    let (g, v) = dsl::guarded_value(t, x.layer(), shape);
+    g.arm(GuardPred::TokensLE(cuda.all_reduce_p2p_max_rows), || {
+        cuda::all_reduce_p2p(x, hidden);
+    })
+    .otherwise(|| {
+        cuda::all_reduce_out(x, hidden);
+    });
+    v
+}
+
+/// Whether this deployment's heads and intermediate divide by `tp`.
+///
+/// The engine checks the same thing at load; the text checks it because
+/// a shard width that does not divide is a trace whose every projection
+/// is quietly wrong, and a `ForwardPlan` has no later place to notice.
+fn shard_divides(f: &LlamaLikeFacts, tp: u32) -> bool {
+    tp > 0
+        && f.q_heads % tp == 0
+        && f.kv_heads % tp == 0
+        && f.intermediate % tp == 0
+}
+
+/// The MLP's projection-and-activation pair, in the spelling this
+/// deployment's BINDING fires (2d).
+///
+/// `packed` is [`LlamaLikeCudaFacts::gate_up_fused`]. The loader's dense
+/// join either materialised one `[2I, H]` bank or it did not, and that
+/// is known at load — so the trace states one form or the other and
+/// nothing downstream asks again.
+///
+/// It used to state the PACKED matmul either way and let the activation
+/// carry a `packed` flag. That made the unfused reading a lie: the
+/// executor fired two GEMMs into `ws.gate` / `ws.up`, buffers the single
+/// traced value did not describe, and then cross-checked the activation
+/// against the fact on every launch to catch the drift it had created.
+/// Two statements say it instead.
+fn mlp(
+    x: &Val,
+    w: &dsl::Layer,
+    intermediate: u32,
+    packed: bool,
+) -> Val {
+    if packed {
+        cuda::swiglu(&matmul(x, &w.gate_up), intermediate, true)
+    } else {
+        cuda::swiglu_pair(
+            &matmul(x, &w.gate_proj),
+            &matmul(x, &w.up_proj),
+            intermediate,
+        )
+    }
+}
+
 /// and the traced form states its kernels as raw signatures
 /// ([`model_compiler::dsl::cuda`]; north-star-dsl.md). One trace per
 /// [`FireClass`]; family names `llama_like.cuda.decode` / `.prefill`.
@@ -281,9 +362,39 @@ fn llama_like_cuda_text(
     cuda: &LlamaLikeCudaFacts,
     class: FireClass,
 ) -> ForwardPlan {
-    dsl::trace_cuda("llama_like", &facts.shape(), class, |m| {
+    // The namespace, with the deployment's WEIGHT REPRESENTATION on it
+    // (1b). `facts.shape()` answers `Bf16` because the semantic facts
+    // carry no backend; the CUDA facts do, and every handle `m.layer(l)`
+    // hands out is built from this one answer -- which is why no
+    // projection below spells a repr and none can spell a different one.
+    //
+    // And with its SHARD widths. Sharding needs no vocabulary: a rank's
+    // trace states ITS widths, so this text divides by `tp_size` the
+    // way it divides by anything else, and every projection below reads
+    // as it did. `hidden` does NOT divide -- the residual stream is
+    // replicated, which is why the landings are collectives.
+    let tp = cuda.tp_size.max(1);
+    assert!(
+        shard_divides(facts, tp),
+        "llama_like states a shard per rank; this deployment's heads or \
+         intermediate do not divide by tp_size"
+    );
+    let shape = dsl::ModelShape {
+        proj_repr: cuda.proj_repr,
+        q_width: facts.q_width() / tp,
+        kv_width: facts.kv_width() / tp,
+        intermediate: facts.intermediate / tp,
+        ..facts.shape()
+    };
+    dsl::trace_cuda("llama_like", &shape, class, |m| {
         dsl::seam(m.trace(), &dsl::seam::IN, &[], None);
-        let f = facts.clone();
+        // THIS RANK's facts: the widths the shard actually computes.
+        // Everything below reads them as if the model were that size,
+        // which is the whole of what sharding costs a text.
+        let mut f = facts.clone();
+        f.q_heads /= tp;
+        f.kv_heads /= tp;
+        f.intermediate /= tp;
         let q_w = f.q_width();
         let kv_w = f.kv_width();
         let post_norm = f.norm_placement == NormPlacement::Post;
@@ -330,6 +441,20 @@ fn llama_like_cuda_text(
         // here, the load-time backend terms on the facts struct — term
         // for term the hand-written `fused_decode_qkv_post`
         // (declared_forward.cpp:465-479), written where it belongs.
+        // The head width the attention kernels run at, or 0 when that
+        // is the logical one. The single reading of the padding fact in
+        // this text: the three pads and the strip below take their
+        // shapes from it, so nothing re-derives a width.
+        let pad_to = if cuda.head_dim_padded {
+            assert!(
+                cuda.head_dim_kernel > f.head_dim,
+                "a padded deployment states the width its kernels run at"
+            );
+            cuda.head_dim_kernel
+        } else {
+            0
+        };
+
         let fused_post = cuda_of(FireClass::Decode).is_some_and(|c| c.decode_fused_post)
             && f.fused_qkv
             && f.qk_norm == QkNorm::PerHead
@@ -355,7 +480,7 @@ fn llama_like_cuda_text(
             let x = if post_norm {
                 y.clone()
             } else {
-                rmsnorm(&y, &w.attn_norm)
+                dsl::cuda::rmsnorm(&y, &w.attn_norm)
             };
 
             // The general QKV arm, produced once and called from every
@@ -411,15 +536,51 @@ fn llama_like_cuda_text(
                     let (q, k) = if f.qk_norm == QkNorm::Off {
                         (q, k)
                     } else {
-                        (rmsnorm(&q, &w.q_norm), rmsnorm(&k, &w.k_norm))
+                        (dsl::cuda::rmsnorm(&q, &w.q_norm), dsl::cuda::rmsnorm(&k, &w.k_norm))
                     };
-                    rope(&q, &k, f.rope)
+                    // STATED (2a). The build gate admits only Standard
+                    // rope, and the executor's arm asked whether a
+                    // rotary width was set to pick between two
+                    // launchers -- a kernel choice from a param. This
+                    // family rotates the full head, and says which
+                    // kernel that is.
+                    dsl::cuda::rope(&q, &k)
                 };
                 // The KV-write mechanism is a per-fire runtime input
                 // (explicit descriptors when the fire steers a graph
                 // replay, page-derived otherwise). Under the fused
                 // deployment's mask arm this guard NESTS inside the
                 // HasCustomMask guard (A1 — the walk keeps a stack).
+                // 2c: the PAD STAGING, stated.
+                //
+                // A deployment whose attention kernels run at a wider
+                // head than the checkpoint's (Phi-3-mini: 96 -> 128)
+                // copies q, k and v into zero-padded buffers before the
+                // KV write, and narrows the attention's output after.
+                // Sixteen executor sites read a boolean and staged into
+                // `ws.{q,k,v,attn_out}_padded` -- workspace fields no
+                // traced value described, which is why the writes could
+                // not move onto the arena and why the strip's
+                // destination needed a lambda of its own.
+                //
+                // Three launches and their results, so the padded
+                // copies are VALUES and every consumer names one.
+                //
+                // Only this path can be padded: the fused decode-QKV
+                // arm's own fact requires `head_dim == head_dim_kernel`
+                // (`cuda.decode_fused_post`), so the region form below
+                // never coincides with staging -- which is the same
+                // thing the executor's Peel comment said, from the
+                // other side.
+                let (q, k, v) = if pad_to > 0 {
+                    (
+                        cuda::pad_head_dim(&q, f.q_heads, pad_to),
+                        cuda::pad_head_dim(&k, f.kv_heads, pad_to),
+                        cuda::pad_head_dim(&v, f.kv_heads, pad_to),
+                    )
+                } else {
+                    (q, k, v)
+                };
                 dsl::guard(
                     m.trace(),
                     GuardPred::HasWriteDesc,
@@ -428,8 +589,21 @@ fn llama_like_cuda_text(
                 );
                 q
             };
+            // The attention's own output width: the PADDED one where
+            // the kernels run wide. The strip below is what brings it
+            // back to `q_w`, and it is a statement rather than a
+            // driver's parting copy.
+            // THIS LAYER's sliding window, `-1` for none. A load-time
+            // fact, so it erases into the statements below rather than
+            // being re-derived from `fwd_cfg.per_layer_window_left` on
+            // every dispatch -- which is what four executors did, in
+            // eleven copies of the same three lines.
+            let window_left = cuda.window_left_at(l);
             let attn_out_shape = (
-                Shape(vec![Dim::Tokens, Dim::Const(q_w)]),
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(if pad_to > 0 { f.q_heads * pad_to } else { q_w }),
+                ]),
                 DType::BF16,
             );
 
@@ -507,7 +681,7 @@ fn llama_like_cuda_text(
                     // to plan.
                     let masked_attention = |q: &Val| {
                         if c.head_dim_padded || (window_one && c.xqa_decode) {
-                            cuda::attention_flashinfer_prefill_custom(q, &w.kv);
+                            cuda::attention_flashinfer_prefill_custom(q, &w.kv, window_left);
                         } else {
                             dsl::by_rows(m.trace(), Some(l), None, |r| {
                                 r.arm(dsl::RowPred::Unmasked, || {
@@ -538,23 +712,23 @@ fn llama_like_cuda_text(
                                         dsl::guarded(m.trace())
                                             .arm(GuardPred::WantsAttnScore, || {
                                                 cuda::attention_flashinfer_decode_capture(
-                                                    q, &w.kv,
+                                                    q, &w.kv, window_left,
                                                 );
                                             })
                                             .otherwise(|| {
                                                 cuda::attention_flashinfer_decode(
-                                                    q, &w.kv,
+                                                    q, &w.kv, window_left,
                                                 );
                                             });
                                     } else {
                                         cuda::dequant_only(&w.kv);
                                         cuda::attention_flashinfer_prefill(
-                                            q, &w.kv,
+                                            q, &w.kv, window_left,
                                         );
                                     }
                                 });
                                 r.rest(|| {
-                                    cuda::attention_flashinfer_prefill_custom(q, &w.kv);
+                                    cuda::attention_flashinfer_prefill_custom(q, &w.kv, window_left);
                                 });
                             });
                         }
@@ -567,23 +741,23 @@ fn llama_like_cuda_text(
                             cuda::dequant_only(&w.kv);
                             dsl::guarded(m.trace())
                                 .arm(GuardPred::WantsAttnScore, || {
-                                    cuda::attention_flashinfer_prefill_capture(q, &w.kv);
+                                    cuda::attention_flashinfer_prefill_capture(q, &w.kv, window_left);
                                 })
                                 .otherwise(|| {
-                                    cuda::attention_flashinfer_prefill(q, &w.kv);
+                                    cuda::attention_flashinfer_prefill(q, &w.kv, window_left);
                                 });
                         } else if c.xqa_decode {
-                            cuda::attention_xqa_decode(q, &w.kv);
+                            cuda::attention_xqa_decode(q, &w.kv, window_left);
                         } else if c.force_prefill_path {
                             cuda::dequant_only(&w.kv);
-                            cuda::attention_flashinfer_prefill(q, &w.kv);
+                            cuda::attention_flashinfer_prefill(q, &w.kv, window_left);
                         } else {
                             dsl::guarded(m.trace())
                                 .arm(GuardPred::WantsAttnScore, || {
-                                    cuda::attention_flashinfer_decode_capture(q, &w.kv);
+                                    cuda::attention_flashinfer_decode_capture(q, &w.kv, window_left);
                                 })
                                 .otherwise(|| {
-                                    cuda::attention_flashinfer_decode(q, &w.kv);
+                                    cuda::attention_flashinfer_decode(q, &w.kv, window_left);
                                 });
                         }
                         dsl::seam(q.trace(), &dsl::seam::ATTN_OUT, &[q], Some(l));
@@ -677,27 +851,96 @@ fn llama_like_cuda_text(
                     unreachable!("llama_like refuses the service classes at trace start")
                 }
             };
+            // 2c: the STRIP. The attention wrote at the kernel width;
+            // `o_proj` reads at the logical one, and this is what
+            // narrows it -- one statement, whose result is what every
+            // consumer downstream names.
+            //
+            // It sits after the guard chain rather than inside its
+            // arms, which is also what the executor did: the padded
+            // output is one buffer whichever dispatch filled it, so the
+            // narrowing is one launch and not one per arm.
+            let a = if pad_to > 0 {
+                cuda::strip_head_dim(&a, f.q_heads, f.head_dim)
+            } else {
+                a
+            };
             if post_norm {
                 // Post-norm: o_proj to scratch, norm the OUTPUT, then the
                 // separate residual landing (`+=` of a non-matmul records
                 // the explicit ResidualAdd launch).
-                y += rmsnorm(&matmul(&a, &w.o_proj), &w.attn_norm);
-                // ② The activation STATES its kernel: which of the two
-                // swiglu spellings runs is the gate_up BINDING's answer,
-                // known at load, so it erases here instead of being
-                // re-derived from a workspace on every fire.
-                let act = cuda::swiglu(&matmul(&y, &w.gate_up), f.intermediate, cuda.gate_up_fused);
-                y += rmsnorm(&matmul(&act, &w.down), &w.mlp_norm);
+                //
+                // Under TP the projection is ROW-PARALLEL: each rank's
+                // GEMM produces a partial `[N, hidden]`, so the sum
+                // across ranks has to happen before the norm reads it.
+                // In place, because nothing else reads the partial.
+                let o = matmul(&a, &w.o_proj);
+                let o = if tp > 1 {
+                    all_reduce(m.trace(), &o, f.hidden, cuda)
+                } else {
+                    o
+                };
+                y += dsl::cuda::rmsnorm(&o, &w.attn_norm);
+                // ② The MLP's two spellings, and the binding picks
+                // which the text STATES -- not which the executor
+                // reads. A packed bank is one matmul into the chunked
+                // kernel; an unfused binding is TWO matmuls into the
+                // pair kernel, and until 2d that second reading was a
+                // one-statement lie the executor repaired by firing two
+                // GEMMs into workspace buffers no value described.
+                let act = mlp(&y, &w, f.intermediate, cuda.gate_up_fused);
+                // The MLP's landing, same shape as the attention's
+                // above: `down` is row-parallel, so its output is a
+                // partial and the sum precedes the norm.
+                let d_out = matmul(&act, &w.down);
+                let d_out = if tp > 1 {
+                    all_reduce(m.trace(), &d_out, f.hidden, cuda)
+                } else {
+                    d_out
+                };
+                y += dsl::cuda::rmsnorm(&d_out, &w.mlp_norm);
+            } else if tp > 1 {
+                // Pre-norm under TP. `+=` cannot fold here: the beta=1
+                // GEMM would add a PARTIAL into the residual, and the
+                // sum across ranks has to happen first. So the
+                // projection writes fresh, the collective sums it, and
+                // the residual add and the next norm are a statement of
+                // their own -- which is the pair the hand-written pass
+                // fires as `all_reduce_bf16_out` + `residual_add_rmsnorm`.
+                //
+                // The FUSED landing (`comm::all_reduce_residual_rmsnorm_bf16`,
+                // one launch for all three) is what the hand pass takes
+                // when `can_fuse_residual_rmsnorm(N, H, stream)` holds.
+                // Not stated here, and the reason is a vocabulary gap
+                // rather than a preference: that kernel has TWO effects
+                // -- the stream updated in place and the normed
+                // activation -- while the two-step form's SSA shape is
+                // one value, and `guarded_value` carries one value per
+                // chain. A guard whose arms produce a PAIR is what the
+                // fused arm needs, and until it exists stating the
+                // fused form would mean an arm the else could not
+                // match.
+                let partial = matmul(&a, &w.o_proj);
+                let summed = all_reduce(m.trace(), &partial, f.hidden, cuda);
+                let x = cuda::residual_add_rmsnorm(
+                    &y, &summed, &w.mlp_norm.name, f.hidden,
+                );
+                let act = mlp(&x, &w, f.intermediate, cuda.gate_up_fused);
+                // The MLP is COLUMN-parallel through `gate_up` and
+                // row-parallel through `down`, so its output is a
+                // partial too and lands the same way.
+                let mlp_out = matmul(&act, &w.down);
+                y += all_reduce(m.trace(), &mlp_out, f.hidden, cuda);
             } else {
                 // Pre-norm: `+=` of a fresh matmul IS the beta=1 fold.
                 y += matmul(&a, &w.o_proj);
-                let x = rmsnorm(&y, &w.mlp_norm);
-                let act = cuda::swiglu(&matmul(&x, &w.gate_up), f.intermediate, cuda.gate_up_fused);
+                let x = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
+                let act = mlp(&x, &w, f.intermediate, cuda.gate_up_fused);
                 y += matmul(&act, &w.down);
             }
         }
 
-        let logits = m.logits(&rmsnorm(&y, &m.final_norm()));
+        let logits = m.logits(&dsl::cuda::rmsnorm(&y, &m.final_norm()));
         dsl::seam(m.trace(), &dsl::seam::OUT, &[&logits], None);
     })
 }

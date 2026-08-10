@@ -18,6 +18,7 @@
 //   4. `all_reduce_bf16` dispatches the kernel; falls back to NCCL when
 //      the message exceeds the custom kernel's useful threshold.
 
+#include <stdexcept>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -141,5 +142,65 @@ private:
     int fusion_hidden_ = 0;
     std::size_t fusion_lamport_comm_bytes_ = 0;
 };
+
+// ── the FREE form, for the launch ABI ──────────────────────────────
+//
+// `all_reduce_residual_rmsnorm_bf16` is a METHOD, and a method has no
+// address the generated launch ABI can forward to: `KernelSig` describes
+// a free function, and the shim it emits takes a function POINTER. So
+// the row that names this kernel could not describe it, and the one
+// family that states the symbol had to bind it by hand.
+//
+// This is the same shape as `gemm`'s scaled entry points before 1b: the
+// call was reachable only through an object the declaration never
+// mentioned. The fix is the same too -- take the object as the first
+// argument and let the statement name the symbol.
+//
+// The instance stays the CALLER's. `car` is borrowed, exactly as
+// `NcclComm` borrows it, and a null one is a deployment that configured
+// no custom all-reduce, which is a refusal rather than a fallback: the
+// fused landing IS this kernel, and there is no other way to spell it.
+// The plain P2P all-reduce, same free form and same reason. It is the
+// arm a declaration takes when the message fits the NVLink kernel;
+// `dist::all_reduce_bf16` -- NCCL -- is the other, and WHICH is a guard
+// in the text rather than an `if` inside a driver method.
+inline void all_reduce_bf16(
+    CustomAllReduce* car,
+    const void* input,
+    void* output,
+    std::size_t count,
+    cudaStream_t stream) {
+    if (car == nullptr) {
+        throw std::runtime_error(
+            "comm: the P2P all-reduce is stated but this deployment "
+            "configured no custom all-reduce");
+    }
+    car->all_reduce_bf16(input, output, count, stream);
+}
+
+//
+// `inline` in the header rather than a TU of its own: the class has two
+// implementations (the real `.cu` and a stub for builds without the
+// P2P kernel) and this forwards to whichever is linked, so putting it
+// in either would have made it available only half the time.
+inline void all_reduce_residual_rmsnorm_bf16(
+    CustomAllReduce* car,
+    const void* input,
+    void* residual_inout,
+    const void* rms_gamma,
+    void* norm_out,
+    int tokens,
+    int hidden,
+    float eps,
+    cudaStream_t stream) {
+    if (car == nullptr) {
+        throw std::runtime_error(
+            "comm: the fused all-reduce landing is stated but this "
+            "deployment configured no custom all-reduce");
+    }
+    car->all_reduce_residual_rmsnorm_bf16(input, residual_inout, rms_gamma,
+                                          norm_out, tokens, hidden, eps,
+                                          stream);
+}
 
 }  // namespace pie_cuda_driver::kernels::comm

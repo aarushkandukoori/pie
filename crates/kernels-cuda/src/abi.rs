@@ -62,16 +62,8 @@ fn stated(table: &[&'static [KernelSig]]) -> Vec<&'static KernelSig> {
 }
 
 /// The C++ namespace a symbol names, under this crate's root.
-///
-/// One exception, stated here rather than aliased in every shim: the vendored
-/// Marlin tree sits BESIDE `kernels` (`pie_cuda_driver::marlin_moe`), not
-/// under it. The table keeps the `marlin_moe::` family spelling it uses
-/// everywhere else; the path is where the difference belongs.
 fn cpp_path(symbol: &str) -> String {
-    match symbol.strip_prefix("marlin_moe::") {
-        Some(rest) => format!("::pie_cuda_driver::marlin_moe::{rest}"),
-        None => format!("::pie_cuda_driver::kernels::{symbol}"),
-    }
+    format!("::pie_cuda_driver::kernels::{symbol}")
 }
 
 /// Emit the `extern "C"` forwarding shims for every stated row in `tables`.
@@ -139,13 +131,20 @@ pub fn emit_c_shim(
             .collect::<Vec<_>>()
             .join(", ");
 
-        // `return f()` where `f` returns `void` is well-formed C++, so the
-        // one body shape serves both return kinds.
-        let ret = k.ret.cpp();
+        // A launcher that ANSWERS something keeps its answer: the shim
+        // declares the forwarding pointer with the callee's real return
+        // type, so a row that said `void` about a `bool` launcher is a
+        // conversion C++ refuses rather than a value quietly dropped.
+        let ret = if k.returns.is_empty() { "void" } else { k.returns };
+        let forward = if k.returns.is_empty() {
+            format!("    fwd({args});")
+        } else {
+            format!("    return fwd({args});")
+        };
         out.push_str(&format!(
             "extern \"C\" {ret} {entry}(\n{params}) {{\n    \
-             static {ret} (*const fwd)({types}) = &{};\n    \
-             return fwd({args});\n}}\n\n",
+             static {ret} (*const fwd)({types}) = &{};\n\
+             {forward}\n}}\n\n",
             cpp_path(k.symbol),
         ));
     }
@@ -173,10 +172,20 @@ pub fn emit_rust_bindings(tables: &[&'static [KernelSig]]) -> String {
             let note = if o.nullable { "  // may be null" } else { "" };
             out.push_str(&format!("        {}: {},{note}\n", o.name, o.ty.rust()));
         }
-        out.push_str(match k.ret {
-            kernels::Ret::Void => "    );\n",
-            kernels::Ret::Bool => "    ) -> bool;\n",
-        });
+        // The Rust side keeps the answer too. `bool` is the only
+        // non-void return in the table and it is one byte on both
+        // sides, which the layout suite already pins for `Ty::Bool`.
+        if k.returns.is_empty() {
+            out.push_str("    );\n");
+        } else {
+            let rust_ret = match k.returns {
+                "bool" => "bool",
+                other => panic!(
+                    "abi: no Rust spelling for the return type `{other}`"
+                ),
+            };
+            out.push_str(&format!("    ) -> {rust_ret};\n"));
+        }
     }
     out.push_str("}\n");
     out
@@ -342,3 +351,153 @@ mod tests {
         assert_ne!(Ty::Bool.rust(), Ty::I32.rust());
     }
 }
+
+// ── THE GENERATED DISPATCH ─────────────────────────────────────────
+//
+// [`emit_c_shim`] proved a row describes its launcher. This is what the
+// proof was FOR: given the types and the sources, the call itself is
+// derivable, and the arm nobody has to write is the arm nobody can
+// write wrong.
+//
+// What comes out is still a `switch`. C++ has no way to call a function
+// with a dynamically built argument list without libffi or a trampoline
+// per signature, and neither is worth the trade — so the switch stays
+// and stops being HAND-written, which is the part that mattered. Adding
+// a kernel becomes a row plus its sources; the dispatch regenerates.
+//
+// A row with any [`Source::Unbound`] operand is SKIPPED, on the same
+// rule an unstated row is: a partial binding is not a binding, and a
+// generator that filled the gaps with guesses would be the hand-written
+// arm again with worse provenance.
+
+use kernels::Source;
+
+/// The C++ expression that binds one operand, given the context
+/// variable's name.
+fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
+    let e = match op.source {
+        Source::Unbound => return None,
+        Source::In(i) => format!("{ctx}.arm.values.slot(ins[{i}])"),
+        Source::Out(i) => format!("{ctx}.arm.values.slot(outs[{i}])"),
+        Source::Weight(i) => {
+            format!("{ctx}.wb.require({ctx}.arm.plan.name(aux[{i}])).data()")
+        }
+        Source::Param(i) => format!("static_cast<int>(ps[{i}])"),
+        Source::Rows => format!("{ctx}.arm.rows"),
+        Source::OutWidth(i) => format!("row_width({ctx}.arm.plan, outs[{i}])"),
+        Source::InWidth(i) => format!("row_width({ctx}.arm.plan, ins[{i}])"),
+        Source::OutElements(i) => format!(
+            "static_cast<::std::size_t>({ctx}.arm.rows) * \
+             static_cast<::std::size_t>(row_width({ctx}.arm.plan, outs[{i}]))"
+        ),
+        Source::InDim(i, d) => format!(
+            "static_cast<int>({ctx}.arm.plan.value(ins[{i}]).dims[{d}].value)"
+        ),
+        Source::OutDim(i, d) => format!(
+            "static_cast<int>({ctx}.arm.plan.value(outs[{i}]).dims[{d}].value)"
+        ),
+        Source::Ctx(f) => format!("{ctx}.{f}"),
+        Source::Lit(l) => l.to_string(),
+    };
+    // The generated call goes through the flat ABI entry point, whose
+    // parameter types are the row's — so a cast that the row does not
+    // justify cannot be written here.
+    Some(match op.ty {
+        kernels::Ty::Buf | kernels::Ty::BufMut => e,
+        kernels::Ty::I32sMut => format!("static_cast<::std::int32_t*>({e})"),
+        kernels::Ty::F32sMut => format!("static_cast<float*>({e})"),
+        kernels::Ty::F32s => format!("static_cast<const float*>({e})"),
+        _ => e,
+    })
+}
+
+/// Emit one `case` per row whose operands are fully sourced.
+///
+/// `ctx` is the C++ name of the `declared::ExecCtx` in scope. The body
+/// assumes `ins`, `outs`, `aux` and `ps` are already bound — the caller
+/// emits those once, because every case wants them and re-reading the
+/// plan per case would be the generator's own duplication.
+pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
+    let mut out = String::from(
+        "// GENERATED by `kernels_cuda::abi::emit_dispatch` — DO NOT EDIT.\n\
+         //\n\
+         // One branch per kernel! row that states both its operand types\n\
+         // and where each argument comes from. A row missing either is\n\
+         // absent here and belongs to a hand-written arm until it states\n\
+         // them.\n\
+         //\n\
+         // Keyed by the SYMBOL. The registry's enum is a handle a\n\
+         // hand-written switch needed; this needs none, and the symbol\n\
+         // is what the statement carries anyway.\n\n",
+    );
+    for k in stated(tables) {
+        let binds: Option<Vec<String>> =
+            k.operands.iter().map(|o| bind_expr(o, ctx)).collect();
+        let Some(binds) = binds else { continue };
+        // THE ARITY THE SOURCES ASK FOR, as part of the match.
+        //
+        // A branch that indexes `outs[1]` must not run on a statement
+        // with one result, and rope is exactly that case: its Q-ONLY
+        // spelling states one, reaches the same launcher with
+        // `num_kv_heads = 0`, and would have read past the span here --
+        // which does not fault, it reads the NEXT statement's operands
+        // (the reason `need` exists at all).
+        //
+        // So the generated branch tests what it is about to index, and
+        // a statement that does not satisfy it falls through to the
+        // hand-written arm that knows the other spelling.
+        let mut need_in = 0u8;
+        let mut need_out = 0u8;
+        let mut need_aux = 0u8;
+        let mut need_ps = 0u8;
+        for o in k.operands {
+            match o.source {
+                Source::In(i) | Source::InWidth(i) | Source::InDim(i, _) => {
+                    need_in = need_in.max(i + 1)
+                }
+                Source::Out(i)
+                | Source::OutWidth(i)
+                | Source::OutDim(i, _)
+                | Source::OutElements(i) => need_out = need_out.max(i + 1),
+                Source::Weight(i) => need_aux = need_aux.max(i + 1),
+                Source::Param(i) => need_ps = need_ps.max(i + 1),
+                _ => {}
+            }
+        }
+        let mut guard = String::new();
+        for (n, span) in [
+            (need_in, "ins"),
+            (need_out, "outs"),
+            (need_aux, "aux"),
+            (need_ps, "ps"),
+        ] {
+            if n > 0 {
+                guard.push_str(&format!(" && {span}.size >= {n}"));
+            }
+        }
+        // KEYED BY NAME, not by an enumerator. The registry's enum
+        // exists so a HAND-written switch can have cases; a generated
+        // one needs no such handle, and taking the symbol directly
+        // removes the one place the two could disagree — the derived
+        // enumerator and the registry's canonical one are not the same
+        // string, and the first version of this generator proved it by
+        // emitting `RopeBf16` where the registry says `RopeFull`.
+        // Calls the LAUNCHER, not the flat entry point. The shim is a
+        // PROOF -- it compiles a forward with the header in scope, so a
+        // wrong row does not build -- and it is generated into a test's
+        // temp dir rather than into the archive. The driver is C++ and
+        // can call C++; a flat ABI matters for a consumer that is not,
+        // and there is none yet. When there is, this switches to
+        // `entry_name` and the shim joins the build.
+        out.push_str(&format!(
+            "if (sym == \"{}\"{}) {{\n    {}{}(\n        {});\n    return true;\n}}\n",
+            k.symbol,
+            guard,
+            if k.returns.is_empty() { "" } else { "(void)" },
+            cpp_path(k.symbol),
+            binds.join(",\n        "),
+        ));
+    }
+    out
+}
+

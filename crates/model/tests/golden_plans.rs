@@ -35,6 +35,7 @@ use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeF
 use model::gemma_4::forward::facts::{Gemma4CudaFacts, Gemma4Facts};
 use model::gpt_oss::forward::facts::{GptOssCudaFacts, GptOssFacts};
 use model::qwen_3_5::forward::facts::{Qwen35CudaFacts, Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MoeMlpFacts};
+use model_compiler::dsl::WeightRepr;
 use model_compiler::{FireClass, ForwardPlan, HookStage, OpKind};
 
 fn golden_path(name: &str) -> PathBuf {
@@ -143,7 +144,14 @@ fn qwen2_5_1_5b_cuda_decode() {
                 rope_table: true,
                 force_prefill_path: true,
                 head_dim_padded: false,
+                head_dim_kernel: 0,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Decode,
         ),
@@ -162,9 +170,49 @@ fn qwen2_5_1_5b_cuda_prefill() {
                 rope_table: true,
                 force_prefill_path: true,
                 head_dim_padded: false,
+                head_dim_kernel: 0,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Prefill,
+        ),
+    );
+}
+
+/// The first SHARDED trace (3): mistral-7B across two ranks.
+///
+/// What it pins is that sharding costs the text nothing but arithmetic
+/// -- every projection below is the same statement at half the width --
+/// and that the two points where shards RECOMBINE are launches:
+/// `dist::all_reduce_bf16_out` after the attention (whose result the
+/// fused residual-norm reads) and `dist::all_reduce_bf16` after the MLP.
+///
+/// It also pins what is NOT here. The `beta_one` fold is gone from
+/// `o_proj`: under TP that GEMM would accumulate a PARTIAL into the
+/// residual, so the sum has to come first, and the golden is where that
+/// shows as a structural difference rather than a comment.
+#[test]
+fn mistral_7b_v03_cuda_tp2_decode() {
+    check_plan(
+        "mistral_7b_v03.cuda.tp2.decode",
+        &llama_like_cuda(
+            &LlamaLikeFacts::mistral_7b_v03(),
+            &LlamaLikeCudaFacts {
+                tp_size: 2,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                // The P2P threshold, so the landing states BOTH arms and
+                // this golden pins the guard rather than a text that only
+                // ever reaches NCCL.
+                all_reduce_p2p_max_rows: 512,
+                ..LlamaLikeCudaFacts::qwen3_0_6b_l40s()
+            },
+            FireClass::Decode,
         ),
     );
 }
@@ -185,7 +233,14 @@ fn phi3_mini_cuda_decode() {
                 rope_table: true,
                 force_prefill_path: false,
                 head_dim_padded: true,
+                head_dim_kernel: 128,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Decode,
         ),
@@ -204,7 +259,14 @@ fn phi3_mini_cuda_prefill() {
                 rope_table: true,
                 force_prefill_path: false,
                 head_dim_padded: true,
+                head_dim_kernel: 128,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Prefill,
         ),
@@ -561,7 +623,14 @@ fn mistral_7b_v03_cuda_decode() {
                 rope_table: true,
                 force_prefill_path: false,
                 head_dim_padded: false,
+                head_dim_kernel: 0,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Decode,
         ),
@@ -580,7 +649,14 @@ fn mistral_7b_v03_cuda_prefill() {
                 rope_table: true,
                 force_prefill_path: false,
                 head_dim_padded: false,
+                head_dim_kernel: 0,
                 gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Prefill,
         ),
@@ -676,6 +752,8 @@ fn gemma_4_e2b_cuda_decode() {
         &gemma4_cuda(
             &Gemma4Facts::gemma_4_e2b(),
             &Gemma4CudaFacts {
+                // Attends the whole context.
+                window_left: Vec::new(),
                 // LIVE-anchored, and the anchoring is the point: this pair
                 // was GUESSED wrong twice (once from the E4B-shaped
                 // `gemma4_dense_gate_up_fused_enabled` predicate, once from
@@ -700,11 +778,107 @@ fn gemma_4_e2b_cuda_prefill() {
         &gemma4_cuda(
             &Gemma4Facts::gemma_4_e2b(),
             &Gemma4CudaFacts {
+                // Attends the whole context.
+                window_left: Vec::new(),
                 fused_qkv: true,
                 gate_up_fused: true,
                 kv_native_bf16: true,
             },
             FireClass::Prefill,
+        ),
+    );
+}
+
+// ── The SEVEN UNDRIVEN families ────────────────────────────────────
+//
+// Every one of these has a CUDA text and NO declared executor, which
+// makes them the larger half of D3 by line count and the half where the
+// hand-written pass is not a fallback but the only implementation.
+//
+// Their texts were unwitnessed until here: nothing in the tree pinned
+// what they state, so an executor written against one would have been
+// written against a moving target — and the 1a/2a conversion that came
+// with these goldens (the row norms and the rotation naming their
+// kernels) would have been invisible.
+//
+// A golden is not a gate. It says what the text states TODAY, which is
+// exactly what an executor has to bind, and it fails the moment the two
+// drift.
+
+#[test]
+fn deepseek_v4_cuda_decode() {
+    check_plan(
+        "deepseek_v4.cuda.decode",
+        &model::deepseek_v4::forward::dsv4_cuda(
+            &model::deepseek_v4::forward::facts::Dsv4Facts::dsv4_synthetic(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn gemma3n_cuda_decode() {
+    check_plan(
+        "gemma3n.cuda.decode",
+        &model::gemma3n::forward::gemma3n_cuda(
+            &model::gemma3n::forward::facts::Gemma3nFacts::gemma3n_synthetic(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn gemma_2_cuda_decode() {
+    check_plan(
+        "gemma_2.cuda.decode",
+        &model::gemma_2::forward::gemma2_cuda(
+            &model::gemma_2::forward::facts::Gemma2Facts::gemma_2_9b(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn glm5_cuda_decode() {
+    check_plan(
+        "glm5.cuda.decode",
+        &model::glm5::forward::glm5_cuda(
+            &model::glm5::forward::facts::Glm5Facts::glm5_106b_a12b(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn kimi_k2_cuda_decode() {
+    check_plan(
+        "kimi_k2.cuda.decode",
+        &model::kimi_k2::forward::kimi_cuda(
+            &model::kimi_k2::forward::facts::KimiFacts::kimi_k2(),
+            &model::kimi_k2::forward::facts::KimiCudaFacts::kimi_k2_synthetic(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn kimi_k3_cuda_decode() {
+    check_plan(
+        "kimi_k3.cuda.decode",
+        &model::kimi_k3::forward::kimi_k3_cuda(
+            &model::kimi_k3::forward::facts::KimiK3Facts::kimi_k3_synthetic(),
+            FireClass::Decode,
+        ),
+    );
+}
+
+#[test]
+fn nemotron_h_cuda_decode() {
+    check_plan(
+        "nemotron_h.cuda.decode",
+        &model::nemotron_h::forward::nemotron_h_cuda(
+            &model::nemotron_h::forward::facts::NemotronHFacts::nemotron_h_synthetic(),
+            FireClass::Decode,
         ),
     );
 }

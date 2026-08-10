@@ -247,6 +247,15 @@ fn allowlists() -> Allowlists {
             // row here, which is why this guard only started reporting them
             // once the workspace test sweep could reach this suite again.
             "crates/driver-cuda/csrc/src/model/llama_like/llama_like.cpp",
+            // The RUST ports of the two mixers the line above names — the
+            // NS-3 spatial-split layout key and the staged lora table's
+            // fingerprint, each transcribed branch for branch with its
+            // splitmix finalizer. Same word, same reason, and they are here
+            // rather than deduplicated because a port that reached for a
+            // shared helper would no longer be a transcription of the
+            // function it has to agree with.
+            "crates/driver-cuda-new/src/model/llama_like.rs",
+            "crates/driver-cuda-new/src/model/lora.rs",
             // boost-style `hash_combine` for the GEMM autotune cache key; the
             // golden-ratio word again, and nothing to do with the PTIR stream.
             // These have moved twice — `driver-cuda/ops/` to `kernels-cuda/ops/`

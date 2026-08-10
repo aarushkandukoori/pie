@@ -869,6 +869,13 @@ fn c_cuda_facts_synthetic() -> PieForwardQwen35CudaFacts {
         moe_streamed_experts: 0,
         moe_force_general: 0,
         gate_up_fused: 1,
+        // Dense, which is what a zero-initialized C caller means too.
+        proj_repr: 0,
+        proj_zero_point: 0,
+        proj_group: 0,
+        proj_axis: 0,
+        window_left: std::ptr::null(),
+        window_left_len: 0,
     }
 }
 
@@ -1099,7 +1106,19 @@ fn lowered_trace_round_trips_through_the_arena() {
         rope_table: 1,
         force_prefill_path: 0,
         head_dim_padded: 0,
+        head_dim_kernel: 0,
         gate_up_fused: 1,
+        // Dense, which is what a zero-initialized C caller means too.
+        proj_repr: 0,
+        proj_zero_point: 0,
+        proj_group: 0,
+        proj_axis: 0,
+        tp_size: 1,
+        all_reduce_p2p_max_rows: 0,
+        // No window: null pointer, zero length -- what a caller written
+        // before this field states by zero-init.
+        window_left: std::ptr::null(),
+        window_left_len: 0,
     };
     let mut out = PieForwardPlan::default();
     assert_eq!(
@@ -1121,9 +1140,19 @@ fn lowered_trace_round_trips_through_the_arena() {
     // capture variant, so no WantsAttnScore guard) = 421, plus ONE
     // swiglu per layer now that the activation states its kernel from
     // the gate_up binding fact instead of leaving the choice to a
-    // workspace read (+28) = 449. The trace's op TOTAL is unchanged:
-    // every one of those was already a `Swiglu` statement.
-    assert_eq!(launches.len(), 449);
+    // workspace read (+28) = 449, plus the ROW NORMS now that
+    // `cuda::rmsnorm` states its fold: two per layer (attn_norm,
+    // mlp_norm) plus the final norm = +57 = 506.
+    //
+    // q_norm and k_norm are NOT among them, and that is the handle
+    // doing its job: qwen3-0.6b's are per-head, so they stay the
+    // semantic kind — `head_dim` has nowhere to ride on a `Launch`.
+    // olmo2's are row-wise and would count here.
+    //
+    // The trace's op TOTAL is unchanged in both steps: every one of
+    // these was already a statement, and what moved is whether it names
+    // its kernel.
+    assert_eq!(launches.len(), 506);
 
     let table = launches[0];
     assert_eq!(view::name(&out, table.weight_name), "rope::rope_standard_table");
@@ -1248,7 +1277,19 @@ fn traced_cuda_decode() -> PieForwardPlan {
         rope_table: 1,
         force_prefill_path: 0,
         head_dim_padded: 0,
+        head_dim_kernel: 0,
         gate_up_fused: 1,
+        // Dense, which is what a zero-initialized C caller means too.
+        proj_repr: 0,
+        proj_zero_point: 0,
+        proj_group: 0,
+        proj_axis: 0,
+        tp_size: 1,
+        all_reduce_p2p_max_rows: 0,
+        // No window: null pointer, zero length -- what a caller written
+        // before this field states by zero-init.
+        window_left: std::ptr::null(),
+        window_left_len: 0,
     };
     let mut out = PieForwardPlan::default();
     assert_eq!(

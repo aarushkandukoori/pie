@@ -6,8 +6,8 @@ use self::facts::{
     Gemma4CudaFacts, Gemma4Facts,
 };
 use model_compiler::dsl::{
-    self, matmul,
-    rmsnorm, MatW, NormW,
+    WeightRepr,
+    self, matmul, MatW, NormW,
 };
 use model_compiler::trace::{
     FireClass, ForwardPlan, NormVariant, RopeKind,
@@ -47,6 +47,7 @@ impl Gemma4LayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         // PLAIN, despite the family name: `gemma4.cpp` fires
         // `kernels::norm::rmsnorm_bf16` at all fourteen of its norm sites and
@@ -161,10 +162,11 @@ pub fn gemma4_cuda(
                 name: "ple_model_proj".into(),
                 width: ple_total,
                 layer: None,
+                repr: WeightRepr::Bf16,
             },
         );
         let scaled = dsl::cuda::scalar_mul(&ple, "rsqrt_hidden");
-        let normed_ple = rmsnorm(
+        let normed_ple = dsl::cuda::rmsnorm(
             &scaled,
             &NormW {
                 name: "ple_model_norm".into(),
@@ -185,9 +187,14 @@ pub fn gemma4_cuda(
         // ── Layers ──────────────────────────────────────────────────
         // Layer 0 norms the stream itself; every other layer received
         // its input norm from the layer before (see the doc above).
-        let mut normed = rmsnorm(&y, &Gemma4LayerW::new(0, facts).attn_norm);
+        let mut normed = dsl::cuda::rmsnorm(&y, &Gemma4LayerW::new(0, facts).attn_norm);
 
         for l in 0..facts.layers {
+            // THIS LAYER's sliding window, `-1` for none — a
+            // load-time fact the dispatch statements carry, where four
+            // executors used to re-derive it per launch.
+            let window_left =
+                model_compiler::facts::window_left_at(&cuda.window_left, l);
             let w = Gemma4LayerW::new(l, facts);
             let full = facts.is_full_attn(l);
             let d = facts.head_dim_of(l);
@@ -217,8 +224,8 @@ pub fn gemma4_cuda(
                 // have used — NOT by falling back to a generic rope.
                 let q = matmul(&normed, &w.q_proj);
                 if full {
-                    let q = rmsnorm(&q, &w.q_norm);
-                    dsl::cuda::rope_partial_q_only(&q)
+                    let q = dsl::cuda::rmsnorm(&q, &w.q_norm);
+                    dsl::cuda::rope_partial_q_only(&q, facts.global_rotary_dim)
                 } else {
                     dsl::cuda::qk_rmsnorm_rope_rounded_q_only(&q, &w.q_norm)
                 }
@@ -244,8 +251,8 @@ pub fn gemma4_cuda(
                     // Partial rope has no fused pair, so the norms are
                     // their own statements — `can_fuse_qk_norm_rope`
                     // reads `!partial`.
-                    let q = rmsnorm(&q, &w.q_norm);
-                    let k = rmsnorm(&k, &w.k_norm);
+                    let q = dsl::cuda::rmsnorm(&q, &w.q_norm);
+                    let k = dsl::cuda::rmsnorm(&k, &w.k_norm);
                     dsl::rope_partial(&q, &k, RopeKind::Standard, facts.global_rotary_dim)
                 } else {
                     dsl::cuda::qk_rmsnorm_rope_rounded(&q, &k, &w.q_norm, &w.k_norm)
@@ -267,12 +274,12 @@ pub fn gemma4_cuda(
             // lands.
             dsl::seam(attn_in.trace(), &dsl::seam::ATTN_Q, &[&attn_in], Some(l));
             let a = match class {
-                FireClass::Decode => dsl::cuda::attention_flashinfer_decode(&attn_in, &kv),
+                FireClass::Decode => dsl::cuda::attention_flashinfer_decode(&attn_in, &kv, window_left),
                 FireClass::Prefill if d == 512 => {
-                    dsl::cuda::attention_naive_paged(&attn_in, &kv)
+                    dsl::cuda::attention_naive_paged(&attn_in, &kv, window_left)
                 }
                 FireClass::Prefill => {
-                    dsl::cuda::attention_flashinfer_prefill_planless(&attn_in, &kv)
+                    dsl::cuda::attention_flashinfer_prefill_planless(&attn_in, &kv, window_left)
                 }
                 other => unreachable!("gemma4 refuses {other:?} at trace start"),
             }
@@ -339,7 +346,7 @@ pub fn gemma4_cuda(
         }
 
         // ── Epilogue ────────────────────────────────────────────────
-        let normed = rmsnorm(
+        let normed = dsl::cuda::rmsnorm(
             &y,
             &NormW {
                 name: "final_norm".into(),

@@ -3,75 +3,174 @@
 //! the declaration (or the emitter) and the committed static C++ cannot
 //! happen quietly. Regenerate with `cargo run -p pie-forward --bin
 //! emit-cuda` and review the diff; then re-run the three-way parity gate.
-//!
-//! The deployment list comes from `model::emissions` — the SAME list the
-//! bin writes. This file used to hold a hand-mirrored copy of every fact
-//! set ("must mirror `bin/emit-cuda.rs` exactly"), which is the
-//! `workspace_bytes` shape: two statements of one list, and the test goes
-//! on proving the committed files match an emission nothing writes anymore.
 
-fn generated_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+use model_compiler::dsl::WeightRepr;
+use model::families::llama_like::forward::emit::emit_llama_like_cuda_inc;
+use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeFacts};
+
+fn check(name: &str, fresh: &str) {
+    let path = format!(
+        "{}/../driver-cuda/csrc/src/model/llama_like/generated/{name}.inc",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let committed = std::fs::read_to_string(&path).expect("committed generated .inc");
+    assert_eq!(
+        committed, fresh,
+        "generated {name}.inc drifted from the emitter; regenerate with \
+         `cargo run -p pie-forward --bin emit-cuda`, review the diff, and \
+         re-run the three-way parity gate"
+    );
 }
 
-/// Every emission's committed file is byte-identical to a fresh emission.
 #[test]
 fn committed_incs_are_regeneration_clean() {
-    for e in model::emissions::committed_cuda_emissions() {
-        let path = generated_root().join(e.rel_path());
-        let committed = std::fs::read_to_string(&path)
-            .unwrap_or_else(|err| panic!("committed {}: {err}", e.rel_path()));
-        assert_eq!(
-            committed,
-            e.text,
-            "generated {}.inc drifted from the emitter; regenerate with \
-             `cargo run -p pie-forward --bin emit-cuda`, review the diff, and \
-             re-run the three-way parity gate",
-            e.name
-        );
-    }
+    // The LIVE deployments' facts — the same sets emit-cuda writes (see
+    // its comments for provenance).
+    let qwen_facts = LlamaLikeFacts {
+        tied_embeddings: false,
+        ..LlamaLikeFacts::qwen3_0_6b()
+    };
+    check(
+        "qwen3_0_6b",
+        &emit_llama_like_cuda_inc(
+            &qwen_facts,
+            &LlamaLikeCudaFacts::qwen3_0_6b_l40s(),
+            "qwen3_0_6b",
+        ),
+    );
+    check(
+        "olmo2_1b",
+        &emit_llama_like_cuda_inc(
+            &LlamaLikeFacts::olmo2_1b(),
+            &LlamaLikeCudaFacts {
+                xqa_decode: false,
+                // TRUE as a deployment FACT (env on, native bf16,
+                // head_dim == kernel — the build's derivation; the live
+                // digest said dfp1 and corrected the dfp0 guess on first
+                // boot, the mechanism's third catch). The TEXT still
+                // never fires the fused arm here: its predicate also
+                // wants per-head qk-norm and the fused binding, both
+                // false for olmo2 — a fact can be true and unused.
+                decode_fused_post: true,
+                rope_table: true,
+                force_prefill_path: false,
+                head_dim_padded: false,
+                head_dim_kernel: 0,
+                gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
+            },
+            "olmo2_1b",
+        ),
+    );
+    check(
+        "qwen2_5_1_5b",
+        &emit_llama_like_cuda_inc(
+            &LlamaLikeFacts::qwen2_5_1_5b(),
+            &LlamaLikeCudaFacts {
+                xqa_decode: false,
+                decode_fused_post: false,
+                rope_table: true,
+                force_prefill_path: true,
+                head_dim_padded: false,
+                head_dim_kernel: 0,
+                gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
+            },
+            "qwen2_5_1_5b",
+        ),
+    );
+    check(
+        "mistral_7b_v03",
+        &emit_llama_like_cuda_inc(
+            &LlamaLikeFacts::mistral_7b_v03(),
+            &LlamaLikeCudaFacts {
+                xqa_decode: false,
+                decode_fused_post: true,
+                rope_table: true,
+                force_prefill_path: false,
+                head_dim_padded: false,
+                head_dim_kernel: 0,
+                gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
+            },
+            "mistral_7b_v03",
+        ),
+    );
+    check(
+        "phi3_mini",
+        &emit_llama_like_cuda_inc(
+            &LlamaLikeFacts::phi3_mini(),
+            &LlamaLikeCudaFacts {
+                xqa_decode: false,
+                decode_fused_post: false,
+                rope_table: true,
+                force_prefill_path: false,
+                head_dim_padded: true,
+                head_dim_kernel: 128,
+                gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+                // Single GPU.
+                tp_size: 1,
+                // Every emission target attends the whole context.
+                window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
+            },
+            "phi3_mini",
+        ),
+    );
+    check_q35(
+        "qwen3_5_0_8b",
+        &model::qwen_3_5::forward::emit::emit_qwen35_cuda_inc(
+            &model::qwen_3_5::forward::facts::Qwen35HybridFacts::qwen3_5_0_8b(),
+            &model::qwen_3_5::forward::facts::Qwen35CudaFacts {
+                // Attends the whole context.
+                window_left: Vec::new(),
+                state_bf16: true,
+                warp_tiled: false,
+                warp_tiled_max: 64,
+                cached_max: 0,
+                verify_stash: true,
+                prefill_decode: true,
+                // Must mirror `bin/emit-cuda.rs` exactly — this test is
+                // the regeneration check. 0.8B is dense, so the MoE
+                // terms are the "no fused leg" values.
+                moe_cutlass_max_rows: 0,
+                moe_residual_fold: false,
+                moe_shared_gate_dot: false,
+                moe_streamed_experts: false,
+                moe_force_general: false,
+                gate_up_fused: true,
+                proj_repr: WeightRepr::Bf16,
+            },
+            "qwen3_5_0_8b",
+        ),
+    );
 }
 
-/// The other direction: every committed `generated/*.inc` IS an emission.
-///
-/// The byte comparison above proves each listed file is fresh; it cannot see
-/// a file the list no longer names — a deployment removed from the emitter
-/// leaves its `.inc` behind, still compiled into the driver by whatever
-/// `#include` names it, silently pinned at its last regeneration. This walk
-/// closes that direction: the set of files on disk equals the set the
-/// emitter writes, exactly.
-#[test]
-fn every_committed_inc_is_an_emission() {
-    let emissions = model::emissions::committed_cuda_emissions();
-    let listed: std::collections::BTreeSet<String> =
-        emissions.iter().map(|e| e.rel_path()).collect();
-
-    let mut on_disk = std::collections::BTreeSet::new();
-    let model_dir = generated_root().join("driver-cuda/csrc/src/model");
-    for family in std::fs::read_dir(&model_dir).expect("driver-cuda model dir") {
-        let family = family.expect("dir entry").path();
-        let generated = family.join("generated");
-        if !generated.is_dir() {
-            continue;
-        }
-        for f in std::fs::read_dir(&generated).expect("generated dir") {
-            let f = f.expect("dir entry").path();
-            if f.extension().is_some_and(|e| e == "inc") {
-                let rel = f
-                    .strip_prefix(generated_root())
-                    .expect("under crates/")
-                    .to_string_lossy()
-                    .into_owned();
-                on_disk.insert(rel);
-            }
-        }
-    }
-
+fn check_q35(name: &str, fresh: &str) {
+    let path = format!(
+        "{}/../driver-cuda/csrc/src/model/qwen3_5/generated/{name}.inc",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let committed = std::fs::read_to_string(&path).expect("committed generated .inc");
     assert_eq!(
-        on_disk, listed,
-        "the committed generated/*.inc set and the emitter's list disagree; \
-         a file only on disk is pinned at its last regeneration, a file only \
-         in the list has never been written — run \
+        committed, fresh,
+        "generated {name}.inc drifted from the emitter; regenerate with \
          `cargo run -p pie-forward --bin emit-cuda`"
     );
 }

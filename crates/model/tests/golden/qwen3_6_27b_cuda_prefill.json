@@ -10844,9 +10844,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.0.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.0.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -11128,9 +11130,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.0.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.0.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -11188,9 +11192,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.1.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.1.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -11472,9 +11478,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.1.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.1.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -11532,9 +11540,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.2.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.2.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -11816,9 +11826,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.2.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.2.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -11876,9 +11888,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.3.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.3.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -11984,9 +11998,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -12069,7 +12085,10 @@
           "state": {
             "store": "KvCache",
             "layer": 3
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -12122,9 +12141,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.3.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.3.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -12182,9 +12203,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.4.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.4.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -12466,9 +12489,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.4.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.4.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -12526,9 +12551,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.5.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.5.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -12810,9 +12837,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.5.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.5.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -12870,9 +12899,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.6.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.6.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -13154,9 +13185,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.6.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.6.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -13214,9 +13247,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.7.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.7.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -13322,9 +13357,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -13407,7 +13444,10 @@
           "state": {
             "store": "KvCache",
             "layer": 7
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -13460,9 +13500,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.7.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.7.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -13520,9 +13562,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.8.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.8.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -13804,9 +13848,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.8.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.8.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -13864,9 +13910,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.9.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.9.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -14148,9 +14196,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.9.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.9.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -14208,9 +14258,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.10.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.10.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -14492,9 +14544,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.10.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.10.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -14552,9 +14606,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.11.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.11.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -14660,9 +14716,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -14745,7 +14803,10 @@
           "state": {
             "store": "KvCache",
             "layer": 11
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -14798,9 +14859,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.11.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.11.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -14858,9 +14921,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.12.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.12.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -15142,9 +15207,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.12.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.12.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -15202,9 +15269,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.13.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.13.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -15486,9 +15555,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.13.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.13.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -15546,9 +15617,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.14.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.14.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -15830,9 +15903,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.14.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.14.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -15890,9 +15965,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.15.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.15.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -15998,9 +16075,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -16083,7 +16162,10 @@
           "state": {
             "store": "KvCache",
             "layer": 15
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -16136,9 +16218,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.15.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.15.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -16196,9 +16280,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.16.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.16.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -16480,9 +16566,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.16.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.16.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -16540,9 +16628,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.17.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.17.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -16824,9 +16914,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.17.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.17.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -16884,9 +16976,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.18.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.18.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -17168,9 +17262,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.18.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.18.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -17228,9 +17324,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.19.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.19.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -17336,9 +17434,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -17421,7 +17521,10 @@
           "state": {
             "store": "KvCache",
             "layer": 19
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -17474,9 +17577,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.19.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.19.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -17534,9 +17639,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.20.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.20.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -17818,9 +17925,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.20.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.20.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -17878,9 +17987,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.21.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.21.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -18162,9 +18273,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.21.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.21.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -18222,9 +18335,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.22.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.22.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -18506,9 +18621,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.22.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.22.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -18566,9 +18683,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.23.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.23.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -18674,9 +18793,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -18759,7 +18880,10 @@
           "state": {
             "store": "KvCache",
             "layer": 23
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -18812,9 +18936,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.23.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.23.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -18872,9 +18998,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.24.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.24.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -19156,9 +19284,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.24.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.24.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -19216,9 +19346,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.25.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.25.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -19500,9 +19632,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.25.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.25.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -19560,9 +19694,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.26.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.26.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -19844,9 +19980,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.26.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.26.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -19904,9 +20042,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.27.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.27.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -20012,9 +20152,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -20097,7 +20239,10 @@
           "state": {
             "store": "KvCache",
             "layer": 27
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -20150,9 +20295,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.27.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.27.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -20210,9 +20357,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.28.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.28.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -20494,9 +20643,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.28.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.28.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -20554,9 +20705,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.29.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.29.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -20838,9 +20991,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.29.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.29.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -20898,9 +21053,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.30.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.30.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -21182,9 +21339,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.30.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.30.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -21242,9 +21401,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.31.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.31.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -21350,9 +21511,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -21435,7 +21598,10 @@
           "state": {
             "store": "KvCache",
             "layer": 31
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -21488,9 +21654,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.31.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.31.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -21548,9 +21716,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.32.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.32.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -21832,9 +22002,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.32.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.32.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -21892,9 +22064,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.33.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.33.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -22176,9 +22350,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.33.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.33.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -22236,9 +22412,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.34.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.34.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -22520,9 +22698,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.34.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.34.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -22580,9 +22760,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.35.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.35.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -22688,9 +22870,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -22773,7 +22957,10 @@
           "state": {
             "store": "KvCache",
             "layer": 35
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -22826,9 +23013,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.35.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.35.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -22886,9 +23075,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.36.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.36.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -23170,9 +23361,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.36.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.36.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -23230,9 +23423,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.37.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.37.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -23514,9 +23709,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.37.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.37.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -23574,9 +23771,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.38.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.38.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -23858,9 +24057,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.38.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.38.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -23918,9 +24119,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.39.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.39.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -24026,9 +24229,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -24111,7 +24316,10 @@
           "state": {
             "store": "KvCache",
             "layer": 39
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -24164,9 +24372,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.39.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.39.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -24224,9 +24434,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.40.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.40.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -24508,9 +24720,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.40.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.40.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -24568,9 +24782,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.41.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.41.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -24852,9 +25068,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.41.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.41.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -24912,9 +25130,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.42.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.42.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -25196,9 +25416,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.42.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.42.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -25256,9 +25478,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.43.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.43.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -25364,9 +25588,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -25449,7 +25675,10 @@
           "state": {
             "store": "KvCache",
             "layer": 43
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -25502,9 +25731,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.43.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.43.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -25562,9 +25793,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.44.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.44.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -25846,9 +26079,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.44.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.44.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -25906,9 +26141,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.45.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.45.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -26190,9 +26427,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.45.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.45.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -26250,9 +26489,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.46.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.46.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -26534,9 +26775,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.46.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.46.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -26594,9 +26837,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.47.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.47.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -26702,9 +26947,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -26787,7 +27034,10 @@
           "state": {
             "store": "KvCache",
             "layer": 47
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -26840,9 +27090,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.47.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.47.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -26900,9 +27152,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.48.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.48.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -27184,9 +27438,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.48.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.48.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -27244,9 +27500,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.49.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.49.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -27528,9 +27786,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.49.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.49.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -27588,9 +27848,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.50.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.50.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -27872,9 +28134,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.50.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.50.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -27932,9 +28196,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.51.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.51.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -28040,9 +28306,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -28125,7 +28393,10 @@
           "state": {
             "store": "KvCache",
             "layer": 51
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -28178,9 +28449,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.51.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.51.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -28238,9 +28511,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.52.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.52.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -28522,9 +28797,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.52.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.52.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -28582,9 +28859,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.53.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.53.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -28866,9 +29145,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.53.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.53.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -28926,9 +29207,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.54.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.54.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -29210,9 +29493,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.54.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.54.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -29270,9 +29555,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.55.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.55.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -29378,9 +29665,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -29463,7 +29752,10 @@
           "state": {
             "store": "KvCache",
             "layer": 55
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -29516,9 +29808,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.55.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.55.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -29576,9 +29870,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.56.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.56.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -29860,9 +30156,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.56.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.56.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -29920,9 +30218,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.57.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.57.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -30204,9 +30504,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.57.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.57.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -30264,9 +30566,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.58.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.58.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -30548,9 +30852,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.58.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.58.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -30608,9 +30914,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.59.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.59.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -30716,9 +31024,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -30801,7 +31111,10 @@
           "state": {
             "store": "KvCache",
             "layer": 59
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -30854,9 +31167,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.59.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.59.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -30914,9 +31229,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.60.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.60.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -31198,9 +31515,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.60.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.60.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -31258,9 +31577,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.61.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.61.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -31542,9 +31863,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.61.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.61.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -31602,9 +31925,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.62.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.62.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -31886,9 +32211,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.62.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.62.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -31946,9 +32273,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.63.attn_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.63.attn_norm"
+          ]
         }
       },
       "inputs": [
@@ -32054,9 +32383,11 @@
     },
     {
       "kind": {
-        "Rope": {
-          "kind": "Standard",
-          "partial": 64
+        "Launch": {
+          "kernel": "rope::rope_partial_bf16",
+          "params": [
+            64
+          ]
         }
       },
       "inputs": [
@@ -32139,7 +32470,10 @@
           "state": {
             "store": "KvCache",
             "layer": 63
-          }
+          },
+          "params": [
+            4294967295
+          ]
         }
       },
       "inputs": [
@@ -32192,9 +32526,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "layer.63.mlp_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "layer.63.mlp_norm"
+          ]
         }
       },
       "inputs": [
@@ -32252,9 +32588,11 @@
     },
     {
       "kind": {
-        "Rmsnorm": {
-          "weight": "final_norm",
-          "variant": "Gemma"
+        "Launch": {
+          "kernel": "norm::rmsnorm_gemma_bf16",
+          "weights": [
+            "final_norm"
+          ]
         }
       },
       "inputs": [

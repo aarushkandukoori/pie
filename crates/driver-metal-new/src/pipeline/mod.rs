@@ -30,27 +30,68 @@
 //! pass-atomically, publishing channel effects only after every resulting ring
 //! is validated.
 
+mod cache;
 mod channel;
+mod emitted;
+mod extent;
+mod group;
+mod identity;
+mod lane;
+mod meta;
 mod op;
+mod params;
 mod plan;
+mod readiness;
 mod registry;
 mod resolve;
+mod scratch;
+mod stage_cache;
+mod status;
 mod step;
 mod value;
 
+pub use cache::{
+    Bounded, Failure, MAX_NEGATIVE_ENTRIES, MAX_PROGRAM_ENTRIES, MAX_STAGE_ENTRIES,
+    Stats as CacheStats,
+};
 pub use channel::{
     ChannelState, HostOp, InterpInstance, host_put, host_take, make_host_channel_state,
     make_host_instance, make_instance,
 };
+pub use emitted::{Duplicate, Emitted, Slot};
+pub use extent::{Extents, Role, Unresolvable, ValueDesc, describe};
+pub use group::{
+    CHANNEL_NEEDS_EMPTY, CHANNEL_NEEDS_FULL, CHANNEL_PUT, CHANNEL_RETRY_INELIGIBLE, CHANNEL_TAKE,
+    CHANNEL_VALID, GroupKey, MAX_CHANNELS, TooManyChannels, channel_flags, schedule_bucket,
+    used_channel_slots,
+};
+pub use identity::{Versions, cache_identity, combined_signature};
+pub use lane::{
+    ABI_VERSION as LANE_ABI_VERSION, ChannelMeta, ChannelSlot as LaneChannelSlot,
+    FLAG_RAGGED as LANE_FLAG_RAGGED, GroupLayout, HEADER_BYTES as LANE_HEADER_BYTES,
+    Header as LaneHeader, RECORD_BYTES as LANE_RECORD_BYTES, Record as LaneRecord, RowMeta,
+    SLOT_BYTES as LANE_SLOT_BYTES, Shape as LaneShape,
+};
+pub use meta::{Inconsistent, Malformed, OpMeta, Problem, channel_effects, op_metadata};
+pub use params::{OpParams, Runtime as OpRuntime};
 pub use plan::{
     ConstPortValue, ExecPlan, StagePlan, adopt_launch_package, bounded_mtp_row_base,
     classify_exec_plan, const_port_value, port_consumes,
 };
+pub use readiness::{Effect, NO_TICKET, Readiness, Reason, Ticket, Words, check, check_words};
 pub use registry::{
     Channel, ChannelSpec, Direction, EmittedKernel, Endpoint, Geometry, HostRole, Instance,
     Program, Registry, channel_dtype,
 };
 pub use resolve::{Geometry as FireGeometry, Resolution, last_page_len, resolve};
+pub use scratch::{
+    ALIGN as SCRATCH_ALIGN, DUMMY_BYTES, Layout, MAX_BYTES as MAX_SCRATCH_BYTES, TooLarge, layout,
+};
+pub use stage_cache::{Lookup, Stages};
+pub use status::{
+    Diagnosis, FAULT_CLASSES, Fault, FaultClass, Outcome as StatusOutcome, STATUS_BYTES, Site,
+    State, Status, describe_fault, report as report_status,
+};
 pub use step::{PassInputs, StepOutcome, step};
 pub use value::{Value, concrete_dtype, decode_wire, encode_wire, value_matches, wire_cell_bytes};
 

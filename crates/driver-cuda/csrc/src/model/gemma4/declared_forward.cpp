@@ -23,6 +23,10 @@
 #include "attn/attention_flashinfer.hpp"
 #include "attn/attention_naive_paged.hpp"
 #include "gemm/gemm.hpp"
+#include "model/declared/arms.hpp"
+#include "model/declared/execute.hpp"
+#include "model/declared/registry.hpp"
+#include "model/declared/weights.hpp"
 #include "model/declared/value_arena.hpp"
 #include <string>
 #include <string_view>
@@ -36,69 +40,7 @@ namespace {
 // decode plan: `gemma4_validate_stated_kernels` walks the plan at load
 // and a symbol outside this list is a model-load failure, so this list
 // and `family::gemma4_cuda` are two spellings of one vocabulary.
-enum class G4Kernel {
-    QkvPackedPost,
-    QkRmsnormRopeRounded,
-    RopeQOnly,
-    RopeQOnlyPartial,
-    RmsnormNoScale,
-    WriteKvToPages,
-    AttnFlashinferDecode,
-    AttnFlashinferPrefill,
-    AttnNaivePaged,
-    GegluTanh,
-    ChunkedGegluTanh,
-    NormResidualScaleNorm,
-    NormResidualAdd,
-    ScalarMul,
-    TransposeNldToLnd,
-    LogitSoftcap,
-    ResidualAdd,
-    // The `attn.qv` seam's construct. In the registry because the trace
-    // STATES it -- the seam is real and its position rule is checked --
-    // and a symbol the registry does not know refuses the whole plan at
-    // load. Its arm throws: gemma-4 has no adapter support on either
-    // side, hand-written or declared, so a fire that reached it would be
-    // a lowering bug. `row.lora` is hard 0 below and arc 2 declines lora
-    // fires, which is what keeps it unreachable.
-    LoraQkvCorrection,
-};
 
-G4Kernel resolve_g4_kernel(std::string_view k) {
-    if (k == "attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16")
-        return G4Kernel::QkvPackedPost;
-    if (k == "rope::qk_rmsnorm_rope_bf16_rounded")
-        return G4Kernel::QkRmsnormRopeRounded;
-    if (k == "rope::rope_bf16") return G4Kernel::RopeQOnly;
-    if (k == "rope::rope_partial_bf16") return G4Kernel::RopeQOnlyPartial;
-    if (k == "norm::rmsnorm_no_scale_bf16") return G4Kernel::RmsnormNoScale;
-    if (k == "attn::write_kv_to_pages") return G4Kernel::WriteKvToPages;
-    if (k == "attn::dispatch_attention_flashinfer_decode")
-        return G4Kernel::AttnFlashinferDecode;
-    // gemma-4's prefill fires the PLAN-FREE wrapper, not the dispatch
-    // llama_like states — one call apart in C++, a whole contract apart
-    // in the declaration, so the symbols differ and this registry has
-    // only the one gemma-4 actually says.
-    if (k == "attn::attention_flashinfer_prefill")
-        return G4Kernel::AttnFlashinferPrefill;
-    if (k == "attn::attention_naive_paged")
-        return G4Kernel::AttnNaivePaged;
-    if (k == "mlp::geglu_tanh_bf16") return G4Kernel::GegluTanh;
-    if (k == "mlp::chunked_geglu_tanh_bf16") return G4Kernel::ChunkedGegluTanh;
-    if (k == "norm::rmsnorm_residual_add_scale_rmsnorm_bf16")
-        return G4Kernel::NormResidualScaleNorm;
-    if (k == "norm::rmsnorm_residual_add_bf16") return G4Kernel::NormResidualAdd;
-    if (k == "norm::scalar_mul_bf16") return G4Kernel::ScalarMul;
-    if (k == "layout::transpose_bf16_nld_to_lnd")
-        return G4Kernel::TransposeNldToLnd;
-    if (k == "attn::logit_softcap_bf16") return G4Kernel::LogitSoftcap;
-    if (k == "norm::residual_add_bf16") return G4Kernel::ResidualAdd;
-    if (k == "pie_lora_qkv_correction") return G4Kernel::LoraQkvCorrection;
-    throw std::runtime_error(
-        "declared gemma4: stated kernel '" + std::string(k) +
-        "' is not in this executor's registry (the trace and the driver "
-        "drifted)");
-}
 
 }  // namespace
 
@@ -107,7 +49,7 @@ void gemma4_validate_stated_kernels(const pie_forward::ForwardPlan& plan) {
     for (std::size_t i = 0; i < n; ++i) {
         const auto& op = plan.op(i);
         if (op.kind != pie_forward::PieForwardOpKind::Launch) continue;
-        (void)resolve_g4_kernel(plan.weight_name(op));
+        (void)declared::resolve_kernel(plan.weight_name(op));
     }
 }
 
@@ -248,8 +190,13 @@ ParsedName parse_name(std::string_view name) {
 
 // The binder. gemma-4's trace names its weights after the driver's own
 // fields, so this is a map and not a translation.
-const DeviceTensor* bind(const Gemma4Weights& w, std::string_view name) {
-    const ParsedName nm = parse_name(name);
+// The signature is `declared::WeightBinder`'s -- a plain function
+// pointer plus context -- so no arm that goes through it names a struct
+// field, which is what lets an arm be shared.
+const DeviceTensor* bind_gemma4_weight(
+    const void* ctx, const declared::ParsedWeightName& nm,
+    std::string_view name) {
+    const auto& w = *static_cast<const Gemma4Weights*>(ctx);
     if (nm.layer < 0) {
         if (nm.field == "embed") return w.embed;
         if (nm.field == "embed_per_layer") return w.embed_per_layer;
@@ -285,15 +232,6 @@ const DeviceTensor* bind(const Gemma4Weights& w, std::string_view name) {
     throw_drift("unknown layer weight '" + std::string(name) + "'");
 }
 
-const DeviceTensor& require(const Gemma4Weights& w, std::string_view name) {
-    const DeviceTensor* t = bind(w, name);
-    if (t == nullptr) {
-        throw std::runtime_error("declared gemma4: weight '" +
-                                 std::string(name) +
-                                 "' is named by the trace but not bound");
-    }
-    return *t;
-}
 
 }  // namespace
 
@@ -312,7 +250,8 @@ std::string gemma4_validate_stated_weights(
         // identical launches apart.
         if (name.rfind("scale.", 0) == 0) return true;
         try {
-            return bind(w, name) != nullptr;
+            return declared::WeightBinder{&bind_gemma4_weight, &w}
+                       .find(name) != nullptr;
         } catch (const std::exception&) {
             return false;
         }
@@ -371,6 +310,9 @@ bool gemma4_forward_declared(
     int num_logit_rows)
 {
     if (!declared.usable) return false;
+    // Every weight an arm reads goes through the binder: the arms name
+    // what the TRACE names, never a struct field.
+    const declared::WeightBinder wb{&bind_gemma4_weight, &w};
     // WHICH CLASS. `use_decode_path` is the hand-written pass's own test
     // and this mirrors it, `force_prefill_path` included — a deployment
     // forced onto the prefill kernels must reach the PREFILL class here
@@ -460,7 +402,7 @@ bool gemma4_forward_declared(
 
     const auto gemm = [&](const void* act, std::string_view weight, void* out,
                           int m, int n, int k, float beta) {
-        kernels::gemm::act_x_wt_bf16(cublas.handle(), act, require(w, weight).data(),
+        kernels::gemm::act_x_wt_bf16(cublas.handle(), act, wb.require(weight).data(),
                                 out, m, n, k, beta);
     };
 
@@ -504,6 +446,11 @@ bool gemma4_forward_declared(
         return static_cast<int>(out);
     };
 
+    // The epilogue's gather destination, filled once the lowering
+    // exists. Hoisted because this executor builds `flat` after the
+    // arms.
+    void* epi_gather = nullptr;
+
     const auto execute_op = [&](const PieForwardOp& op) {
         enter(op.layer);
         switch (op.kind) {
@@ -515,9 +462,8 @@ bool gemma4_forward_declared(
             const std::string_view name = plan.weight_name(op);
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
-            kernels::layout::embed_bf16(token_ids, require(w, name).data(),
-                                       values.slot(outs[0]), N,
-                                       row_width(outs[0]), V, stream);
+            declared::arm_embed({plan, values, N, 0, stream}, op,
+                                token_ids, wb.require(name).data(), V);
             break;
         }
         case PieForwardOpKind::Matmul: {
@@ -550,23 +496,15 @@ bool gemma4_forward_declared(
                  N, row_width(outs[0]), row_width(ins[0]), 0.f);
             break;
         }
-        case PieForwardOpKind::Rmsnorm: {
-            // ISLAND (value arena). Both sites — layer 0's `attn_norm`
-            // (every later layer's input norm arrives fused into the
-            // previous layer's PLE landing) and the epilogue's
-            // `final_norm` — ran the SAME call with the same buffers,
-            // told apart only to be treated identically. The operands
-            // and the width are the trace's.
-            const std::string_view name = plan.weight_name(op);
-            const auto ins = plan.inputs(op);
-            const auto outs = plan.outputs(op);
-            need(ins, 1, "rmsnorm inputs");
-            need(outs, 1, "rmsnorm outputs");
-            kernels::norm::rmsnorm_bf16(
-                values.slot(ins[0]), require(w, name).data(),
-                values.slot(outs[0]), N, row_width(ins[0]), eps, stream);
-            break;
-        }
+        case PieForwardOpKind::Rmsnorm:
+            // RUNG 5: the semantic cascade is deleted -- a class
+            // trace states which FOLD it runs (`cuda::rmsnorm`),
+            // so this kind reaching the walk means the trace and
+            // this executor drifted. Choosing here from a param
+            // is what the statement now says instead.
+            throw_drift("semantic Rmsnorm in a class trace "
+                    "(the declaration states the fold)");
+
         case PieForwardOpKind::RmsnormPerHead: {
             // ISLAND (value arena), and three branches become one.
             //
@@ -587,20 +525,15 @@ bool gemma4_forward_declared(
                             "' states no head width");
             }
             kernels::norm::rmsnorm_bf16(
-                values.slot(ins[0]), require(w, name).data(),
+                values.slot(ins[0]), wb.require(name).data(),
                 values.slot(outs[0]), N * (row_width(ins[0]) / head), head,
                 eps, stream);
             break;
         }
         case PieForwardOpKind::SplitQkv: {
-            const auto ins = plan.inputs(op);
-            const auto outs = plan.outputs(op);
-            need(ins, 1, "split_qkv inputs");
-            need(outs, 3, "split_qkv outputs");
-            kernels::attn::split_qkv_bf16(
-                values.slot(ins[0]), values.slot(outs[0]),
-                values.slot(outs[1]), values.slot(outs[2]),
-                N, row_width(outs[0]), row_width(outs[1]), stream);
+            // SHARED ARM (D1). Identical here and in qwen3.5 once both
+            // read their operands off the plan, so it exists once.
+            declared::arm_split_qkv({plan, values, N, 0, stream}, op);
             break;
         }
         case PieForwardOpKind::Rope: {
@@ -628,25 +561,12 @@ bool gemma4_forward_declared(
             const auto outs = plan.outputs(op);
             need(ins, 1, "lm_head inputs");
             need(outs, 1, "lm_head outputs");
-            const void* input = values.slot(ins[0]);
+            // SHARED ARM (D1): the compaction is identical in three
+            // executors; only the head weight's resolution is not.
             int rows = N;
-            if (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
-                num_logit_rows < N) {
-                // The gather's DESTINATION stays named. The epilogue is
-                // one statement that lowers to three rectangles, so the
-                // row-gathered activation between them is a driver
-                // scratch and not a traced value -- there is no id to
-                // ask for. It becomes one when the epilogue states its
-                // gather, which is `Lowerer::epilogue`'s job and not an
-                // arm's.
-                kernels::layout::gather_bf16_rows(
-                    static_cast<const std::uint16_t*>(input),
-                    logit_row_indices_d,
-                    static_cast<std::uint16_t*>(ws.norm_y.data()),
-                    num_logit_rows, H, stream);
-                input = ws.norm_y.data();
-                rows = num_logit_rows;
-            }
+            const void* const input = declared::arm_epilogue_gather(
+                {plan, values, N, 0, stream}, op, epi_gather,
+                logit_row_indices_d, num_logit_rows, &rows);
             lm_head_rows = rows;
             gemm(input, name, values.slot(outs[0]), rows, V, H, 0.f);
             break;
@@ -657,8 +577,27 @@ bool gemma4_forward_declared(
             const auto aux = [&](std::size_t i) {
                 return plan.name(names[i]);
             };
-            switch (resolve_g4_kernel(sym)) {
-            case G4Kernel::ScalarMul: {
+            // THE SHARED SWITCH FIRST (D1). Every symbol whose arm is
+            // family-blind lives in `declared/execute.hpp`; what remains
+            // below is this family's RESIDUE. A `false` is an answer --
+            // "stated, and this family executes it its own way".
+            const declared::ExecCtx ectx{
+                {plan, values, N, 0, stream},
+                wb, cache, attn_ws, cublas, nullptr,
+                /*state_cache=*/nullptr,
+                positions, qo_indptr, kv_page_indices, kv_page_indptr,
+                kv_last_page_lens, row_valid_d,
+                qo_indptr_h, kv_page_indptr_h,
+                nullptr, nullptr, R,
+                nullptr, false,
+                eps, /*sm_scale=*/1.0f, /*lse_fallback=*/nullptr,
+                0.f,
+                cfg.num_attention_heads, cfg.num_key_value_heads, cur_d, cur_d,
+                cur_layer,
+            };
+            if (declared::execute_shared(ectx, op)) break;
+            switch (declared::resolve_kernel(sym)) {
+            case declared::Kernel::ScalarMul: {
                 const std::string_view which = aux(0);
                 // ISLAND (value arena). Four sites that named four
                 // buffers and four element counts to apply one scalar.
@@ -683,7 +622,7 @@ bool gemma4_forward_declared(
                     static_cast<std::size_t>(N) * row_width(outs[0]), stream);
                 break;
             }
-            case G4Kernel::LoraQkvCorrection:
+            case declared::Kernel::LoraQkvCorrection:
                 // Unreachable by construction: the `HasLora` guard's
                 // then-region needs a lora row, and gemma-4 states none.
                 // Loud rather than silent -- an adapter dropped without a
@@ -692,19 +631,7 @@ bool gemma4_forward_declared(
                     "declared gemma4: lora correction reached, but gemma-4 "
                     "has no adapter support on either side (arc 2 should "
                     "have declined this fire)");
-            case G4Kernel::ResidualAdd:
-                {
-                    const auto ins = plan.inputs(op);
-                    const auto outs = plan.outputs(op);
-                    need(ins, 2, "residual_add inputs");
-                    need(outs, 1, "residual_add outputs");
-                    kernels::norm::residual_add_bf16(
-                        values.slot(outs[0]), values.slot(ins[1]),
-                        static_cast<std::size_t>(N) * row_width(outs[0]),
-                        stream);
-                }
-                break;
-            case G4Kernel::TransposeNldToLnd:
+            case declared::Kernel::TransposeNldToLnd:
                 {
                     // The three EXTENTS stay config: this value's rows
                     // are `[N, L, ple_dim]`, so `Tokens` is off the
@@ -721,13 +648,13 @@ bool gemma4_forward_declared(
                         N, L, ple_dim, stream);
                 }
                 break;
-            case G4Kernel::QkvPackedPost: {
+            case declared::Kernel::QkvPackedPost: {
                 auto kv_view = cache.layer_view(cur_layer);
                 kernels::attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(
                     values.slot(plan.inputs(op)[0]),
                     values.slot(plan.outputs(op)[0]),
                     kv_view.k_pages, kv_view.v_pages,
-                    require(w, aux(0)).data(), require(w, aux(1)).data(),
+                    wb.require(aux(0)).data(), wb.require(aux(1)).data(),
                     positions, kv_page_indices, kv_page_indptr,
                     kv_last_page_lens, row_valid_d, N,
                     cfg.num_attention_heads, cur_hk / cur_d, cur_d,
@@ -736,7 +663,7 @@ bool gemma4_forward_declared(
                     eps, stream);
                 break;
             }
-            case G4Kernel::QkRmsnormRopeRounded: {
+            case declared::Kernel::QkRmsnormRopeRounded: {
                 const bool q_only = names.size == 1;
                 const auto outs_r = plan.outputs(op);
                 need(outs_r, 1, "rounded qk-norm-rope outputs");
@@ -746,15 +673,19 @@ bool gemma4_forward_declared(
                     // for; the kernel is told `num_kv_heads = 0` below
                     // and never reads it.
                     values.slot(outs_r[outs_r.size > 1 ? 1 : 0]),
-                    require(w, aux(0)).data(),
-                    q_only ? nullptr : require(w, aux(1)).data(),
+                    wb.require(aux(0)).data(),
+                    q_only ? nullptr : wb.require(aux(1)).data(),
                     positions, N, cfg.num_attention_heads,
                     q_only ? 0 : cur_hk / cur_d, cur_d,
                     w.per_layer_rope_theta[static_cast<std::size_t>(cur_layer)],
                     eps, stream);
                 break;
             }
-            case G4Kernel::RopeQOnlyPartial:
+            case declared::Kernel::RopePartial:
+                // NOT the shared arm: this family's theta and rotary
+                // width are PER LAYER, and the shared one reads a single
+                // context value. Restored deliberately after the merge
+                // reached for it -- a wrong theta rotates silently.
                 kernels::rope::rope_partial_bf16(
                     values.slot(plan.outputs(op)[0]),
                     values.slot(plan.outputs(op)[0]), positions, N,
@@ -763,7 +694,7 @@ bool gemma4_forward_declared(
                     w.per_layer_rope_theta[static_cast<std::size_t>(cur_layer)],
                     stream);
                 break;
-            case G4Kernel::RmsnormNoScale:
+            case declared::Kernel::RmsnormNoScale:
                 {
                     const auto outs = plan.outputs(op);
                     need(outs, 1, "v-norm outputs");
@@ -772,20 +703,7 @@ bool gemma4_forward_declared(
                         N * (row_width(outs[0]) / cur_d), cur_d, eps, stream);
                 }
                 break;
-            case G4Kernel::WriteKvToPages: {
-                auto kv_view = cache.layer_view(cur_layer);
-                // The fourth argument is `qo_indptr`, not an optional.
-                // It was passed as nullptr on an assumption, and the
-                // kernel dereferenced it — the illegal access this
-                // drive faulted with on its first live fire.
-                kernels::attn::write_kv_to_pages(
-                    kv_view, values.slot(plan.inputs(op)[0]),
-                    values.slot(plan.inputs(op)[1]),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, N, R, stream, row_valid_d);
-                break;
-            }
-            case G4Kernel::AttnFlashinferDecode: {
+            case declared::Kernel::AttnFlashinferDecode: {
                 auto kv_view = cache.layer_view(cur_layer);
                 kernels::attn::DecodePlanCache* p =
                     (cur_full ? moe_ws.decode_plan_full
@@ -806,11 +724,11 @@ bool gemma4_forward_declared(
                     values.slot(plan.outputs(op)[0]),
                     kv_page_indices, kv_page_indptr, kv_last_page_lens,
                     attn_ws.view(), stream,
-                    w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
+                    declared::stated_window_left(plan, op),
                     /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
                 break;
             }
-            case G4Kernel::ChunkedGegluTanh:
+            case declared::Kernel::ChunkedGegluTanh:
                 {
                     const auto ins = plan.inputs(op);
                     const auto outs = plan.outputs(op);
@@ -821,7 +739,7 @@ bool gemma4_forward_declared(
                         row_width(outs[0]), stream);
                 }
                 break;
-            case G4Kernel::GegluTanh: {
+            case declared::Kernel::GegluTanh: {
                 // TWO sites for one kernel, told apart by the WIDTH the
                 // op declares — not by a counter. The PLE gate is
                 // `ple_dim` wide and its "up" operand is this layer's
@@ -862,7 +780,7 @@ bool gemma4_forward_declared(
                 }
                 break;
             }
-            case G4Kernel::NormResidualScaleNorm: {
+            case declared::Kernel::NormResidualScaleNorm: {
                 const std::string_view first = aux(0);
                 const ParsedName nm = parse_name(first);
                 // Two sites: the attention landing (norm_x -> y, then the
@@ -886,13 +804,13 @@ bool gemma4_forward_declared(
                 // goes with them -- it was this family naming which
                 // scratch the previous statement had landed in.
                 kernels::norm::rmsnorm_residual_add_scale_rmsnorm_bf16(
-                    values.slot(ins[0]), require(w, first).data(),
+                    values.slot(ins[0]), wb.require(first).data(),
                     values.slot(outs[0]), scale,
-                    require(w, aux(1)).data(), values.slot(outs[1]),
+                    wb.require(aux(1)).data(), values.slot(outs[1]),
                     N, H, eps, stream);
                 break;
             }
-            case G4Kernel::NormResidualAdd: {
+            case declared::Kernel::NormResidualAdd: {
                 // The `ple_norm` test that used to live here chose
                 // between two input scratches. The trace names the
                 // input, so there is nothing left to tell apart.
@@ -902,29 +820,17 @@ bool gemma4_forward_declared(
                 need(ins, 1, "norm-residual-add inputs");
                 need(outs, 1, "norm-residual-add outputs");
                 kernels::norm::rmsnorm_residual_add_bf16(
-                    values.slot(ins[0]), require(w, first).data(),
+                    values.slot(ins[0]), wb.require(first).data(),
                     values.slot(outs[0]), N, H, eps, stream);
                 break;
             }
-            case G4Kernel::LogitSoftcap:
+            case declared::Kernel::LogitSoftcap:
                 kernels::attn::logit_softcap_bf16(
                     values.slot(plan.outputs(op)[0]),
                     fwd_cfg.final_logit_softcap,
                     static_cast<std::size_t>(lm_head_rows) * V, stream);
                 break;
-            case G4Kernel::AttnFlashinferPrefill: {
-                auto kv_view = cache.layer_view(cur_layer);
-                kernels::attn::attention_flashinfer_prefill(
-                    values.slot(plan.inputs(op)[0]), kv_view,
-                    values.slot(plan.outputs(op)[0]),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
-                    N, R, cfg.num_attention_heads, attn_ws.view(), stream,
-                    w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
-                    /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
-                break;
-            }
-            case G4Kernel::AttnNaivePaged: {
+            case declared::Kernel::AttnNaivePaged: {
                 auto kv_view = cache.layer_view(cur_layer);
                 // `num_pages_in_batch` is the host indptr's LAST entry —
                 // the fire's page count, not the layer's and not the
@@ -936,7 +842,7 @@ bool gemma4_forward_declared(
                     kv_last_page_lens, N, R,
                     static_cast<int>(kv_page_indptr_h[R]),
                     cfg.num_attention_heads, stream,
-                    w.per_layer_window_left[static_cast<std::size_t>(cur_layer)],
+                    declared::stated_window_left(plan, op),
                     /*sm_scale=*/1.0f, /*logits_soft_cap=*/0.f,
                     /*lse_out=*/nullptr);
                 break;
@@ -1005,6 +911,7 @@ bool gemma4_forward_declared(
     values.reset_pins_only(plan.value_count());
     values.bind_offsets(ws.declared_values.data(),
                         ws.declared_values.nbytes(), flat);
+    epi_gather = values.epilogue_gather(flat);
     declared::trace_arena("gemma4", plan, flat,
                           ws.declared_values.nbytes(), N, R);
     if (arena_zero_enabled()) {
@@ -1082,9 +989,11 @@ bool gemma4_forward_declared(
                 break;
             }
             case PieForwardOpKind::Rmsnorm:
-                // Both sites (`attn_norm`, `final_norm`) norm the stream
-                // into the same scratch.
-                pin(0, ws.norm_x.data());
+                // The row norms are `Launch` now; their entry moved to
+                // the Launch case with the statement. This stays for a
+                // semantic trace, which gemma-4's CUDA text no longer
+                // produces.
+                break;
                 break;
             case PieForwardOpKind::RmsnormPerHead: {
                 const ParsedName nm = parse_name(plan.weight_name(op));
@@ -1108,29 +1017,37 @@ bool gemma4_forward_declared(
             case PieForwardOpKind::Launch: {
                 const auto names = plan.aux_names(op);
                 const auto aux = [&](std::size_t j) { return plan.name(names[j]); };
-                switch (resolve_g4_kernel(plan.weight_name(op))) {
-                case G4Kernel::ScalarMul: {
+                switch (declared::resolve_kernel(plan.weight_name(op))) {
+                case declared::Kernel::RmsnormRow:
+                case declared::Kernel::RmsnormRowGemma:
+                    // Both sites (`attn_norm`, `final_norm`) norm the
+                    // stream into the same scratch.
+                    pin(0, ws.norm_x.data());
+                    break;
+                case declared::Kernel::ResidualAdd:
+                    pin(0, per_layer_proj);
+                    break;
+                case declared::Kernel::ScalarMul: {
                     const std::string_view which = aux(0);
                     if (which == "scale.sqrt_hidden")        pin(0, ws.y.data());
                     else if (which == "scale.sqrt_ple_dim")  pin(0, per_layer_token);
                     else                                     pin(0, per_layer_proj);
                     break;
                 }
-                case G4Kernel::ResidualAdd:       pin(0, per_layer_proj); break;
-                case G4Kernel::TransposeNldToLnd: pin(0, per_layer_token); break;
-                case G4Kernel::QkvPackedPost:     pin(0, ws.q.data()); break;
-                case G4Kernel::QkRmsnormRopeRounded:
+                case declared::Kernel::TransposeNldToLnd: pin(0, per_layer_token); break;
+                case declared::Kernel::QkvPackedPost:     pin(0, ws.q.data()); break;
+                case declared::Kernel::QkRmsnormRopeRounded:
                     pin(0, ws.q.data());
                     pin(1, ws.k.data());
                     break;
-                case G4Kernel::RopeQOnlyPartial:
-                case G4Kernel::RopeQOnly:         pin(0, ws.q.data()); break;
-                case G4Kernel::RmsnormNoScale:    pin(0, ws.v.data()); break;
-                case G4Kernel::AttnFlashinferDecode:
-                case G4Kernel::AttnFlashinferPrefill:
-                case G4Kernel::AttnNaivePaged:    pin(0, ws.attn_out.data()); break;
-                case G4Kernel::ChunkedGegluTanh:  pin(0, ws.gate.data()); break;
-                case G4Kernel::GegluTanh: {
+                case declared::Kernel::RopePartial:
+                case declared::Kernel::RopeFull:         pin(0, ws.q.data()); break;
+                case declared::Kernel::RmsnormNoScale:    pin(0, ws.v.data()); break;
+                case declared::Kernel::AttnFlashinferDecode:
+                case declared::Kernel::AttnFlashinferPrefillPlanless:
+                case declared::Kernel::AttnNaivePaged:    pin(0, ws.attn_out.data()); break;
+                case declared::Kernel::ChunkedGegluTanh:  pin(0, ws.gate.data()); break;
+                case declared::Kernel::GegluTanh: {
                     // TWO sites for one kernel, told apart by the WIDTH
                     // the op declares — the same test the arm makes.
                     const auto& val = plan.value(outs[0]);
@@ -1139,14 +1056,14 @@ bool gemma4_forward_declared(
                                                               : ws.gate.data());
                     break;
                 }
-                case G4Kernel::NormResidualScaleNorm:
+                case declared::Kernel::NormResidualScaleNorm:
                     // `(landed, mlp_in)` in the declaration: the stream
                     // first, the normed activation second.
                     pin(0, ws.y.data());
                     pin(1, ws.norm_x.data());
                     break;
-                case G4Kernel::NormResidualAdd:   pin(0, ws.y.data()); break;
-                case G4Kernel::LogitSoftcap:      pin(0, ws.logits.data()); break;
+                case declared::Kernel::NormResidualAdd:   pin(0, ws.y.data()); break;
+                case declared::Kernel::LogitSoftcap:      pin(0, ws.logits.data()); break;
                 default: break;
                 }
                 break;

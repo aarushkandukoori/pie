@@ -242,6 +242,9 @@ fn the_hybrid_matches_transformers_on_real_weights() {
         moe_streamed_experts: false,
         moe_force_general: false,
         gate_up_fused: true,
+        // Dense BF16, whole context — this fixture's own frame.
+        proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+        window_left: Vec::new(),
     };
     let plan = qwen3_5_hybrid_cuda(&hybrid, &cuda, FireClass::Prefill);
     let rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; TOKENS];

@@ -121,6 +121,13 @@ pub enum Ty {
     Buf,
     /// A read-only device array of `i32` — positions, and the like.
     I32s,
+    /// A read-only device array of `i64`. One row needs it — kimi_k3's
+    /// hash routing reads a `[vocab, K]` token-to-expert table — and it
+    /// is its own kind rather than a `Buf` because the pilot caught
+    /// exactly that substitution: `const void*` and `const int64_t*` are
+    /// both pointers, so only the DECLARED width makes the mismatch a
+    /// compile error instead of a stride bug.
+    I64s,
     /// A read-only device array of `u32` — the CSR/indptr family.
     U32s,
     /// A read-only device array of `u8` — the per-row validity masks.
@@ -142,6 +149,94 @@ pub enum Ty {
     /// `std::uint32_t`, and a mirror that guessed `i32` would be a silent
     /// sign bug on any value above 2^31 rather than a compile error.
     U32,
+    /// ── POINTER ARRAYS ────────────────────────────────────────────
+    ///
+    /// A batched or grouped launch is handed an ARRAY of buffers rather
+    /// than one, and two independent things can be const about it: the
+    /// array itself, and what its entries point at. Four kinds, because
+    /// all four combinations are live and C++ will silently accept
+    /// three of them where a fourth was meant.
+    ///
+    /// Naming reads outside-in — `BufArray` is the array the launcher
+    /// READS of buffers it READS; `Mut` on the end means the BUFFERS are
+    /// writable; `Out` in the middle means the ARRAY is.
+    ///
+    /// The distinction is not pedantry. `gemm::batched_act_x_wt_bf16`
+    /// takes its destination array as `void* const*` — it writes the
+    /// buffers and reads the array — while the nemotron pointer
+    /// BUILDERS take `void**`, because building the array is what they
+    /// do. A row that swapped them would compile as `-fpermissive` and
+    /// hand a builder an array it must not write.
+
+    /// `const void* const*` — an array the launcher reads, of buffers it
+    /// reads.
+    BufArray,
+    /// `void* const*` — an array the launcher reads, of buffers it
+    /// writes. Every batched GEMM's destination list.
+    BufArrayMut,
+    /// `const void**` — an array the launcher WRITES, of buffers to be
+    /// read. What a pointer builder fills for a later batched call.
+    BufArrayOut,
+    /// `void**` — an array the launcher writes, of buffers to be
+    /// written. The destination half of the same builder.
+    BufArrayOutMut,
+    /// `const std::uint8_t* const*` — the same shape as [`Ty::BufArray`]
+    /// with the element type spelled, which the MXFP4 banks need: their
+    /// entries are packed nibbles and block scales, and a `void*` row
+    /// would let a bf16 bank through.
+    U8Array,
+    /// A read-only device array of `u16`. Two launchers spell their
+    /// bf16 buffers this way rather than as `void*`, and the pilot will
+    /// not let a `Buf` row stand in: the pointer types differ, so the
+    /// forward is a conversion C++ refuses.
+    U16s,
+    /// A device array of `u16` the launcher WRITES.
+    U16sMut,
+    /// A read-only device array of `i8` — an int8 LM head's weights.
+    I8s,
+    /// `const std::int32_t* const*` — an array of int32 buffers the
+    /// launcher reads. The WNA16 expert banks are packed as `int32`
+    /// words rather than opaque bytes, and a `BufArray` row would hand
+    /// their kernel a void array it dereferences as int32.
+    I32Array,
+    /// `MoeActivation` — which activation a fused MoE leg runs. A
+    /// caller-stated enum like [`Ty::Dtype`], and for the same reason:
+    /// the declaration knows which, and a driver that inferred it from
+    /// a config would be choosing.
+    MoeActivation,
+    /// `Mxfp4RowSelect` — which half of an interleaved MXFP4 bank a
+    /// repack reads.
+    Mxfp4RowSelect,
+    /// The NVLink P2P all-reduce instance a fused collective is issued
+    /// through — `kernels::comm::CustomAllReduce*`.
+    ///
+    /// A HANDLE, like [`Ty::Stream`] and [`Ty::CublasHandle`]: the arm is
+    /// given it and never asks for it. It exists because the fused
+    /// landing was a METHOD, and a method has no address the generated
+    /// ABI can forward to — the free form takes the instance first, and
+    /// the row can then describe the call.
+    CustomAllReduce,
+    /// The element type a buffer is stored in — `DType`, a
+    /// `std::uint8_t`-backed enum class.
+    ///
+    /// It is a scalar the CALLER states, not a property the launcher
+    /// discovers, and that is the whole reason the scaled GEMM entry
+    /// points take it: the storage a weight is in used to reach them
+    /// inside a `WeightView`, and a driver built that descriptor by
+    /// looking at a per-layer struct no statement mentioned. The
+    /// descriptor is assembled INSIDE the launcher now and the caller
+    /// passes what the declaration said.
+    ///
+    /// Its own kind rather than [`Ty::U32`]: an enum class does not
+    /// convert from an integer, so a row that widened it would not
+    /// compile -- which is the answer wanted, but for the wrong reason.
+    /// Spelling it means the shim forwards the enum the header declares.
+    Dtype,
+    /// A host scalar spelled `long long` — the recurrent state's slot
+    /// stride, which is an ELEMENT count into a multi-gigabyte arena and
+    /// so was widened deliberately. Its own kind for `Ty::U32`'s reason:
+    /// a mirror that guessed `int` is a silent truncation, not an error.
+    I64,
     /// A host byte count, spelled `std::size_t`. Its width is the platform's,
     /// which is why it is not [`Ty::U32`] widened by hand.
     Usize,
@@ -151,41 +246,6 @@ pub enum Ty {
     /// a binding that gets this wrong is a silent stack-layout bug rather
     /// than a compile error, which is why it is its own kind.
     Bool,
-    /// A host scalar spelled `long long` — the recurrent slot strides.
-    /// Not [`Ty::Usize`]: the C++ chose a SIGNED 64-bit here, and not
-    /// [`Ty::I32`] for the same reason `Usize` is not `U32` — the width is
-    /// the contract.
-    I64,
-    /// A read-only device array of `i8` — the int8 lm_head weight the fused
-    /// GEMV+argmax reads.
-    I8s,
-    /// A read-only device array of `i64` — dsv4's token-to-expert hash
-    /// table.
-    I64s,
-    /// A read-only device array of `u16` — bf16 storage the mamba SSU
-    /// spells as `std::uint16_t*` instead of `void*`.
-    U16s,
-    /// A device array of `u16` the launcher WRITES.
-    U16sMut,
-    /// A read-only TABLE of read-only buffers (`const void* const*`) —
-    /// per-expert weight pointers the grouped GEMMs consume.
-    Bufs,
-    /// A read-only table of read-only BYTE buffers
-    /// (`const std::uint8_t* const*`) — the MXFP4 per-expert packed-weight
-    /// and scale banks.
-    U8Bufs,
-    /// A read-only table of read-only `i32` buffers
-    /// (`const std::int32_t* const*`) — the WNA16 per-expert packed banks.
-    I32Bufs,
-    /// A read-only TABLE of WRITABLE buffers (`void* const*`) — the batched
-    /// and grouped GEMMs' output-pointer arrays. The table is not written;
-    /// what it points at is.
-    BufMuts,
-    /// A table of read-only buffer pointers the launcher WRITES
-    /// (`const void**`) — the MoE pointer builders' output.
-    BufTableMut,
-    /// A table of WRITABLE buffer pointers the launcher writes (`void**`).
-    BufMutTableMut,
     /// The stream the launch is ordered on.
     Stream,
     /// The cuBLAS handle a library-issued launch is ordered through.
@@ -195,14 +255,6 @@ pub enum Ty {
     /// and not a kernel of ours. This is what they take instead of a stream —
     /// the stream is set on the handle.
     CublasHandle,
-    /// `moe::MoeActivation`, by value — the activation the fused CUTLASS MoE
-    /// runs between its two grouped GEMMs. An `enum class` with the default
-    /// `int` underlying type, so it crosses the ABI as four bytes.
-    MoeActivation,
-    /// `quant::Mxfp4RowSelect`, by value — which rows of a gpt-oss packed
-    /// MXFP4 scale table the Marlin repack selects (identity / even / odd).
-    /// `enum class : int`, so four bytes.
-    Mxfp4RowSelect,
 
     // ---- The struct-shaped operands. ----
     //
@@ -241,17 +293,16 @@ pub enum Ty {
     /// reference because it is optional: see `nullable`.
     YarnOriginalParams,
     /// A read-only device array of `attn::StructuredMaskParams` — the
-    /// per-lane structured-mask descriptors `pack_structured_mask` reads.
-    /// POD (three `u32`s), so Rust mirrors it and the array crosses as
-    /// `*const StructuredMaskParams`.
+    /// per-lane structured-mask descriptors `attn::pack_structured_mask`
+    /// reads. POD (three `u32`s), so Rust mirrors it and the array crosses
+    /// as `*const StructuredMaskParams`.
+    ///
+    /// Unlike the descriptor kinds this file lost, nothing about it is a
+    /// ROUTE: the packer reads every lane's kind and window the same way,
+    /// and no caller is choosing a kernel by what it finds inside. It is
+    /// an operand shaped like a struct, which is why it survives where
+    /// `WeightView` did not.
     StructuredMasks,
-    /// `pie_cuda_driver::WeightView`, by value — the quantized-dispatch
-    /// descriptor `gemm::act_x_w` routes on. POD, mirrored, its layout
-    /// pinned twice (the gate-3 ABI oracle and the launch_abi records).
-    WeightView,
-    /// `pie_cuda_driver::DType`, by value — `enum class : uint8_t`, one
-    /// byte, mirrored by the driver's own `#[repr(u8)]` enum.
-    DType,
 }
 
 impl Ty {
@@ -265,6 +316,24 @@ impl Ty {
             Ty::BufMut => "void*",
             Ty::Buf => "const void*",
             Ty::I32s => "const ::std::int32_t*",
+            Ty::I64s => "const ::std::int64_t*",
+            Ty::BufArray => "const void* const*",
+            Ty::BufArrayMut => "void* const*",
+            Ty::BufArrayOut => "const void**",
+            Ty::BufArrayOutMut => "void**",
+            Ty::U8Array => "const ::std::uint8_t* const*",
+            Ty::CustomAllReduce =>
+                "::pie_cuda_driver::kernels::comm::CustomAllReduce*",
+            Ty::I8s => "const ::std::int8_t*",
+            Ty::I32Array => "const ::std::int32_t* const*",
+            Ty::MoeActivation =>
+                "::pie_cuda_driver::kernels::moe::MoeActivation",
+            Ty::Mxfp4RowSelect =>
+                "::pie_cuda_driver::kernels::quant::Mxfp4RowSelect",
+            Ty::U16s => "const ::std::uint16_t*",
+            Ty::U16sMut => "::std::uint16_t*",
+            Ty::Dtype => "::pie_cuda_driver::DType",
+            Ty::I64 => "long long",
             Ty::U32s => "const ::std::uint32_t*",
             Ty::U8s => "const ::std::uint8_t*",
             Ty::F32sMut => "float*",
@@ -277,21 +346,8 @@ impl Ty {
             Ty::Usize => "::std::size_t",
             Ty::F32 => "float",
             Ty::Bool => "bool",
-            Ty::I64 => "long long",
-            Ty::I8s => "const ::std::int8_t*",
-            Ty::I64s => "const ::std::int64_t*",
-            Ty::U16s => "const ::std::uint16_t*",
-            Ty::U16sMut => "::std::uint16_t*",
-            Ty::Bufs => "const void* const*",
-            Ty::U8Bufs => "const ::std::uint8_t* const*",
-            Ty::I32Bufs => "const ::std::int32_t* const*",
-            Ty::BufMuts => "void* const*",
-            Ty::BufTableMut => "const void**",
-            Ty::BufMutTableMut => "void**",
             Ty::Stream => "cudaStream_t",
             Ty::CublasHandle => "cublasHandle_t",
-            Ty::MoeActivation => "::pie_cuda_driver::kernels::moe::MoeActivation",
-            Ty::Mxfp4RowSelect => "::pie_cuda_driver::kernels::quant::Mxfp4RowSelect",
             Ty::AttentionWorkspaceView => "::pie_cuda_driver::AttentionWorkspaceView",
             Ty::KvCacheLayerView => "::pie_cuda_driver::KvCacheLayerView",
             Ty::MlaCacheLayerView => "::pie_cuda_driver::MlaCacheLayerView",
@@ -300,9 +356,8 @@ impl Ty {
             Ty::MlaPlanCache => "const ::pie_cuda_driver::kernels::attn::MlaPlanCache&",
             Ty::HopperPrefillPlan => "const ::pie_cuda_driver::kernels::attn::HopperPrefillPlan&",
             Ty::YarnOriginalParams => "const ::pie_cuda_driver::kernels::attn::YarnOriginalParams*",
-            Ty::StructuredMasks => "const ::pie_cuda_driver::kernels::attn::StructuredMaskParams*",
-            Ty::WeightView => "::pie_cuda_driver::WeightView",
-            Ty::DType => "::pie_cuda_driver::DType",
+            Ty::StructuredMasks =>
+                "const ::pie_cuda_driver::kernels::attn::StructuredMaskParams*",
         }
     }
 
@@ -317,6 +372,21 @@ impl Ty {
             Ty::BufMut => "*mut ::core::ffi::c_void",
             Ty::Buf => "*const ::core::ffi::c_void",
             Ty::I32s => "*const i32",
+            Ty::I64s => "*const i64",
+            Ty::BufArray => "*const *const ::core::ffi::c_void",
+            Ty::BufArrayMut => "*const *mut ::core::ffi::c_void",
+            Ty::BufArrayOut => "*mut *const ::core::ffi::c_void",
+            Ty::BufArrayOutMut => "*mut *mut ::core::ffi::c_void",
+            Ty::U8Array => "*const *const u8",
+            Ty::CustomAllReduce => "*mut ::core::ffi::c_void",
+            Ty::I8s => "*const i8",
+            Ty::I32Array => "*const *const i32",
+            Ty::MoeActivation => "u32",
+            Ty::Mxfp4RowSelect => "i32",
+            Ty::U16s => "*const u16",
+            Ty::U16sMut => "*mut u16",
+            Ty::Dtype => "u8",
+            Ty::I64 => "::core::ffi::c_longlong",
             Ty::U32s => "*const u32",
             Ty::U8s => "*const u8",
             Ty::F32sMut => "*mut f32",
@@ -329,22 +399,7 @@ impl Ty {
             Ty::Usize => "usize",
             Ty::F32 => "f32",
             Ty::Bool => "bool",
-            Ty::I64 => "::core::ffi::c_longlong",
-            Ty::I8s => "*const i8",
-            Ty::I64s => "*const i64",
-            Ty::U16s => "*const u16",
-            Ty::U16sMut => "*mut u16",
-            Ty::Bufs => "*const *const ::core::ffi::c_void",
-            Ty::U8Bufs => "*const *const u8",
-            Ty::I32Bufs => "*const *const i32",
-            Ty::BufMuts => "*const *mut ::core::ffi::c_void",
-            Ty::BufTableMut => "*mut *const ::core::ffi::c_void",
-            Ty::BufMutTableMut => "*mut *mut ::core::ffi::c_void",
             Ty::Stream | Ty::CublasHandle => "*mut ::core::ffi::c_void",
-            // By value, like the views: the mirrors (`#[repr(i32)]`) live in
-            // the binding's module scope.
-            Ty::MoeActivation => "MoeActivation",
-            Ty::Mxfp4RowSelect => "Mxfp4RowSelect",
             // Unqualified on purpose: a generated binding is placed in a
             // module that has the mirrors in scope, and this crate does not
             // know — and must not have to know — which module that is.
@@ -359,8 +414,6 @@ impl Ty {
             Ty::HopperPrefillPlan => "*const HopperPrefillPlan",
             Ty::YarnOriginalParams => "*const YarnOriginalParams",
             Ty::StructuredMasks => "*const StructuredMaskParams",
-            Ty::WeightView => "WeightView",
-            Ty::DType => "DType",
         }
     }
 }
@@ -381,31 +434,64 @@ pub struct Operand {
     /// `row_valid` says "may be null" in a comment today, and a comment is
     /// not something a binding can be generated from.
     pub nullable: bool,
+    /// WHERE the value comes from when a driver binds this slot.
+    ///
+    /// The signature says what TYPE goes here and the row's arity says
+    /// how many; neither says that `q` is the statement's first OUTPUT
+    /// and `positions` is the fire's. That correspondence is what every
+    /// hand-written arm encodes, one arm at a time, and it is the last
+    /// thing standing between a table that describes a call and a table
+    /// a call can be GENERATED from.
+    ///
+    /// [`Source::Unbound`] — the default — means the row has not said,
+    /// and a generator skips it exactly as it skips a row with no
+    /// operands. Filling it is per-row work like the signature was.
+    pub source: Source,
 }
 
-/// What a launcher returns.
+/// Where a bound argument comes from.
 ///
-/// Almost always nothing — a launch is an effect. The exception is a TRIED
-/// launch: `ssm::flashinfer_mamba_ssu_bf16` answers "did FlashInfer take
-/// it", and the caller falls back to the in-house kernel when it did not.
-/// The value crosses the ABI, so it is part of the row: the generated shim
-/// forwards it and the generated binding declares it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ret {
-    /// Returns nothing.
-    Void,
-    /// Returns `bool` — whether the launch happened.
-    Bool,
-}
-
-impl Ret {
-    /// How C++ spells this, for a generated declaration.
-    pub const fn cpp(self) -> &'static str {
-        match self {
-            Ret::Void => "void",
-            Ret::Bool => "bool",
-        }
-    }
+/// The vocabulary is deliberately small and describes the STATEMENT and
+/// the FIRE, never a family: an operand that could only be sourced from
+/// a workspace field is an operand whose arm is not shareable, which is
+/// the same boundary `ExecCtx` draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// The row has not stated it; nothing may be generated from this.
+    Unbound,
+    /// The statement's `i`-th operand, as a device pointer.
+    In(u8),
+    /// The statement's `i`-th result, as a device pointer.
+    Out(u8),
+    /// The `i`-th weight the statement NAMES, resolved through the
+    /// binder.
+    Weight(u8),
+    /// The `i`-th scalar the statement carries (`Launch`'s params).
+    Param(u8),
+    /// The rectangle's row count.
+    Rows,
+    /// The trailing-dims product of the `i`-th result — what a row of
+    /// it is worth in elements.
+    OutWidth(u8),
+    /// The same for the `i`-th operand.
+    InWidth(u8),
+    /// Rows times the `i`-th result's row width — the ELEMENT count a
+    /// flat launcher takes where a row-shaped one takes both.
+    OutElements(u8),
+    /// Dimension `d` of the `i`-th operand. The routed combine reads
+    /// `[Tokens, top_k, H]` and both extents come off it.
+    InDim(u8, u8),
+    /// Dimension `d` of the `i`-th result, which is how a head count
+    /// reaches a launcher: the shape says `[Tokens, heads, dim]`.
+    OutDim(u8, u8),
+    /// A named field of the executing context — the stream, the
+    /// handle, `eps`, the head geometry. The name is the C++ member,
+    /// and a context that does not have it does not compile.
+    Ctx(&'static str),
+    /// A literal, spelled as C++ spells it. For the arguments a
+    /// launcher takes that no statement and no context carries — an
+    /// `interleaved` flag a family never sets, a `beta` of zero.
+    Lit(&'static str),
 }
 
 /// One kernel's contract.
@@ -481,9 +567,24 @@ pub struct KernelSig {
     /// caller that is not C++ cannot omit one — and because a default is a
     /// choice the table should be able to see.
     pub operands: &'static [Operand],
-    /// What `symbol` returns. [`Ret::Void`] for all but the tried launches —
-    /// see [`Ret`].
-    pub ret: Ret,
+    /// What the launcher RETURNS, spelled as C++ spells it.
+    ///
+    /// `""` — the default — means `void`, which is what a launcher is
+    /// nearly always. Three are not: `gemv3_bf16`, `rmsnorm_bf16_tuned`
+    /// and `lm_head_argmax_chunked` return `bool`, and the bool means
+    /// "did the fused/tuned form run" rather than "did it succeed".
+    ///
+    /// It is on the ROW rather than inferred because the shim has to
+    /// declare the forwarding pointer's full type: a `void` forward to a
+    /// `bool` launcher is a conversion C++ refuses, which is how these
+    /// three were found. Stating it is also the honest reading — a
+    /// launcher that answers something is a different contract from one
+    /// that only acts, and a table that could not tell them apart was
+    /// describing the second and meaning the first.
+    ///
+    /// The generated entry point returns the same type; a caller that
+    /// ignores it is doing what the C++ call sites already do.
+    pub returns: &'static str,
     /// The axes `symbol` is instantiated over, if it names a FAMILY of
     /// entrypoints rather than one.
     ///
@@ -613,7 +714,7 @@ macro_rules! kernel {
                 in_place: &[],
                 depth_prefix_plan: false,
                 operands: &[],
-                ret: $crate::Ret::Void,
+                returns: "",
                 axes: &[],
             }
         }
@@ -640,13 +741,16 @@ macro_rules! kernel {
 /// depend on macro lookahead rather than on anything a reader can see.
 #[macro_export]
 macro_rules! operands {
-    ($($name:ident : $ty:ident $(| $null:ident)?),* $(,)?) => {
+    ($($name:ident : $ty:ident $(| $null:ident)? $(<- $src:expr)?),* $(,)?) => {
         &[$($crate::Operand {
             name: stringify!($name),
             ty: $crate::Ty::$ty,
             nullable: $crate::operands!(@nullable $($null)?),
+            source: $crate::operands!(@source $($src)?),
         }),*]
     };
+    (@source) => { $crate::Source::Unbound };
+    (@source $src:expr) => { $src };
     (@nullable) => { false };
     (@nullable null) => { true };
 }

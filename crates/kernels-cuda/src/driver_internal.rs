@@ -66,17 +66,31 @@ pub static DRIVER_KERNELS: &[KernelSig] = &[
             layer: KvCacheLayerView, dst_page: U32s, dst_off: U32s,
             src_page: U32s, src_off: U32s, n: I32, stream: Stream,
         ]),
-    // The three the LOWERING states without a DSL row, found by
-    // `every_lowered_kernel_has_a_bridge_row` on its first run: the
-    // emitter-chosen pair (a semantic op picks them, so no trace records
-    // a Launch naming them) and the quantized dispatch entry, whose
-    // `WeightView` BY VALUE is the operand the handoff predicted would
-    // be gemm's friction.
-    kernel!(rmsnorm "norm::rmsnorm_bf16",
-        operands = operands![
-            x: Buf, weight: Buf, y: BufMut,
-            num_rows: I32, hidden: I32, eps: F32, stream: Stream,
-        ]),
+    // ── the ones a SEMANTIC op picks ──────────────────────────────
+    //
+    // No trace records a Launch naming these: the statement carries an
+    // `OpKind`, and `lower()` reads the CUDA kernel off it. So the DSL
+    // surface correctly lacks them and they are rows here, which is
+    // what `every_lowered_kernel_has_a_bridge_row` found on its first
+    // run and finds again whenever a semantic kind gains a reading.
+    //
+    // `norm::rmsnorm_bf16` stood here too and has left: the fan-out
+    // pair is stated by `dsl::cuda::rmsnorm` now and its row moved to
+    // `norm.rs`, where a text names it. That is the exit this table
+    // wants for every row in this block — a row leaves when a statement
+    // learns to say it.
+    //
+    // `gemm::act_x_w` also stood here — the quantized dispatch entry,
+    // whose `WeightView` BY VALUE was the operand the handoff predicted
+    // would be gemm's friction. It is gone, and the prediction was
+    // answered rather than paid: the representation axis is FOUR named
+    // rows now (`gemm.rs`'s tensor/channel/grouped/mxfp4 scaled entry
+    // points), each one a symbol a statement chose, so nothing crosses
+    // this ABI carrying a descriptor for the launcher to route on. What
+    // the lowering still spells `gemm::act_x_w` is the DENSE matmul,
+    // and the executor binds it to `gemm::act_x_wt_bf16` — which
+    // `gemm.hpp` defines as `act_x_w` with `WeightView::raw(W, BF16)`,
+    // the one view the dense arm ever built.
     kernel!(embed "layout::embed_bf16",
         operands = operands![
             token_ids: I32s, weight: Buf, y: BufMut,
@@ -86,11 +100,50 @@ pub static DRIVER_KERNELS: &[KernelSig] = &[
         operands = operands![
             out: BufMut, bias: Buf, num_rows: I32, dim: I32, stream: Stream,
         ]),
-    kernel!(act_x_w "gemm::act_x_w",
+    // qwen3_5's four, all read off a semantic kind the same way. They
+    // arrived together because the family's declaration stopped naming
+    // kernels and started naming what it MEANS — `GdnPrep`, `SplitQGate`,
+    // `SigmoidGateMul`, `RmsnormGated` — which is the direction, and
+    // leaves the reading to `lower()`.
+    //
+    // The post-conv prep, fused: q/k split and L2-normalized, v widened
+    // to fp32, and g/beta gated — the three launches that used to sit
+    // between the conv and the recurrent step. Its five fp32 outputs are
+    // exactly the step's first five inputs, which is the shape of it.
+    kernel!(gdn_post_conv_prep "ssm::qwen_gdn_post_conv_prep_bf16",
         operands = operands![
-            handle: CublasHandle, act: Buf, w: WeightView, y: BufMut,
-            m: I32, n: I32, k: I32, beta: F32,
-            act_dtype: DType, y_dtype: DType,
+            qkv_post: Buf, a: Buf, b: Buf, a_log: Buf, dt_bias: Buf,
+            q_norm_kh: F32sMut, k_norm_kh: F32sMut, v_fp32: F32sMut,
+            g_log_out: F32sMut, beta_out: F32sMut,
+            n: I32, k_h: I32, v_h: I32, k_d: I32, v_d: I32, conv_dim: I32,
+            stream: Stream,
+        ]),
+    // Full attention's q_proj packs the query and the per-token output
+    // gate PER HEAD — `[N, heads, 2*head_dim]`, query first — so this is
+    // strided by head, not a halves cut like `split_gate_up`. Three shape
+    // arguments rather than one width, because the stride IS the layout.
+    kernel!(split_q_gate "layout::split_q_gate_bf16",
+        operands = operands![
+            packed: Buf, q_out: BufMut, gate_out: BufMut,
+            n: I32, num_heads: I32, head_dim: I32, stream: Stream,
+        ]),
+    // That gate applied: `a' = a * σ(g)`, IN PLACE on operand 0 — the
+    // header spells `x` "bf16, in-place" in as many words.
+    kernel!(sigmoid_gate_inplace "mlp::sigmoid_gate_inplace_bf16",
+        in_place = &[(0, 0)],
+        operands = operands![
+            x: BufMut, gate: Buf, num_elements: I32, stream: Stream,
+        ]),
+    // The gated norm with an FP32 `x`: the GDN recurrent step lands in
+    // fp32, so this reads it there and the separate conversion launch
+    // goes away. `x` and `weight` hold fp32 and are still `Buf` — the
+    // header spells them `const void*`, and this table describes the
+    // DECLARATION, not the contents. The shim initialises a function
+    // pointer, so the spelling is what has to agree.
+    kernel!(rmsnorm_gated_fp32_in "norm::rmsnorm_gated_fp32_in_bf16",
+        operands = operands![
+            x: Buf, gate: Buf, weight: Buf, y: BufMut,
+            num_rows: I32, hidden: I32, eps: F32, stream: Stream,
         ]),
     // The qwen3_vl vision TOWER, bridged at tower granularity — one row
     // that is a whole subgraph, the flashinfer-dispatch precedent (see
@@ -105,9 +158,9 @@ pub static DRIVER_KERNELS: &[KernelSig] = &[
     kernel!(qwen3vl_tower_scatter "vision::qwen3vl_scatter", whole = true,
         operands = operands![
             patch_w: Buf, patch_b: Buf | null, pos_embed: Buf,
-            block_w: Bufs, depth: I32,
-            merger_w: Bufs,
-            deepstack_w: Bufs, deepstack_layers: I32s,
+            block_w: BufArray, depth: I32,
+            merger_w: BufArray,
+            deepstack_w: BufArray, deepstack_layers: I32s,
             hidden: I32, heads: I32, intermediate: I32, patch_size: I32,
             temporal_patch: I32, merge_size: I32, in_channels: I32,
             out_hidden: I32, num_pos_embed: I32, ln_eps: F32,
@@ -126,7 +179,7 @@ pub static DRIVER_KERNELS: &[KernelSig] = &[
     kernel!(gemma4_vision_encode "vision::gemma4_vision_encode", whole = true,
         operands = operands![
             patch_w: Buf, pos_table: Buf, embed_proj: Buf,
-            layer_w: Bufs, depth: I32,
+            layer_w: BufArray, depth: I32,
             hidden: I32, heads: I32, intermediate: I32,
             pos_table_size: I32, text_hidden: I32, pool_kernel: I32,
             eps: F32, theta: F32,
@@ -140,7 +193,7 @@ pub static DRIVER_KERNELS: &[KernelSig] = &[
             sscp0_conv: Buf, sscp0_norm: Buf, sscp1_conv: Buf,
             sscp1_norm: Buf, sscp_input_proj: Buf,
             output_proj_w: Buf, output_proj_b: Buf, embed_proj: Buf,
-            layer_w: Bufs, depth: I32,
+            layer_w: BufArray, depth: I32,
             hidden: I32, heads: I32, conv_kernel: I32, n_mel: I32,
             sscp_ch0: I32, sscp_ch1: I32, out_proj_dims: I32,
             text_hidden: I32, chunk_size: I32, context_left: I32,

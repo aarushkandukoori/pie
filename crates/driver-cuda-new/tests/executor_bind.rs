@@ -82,6 +82,9 @@ fn qwen35_live_cuda() -> Qwen35CudaFacts {
         moe_streamed_experts: false,
         moe_force_general: false,
         gate_up_fused: true,
+        // Attends the whole context; a BF16 checkpoint.
+        window_left: Vec::new(),
+        proj_repr: model_compiler::dsl::WeightRepr::Bf16,
     }
 }
 
@@ -292,13 +295,46 @@ fn print_the_gemma4_vocabulary() {
 
 /// Every symbol the bridge can dispatch: the DSL tables plus the
 /// driver-internal one.
+/// Lowered symbol → the bridge row the executor actually binds it to.
+///
+/// One entry, and it is the weight-representation axis's leftover. A
+/// DENSE weight is the one representation `MatW::gemm_symbol` declines
+/// to name — there is nothing to choose — so it records the semantic
+/// `OpKind::Matmul`, and the CUDA reading of that semantic is spelled
+/// `gemm::act_x_w`, the header's ROUTING entry point. Every other
+/// representation states its own symbol and lands on its own row.
+///
+/// The routing entry point takes a `WeightView` by value, and that
+/// descriptor deliberately no longer crosses this ABI: a driver that
+/// built one was choosing a kernel from a per-layer struct no statement
+/// mentioned. So the dense arm binds `gemm::act_x_wt_bf16` instead,
+/// which `gemm.hpp` defines as `act_x_w` with `WeightView::raw(W,
+/// BF16)` — the one view that arm ever built, now assembled inside the
+/// launcher.
+///
+/// It is a rename at the ABI, not a missing row, and it disappears the
+/// day the CUDA reading of a dense `Matmul` is the bf16 entry point's
+/// own name.
+const RENAMED_AT_THE_ABI: &[(&str, &str)] = &[("gemm::act_x_w", "gemm::act_x_wt_bf16")];
+
 fn bridged_symbols() -> BTreeSet<&'static str> {
-    kernels_cuda::KERNELS
+    let rows: BTreeSet<&'static str> = kernels_cuda::KERNELS
         .iter()
         .chain(kernels_cuda::driver_internal::DRIVER_KERNELS)
         .filter(|k| !k.operands.is_empty())
         .map(|k| k.symbol)
-        .collect()
+        .collect();
+    let mut reachable = rows.clone();
+    for (lowered, row) in RENAMED_AT_THE_ABI {
+        // The exception buys nothing if its TARGET is imaginary: a
+        // rename is only reachable when the row it renames to is.
+        assert!(
+            rows.contains(row),
+            "`{lowered}` is bound to `{row}`, which has no bridge row"
+        );
+        reachable.insert(lowered);
+    }
+    reachable
 }
 
 #[test]
@@ -435,22 +471,31 @@ fn the_binder_diagnoses_drift_rather_than_addressing_through_it() {
 #[ignore = "enumeration aid, not a claim"]
 fn print_all_deployment_vocabularies() {
     // Each deployment's OWN cuda facts — the emissions fixtures' values.
+    // Dense BF16, single GPU, whole context — the four emission targets'
+    // shared tail. `head_dim_kernel` is the one that is NOT shared: phi3
+    // pads 96 to 128 and says so, and the other three take the 0 that
+    // reads as "the kernel head_dim is the model's".
+    let tail = LlamaLikeCudaFacts {
+        head_dim_kernel: 0,
+        proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+        tp_size: 1,
+        window_left: Vec::new(),
+        all_reduce_p2p_max_rows: 0,
+        xqa_decode: false, decode_fused_post: false, rope_table: true,
+        force_prefill_path: false, head_dim_padded: false, gate_up_fused: true,
+    };
     let deployments: Vec<(&str, LlamaLikeFacts, LlamaLikeCudaFacts)> = vec![
         ("olmo2_1b", LlamaLikeFacts::olmo2_1b(), LlamaLikeCudaFacts {
-            xqa_decode: false, decode_fused_post: true, rope_table: true,
-            force_prefill_path: false, head_dim_padded: false, gate_up_fused: true,
+            decode_fused_post: true, ..tail.clone()
         }),
         ("qwen2_5_1_5b", LlamaLikeFacts::qwen2_5_1_5b(), LlamaLikeCudaFacts {
-            xqa_decode: false, decode_fused_post: false, rope_table: true,
-            force_prefill_path: true, head_dim_padded: false, gate_up_fused: true,
+            force_prefill_path: true, ..tail.clone()
         }),
         ("mistral_7b_v03", LlamaLikeFacts::mistral_7b_v03(), LlamaLikeCudaFacts {
-            xqa_decode: false, decode_fused_post: true, rope_table: true,
-            force_prefill_path: false, head_dim_padded: false, gate_up_fused: true,
+            decode_fused_post: true, ..tail.clone()
         }),
         ("phi3_mini", LlamaLikeFacts::phi3_mini(), LlamaLikeCudaFacts {
-            xqa_decode: false, decode_fused_post: false, rope_table: true,
-            force_prefill_path: false, head_dim_padded: true, gate_up_fused: true,
+            head_dim_padded: true, head_dim_kernel: 128, ..tail.clone()
         }),
     ];
     let bridged = bridged_symbols();

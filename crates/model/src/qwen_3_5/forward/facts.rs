@@ -2,6 +2,7 @@
 //! layer schedule and the CUDA deployment's bindings.
 
 use serde::{Deserialize, Serialize};
+use model_compiler::dsl::WeightRepr;
 use model_compiler::trace::NormVariant;
 
 /// Facts for one qwen3_5_moe-family MoE MLP block — a traced FRAGMENT, not
@@ -420,6 +421,25 @@ pub struct Qwen35CudaFacts {
     /// form outright.
     #[serde(default)]
     pub gate_up_fused: bool,
+    /// How this deployment STORES its linear projections — the weight
+    /// representation axis ([`model_compiler::dsl::WeightRepr`]).
+    ///
+    /// [`LlamaLikeCudaFacts::proj_repr`]'s reasoning applies verbatim,
+    /// and this family had EIGHT of the eighteen `make_weight_view`
+    /// sites the axis removes. Serde-defaulted to dense (append-only
+    /// discipline).
+    #[serde(default)]
+    pub proj_repr: WeightRepr,
+    /// The SLIDING WINDOW each layer attends over, `-1` for none —
+    /// read through [`model_compiler::facts::window_left_at`], which is
+    /// where the shape of this list is documented.
+    ///
+    /// The dispatch statements carry it, so no executor reaches into
+    /// `fwd_cfg.per_layer_window_left` for it. Serde-defaulted, and
+    /// empty reads as "no window", which is what every fixture written
+    /// before this field meant.
+    #[serde(default)]
+    pub window_left: Vec<i32>,
 }
 
 impl Qwen35CudaFacts {
@@ -444,6 +464,8 @@ impl Qwen35CudaFacts {
     /// with a real threshold), which the live-default set would erase.
     pub fn qwen3_5_0_8b_synthetic() -> Self {
         Self {
+            // 0.8B attends the whole context.
+            window_left: Vec::new(),
             state_bf16: true,
             warp_tiled: true,
             warp_tiled_max: 64,
@@ -467,6 +489,9 @@ impl Qwen35CudaFacts {
             // same `dense_fused_projection_joins` contract llama_like's
             // does), so the chunked form is the golden's shape.
             gate_up_fused: true,
+            // Dense, and for the same contract reason: a group the join
+            // packs is a BF16 one.
+            proj_repr: WeightRepr::Bf16,
         }
     }
 }

@@ -4,7 +4,8 @@
 //! [`KernelSig`], `whole`, `needs`, `lacks`, `sink` — are `kernels`'.
 
 use kernels::kernel;
-use kernels::{KernelSig, operands};
+use kernels::operands;
+use kernels::KernelSig;
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
@@ -13,8 +14,13 @@ pub static KERNELS: &[KernelSig] = &[
     // rather than `lm_head` followed by an argmax.
     kernel!(lm_head_gemv_argmax_int8 "sample::lm_head_gemv_argmax_int8",
         operands = operands![
-            hidden_states: Buf, lm_head_weight: I8s, scale_inv: F32s,
-            token_ids: I32sMut, num_rows: I32, hidden: I32, vocab: I32,
+            hidden_states: Buf,
+            lm_head_weight: I8s,
+            scale_inv: F32s,
+            token_ids: I32sMut,
+            num_rows: I32,
+            hidden: I32,
+            vocab: I32,
             stream: Stream,
         ]),
     // The plain `sample::argmax_bf16` is deliberately NOT here, though CSM's

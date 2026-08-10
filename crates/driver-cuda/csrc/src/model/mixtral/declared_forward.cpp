@@ -23,6 +23,10 @@
 #include "moe/topk_softmax.hpp"
 #include "attn/attention_flashinfer.hpp"
 #include "gemm/gemm.hpp"
+#include "model/declared/arms.hpp"
+#include "model/declared/execute.hpp"
+#include "model/declared/registry.hpp"
+#include "model/declared/weights.hpp"
 #include "model/declared/value_arena.hpp"
 
 namespace pie_cuda_driver::model {
@@ -71,46 +75,7 @@ std::size_t host_arena_hi() {
 // that plan: `gpt_oss_validate_stated_kernels` walks it at load and a
 // symbol outside this list is a model-load failure, so this list and
 // `family::gpt_oss_cuda` are two spellings of one vocabulary.
-enum class GoKernel {
-    GemmBias,
-    WriteKvToPages,
-    AttnFlashinferDecode,
-    AttnFlashinferPrefill,
-    AttnSinkRescale,
-    RopeYarnOriginal,
-    TopkSoftmax,
-    Bf16ToFp16,
-    Mxfp4GateUp,
-    Mxfp4Down,
-    GptOssGlu,
-    WeightedSum,
-    ResidualAdd,
-};
 
-GoKernel resolve_go_kernel(std::string_view k) {
-    if (k == "gemm::act_x_wt_bias_bf16") return GoKernel::GemmBias;
-    if (k == "attn::write_kv_to_pages") return GoKernel::WriteKvToPages;
-    if (k == "attn::dispatch_attention_flashinfer_decode")
-        return GoKernel::AttnFlashinferDecode;
-    if (k == "attn::attention_flashinfer_prefill")
-        return GoKernel::AttnFlashinferPrefill;
-    if (k == "attn::attention_sink_rescale_bf16")
-        return GoKernel::AttnSinkRescale;
-    if (k == "rope::rope_yarn_original_bf16") return GoKernel::RopeYarnOriginal;
-    if (k == "moe::topk_softmax_bf16") return GoKernel::TopkSoftmax;
-    if (k == "quant::bf16_to_fp16") return GoKernel::Bf16ToFp16;
-    if (k == "quant::mxfp4_moe_gate_up_decode_bf16")
-        return GoKernel::Mxfp4GateUp;
-    if (k == "quant::mxfp4_moe_down_decode_bf16") return GoKernel::Mxfp4Down;
-    if (k == "mlp::gpt_oss_glu_bf16") return GoKernel::GptOssGlu;
-    if (k == "moe::token_batched_weighted_sum_bf16")
-        return GoKernel::WeightedSum;
-    if (k == "norm::residual_add_bf16") return GoKernel::ResidualAdd;
-    throw std::runtime_error(
-        "declared gptoss: stated kernel '" + std::string(k) +
-        "' is not in this executor's registry (the trace and the driver "
-        "drifted)");
-}
 
 [[noreturn]] void throw_drift(const std::string& what) {
     throw std::runtime_error("declared gptoss: " + what +
@@ -140,8 +105,15 @@ ParsedName parse_name(std::string_view name) {
     return {layer, name.substr(dot + 1)};
 }
 
-const DeviceTensor* bind(const MixtralWeights& w, std::string_view name) {
-    const ParsedName nm = parse_name(name);
+// This family's half of `declared::WeightBinder`: a traced name against
+// MixtralWeights. The signature is the binder's -- a plain function
+// pointer plus context -- so no arm that goes through it names a struct
+// field, which is what lets an arm be shared with a family whose field
+// is spelled differently.
+const DeviceTensor* bind_gpt_oss_weight(
+    const void* ctx, const declared::ParsedWeightName& nm,
+    std::string_view name) {
+    const auto& w = *static_cast<const MixtralWeights*>(ctx);
     if (nm.layer < 0) {
         if (nm.field == "embed") return w.embed;
         if (nm.field == "final_norm") return w.final_norm;
@@ -171,15 +143,6 @@ const DeviceTensor* bind(const MixtralWeights& w, std::string_view name) {
     throw_drift("unknown layer weight '" + std::string(name) + "'");
 }
 
-const DeviceTensor& require(const MixtralWeights& w, std::string_view name) {
-    const DeviceTensor* t = bind(w, name);
-    if (t == nullptr) {
-        throw std::runtime_error("declared gptoss: weight '" +
-                                 std::string(name) +
-                                 "' is named by the trace but not bound");
-    }
-    return *t;
-}
 
 }  // namespace
 
@@ -198,7 +161,8 @@ std::string gpt_oss_validate_stated_weights(
             return true;
         }
         try {
-            return bind(w, name) != nullptr;
+            return declared::WeightBinder{&bind_gpt_oss_weight, &w}
+                       .find(name) != nullptr;
         } catch (const std::exception&) {
             return false;
         }
@@ -236,7 +200,7 @@ void gpt_oss_validate_stated_kernels(const pie_forward::ForwardPlan& plan) {
     for (std::size_t i = 0; i < n; ++i) {
         const auto& op = plan.op(i);
         if (op.kind != pie_forward::PieForwardOpKind::Launch) continue;
-        (void)resolve_go_kernel(plan.weight_name(op));
+        (void)declared::resolve_kernel(plan.weight_name(op));
     }
 }
 
@@ -280,6 +244,9 @@ bool gpt_oss_forward_declared(
     const int R = num_requests;
     const int H = cfg.hidden_size;
     const int I = cfg.intermediate_size;
+    // Every weight an arm reads goes through the binder: the arms name
+    // what the TRACE names, never a struct field.
+    const declared::WeightBinder wb{&bind_gpt_oss_weight, &w};
     const int V = cfg.vocab_size;
     const int d = cfg.head_dim;
     const int Hq = cfg.num_attention_heads * d;
@@ -340,14 +307,6 @@ bool gpt_oss_forward_declared(
     int cur_layer = -1;
     const auto enter = [&](int l) {
         if (l >= 0) cur_layer = l;
-    };
-    // The layer's attention window: a scalar argument, not a kernel, so
-    // the declaration never states it and the executor reads it where
-    // the hand pass does.
-    const auto window_of = [&](int l) {
-        return (l < static_cast<int>(fwd_cfg.per_layer_window_left.size()))
-                   ? fwd_cfg.per_layer_window_left[static_cast<std::size_t>(l)]
-                   : fwd_cfg.sliding_window;
     };
 
     // THE ROWS, and the lowering they key. Both moved ahead of the arms:
@@ -420,12 +379,10 @@ bool gpt_oss_forward_declared(
             case PieForwardOpKind::Embed:
                 place(0, ws.y.data());
                 break;
-            case PieForwardOpKind::Rmsnorm: {
-                const ParsedName nm = parse_name(plan.weight_name(op));
-                place(0, nm.field == "mlp_norm" ? ws.norm_y.data()
-                                                : ws.norm_x.data());
+            case PieForwardOpKind::Rmsnorm:
+                // The row norms are `Launch` now; their entry moved to
+                // the Launch case below with the statement.
                 break;
-            }
             case PieForwardOpKind::Matmul:
             case PieForwardOpKind::AddBias:
                 place(0, ws.y.data());
@@ -439,8 +396,19 @@ bool gpt_oss_forward_declared(
                 break;
             case PieForwardOpKind::Launch: {
                 const auto names = plan.aux_names(op);
-                switch (resolve_go_kernel(plan.weight_name(op))) {
-                case GoKernel::GemmBias: {
+                switch (declared::resolve_kernel(plan.weight_name(op))) {
+                case declared::Kernel::RmsnormRow:
+                case declared::Kernel::RmsnormRowGemma: {
+                    // The MLP norm's result is read TWICE by the MoE
+                    // block (router input and cast input), which is why
+                    // it had a convention worth recording; the
+                    // attention norm's is the projections'.
+                    const ParsedName nm = parse_name(plan.name(names[0]));
+                    place(0, nm.field == "mlp_norm" ? ws.norm_y.data()
+                                                    : ws.norm_x.data());
+                    break;
+                }
+                case declared::Kernel::GemmBias: {
                     const ParsedName nm = parse_name(plan.name(names[0]));
                     if (nm.field == "q_proj")      place(0, ws.q.data());
                     else if (nm.field == "k_proj") place(0, ws.k.data());
@@ -450,23 +418,23 @@ bool gpt_oss_forward_declared(
                                      std::string(plan.name(names[0])) + "'");
                     break;
                 }
-                case GoKernel::AttnFlashinferDecode:
-                case GoKernel::AttnFlashinferPrefill:
+                case declared::Kernel::AttnFlashinferDecode:
+                case declared::Kernel::AttnFlashinferPrefillPlanless:
                     place(0, ws.attn_out.data());
                     place(1, d_lse.data());
                     break;
-                case GoKernel::AttnSinkRescale:
+                case declared::Kernel::AttnSinkRescale:
                     place(0, ws.attn_out.data());
                     break;
-                case GoKernel::RopeYarnOriginal:
+                case declared::Kernel::RopeYarnOriginal:
                     place(0, ws.q.data());
                     place(1, ws.k.data());
                     break;
-                case GoKernel::TopkSoftmax:
+                case declared::Kernel::TopkSoftmax:
                     place(0, d_topk_idx.data());
                     place(1, d_topk_w.data());
                     break;
-                case GoKernel::Bf16ToFp16:
+                case declared::Kernel::Bf16ToFp16:
                     // The rank test the arm no longer needs, kept HERE
                     // because a pin table is exactly the place a
                     // convention's per-site choice belongs.
@@ -474,23 +442,23 @@ bool gpt_oss_forward_declared(
                                  ? d_act_fp16.data()
                                  : d_route_act_fp16.data());
                     break;
-                case GoKernel::Mxfp4GateUp:
+                case declared::Kernel::Mxfp4GateUp:
                     place(0, d_route_gate.data());
                     place(1, d_route_up.data());
                     break;
-                case GoKernel::GptOssGlu:
+                case declared::Kernel::GptOssGlu:
                     place(0, d_route_gate.data());
                     break;
-                case GoKernel::Mxfp4Down:
+                case declared::Kernel::Mxfp4Down:
                     place(0, d_route_out.data());
                     break;
-                case GoKernel::WeightedSum:
+                case declared::Kernel::WeightedSum:
                     place(0, d_moe_out.data());
                     break;
-                case GoKernel::ResidualAdd:
+                case declared::Kernel::ResidualAdd:
                     place(0, ws.y.data());
                     break;
-                case GoKernel::WriteKvToPages:
+                case declared::Kernel::WriteKvToPages:
                     break;  // writes the cache, not a value
                 }
                 break;
@@ -539,33 +507,19 @@ bool gpt_oss_forward_declared(
             // else the site named is the trace's.
             const auto outs = plan.outputs(op);
             need(outs, 1, "embed outputs");
-            kernels::layout::embed_bf16(
-                token_ids, require(w, plan.weight_name(op)).data(),
-                values.slot(outs[0]), N, row_width(outs[0]), V, stream);
+            declared::arm_embed({plan, values, N, 0, stream}, op,
+                                token_ids, wb.require(plan.weight_name(op)).data(), V);
             break;
         }
-        case PieForwardOpKind::Rmsnorm: {
-            // ISLAND (value arena). Three sites that chose between two
-            // scratch slots by weight NAME -- `attn_norm` to `norm_x`,
-            // `mlp_norm` to `norm_y`, `final_norm` to `norm_x` again --
-            // and the choice was never anything but which value the
-            // statement produces. The MoE block reading `norm_y` twice
-            // was the same fact: two readers of one value.
-            //
-            // The `throw_drift` on an unrecognised field goes with them.
-            // It fired when the DECLARATION named a norm this arm had no
-            // slot for, and there is no slot left to lack; a weight that
-            // does not exist still fails, in `require`.
-            const std::string_view name = plan.weight_name(op);
-            const auto ins = plan.inputs(op);
-            const auto outs = plan.outputs(op);
-            need(ins, 1, "rmsnorm inputs");
-            need(outs, 1, "rmsnorm outputs");
-            kernels::norm::rmsnorm_bf16(
-                values.slot(ins[0]), require(w, name).data(),
-                values.slot(outs[0]), N, row_width(ins[0]), eps, stream);
-            break;
-        }
+        case PieForwardOpKind::Rmsnorm:
+            // RUNG 5: the semantic cascade is deleted -- a class
+            // trace states which FOLD it runs (`cuda::rmsnorm`),
+            // so this kind reaching the walk means the trace and
+            // this executor drifted. Choosing here from a param
+            // is what the statement now says instead.
+            throw_drift("semantic Rmsnorm in a class trace "
+                    "(the declaration states the fold)");
+
         case PieForwardOpKind::Matmul: {
             // ISLAND (value arena). `beta=1` is the whole of what this
             // arm was for: o_proj folds the residual, and the fold is
@@ -584,7 +538,7 @@ bool gpt_oss_forward_declared(
             need(outs, 1, "matmul outputs");
             kernels::gemm::act_x_wt_bf16(
                 cublas.handle(), values.slot(ins[0]),
-                require(w, name).data(), values.slot(outs[0]), N,
+                wb.require(name).data(), values.slot(outs[0]), N,
                 row_width(outs[0]), row_width(ins[0]),
                 /*beta=*/op.param0 != 0 ? 1.f : 0.f);
             break;
@@ -597,7 +551,7 @@ bool gpt_oss_forward_declared(
             const auto outs = plan.outputs(op);
             need(outs, 1, "add_bias outputs");
             kernels::norm::add_bias_bf16(
-                values.slot(outs[0]), require(w, name).data(), N,
+                values.slot(outs[0]), wb.require(name).data(), N,
                 row_width(outs[0]), stream);
             break;
         }
@@ -621,28 +575,16 @@ bool gpt_oss_forward_declared(
             const auto outs = plan.outputs(op);
             need(ins, 1, "lm_head inputs");
             need(outs, 1, "lm_head outputs");
-            const void* input = values.slot(ins[0]);
+            // SHARED ARM (D1): the compaction is identical in three
+            // executors; only the head weight's resolution is not.
             int rows = N;
-            if (logit_row_indices_d != nullptr && num_logit_rows > 0 &&
-                num_logit_rows < N) {
-                // The gather's DESTINATION stays named, and for the
-                // reason gemma-4's does: the epilogue is one statement
-                // lowering to three rectangles, so the row-gathered
-                // activation between them is a driver scratch with no
-                // traced id to ask for. `ws.norm_y` is that scratch
-                // until `Lowerer::epilogue` states the gather.
-                kernels::layout::gather_bf16_rows(
-                    static_cast<const std::uint16_t*>(input),
-                    logit_row_indices_d,
-                    static_cast<std::uint16_t*>(ws.norm_y.data()),
-                    num_logit_rows, row_width(ins[0]), stream);
-                input = ws.norm_y.data();
-                rows = num_logit_rows;
-            }
+            const void* const input = declared::arm_epilogue_gather(
+                {plan, values, N, 0, stream}, op, values.epilogue_gather(flat),
+                logit_row_indices_d, num_logit_rows, &rows);
             lm_head_rows = rows;
             (void)lm_head_rows;
             kernels::gemm::act_x_wt_bf16(
-                cublas.handle(), input, require(w, name).data(),
+                cublas.handle(), input, wb.require(name).data(),
                 values.slot(outs[0]), rows, row_width(outs[0]),
                 row_width(ins[0]), /*beta=*/0.f);
             break;
@@ -653,8 +595,28 @@ bool gpt_oss_forward_declared(
             const auto aux = [&](std::size_t i) { return plan.name(names[i]); };
             const MixtralLayerWeights& layer =
                 w.layers[static_cast<std::size_t>(cur_layer)];
-            switch (resolve_go_kernel(sym)) {
-            case GoKernel::GemmBias: {
+            // THE SHARED SWITCH FIRST (D1). Every symbol whose arm is
+            // family-blind lives in `declared/execute.hpp`; what remains
+            // below is this family's RESIDUE. A `false` is an answer --
+            // "stated, and this family executes it its own way".
+            const declared::ExecCtx ectx{
+                {plan, values, N, 0, stream},
+                wb, cache, attn_ws, cublas, fwd_cfg.tp_comm,
+                /*state_cache=*/nullptr,
+                positions, qo_indptr, kv_page_indices, kv_page_indptr,
+                kv_last_page_lens, row_valid_d,
+                qo_indptr_h, kv_page_indptr_h,
+                nullptr, nullptr, R,
+                nullptr, false,
+                eps, /*sm_scale=*/-1.f, d_lse.data(),
+                cfg.rope_theta,
+                cfg.num_attention_heads, cfg.num_key_value_heads, d, d,
+                cur_layer,
+            };
+            if (declared::execute_shared(ectx, op)) break;
+            switch (declared::resolve_kernel(sym)) {
+            case declared::Kernel::RmsnormRow:
+            case declared::Kernel::GemmBias: {
                 // ISLAND (value arena). Four sites told apart by the
                 // projection they name, and every branch chose a buffer
                 // pair and a column count the trace already states: q/k/v
@@ -674,71 +636,27 @@ bool gpt_oss_forward_declared(
                 need(outs, 1, "biased projection outputs");
                 kernels::gemm::act_x_wt_bias_bf16(
                     cublas.handle(), values.slot(ins[0]),
-                    require(w, proj).data(), require(w, aux(1)).data(),
+                    wb.require(proj).data(), wb.require(aux(1)).data(),
                     values.slot(outs[0]), N, row_width(outs[0]),
                     row_width(ins[0]), stream);
                 break;
             }
-            case GoKernel::WriteKvToPages: {
-                // ISLAND (value arena). k and v are the statement's two
-                // operands; the pages are the SINK and stay the cache's.
-                const auto ins = plan.inputs(op);
-                need(ins, 2, "write_kv inputs");
-                auto kv_view = cache.layer_view(cur_layer);
-                kernels::attn::write_kv_to_pages(
-                    kv_view, values.slot(ins[0]), values.slot(ins[1]),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, N, R, stream, row_valid_d);
+            case declared::Kernel::AttnFlashinferDecode: {
+                // SHARED ARM. The plan is this family's -- one decode
+                // plan for the fire -- and the call is not.
+                //
+                // The LSE is the second OUTPUT where the sink layers
+                // ask for it, and `d_lse` where they do not: gpt-oss is
+                // the only family that asks, and it asks by stating two
+                // results.
+                declared::arm_attention_decode(
+                    {plan, values, N, 0, stream}, op, *decode_plan,
+                    cache.layer_view(cur_layer), kv_page_indices,
+                    kv_page_indptr, kv_last_page_lens, attn_ws.view(),
+                    declared::stated_window_left(plan, op),
+                    /*sm_scale=*/-1.f, d_lse.data());
                 break;
-            }
-            case GoKernel::AttnFlashinferPrefill: {
-                auto kv_view = cache.layer_view(cur_layer);
-                // The plan-free wrapper, and it takes the LSE in the same
-                // last slot the decode dispatch does.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "prefill attention inputs");
-                need(outs, 1, "prefill attention outputs");
-                // The LSE is the dispatch's SECOND output, and gpt-oss's
-                // sink layers state it -- `attention_flashinfer_*_lse`
-                // returns the pair. A layer that states one output has
-                // no sink to rescale against, and `d_lse` catches it.
-                float* lse = outs.size >= 2
-                                 ? static_cast<float*>(values.slot(outs[1]))
-                                 : d_lse.data();
-                kernels::attn::attention_flashinfer_prefill(
-                    values.slot(ins[0]), kv_view, values.slot(outs[0]),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, qo_indptr_h, kv_page_indptr_h,
-                    N, R, cfg.num_attention_heads, attn_ws.view(), stream,
-                    /*window_left=*/window_of(cur_layer),
-                    /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
-                    lse);
-                break;
-            }
-            case GoKernel::AttnFlashinferDecode: {
-                auto kv_view = cache.layer_view(cur_layer);
-                // The LSE is the second OUTPUT, and asking for it is the
-                // whole difference between this call and the one every
-                // other family makes.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "decode attention inputs");
-                need(outs, 1, "decode attention outputs");
-                float* lse = outs.size >= 2
-                                 ? static_cast<float*>(values.slot(outs[1]))
-                                 : d_lse.data();
-                kernels::attn::dispatch_attention_flashinfer_decode(
-                    *decode_plan, values.slot(ins[0]), kv_view,
-                    values.slot(outs[0]),
-                    kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws.view(), stream,
-                    /*window_left=*/window_of(cur_layer),
-                    /*logits_soft_cap=*/0.f, /*sm_scale=*/-1.f,
-                    lse);
-                break;
-            }
-            case GoKernel::AttnSinkRescale: {
+            }            case declared::Kernel::AttnSinkRescale: {
                 // ISLAND (value arena). Rescales the attention output
                 // in place -- now stated, so `outs[0]` and `ins[0]` are
                 // one buffer -- against the LSE, which is input 1 and
@@ -751,11 +669,11 @@ bool gpt_oss_forward_declared(
                 kernels::attn::attention_sink_rescale_bf16(
                     values.slot(outs[0]),
                     static_cast<const float*>(values.slot(ins[1])),
-                    require(w, aux(0)).data(), N, cfg.num_attention_heads, d,
+                    wb.require(aux(0)).data(), N, cfg.num_attention_heads, d,
                     stream);
                 break;
             }
-            case GoKernel::RopeYarnOriginal: {
+            case declared::Kernel::RopeYarnOriginal: {
                 // ISLAND (value arena). Argument for argument the hand
                 // pass's `apply_rope` arm; the yarn params come off the
                 // shared cfg, which had resolved them all along, and the
@@ -771,39 +689,7 @@ bool gpt_oss_forward_declared(
                     fwd_cfg.yarn_original_max_position, stream);
                 break;
             }
-            case GoKernel::TopkSoftmax: {
-                // ISLAND (value arena). Both results are traced -- the
-                // expert ids and their weights -- so the two `d_topk_*`
-                // buffers are the arena's now.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "topk inputs");
-                need(outs, 2, "topk outputs");
-                kernels::moe::topk_softmax_bf16(
-                    values.slot(ins[0]),
-                    static_cast<std::int32_t*>(values.slot(outs[0])),
-                    static_cast<float*>(values.slot(outs[1])),
-                    N, row_width(ins[0]), top_k, stream);
-                break;
-            }
-            case GoKernel::Bf16ToFp16: {
-                // ISLAND (value arena), and the one that pays best. TWO
-                // sites over different extents, told apart here by the
-                // op's OUTPUT RANK -- 2 for the block input, 3 for the
-                // post-activation routes -- because the arm had to pick
-                // a buffer pair and an element count per site. It picks
-                // neither now: both are the statement's, so the sites
-                // stop being distinguishable and stop needing to be.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "cast inputs");
-                need(outs, 1, "cast outputs");
-                kernels::quant::bf16_to_fp16(
-                    values.slot(ins[0]), values.slot(outs[0]),
-                    declared::value_elements(plan, outs[0], N, R), stream);
-                break;
-            }
-            case GoKernel::Mxfp4GateUp: {
+            case declared::Kernel::Mxfp4GateUp: {
                 // ISLAND (value arena). The expert BANKS stay reached
                 // through `w.layers`: they are per-expert pointer arrays
                 // and not tensors, which is the same reason `bind`
@@ -823,7 +709,7 @@ bool gpt_oss_forward_declared(
                     N, top_k, H, I, stream);
                 break;
             }
-            case GoKernel::GptOssGlu: {
+            case declared::Kernel::GptOssGlu: {
                 // ISLAND (value arena). `gate = glu(gate, up)`, which is
                 // why the pointer appeared twice; the alias is stated
                 // now, so `outs[0]` IS `ins[0]`.
@@ -839,7 +725,7 @@ bool gpt_oss_forward_declared(
                     stream, /*limit=*/cfg.swiglu_limit);
                 break;
             }
-            case GoKernel::Mxfp4Down: {
+            case declared::Kernel::Mxfp4Down: {
                 // ISLAND (value arena).
                 const auto ins = plan.inputs(op);
                 const auto outs = plan.outputs(op);
@@ -852,40 +738,6 @@ bool gpt_oss_forward_declared(
                     layer.expert_down_scale_ptrs.data(),
                     layer.expert_down_bias_ptrs.data(),
                     values.slot(outs[0]), N, top_k, H, I, stream);
-                break;
-            }
-            case GoKernel::WeightedSum: {
-                // ISLAND (value arena). `dsl::cuda::weighted_sum` is
-                // spelled `(weights, x)` and RECORDS `[x, weights]` --
-                // the builder's order, not the caller's. Three of these
-                // statements invert that way (both MXFP4 legs put the
-                // expert ids first), which is exactly why an arm reads
-                // operands by POSITION off the plan and never off the
-                // signature it remembers.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 2, "weighted sum inputs");
-                need(outs, 1, "weighted sum outputs");
-                kernels::moe::token_batched_weighted_sum_bf16(
-                    values.slot(outs[0]), values.slot(ins[0]),
-                    static_cast<const float*>(values.slot(ins[1])),
-                    N, top_k, H, stream);
-                break;
-            }
-            case GoKernel::ResidualAdd: {
-                // ISLAND (value arena). `residual_add(x, residual)`
-                // lands on x -- input 0, which the `kernel!` row aliases
-                // output 0 over -- so the stream is operand 0 and the
-                // MoE output is operand 1. gpt-oss stated those the
-                // other way round until this conversion asked; see the
-                // note at its `residual_add` call.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 2, "residual add inputs");
-                need(outs, 1, "residual add outputs");
-                kernels::norm::residual_add_bf16(
-                    values.slot(outs[0]), values.slot(ins[1]),
-                    N * row_width(outs[0]), stream);
                 break;
             }
             }

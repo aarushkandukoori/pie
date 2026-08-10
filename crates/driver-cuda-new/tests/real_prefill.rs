@@ -433,7 +433,16 @@ fn cuda_facts(
         rope_table: true,
         force_prefill_path: force_prefill,
         head_dim_padded: padded,
+        // The only caller that pads is phi3, whose 96 rounds to 128 — and
+        // the two facts have to agree, which is why this reads off the
+        // flag rather than taking a parameter of its own.
+        head_dim_kernel: if padded { 128 } else { 0 },
         gate_up_fused: true,
+        // Dense BF16, one GPU, whole context.
+        proj_repr: model_compiler::dsl::WeightRepr::Bf16,
+        tp_size: 1,
+        window_left: Vec::new(),
+        all_reduce_p2p_max_rows: 0,
     }
 }
 

@@ -65,9 +65,15 @@ mod bridge {
     /// they have to compile TOGETHER.
     fn includes() -> Vec<String> {
         let mut out = Vec::new();
+        // `comm` joined when the fused all-reduce landing got a row. It is
+        // the one directory no per-family `launch_abi` case covers, so
+        // nothing proved its headers alone and the shim was the first
+        // thing to ask for them — which is the failure mode the doc above
+        // describes: a family's set compiling alone is not the shim
+        // compiling, and here there was no alone-case either.
         for dir in [
             "attn", "rope", "norm", "mlp", "gemm", "moe", "ssm", "quant", "layout", "sample",
-            "vision",
+            "vision", "comm",
         ] {
             let mut hs: Vec<String> = std::fs::read_dir(csrc_src().join(dir))
                 .unwrap_or_else(|e| panic!("csrc/src/{dir}: {e}"))

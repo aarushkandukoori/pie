@@ -6,8 +6,8 @@ use self::facts::{
     GptOssCudaFacts, GptOssFacts,
 };
 use model_compiler::dsl::{
-    self, matmul,
-    rmsnorm, MatW, NormW, Val,
+    WeightRepr,
+    self, matmul, MatW, NormW, Val,
 };
 use model_compiler::trace::{
     FireClass, ForwardPlan, NormVariant, RopeKind,
@@ -45,6 +45,7 @@ impl GptOssLayerW {
             name: w(name),
             width,
             layer: Some(l),
+            repr: WeightRepr::Bf16,
         };
         let d = f.head_dim;
         Self {
@@ -141,9 +142,14 @@ pub fn gpt_oss_cuda(
         let mut y = dsl::embed_with(t, "embed", hidden);
 
         for l in 0..facts.layers {
+            // THIS LAYER's sliding window, `-1` for none — a
+            // load-time fact the dispatch statements carry, where four
+            // executors used to re-derive it per launch.
+            let window_left =
+                model_compiler::facts::window_left_at(&cuda.window_left, l);
             let w = GptOssLayerW::new(l, facts);
             let kv = dsl::Kv::at(t, l);
-            let normed = rmsnorm(&y, &w.attn_norm);
+            let normed = dsl::cuda::rmsnorm(&y, &w.attn_norm);
 
             // The q/k/v biases FOLD INTO the projection's epilogue
             // (`kernels::gemm::act_x_wt_bias_bf16`): at decode these route to the
@@ -214,8 +220,8 @@ pub fn gpt_oss_cuda(
                 dsl::cuda::attention_sink_rescale(&o, &lse, &w.sinks)
             } else {
                 match class {
-                    FireClass::Decode => dsl::cuda::attention_flashinfer_decode(&q, &kv),
-                    _ => dsl::cuda::attention_flashinfer_prefill_planless(&q, &kv),
+                    FireClass::Decode => dsl::cuda::attention_flashinfer_decode(&q, &kv, window_left),
+                    _ => dsl::cuda::attention_flashinfer_prefill_planless(&q, &kv, window_left),
                 }
                 .expect("the class states its attention")
             };
@@ -235,7 +241,7 @@ pub fn gpt_oss_cuda(
             }
 
             // ── The MoE block ───────────────────────────────────────
-            let mlp_in = rmsnorm(&y, &w.mlp_norm);
+            let mlp_in = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
             let logits = proj(&mlp_in, &w.router, &w.router_bias);
             let (experts, weights) = dsl::cuda::topk(&logits, facts.top_k);
 
@@ -282,7 +288,7 @@ pub fn gpt_oss_cuda(
             y = dsl::cuda::residual_add(&y, &combined, hidden);
         }
 
-        let normed = rmsnorm(
+        let normed = dsl::cuda::rmsnorm(
             &y,
             &NormW {
                 name: "final_norm".into(),

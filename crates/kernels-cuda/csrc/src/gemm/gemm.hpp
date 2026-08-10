@@ -116,6 +116,112 @@ void act_x_w(
     DType act_dtype = DType::BF16,
     DType y_dtype = DType::BF16);
 
+// ── the WEIGHT REPRESENTATION axis ────────────────────────────────────
+//
+// One entry point per way a weight can be stored. `act_x_w` above still
+// ROUTES on the `WeightView` it is handed; these four are how a
+// DECLARATION names one of its routes, so that the routing happens at
+// trace time (`MatW::gemm_symbol`) rather than inside a driver reading a
+// descriptor the statement never mentioned.
+//
+// They take the scale — and the zero-point, where the checkpoint carries
+// one — as ARGUMENTS. That is the whole difference from the old shape:
+// `make_weight_view(w, layer.q_proj_quant)` reached into a per-layer
+// struct to find out what kind of weight this was, and every defect this
+// arc's ledger holds had that shape. Here the caller was TOLD, by name,
+// which tensors to bind (`MatW::scale_names`).
+//
+// The layout numbers that remain (`group_size`, `channel_axis`) are not
+// choices: the symbol already fixed the layout, and these say how wide
+// its blocks are, which is a fact about the tensor's shape.
+
+// Per-tensor scale: one scalar for the whole weight.
+inline void act_x_wt_tensor_scaled(
+    cublasHandle_t handle,
+    const void* act,
+    const void* W, DType w_dtype, std::size_t w_nbytes,
+    const void* scale, DType scale_dtype, std::size_t scale_numel,
+    const void* zero_point,
+    void* y, int M, int N, int K, float beta = 0.f)
+{
+    WeightView v;
+    v.data = W;
+    v.dtype = w_dtype;
+    v.nbytes = w_nbytes;
+    v.scale_data = scale;
+    v.scale_dtype = scale_dtype;
+    v.scale_numel = scale_numel;
+    v.quant_kind = QuantMeta::Kind::PerTensor;
+    v.zero_point_data = zero_point;
+    act_x_w(handle, act, v, y, M, N, K, beta);
+}
+
+// Per-channel scale: one scalar per row (or column) of `channel_axis`.
+inline void act_x_wt_channel_scaled(
+    cublasHandle_t handle,
+    const void* act,
+    const void* W, DType w_dtype, std::size_t w_nbytes,
+    const void* scale, DType scale_dtype, std::size_t scale_numel,
+    const void* zero_point, int channel_axis,
+    void* y, int M, int N, int K, float beta = 0.f)
+{
+    WeightView v;
+    v.data = W;
+    v.dtype = w_dtype;
+    v.nbytes = w_nbytes;
+    v.scale_data = scale;
+    v.scale_dtype = scale_dtype;
+    v.scale_numel = scale_numel;
+    v.quant_kind = QuantMeta::Kind::PerChannel;
+    v.zero_point_data = zero_point;
+    v.channel_axis = channel_axis;
+    act_x_w(handle, act, v, y, M, N, K, beta);
+}
+
+// Per-group scale: one scalar per `group_size` elements along K.
+inline void act_x_wt_grouped_scaled(
+    cublasHandle_t handle,
+    const void* act,
+    const void* W, DType w_dtype, std::size_t w_nbytes,
+    const void* scale, DType scale_dtype, std::size_t scale_numel,
+    const void* zero_point, int group_size,
+    void* y, int M, int N, int K, float beta = 0.f)
+{
+    WeightView v;
+    v.data = W;
+    v.dtype = w_dtype;
+    v.nbytes = w_nbytes;
+    v.scale_data = scale;
+    v.scale_dtype = scale_dtype;
+    v.scale_numel = scale_numel;
+    v.quant_kind = QuantMeta::Kind::PerGroup;
+    v.zero_point_data = zero_point;
+    v.group_size = group_size;
+    act_x_w(handle, act, v, y, M, N, K, beta);
+}
+
+// MXFP4 with E8M0 block scales — gpt-oss's expert banks. Its group size
+// and scale dtype are properties of the format, not of the checkpoint,
+// which is why this one takes neither.
+inline void act_x_wt_mxfp4_marlin(
+    cublasHandle_t handle,
+    const void* act,
+    const void* W, std::size_t w_nbytes,
+    const void* scale, std::size_t scale_numel,
+    void* y, int M, int N, int K, float beta = 0.f)
+{
+    WeightView v;
+    v.data = W;
+    v.dtype = DType::MXFP4_PACKED;
+    v.nbytes = w_nbytes;
+    v.scale_data = scale;
+    v.scale_dtype = DType::UINT8;
+    v.scale_numel = scale_numel;
+    v.quant_kind = QuantMeta::Kind::PerGroup;
+    v.group_size = 32;
+    act_x_w(handle, act, v, y, M, N, K, beta);
+}
+
 // Streams the LM head GEMM one vocabulary slab at a time, reducing each slab
 // to a running argmax before the next overwrites it, so the [M, N] logits
 // tensor is never materialised.

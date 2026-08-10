@@ -17,11 +17,12 @@
 //! `kernels::check_plan` refuses any `OpKind::Launch` symbol no row declares,
 //! so a kernel cannot be stated by a model text without its contract.
 
-pub use kernels::{Cap, KernelSig, Prepare, Ret};
+pub use kernels::{Cap, KernelSig, Prepare};
 
 pub mod abi;
 pub mod adapter;
 pub mod attn;
+pub mod driver_internal;
 pub mod gemm;
 pub mod layout;
 pub mod mlp;
@@ -29,9 +30,6 @@ pub mod moe;
 pub mod norm;
 pub mod quant;
 pub mod rope;
-/// The launchers the driver fires OUTSIDE the DSL surface — see the module
-/// doc for why they are not rows of [`KERNELS`].
-pub mod driver_internal;
 pub mod sample;
 pub mod ssm;
 
@@ -86,7 +84,8 @@ const fn total() -> usize {
 const EMPTY: KernelSig = KernelSig {
     name: "", symbol: "", whole: false, needs: Prepare::None,
     lacks: &[], sink: None, in_place: &[], depth_prefix_plan: false,
-    operands: &[], ret: Ret::Void, axes: &[],
+    operands: &[],
+    returns: "", axes: &[],
 };
 
 const fn copy_sig(k: &KernelSig) -> KernelSig {
@@ -94,6 +93,6 @@ const fn copy_sig(k: &KernelSig) -> KernelSig {
         name: k.name, symbol: k.symbol, whole: k.whole, needs: k.needs,
         lacks: k.lacks, sink: k.sink, in_place: k.in_place,
         depth_prefix_plan: k.depth_prefix_plan,
-        operands: k.operands, ret: k.ret, axes: k.axes,
+        operands: k.operands, returns: k.returns, axes: k.axes,
     }
 }

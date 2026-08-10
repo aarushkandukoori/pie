@@ -29,6 +29,7 @@
 
 use super::facts::{LlamaLikeCudaFacts, LlamaLikeFacts, NormPlacement, QkNorm};
 use super::llama_like_cuda;
+use model_compiler::dsl::{ScaleLayout, WeightRepr};
 use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, OpKind, RopeKind};
 
 /// The digest naming what a generated TU was emitted FROM. The driver
@@ -39,7 +40,7 @@ use model_compiler::trace::{FireClass, ForwardPlan, NormVariant, OpKind, RopeKin
 /// the live parity gate is what holds them together.
 pub fn facts_digest(facts: &LlamaLikeFacts, cuda: &LlamaLikeCudaFacts) -> String {
     format!(
-        "llama_like/h{}/l{}/qh{}/kvh{}/hd{}/i{}/v{}/rope{}/nv{}/np{}/qk{}/fq{}/te{}/qb{}/xqa{}/dfp{}/rt{}/fpp{}/pad{}",
+        "llama_like/h{}/l{}/qh{}/kvh{}/hd{}/i{}/v{}/rope{}/nv{}/np{}/qk{}/fq{}/te{}/qb{}/xqa{}/dfp{}/rt{}/fpp{}/pad{}/pr{}/hdk{}/tp{}/wl{}",
         facts.hidden,
         facts.layers,
         facts.q_heads,
@@ -72,6 +73,36 @@ pub fn facts_digest(facts: &LlamaLikeFacts, cuda: &LlamaLikeCudaFacts) -> String
         u8::from(cuda.rope_table),
         u8::from(cuda.force_prefill_path),
         u8::from(cuda.head_dim_padded),
+        // The WEIGHT REPRESENTATION, so a generated TU emitted against a
+        // BF16 deployment cannot run on a quantized one -- the body is
+        // different (a scaled projection states a launcher and names
+        // scale tensors), so the digest has to say so.
+        //
+        // The PAYLOAD is not in the digest and does not need to be: the
+        // group size and the axis are arguments the arm reads off the
+        // bound tensors, not shapes the emitted body is written around.
+        match cuda.proj_repr {
+            WeightRepr::Bf16 => 0,
+            WeightRepr::Scaled { layout: ScaleLayout::PerTensor, .. } => 1,
+            WeightRepr::Scaled { layout: ScaleLayout::PerChannel, .. } => 2,
+            WeightRepr::Scaled { layout: ScaleLayout::PerGroup, .. } => 3,
+            WeightRepr::Mxfp4Marlin => 4,
+        },
+        // The WIDTH, not just the fact of padding: the emitted body's
+        // pads and strip carry it as `cfg.head_dim_kernel`, and a
+        // deployment padding to a different one is a different text.
+        cuda.head_dim_kernel,
+        cuda.tp_size,
+        // The SLIDING WINDOW list. It is a constant of the emitted text
+        // now -- `const int layer_window_left = <n>;` per dispatch --
+        // so a body emitted against one window must not serve another.
+        // Joined rather than hashed: the list is short and a digest a
+        // reader can compare by eye has caught three drifts already.
+        cuda.window_left
+            .iter()
+            .map(|w| w.to_string())
+            .collect::<Vec<_>>()
+            .join("."),
     )
 }
 
@@ -750,6 +781,19 @@ struct Body {
     out: String,
     /// Extra indent levels while inside an emitted Guard region.
     indent: usize,
+    /// WHICH of q, k, v the next `attn::pad_head_dim_bf16` stages.
+    ///
+    /// The one piece of state that crosses statements here, and it
+    /// exists because this form spells buffers where the interpreter
+    /// resolves values: a padded deployment states pad(q), pad(k),
+    /// pad(v) in that order, and under MHA -- phi-3, the only padded
+    /// deployment in the tree -- the three results have the SAME shape,
+    /// so nothing but the order tells them apart.
+    ///
+    /// The precedent is qwen3.5's `repeat_next_is_k`, and the reason is
+    /// the same: an operand order fixed by the declaration, bound by a
+    /// cursor rather than guessed from an extent.
+    pad_stage: usize,
 }
 
 impl Body {
@@ -783,26 +827,14 @@ fn require(layer: u32, member: &str, name: &str) -> String {
     format!("require(w.layers[{layer}].{member}, \"{name}\")->data()")
 }
 
-fn emit_op(
-    b: &mut Body,
-    op: &model_compiler::trace::Op,
-    plan: &ForwardPlan,
-    facts: &LlamaLikeFacts,
-    cuda: &LlamaLikeCudaFacts,
-    is_decode: bool,
-    win: Option<Win>,
-    depth_active: bool,
-) {
-    let _ = plan;
-    match &op.kind {
-        OpKind::Embed { weight } => {
-            assert_eq!(weight, "embed");
-            b.stmt("kernels::layout::embed_bf16(");
-            b.stmt("    token_ids, require(w.embed, \"embed\")->data(), ws.y.data(),");
-            b.stmt("    N, H, V, stream);");
-        }
-        OpKind::Rmsnorm { weight, variant } => {
-            assert_eq!(*variant, NormVariant::Plain, "emitter: Plain only");
+/// The ROW norm's emission, shared by the semantic kind and the stated
+/// symbols.
+///
+/// A CUDA text states `norm::rmsnorm_bf16` or its gemma twin now
+/// (`dsl::cuda::rmsnorm`), so this arrives as a `Launch`; a semantic
+/// text still records the kind. Same buffers, same widths, one body —
+/// which is the point of the migration rather than a side effect of it.
+fn emit_row_norm(b: &mut Body, facts: &LlamaLikeFacts, weight: &str) {
             if weight == "final_norm" {
                 // Deferred into the LmHead epilogue, exactly the
                 // interpreter's arm (gather-then-norm ≡ norm-then-gather).
@@ -834,6 +866,30 @@ fn emit_op(
                 require(layer, field, weight)
             ));
             b.stmt(&format!("    {output}, N, {width}, eps, stream);"));
+}
+
+
+fn emit_op(
+    b: &mut Body,
+    op: &model_compiler::trace::Op,
+    plan: &ForwardPlan,
+    facts: &LlamaLikeFacts,
+    cuda: &LlamaLikeCudaFacts,
+    is_decode: bool,
+    win: Option<Win>,
+    depth_active: bool,
+) {
+    let _ = plan;
+    match &op.kind {
+        OpKind::Embed { weight } => {
+            assert_eq!(weight, "embed");
+            b.stmt("kernels::layout::embed_bf16(");
+            b.stmt("    token_ids, require(w.embed, \"embed\")->data(), ws.y.data(),");
+            b.stmt("    N, H, V, stream);");
+        }
+        OpKind::Rmsnorm { weight, variant } => {
+            assert_eq!(*variant, NormVariant::Plain, "emitter: Plain only");
+            emit_row_norm(b, facts, weight);
         }
         OpKind::AddBias { weight } => {
             // Qwen-2 family qkv biases: the hand-written `maybe_add_bias`
@@ -873,7 +929,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.attn_out.data(),");
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].o_proj, \"{weight}\"), w.layers[{layer}].o_proj_quant),"
+                        "    dense(*require(w.layers[{layer}].o_proj, \"{weight}\"), w.layers[{layer}].o_proj_quant, \"{weight}\"),"
                     ));
                     b.stmt("    ws.y.data(), N, H, Hq, 1.f);");
                 }
@@ -883,44 +939,45 @@ fn emit_op(
                     } else {
                         "ws.norm_y.data()"
                     };
-                    // The binding dispatch, RESOLVED — not transliterated.
-                    // It used to be a per-layer `const bool ... != nullptr
-                    // && !ws.gate_up_fused.empty()` and an `if` around
-                    // both GEMM forms, in a file whose whole point is that
-                    // this deployment's choices are already made. The
-                    // second term was always true (`workspace.cpp`
-                    // allocates that buffer unconditionally), and the
-                    // first is the load-time fact the trace now carries,
-                    // so only the taken branch is emitted. The `require`
-                    // on the unfused side is what refuses a binding that
-                    // disagrees with the fact.
-                    if cuda.gate_up_fused {
-                        b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
-                        b.stmt(&format!("    {mlp_in},"));
-                        b.stmt(&format!(
-                            "    WeightView(*require(w.layers[{layer}].gate_up_proj_fused, \"{weight}\")),"
-                        ));
-                        b.stmt("    ws.gate_up_fused.data(), N, 2 * I, H);");
+                    // The PACKED bank (2d). The unfused branch this arm
+                    // used to carry is gone with the one-statement
+                    // reading: a deployment without the bank states
+                    // `gate_proj` and `up_proj` below, so reaching this
+                    // name means the join materialised one. `require`
+                    // refuses a binding that says otherwise.
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
+                    b.stmt(&format!("    {mlp_in},"));
+                    b.stmt(&format!(
+                        "    WeightView(*require(w.layers[{layer}].gate_up_proj_fused, \"{weight}\")),"
+                    ));
+                    b.stmt("    ws.gate_up_fused.data(), N, 2 * I, H);");
+                }
+                // The two halves of an unfused binding, each its own
+                // statement and each landing where the pair activation
+                // reads it.
+                ("gate_proj", false) | ("up_proj", false) => {
+                    let mlp_in = if facts.norm_placement == NormPlacement::Post {
+                        "ws.y.data()"
                     } else {
-                        b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
-                        b.stmt(&format!("    {mlp_in},"));
-                        b.stmt(&format!(
-                            "    make_weight_view(require(w.layers[{layer}].gate_proj, \"{weight}\"), w.layers[{layer}].gate_proj_quant),"
-                        ));
-                        b.stmt("    ws.gate.data(), N, I, H);");
-                        b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
-                        b.stmt(&format!("    {mlp_in},"));
-                        b.stmt(&format!(
-                            "    make_weight_view(require(w.layers[{layer}].up_proj, \"{weight}\"), w.layers[{layer}].up_proj_quant),"
-                        ));
-                        b.stmt("    ws.up.data(), N, I, H);");
-                    }
+                        "ws.norm_y.data()"
+                    };
+                    let (member, quant, dst) = if field == "gate_proj" {
+                        ("gate_proj", "gate_proj_quant", "ws.gate.data()")
+                    } else {
+                        ("up_proj", "up_proj_quant", "ws.up.data()")
+                    };
+                    b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
+                    b.stmt(&format!("    {mlp_in},"));
+                    b.stmt(&format!(
+                        "    dense(*require(w.layers[{layer}].{member}, \"{weight}\"), w.layers[{layer}].{quant}, \"{weight}\"),"
+                    ));
+                    b.stmt(&format!("    {dst}, N, I, H);"));
                 }
                 ("down", true) => {
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.gate.data(),");
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].down_proj, \"{weight}\"), w.layers[{layer}].down_proj_quant),"
+                        "    dense(*require(w.layers[{layer}].down_proj, \"{weight}\"), w.layers[{layer}].down_proj_quant, \"{weight}\"),"
                     ));
                     b.stmt("    ws.y.data(), N, H, I, 1.f);");
                 }
@@ -939,7 +996,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt(&format!("    {input},"));
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].{member}, \"{weight}\"), w.layers[{layer}].{quant}),"
+                        "    dense(*require(w.layers[{layer}].{member}, \"{weight}\"), w.layers[{layer}].{quant}, \"{weight}\"),"
                     ));
                     b.stmt(&format!("    {out}, N, {width}, H);"));
                 }
@@ -950,7 +1007,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.attn_out.data(),");
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].o_proj, \"{weight}\"), w.layers[{layer}].o_proj_quant),"
+                        "    dense(*require(w.layers[{layer}].o_proj, \"{weight}\"), w.layers[{layer}].o_proj_quant, \"{weight}\"),"
                     ));
                     b.stmt("    ws.norm_x.data(), N, H, Hq, 0.f);");
                 }
@@ -958,7 +1015,7 @@ fn emit_op(
                     b.stmt("kernels::gemm::act_x_w(cublas.handle(),");
                     b.stmt("    ws.gate.data(),");
                     b.stmt(&format!(
-                        "    make_weight_view(require(w.layers[{layer}].down_proj, \"{weight}\"), w.layers[{layer}].down_proj_quant),"
+                        "    dense(*require(w.layers[{layer}].down_proj, \"{weight}\"), w.layers[{layer}].down_proj_quant, \"{weight}\"),"
                     ));
                     b.stmt("    ws.norm_x.data(), N, H, I, 0.f);");
                 }
@@ -1000,18 +1057,6 @@ fn emit_op(
                     b.stmt("    N, Hq, Hk, stream);");
                 }
             }
-        }
-        OpKind::Rope { kind, partial } => {
-            assert!(partial.is_none(), "emitter: partial rope out of scope");
-            assert_eq!(
-                *kind,
-                model_compiler::trace::RopeKind::Standard,
-                "emitter: only standard rope"
-            );
-            b.stmt("kernels::rope::rope_bf16(");
-            b.stmt("    ws.q.data(), ws.k.data(), positions,");
-            b.stmt("    N, num_q_heads, num_kv_heads, d,");
-            b.stmt("    cfg.rope_theta, stream);");
         }
         OpKind::ResidualAdd => {
             // The post-norm landing: `y += norm_y` — the interpreter's
@@ -1092,8 +1137,9 @@ fn emit_op(
             kernel,
             weights,
             state,
+            params,
         } => emit_launch(
-            b, kernel, weights, state.as_ref(), op, facts, cuda,
+            b, kernel, weights, state.as_ref(), params, op, facts, cuda,
             is_decode, win, depth_active,
         ),
         OpKind::HookSite { stage, layer } => {
@@ -1195,6 +1241,8 @@ fn emit_launch(
     kernel: &str,
     weights: &[String],
     state: Option<&model_compiler::trace::StateRef>,
+    // The statement's scalar arguments -- see `OpKind::Launch::params`.
+    params: &[u32],
     op: &model_compiler::trace::Op,
     facts: &LlamaLikeFacts,
     cuda: &LlamaLikeCudaFacts,
@@ -1202,12 +1250,20 @@ fn emit_launch(
     win: Option<Win>,
     depth_active: bool,
 ) {
+    // THIS STATEMENT's sliding window, `-1` for none. An attention
+    // dispatch carries it in its params; every other symbol carries
+    // none, and this is only read under one.
+    let window = params.first().map_or(-1, |&w| w as i32);
     // Padded head dim (Phi-3): the attention consumes the zero-padded
     // `dk` staging copies and the softmax keeps the real-dim scale —
     // all resolved AT EMISSION (the interpreter's `head_dim_padded`
     // locals become constants of this deployment's text).
     let padded = cuda.head_dim_padded;
     let q_buf = if padded { "attn_q" } else { "ws.q.data()" };
+    // The attention's DESTINATION. Padded, it is the staging buffer the
+    // stated strip then narrows -- which is the same buffer either way
+    // in this form, because the strip is a statement of its own now
+    // (2c) rather than a tail this emitter appended to every dispatch.
     let out_buf = if padded {
         "attn_out_buf"
     } else {
@@ -1221,13 +1277,10 @@ fn emit_launch(
     // The post-attention strip (padded only): the o_proj GEMM reads the
     // logical-width ws.attn_out; every attention launch's output gets
     // stripped into it — the interpreter's name-keyed strip block.
-    let strip = |b: &mut Body| {
-        if padded {
-            b.stmt("kernels::attn::strip_head_dim_bf16(");
-            b.stmt("    attn_out_buf, ws.attn_out.data(),");
-            b.stmt("    N, num_q_heads, d, dk, stream);");
-        }
-    };
+    // The post-attention strip is a STATEMENT now (2c) -- one launch
+    // after the guard chain, emitted by its own arm below -- so no
+    // dispatch appends one here.
+    let strip = |_b: &mut Body| {};
     match kernel {
         // The MLP activation, no longer a per-layer `if` in the emitted
         // file: the binding decided this at load and the trace states
@@ -1340,19 +1393,10 @@ fn emit_launch(
                 None => ("0", "N"),
                 Some(_) => panic!("emitter: KV write in a Peel prefix region"),
             };
-            if padded {
-                // A windowed write never coincides with padding (the Peel
-                // exists only in the fused deployment, whose facts require
-                // the unpadded head dim) — same invariant as the
-                // interpreter's comment, checked at emission.
-                assert!(win.is_none(), "emitter: windowed write under padding");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);");
-            }
+            // The cache is at the KERNEL head dim, so a padded
+            // deployment's write reads the pads' results -- which the
+            // trace names as this statement's operands, and which this
+            // form spells as the staging buffers they land in.
             let (kbuf, vbuf) = if padded {
                 ("attn_k", "attn_v")
             } else {
@@ -1373,15 +1417,6 @@ fn emit_launch(
         }
         "attn::write_kv_to_pages" => {
             let layer = state.expect("kv write addresses kv state").layer;
-            if padded {
-                assert!(win.is_none(), "emitter: windowed write under padding");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.q.data(), attn_q, N, num_q_heads, d, dk, stream);");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.k.data(), attn_k, N, num_kv_heads, d, dk, stream);");
-                b.stmt("kernels::attn::pad_head_dim_bf16(");
-                b.stmt("    ws.v.data(), attn_v, N, num_kv_heads, d, dk, stream);");
-            }
             let kv_bufs = if padded {
                 "kv_view, attn_k, attn_v,"
             } else {
@@ -1507,18 +1542,8 @@ fn emit_launch(
                     "    auto kv_view = cache.layer_view({layer});"
                 ));
                 b.stmt(&format!(
-                    "    const int layer_window_left ="
+                    "    const int layer_window_left = {window};"
                 ));
-                b.stmt(&format!(
-                    "        (!fwd_cfg.per_layer_window_left.empty() &&"
-                ));
-                b.stmt(&format!(
-                    "         {layer} < static_cast<int>(fwd_cfg.per_layer_window_left.size()))"
-                ));
-                b.stmt(&format!(
-                    "            ? fwd_cfg.per_layer_window_left[{layer}]"
-                ));
-                b.stmt("            : fwd_cfg.sliding_window;");
                 // A mask peel's prefix region: the plan-free launcher
                 // over the plain rows — pure decode, so tokens == rows
                 // == split, and every CSR's `[0, split]` head is the
@@ -1572,15 +1597,7 @@ fn emit_launch(
                 b.stmt("        const int mid_P = plan_state.mixed_mid_start;");
                 b.stmt("        const int mid_row =");
                 b.stmt("            static_cast<int>(qo_indptr_h[mid_P]);");
-                b.stmt("        const int mid_wl =");
-                b.stmt("            (!fwd_cfg.per_layer_window_left.empty() &&");
-                b.stmt(&format!(
-                    "             {layer} < static_cast<int>(fwd_cfg.per_layer_window_left.size()))"
-                ));
-                b.stmt(&format!(
-                    "                ? fwd_cfg.per_layer_window_left[{layer}]"
-                ));
-                b.stmt("                : fwd_cfg.sliding_window;");
+                b.stmt(&format!("        const int mid_wl = {window};"));
                 b.stmt("        kernels::attn::dispatch_attention_flashinfer_decode(");
                 b.stmt("            *plan_state.mixed_mid_decode_plan,");
                 b.stmt(&format!(
@@ -1621,18 +1638,8 @@ fn emit_launch(
                     "    auto kv_view = cache.layer_view({layer});"
                 ));
                 b.stmt(&format!(
-                    "    const int layer_window_left ="
+                    "    const int layer_window_left = {window};"
                 ));
-                b.stmt(&format!(
-                    "        (!fwd_cfg.per_layer_window_left.empty() &&"
-                ));
-                b.stmt(&format!(
-                    "         {layer} < static_cast<int>(fwd_cfg.per_layer_window_left.size()))"
-                ));
-                b.stmt(&format!(
-                    "            ? fwd_cfg.per_layer_window_left[{layer}]"
-                ));
-                b.stmt("            : fwd_cfg.sliding_window;");
                 b.stmt("    kernels::attn::dispatch_attention_flashinfer_decode(");
                 b.stmt("        *plan_state.decode_plan,");
                 b.stmt(&format!("        {q_buf}, kv_view, {out_buf},"));
@@ -1647,9 +1654,9 @@ fn emit_launch(
                 return;
             }
             emit_masked_pages_bracket(b, layer, /*takes_paged_decode=*/true);
-            // Per-layer window resolution is RUNTIME cfg reads
-            // (per_layer_window_left / sliding_window) — placement-
-            // independent, so post-norm deployments emit it unchanged.
+            // The window is a CONSTANT of this text now: the statement
+            // carries it, so the emitted body spells the number rather
+            // than re-reading `fwd_cfg.per_layer_window_left` per launch.
             if depth_active
                 && op.layer.is_some()
                 && model_compiler::kernels::sig(kernel).is_some_and(|k| k.depth_prefix_plan)
@@ -1679,18 +1686,8 @@ fn emit_launch(
                 "    auto kv_view = cache.layer_view({layer});"
             ));
             b.stmt(&format!(
-                "    const int layer_window_left ="
-            ));
-            b.stmt(&format!(
-                "        (!fwd_cfg.per_layer_window_left.empty() &&"
-            ));
-            b.stmt(&format!(
-                "         {layer} < static_cast<int>(fwd_cfg.per_layer_window_left.size()))"
-            ));
-            b.stmt(&format!(
-                "            ? fwd_cfg.per_layer_window_left[{layer}]"
-            ));
-            b.stmt("            : fwd_cfg.sliding_window;");
+                    "    const int layer_window_left = {window};"
+                ));
             if depth_active {
                 b.stmt("    kernels::attn::dispatch_attention_flashinfer_decode(");
                 b.stmt("        *depth_dp,");
@@ -1886,6 +1883,77 @@ fn emit_launch(
             strip(b);
             b.stmt("}");
         }
+        // The head-dim STAGING (2c). Three pads per layer in the order
+        // the text states them -- q, k, v -- and the cursor is what
+        // binds each to its buffer; see `Body::pad_stage`.
+        "attn::pad_head_dim_bf16" => {
+            let (src, dst, heads) = match b.pad_stage % 3 {
+                0 => ("ws.q.data()", "attn_q", "num_q_heads"),
+                1 => ("ws.k.data()", "attn_k", "num_kv_heads"),
+                _ => ("ws.v.data()", "attn_v", "num_kv_heads"),
+            };
+            b.pad_stage += 1;
+            b.stmt("kernels::attn::pad_head_dim_bf16(");
+            b.stmt(&format!("    {src}, {dst}, N, {heads}, d, dk, stream);"));
+        }
+        // The narrowing, after the guard chain. Its destination is the
+        // logical-width `ws.attn_out` that `o_proj` reads -- the same
+        // place an unpadded fire's attention lands directly, which is
+        // why the projection reads one buffer either way.
+        "attn::strip_head_dim_bf16" => {
+            b.stmt("kernels::attn::strip_head_dim_bf16(");
+            b.stmt("    attn_out_buf, ws.attn_out.data(),");
+            b.stmt("    N, num_q_heads, d, dk, stream);");
+        }
+        // The ROTATION, now that `cuda::rope` names it. Same body the
+        // semantic `OpKind::Rope` arm held, minus its two asserts: the
+        // symbol is the assert.
+        "rope::rope_bf16" => {
+            b.stmt("kernels::rope::rope_bf16(");
+            b.stmt("    ws.q.data(), ws.k.data(), positions,");
+            b.stmt("    N, num_q_heads, num_kv_heads, d,");
+            b.stmt("    cfg.rope_theta, stream);");
+        }
+        // The partial one, whose width the STATEMENT carries.
+        "rope::rope_partial_bf16" => {
+            let rotary = params
+                .first()
+                .expect("a partial rotation states its rotary width");
+            b.stmt("kernels::rope::rope_partial_bf16(");
+            b.stmt("    ws.q.data(), ws.k.data(), positions,");
+            b.stmt("    N, num_q_heads, num_kv_heads, d,");
+            b.stmt(&format!("    {rotary}, cfg.rope_theta, stream);"));
+        }
+        // The ROW norms, now that `cuda::rmsnorm` states which fold it
+        // runs. Same body as the semantic kind's — see `emit_row_norm`.
+        "norm::rmsnorm_bf16" | "norm::rmsnorm_gemma_bf16" => {
+            let weight = weights
+                .first()
+                .expect("a stated row norm names its weight");
+            emit_row_norm(b, facts, weight);
+        }
+        // The WEIGHT REPRESENTATION axis. The interpreter binds these
+        // through `declared::arm_scaled_matmul`, which reads its
+        // operands off the plan; the GENERATED form spells kernel calls
+        // against `w.layers[l].<field>` and would need a per-field map
+        // from the projection to its quant member and its two workspace
+        // buffers — the same table the semantic `Matmul` arms above
+        // spell by hand, written a second time.
+        //
+        // No emission target is quantized (every fixture in
+        // `bin/emit-cuda.rs` is a BF16 checkpoint) and none can become
+        // one silently: `proj_repr` is in the digest, so a quantized
+        // deployment matches no generated TU and takes the interpreter,
+        // which does state these. So this is a gap in RUNG 3 only, and
+        // it is named rather than left to the catch-all below.
+        "gemm::act_x_wt_tensor_scaled"
+        | "gemm::act_x_wt_channel_scaled"
+        | "gemm::act_x_wt_grouped_scaled"
+        | "gemm::act_x_wt_mxfp4_marlin" => panic!(
+            "emitter: {kernel} — the static form has no scaled-projection \
+             spelling yet; this deployment's digest carries its repr, so \
+             it runs on the interpreter"
+        ),
         other => panic!("emitter: stated kernel {other} out of scope"),
     }
 }

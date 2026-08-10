@@ -5,6 +5,7 @@
 
 use kernels::KernelSig;
 use kernels::{kernel, operands};
+use kernels::Source;
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
@@ -20,15 +21,36 @@ pub static KERNELS: &[KernelSig] = &[
     // kernel as an argument rather than as a second symbol, which is the one
     // place this family does it that way.
     kernel!(rope "rope::rope_bf16",
+        // Rotates q and k WHERE THEY LIE -- `BufMut` on both, and no
+        // destination to give them another. Unstated while the only
+        // caller was the SEMANTIC `OpKind::Rope`, whose alias
+        // `kernels::semantic_in_place` carried; `cuda::rope` states this
+        // symbol now, and a host that assigns addresses reads the pair
+        // list off the row.
+        in_place = &[(0, 0), (1, 1)],
+        // WHERE EACH ARGUMENT COMES FROM, so the arm is generated
+        // rather than written. `interleaved` is a literal because no
+        // statement and no context carries it: the families that pass
+        // `true` (GLM, MLA) are not declared, and a row that pretended
+        // otherwise would be guessing on their behalf.
         operands = operands![
-            q: BufMut, k: BufMut,
-            positions: I32s,
-            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
-            theta: F32,
-            stream: Stream,
-            interleaved: Bool,
+            q: BufMut <- Source::Out(0),
+            k: BufMut <- Source::Out(1),
+            positions: I32s <- Source::Ctx("positions"),
+            num_tokens: I32 <- Source::Rows,
+            num_q_heads: I32 <- Source::Ctx("num_q_heads"),
+            num_kv_heads: I32 <- Source::Ctx("num_kv_heads"),
+            head_dim: I32 <- Source::Ctx("head_dim"),
+            theta: F32 <- Source::Ctx("rope_theta"),
+            stream: Stream <- Source::Ctx("arm.stream"),
+            interleaved: Bool <- Source::Lit("false"),
         ]),
+    // Norms AND rotates q and k where they lie -- `BufMut` on both, and
+    // no destination to give them another. The `_rounded` twin below has
+    // said so since gemma-4's conversion; this row had not, and
+    // llama_like states it 84 times per decode text.
     kernel!(qk_rmsnorm_rope "rope::qk_rmsnorm_rope_bf16",
+        in_place = &[(0, 0), (1, 1)],
         operands = operands![
             q: BufMut, k: BufMut,
             q_weight: Buf, k_weight: Buf,
@@ -42,6 +64,7 @@ pub static KERNELS: &[KernelSig] = &[
     // for a reason no other `whole` row here gives: the window is not a
     // number the lowering knows, so it cannot be a rectangle at all.
     kernel!(qk_rmsnorm_rope_devwin "rope::qk_rmsnorm_rope_bf16_devwin", whole = true,
+        in_place = &[(0, 0), (1, 1)],
         operands = operands![
             q: BufMut, k: BufMut,
             q_weight: Buf, k_weight: Buf,
@@ -100,12 +123,21 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(rope_partial_q_only "rope::rope_partial_bf16",
         in_place = &[(0, 0), (1, 1)],
         operands = operands![
-            q: BufMut, k: BufMut,
-            positions: I32s,
-            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32,
-            head_dim: I32, rotary_dim: I32,
-            theta: F32,
-            stream: Stream,
+            q: BufMut <- Source::Out(0),
+            // A Q-ONLY site states one result, and the shared arm
+            // passes q for k with `num_kv_heads = 0`. That is arity the
+            // STATEMENT carries, not a source this row can name, so the
+            // q-only spelling stays a hand-written arm and this row
+            // describes the two-operand one.
+            k: BufMut <- Source::Out(1),
+            positions: I32s <- Source::Ctx("positions"),
+            num_tokens: I32 <- Source::Rows,
+            num_q_heads: I32 <- Source::Ctx("num_q_heads"),
+            num_kv_heads: I32 <- Source::Ctx("num_kv_heads"),
+            head_dim: I32 <- Source::Ctx("head_dim"),
+            rotary_dim: I32 <- Source::Param(0),
+            theta: F32 <- Source::Ctx("rope_theta"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // The other row the audit was counting as undeclared. It is `rope_partial`
     // with `positions` shifted by a host constant, and the delta sits between
