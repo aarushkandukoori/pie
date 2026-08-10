@@ -40,16 +40,21 @@ fn the_verbs_that_need_the_kv_pool_refuse_by_name() {
         return;
     };
     let why = backend
-        .load_model(Vec::new())
-        .expect_err("nothing has taught this seam to load a checkpoint");
+        .register_program(&Default::default())
+        .expect_err("the registry is not wired to the seam's plan types yet");
     let text = format!("{why}");
     assert!(
         text.contains("driver-metal-new"),
         "a refusal must name the backend that made it: {text}"
     );
     assert!(
-        text.contains("load_model"),
+        text.contains("register_program"),
         "and the verb it could not serve: {text}"
+    );
+    assert!(
+        text.contains("device tested"),
+        "and which half is actually missing, so the next reader does not \
+         re-port machinery that is already there: {text}"
     );
 }
 
@@ -64,5 +69,45 @@ fn media_encode_is_refused_rather_than_pretended() {
     assert!(
         backend.export_kv_handle().is_none(),
         "Metal has no cross-process KV sharing path to export"
+    );
+}
+
+#[test]
+fn load_model_takes_one_descriptor_because_this_backend_holds_one_model() {
+    // The same shape the CUDA shell's `state.model` has, and the reason a
+    // frame's instance roster is one family's — which is what makes
+    // `lower(plan, rows, fire)`'s one-plan signature right.
+    let Ok((mut backend, _)) = DriverBackend::metal_create(b"{}") else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+    let desc = || driver_abi::ModelLoadDesc {
+        snapshot_dir: std::path::PathBuf::from("/nonesuch"),
+        runtime_quant: String::new(),
+        mxfp4_moe: driver_abi::Mxfp4MoeRequest::Auto,
+        component: driver_abi::ModelComponent::Full,
+    };
+    let why = format!(
+        "{}",
+        backend
+            .load_model(vec![desc(), desc()])
+            .expect_err("two models is not a shape this backend has")
+    );
+    assert!(
+        why.contains("ONE model"),
+        "the refusal should say why, not just that: {why}"
+    );
+
+    // And one descriptor gets as far as the checkpoint, which is the point:
+    // the failure is now about the SNAPSHOT rather than about the seam.
+    let why = format!(
+        "{}",
+        backend
+            .load_model(vec![desc()])
+            .expect_err("/nonesuch holds no checkpoint")
+    );
+    assert!(
+        why.contains("config.json"),
+        "a missing snapshot should fail on the checkpoint it looked for: {why}"
     );
 }

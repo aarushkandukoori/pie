@@ -53,35 +53,65 @@ pub struct Names {
 }
 
 impl Names {
-    /// The MLX convention, which is what the Metal smokes load.
+    /// The convention `model::llama_3::contract` publishes, which is what
+    /// `stage_plan_weights` keys its map by.
+    ///
+    /// **Read off the contract, not guessed.** The lowering maps
+    /// `model.layers.{l}.{member}` to `layers.{l}.{member}`,
+    /// `model.embed_tokens.*` to `shared_embedding.*` when the deployment ties
+    /// its embeddings, and `model.norm.weight` to `final_norm.weight`. An
+    /// earlier draft of this map assumed the HuggingFace spelling and was
+    /// wrong on all three — it was self-consistent, and the test that held the
+    /// text against it passed, because both sides were this file.
+    ///
+    /// # The two names with no tensor
+    ///
+    /// `qkv` and `gate_up` are FUSED handles the text states, and this
+    /// checkpoint ships the three and two projections separately —
+    /// `weight_binds` binds `self_attn.q_proj`/`k_proj`/`v_proj` and
+    /// `mlp.gate_proj`/`up_proj`, which is what the working driver does today.
+    ///
+    /// They are mapped to the fused spellings a JOINING plan would publish, so
+    /// a deployment whose loader fuses resolves. A deployment whose loader
+    /// does not will find them missing, by name, in [`Store::missed`] — which
+    /// is the honest outcome: the text should take its non-fused arm, and that
+    /// is a decision for `LlamaLikeFacts::fused_qkv` rather than for a map to
+    /// paper over.
     #[must_use]
     pub fn mlx() -> Self {
         let roles = [
+            // The fused pair — see the note above.
             ("qkv", "self_attn.qkv_proj"),
+            ("gate_up", "mlp.gate_up_proj"),
+            // The projections as the checkpoint ships them.
             ("q_proj", "self_attn.q_proj"),
             ("k_proj", "self_attn.k_proj"),
             ("v_proj", "self_attn.v_proj"),
             ("o_proj", "self_attn.o_proj"),
+            ("gate", "mlp.gate_proj"),
+            ("up", "mlp.up_proj"),
+            ("down", "mlp.down_proj"),
+            // The norms.
             ("q_norm", "self_attn.q_norm"),
             ("k_norm", "self_attn.k_norm"),
             ("attn_norm", "input_layernorm"),
             ("mlp_norm", "post_attention_layernorm"),
-            ("gate_up", "mlp.gate_up_proj"),
-            ("down", "mlp.down_proj"),
         ]
         .into_iter()
         .map(|(a, b)| (a.to_string(), b.to_string()))
         .collect();
         let globals = [
-            ("embed", "model.embed_tokens"),
-            ("lm_head", "lm_head"),
-            ("final_norm", "model.norm"),
+            // Tied: one table serves both ends, which is why the readout and
+            // the embedding answer to the same name.
+            ("embed", "shared_embedding"),
+            ("lm_head", "shared_embedding"),
+            ("final_norm", "final_norm"),
         ]
         .into_iter()
         .map(|(a, b)| (a.to_string(), b.to_string()))
         .collect();
         Self {
-            layer_prefix: "model.layers.".to_string(),
+            layer_prefix: "layers.".to_string(),
             roles,
             globals,
             weight_suffix: ".weight".to_string(),
@@ -218,11 +248,11 @@ mod tests {
         let s = store(&t, &n);
         assert_eq!(
             s.checkpoint_name("layer.3.qkv").as_deref(),
-            Some("model.layers.3.self_attn.qkv_proj.weight")
+            Some("layers.3.self_attn.qkv_proj.weight")
         );
         assert_eq!(
             s.checkpoint_name("layer.11.attn_norm").as_deref(),
-            Some("model.layers.11.input_layernorm.weight")
+            Some("layers.11.input_layernorm.weight")
         );
     }
 
@@ -234,11 +264,11 @@ mod tests {
         let s = store(&t, &n);
         assert_eq!(
             s.checkpoint_name("layer.0.qkv.scales").as_deref(),
-            Some("model.layers.0.self_attn.qkv_proj.scales")
+            Some("layers.0.self_attn.qkv_proj.scales")
         );
         assert_eq!(
             s.checkpoint_name("layer.0.qkv.zeros").as_deref(),
-            Some("model.layers.0.self_attn.qkv_proj.biases")
+            Some("layers.0.self_attn.qkv_proj.biases")
         );
     }
 
@@ -248,11 +278,11 @@ mod tests {
         let s = store(&t, &n);
         assert_eq!(
             s.checkpoint_name("embed").as_deref(),
-            Some("model.embed_tokens.weight")
+            Some("shared_embedding.weight")
         );
         assert_eq!(
             s.checkpoint_name("embed.scales").as_deref(),
-            Some("model.embed_tokens.scales")
+            Some("shared_embedding.scales")
         );
     }
 
@@ -269,7 +299,7 @@ mod tests {
         // A fire that cannot bind is diagnosed by the whole list; stopping at
         // the first turns one debugging session into as many as are missing.
         let mut tensors = HashMap::new();
-        tensors.insert("model.layers.0.self_attn.qkv_proj.weight".to_string(), Slice {
+        tensors.insert("layers.0.self_attn.qkv_proj.weight".to_string(), Slice {
             address: 0x100,
             bytes: 64,
         });

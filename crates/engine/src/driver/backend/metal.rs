@@ -42,6 +42,9 @@ pub struct MetalDriver {
     context: driver_metal_new::metal::Context,
     registry: driver_metal_new::pipeline::Registry,
     device_facts: driver_abi::DeviceFacts,
+    /// The checkpoint, once one is loaded. Held because every address in its
+    /// tensor map points into the region it owns.
+    model: Option<driver_metal_new::model::load::Loaded>,
     #[allow(dead_code)]
     broker: CompletionBroker,
 }
@@ -89,6 +92,7 @@ impl MetalDriver {
                 context,
                 registry: driver_metal_new::pipeline::Registry::new(),
                 device_facts: device_facts.clone(),
+                model: None,
                 broker: CompletionBroker::new(),
             },
             device_facts,
@@ -119,36 +123,115 @@ impl MetalDriver {
         &self.registry
     }
 
+    /// Author the checkpoint's load plan, run it, and stage every tensor.
+    ///
+    /// One descriptor: this backend holds one model, which is the same shape
+    /// the CUDA shell's `state.model` has and the reason a frame's instance
+    /// roster is one family's.
+    ///
     /// # Errors
     ///
-    /// Always, until the loader is wired to the seam.
+    /// More than one descriptor, a missing `config.json`, or a plan that will
+    /// not compile or stage.
     pub fn load_model(
         &mut self,
-        _descs: Vec<driver_abi::ModelLoadDesc>,
+        descs: Vec<driver_abi::ModelLoadDesc>,
     ) -> Result<driver_abi::DriverCapabilities> {
-        bail!(UNSERVED_LOAD)
+        let [desc] = descs.as_slice() else {
+            bail!(
+                "driver-metal-new holds ONE model; got {} descriptors",
+                descs.len()
+            );
+        };
+        // The descriptor the load plan is authored from is the checkpoint's
+        // own `config.json`. The driver does not synthesize one: a descriptor
+        // that disagreed with the weights beside it would be believed.
+        let descriptor = std::fs::read_to_string(desc.snapshot_dir.join("config.json"))
+            .map_err(|e| anyhow!("{}: config.json: {e}", desc.snapshot_dir.display()))?;
+        let loaded = driver_metal_new::model::load::load(
+            &self.context,
+            &desc.snapshot_dir,
+            &descriptor,
+        )
+        .map_err(|e| anyhow!("metal load: {e:?}"))?;
+        let facts = driver_metal_new::facts::ModelFacts::from_descriptor(&descriptor)
+            .ok_or_else(|| anyhow!("the descriptor does not parse as model facts"))?;
+        self.model = Some(loaded);
+
+        // What the checkpoint states, and zero for what the pool would state.
+        //
+        // `total_pages: 0` is not a placeholder — it is the truth, and it is
+        // the one field that keeps this honest. A scheduler reading it admits
+        // nothing, which is exactly right for a backend whose KV pool does not
+        // exist: a non-zero guess here would be admitted against and the fire
+        // would fail at launch instead of at admission.
+        Ok(driver_abi::DriverCapabilities {
+            abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
+            total_pages: 0,
+            kv_page_size: self.device_facts.page_size,
+            swap_pool_size: 0,
+            kv_copy_domain_mask: 0,
+            rs_cache_required: facts.has_linear_attn,
+            rs_cache_slots: 0,
+            rs_cache_slot_bytes: 0,
+            elastic_page_bytes: 0,
+            elastic_budget_pages: 0,
+            has_mtp_logits: false,
+            has_mtp_drafts: false,
+            has_value_head: false,
+            // Every one of these is a SINK this backend cannot honour, and the
+            // `kernel!` rows say so: `sdpa_vector_decode` and
+            // `sdpa_paged_decode` both declare `lacks = [Scores,
+            // PageMaskSink]`. Advertising one would make a program bind and
+            // then run as a silent no-op.
+            has_kv_envelopes: false,
+            has_attn_score: false,
+            has_attn_page_mask: false,
+            has_lora: false,
+            model_site_summary: driver_abi::ModelSiteSummary::default(),
+            device_geometry_port_mask: 0,
+            max_forward_tokens: 0,
+            max_forward_requests: 0,
+            max_page_refs: 0,
+            arch_name: facts.arch_name.clone(),
+            vocab_size: facts.vocab_size,
+            max_model_len: facts.max_model_len,
+            activation_dtype: "bf16".to_string(),
+            hidden_size: u32::try_from(facts.go_hidden_size).unwrap_or(0),
+            supports_media_encode: false,
+            snapshot_dir: desc.snapshot_dir.display().to_string(),
+            kv_handle: None,
+            // Metal compiles its shaders at run time from the tree; nothing
+            // upstream needs to generate a kernel for it.
+            codegen_backend: String::new(),
+        })
+    }
+
+    /// The tensors the loaded checkpoint published, or `None` before a load.
+    #[must_use]
+    pub fn model(&self) -> Option<&driver_metal_new::model::load::Loaded> {
+        self.model.as_ref()
     }
 
     /// # Errors
     ///
-    /// Always, until [`Self::load_model`] is wired: a program registered
-    /// against no model is a registration that cannot be honoured.
+    /// Always, until the registry is wired to the seam's own id space.
     pub fn register_program(&mut self, _desc: &ProgramRegistration) -> Result<u64> {
-        bail!(UNSERVED_LOAD)
+        bail!(UNSERVED_REGISTRY)
     }
 
     /// # Errors
     ///
     /// As [`Self::register_program`].
     pub fn register_channel(&mut self, _desc: &ChannelRegistrationPlan) -> Result<RegisteredChannel> {
-        bail!(UNSERVED_LOAD)
+        bail!(UNSERVED_REGISTRY)
     }
 
     /// # Errors
     ///
     /// As [`Self::register_program`].
     pub fn bind_instance(&mut self, _desc: &InstanceBindingPlan) -> Result<BoundInstance> {
-        bail!(UNSERVED_LOAD)
+        bail!(UNSERVED_REGISTRY)
     }
 
     /// Post one sealed frame.
@@ -216,8 +299,9 @@ const UNSERVED_POOL: &str = "driver-metal-new: the KV pool is not wired to the s
      fires the whole llama_like text); what is missing is the buffers a fire \
      binds, not the decisions it makes.";
 
-/// The other hole: nothing has taught this seam to load a checkpoint.
-const UNSERVED_LOAD: &str = "driver-metal-new: `load_model` is not wired to the seam yet. \
-     `loader/` compiles the plan and `metal::stage_plan_weights` stages it; \
-     what is missing is the call between them and the name map \
-     (`model::resolve::Store`) that answers a trace's weight names from it.";
+/// The other hole: the registry is ported and device tested
+/// (`PARITY-REGISTRY.md`), but nothing maps the seam's plans onto it yet.
+const UNSERVED_REGISTRY: &str = "driver-metal-new: `register_program` / `register_channel` / \
+     `bind_instance` are not wired to `pipeline::Registry` yet. The registry \
+     itself is ported and device tested; what is missing is the translation \
+     from the seam's plan types to its own.";
