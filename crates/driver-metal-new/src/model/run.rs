@@ -48,7 +48,10 @@ use model_compiler::lower::Lowered;
 pub fn table_width(dispatches: &[Dispatch<'_>]) -> usize {
     dispatches
         .iter()
-        .map(|d| d.args.len() + d.params.len())
+        // One slot per operand, and ONE more for the packed params — the
+        // scalars ride as a single struct, which is what every shader in the
+        // tree takes (`constant RouterParams&` and its siblings).
+        .map(|d| d.args.len() + usize::from(!d.params.is_empty()))
         .max()
         .unwrap_or(1)
         .max(1)

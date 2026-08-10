@@ -212,11 +212,20 @@ pub fn encode_one(
     for (slot, arg) in dispatch.args.iter().enumerate() {
         table.bind_address(slot, arg.slice.address)?;
     }
-    // The scalars follow the operands, each in its own slot, in the order the
-    // statement states them. That is the only convention available: a scalar
-    // has no name to be looked up by, so its position IS its identity, and a
-    // kernel declaring `q_width` at buffer(4) is declaring that it takes four
-    // operands first.
+    // The scalars follow the operands, as ONE binding at the next slot,
+    // pointing at the run staged for this dispatch.
+    //
+    // One slot and not one each, because that is what the shader tree already
+    // does: `moe/route.metal` takes `constant RouterParams&`, `norm/rms.metal`
+    // takes its own struct, and every such struct is a run of `unsigned int`
+    // with no padding. A statement's `params` in stated order IS that struct,
+    // so the address of the run is the address of the struct.
+    //
+    // The alternative — a slot per scalar — was what this did first, and it
+    // serves exactly one kernel: the QKV split, whose shader was written here
+    // and could be written either way. Every kernel that already existed
+    // wanted the packed form, so the packed form is the convention and the
+    // split's shader was changed to match it.
     if !dispatch.params.is_empty() {
         let base = params.address_of(index).ok_or_else(|| Error::Create {
             what: "dispatch",
@@ -226,12 +235,7 @@ pub fn encode_one(
                 dispatch.params.len()
             ),
         })?;
-        for i in 0..dispatch.params.len() {
-            table.bind_address(
-                dispatch.args.len() + i,
-                base + (i * size_of::<u32>()) as u64,
-            )?;
-        }
+        table.bind_address(dispatch.args.len(), base)?;
     }
     encoder.set_argument_table(table);
     encoder.dispatch(

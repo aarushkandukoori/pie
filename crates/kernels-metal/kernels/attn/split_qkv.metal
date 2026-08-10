@@ -16,11 +16,22 @@
 // Baking them in is the defect `_d_256` was: a literal that fits one
 // checkpoint and reads past the end of every head on the next.
 //
+// They arrive as ONE struct at one buffer, which is the tree's convention --
+// `moe/route.metal` takes `constant RouterParams&` and so on. A statement's
+// params in stated order ARE the struct, so the driver binds the address of
+// the run it staged and the layout follows from the order.
+//
 // Launch: dispatchThreads grid=(q_width + 2*kv_width, rows, 1), tg=(256, 1, 1)
 // — `LaunchRule::ElementwiseRows`, one thread per packed element.
 
 #include <metal_stdlib>
 using namespace metal;
+
+/// The two widths, in the order the statement states them.
+struct SplitQkvParams {
+  unsigned int q_width;
+  unsigned int kv_width;
+};
 
 template <typename T>
 [[kernel]] void split_qkv(
@@ -28,9 +39,10 @@ template <typename T>
     device T* q            [[buffer(1)]],   // [rows, q_width]
     device T* k            [[buffer(2)]],   // [rows, kv_width]
     device T* v            [[buffer(3)]],   // [rows, kv_width]
-    const constant uint& q_width  [[buffer(4)]],
-    const constant uint& kv_width [[buffer(5)]],
+    const constant SplitQkvParams& p [[buffer(4)]],
     uint2 tid [[thread_position_in_grid]]) {
+  const uint q_width = p.q_width;
+  const uint kv_width = p.kv_width;
   const uint packed_width = q_width + 2u * kv_width;
   const uint c = tid.x;
   // The grid is rounded up to whole threadgroups, so the tail runs over the
@@ -53,6 +65,6 @@ template <typename T>
   template [[host_name("split_qkv_" #name)]]                                \
   [[kernel]] void split_qkv<itype>(                                         \
       const device itype*, device itype*, device itype*, device itype*,     \
-      const constant uint&, const constant uint&, uint2);
+      const constant SplitQkvParams&, uint2);
 
 instantiate_split_qkv(bf16, bfloat)
