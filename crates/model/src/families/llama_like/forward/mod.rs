@@ -118,6 +118,44 @@ pub fn llama_like(facts: &LlamaLikeFacts) -> ForwardPlan {
 
 /// The LOWERED llama_like: the SAME text as [`llama_like`], traced with
 /// the CUDA backend facts and a fire class in hand, so the class arms run
+/// The all-reduce, as the pair of arms it actually is.
+///
+/// `NcclComm::all_reduce_bf16` asks `can_handle(bytes)` and routes to
+/// the NVLink P2P kernel below the threshold and `ncclAllReduce` above
+/// it. That is an `if` inside a driver method choosing between two
+/// implementations, which is the shape this arc removes everywhere
+/// else, and it was left standing because a collective did not look
+/// like a kernel choice. It is one.
+///
+/// So the text states both and the fire picks: `TokensLE(n)` where `n`
+/// is the threshold in ROWS ([`LlamaLikeCudaFacts::all_reduce_p2p_max_rows`],
+/// converted from bytes at load, because a row is `hidden` bf16
+/// elements). A deployment with no threshold — no registered P2P
+/// buffers, or no custom all-reduce at all — states the NCCL arm alone,
+/// which is the truth rather than a guard whose predicate never holds.
+fn all_reduce(
+    t: &model_compiler::dsl::Trace,
+    x: &Val,
+    hidden: u32,
+    cuda: &LlamaLikeCudaFacts,
+) -> Val {
+    if cuda.all_reduce_p2p_max_rows == 0 {
+        return cuda::all_reduce_out(x, hidden);
+    }
+    let shape = (
+        Shape(vec![Dim::Tokens, Dim::Const(hidden)]),
+        DType::BF16,
+    );
+    let (g, v) = dsl::guarded_value(t, x.layer(), shape);
+    g.arm(GuardPred::TokensLE(cuda.all_reduce_p2p_max_rows), || {
+        cuda::all_reduce_p2p(x, hidden);
+    })
+    .otherwise(|| {
+        cuda::all_reduce_out(x, hidden);
+    });
+    v
+}
+
 /// Whether this deployment's heads and intermediate divide by `tp`.
 ///
 /// The engine checks the same thing at load; the text checks it because
@@ -838,7 +876,7 @@ fn llama_like_cuda_text(
                 // In place, because nothing else reads the partial.
                 let o = matmul(&a, &w.o_proj);
                 let o = if tp > 1 {
-                    cuda::all_reduce(&o, f.hidden)
+                    all_reduce(m.trace(), &o, f.hidden, cuda)
                 } else {
                     o
                 };
@@ -856,7 +894,7 @@ fn llama_like_cuda_text(
                 // partial and the sum precedes the norm.
                 let d_out = matmul(&act, &w.down);
                 let d_out = if tp > 1 {
-                    cuda::all_reduce(&d_out, f.hidden)
+                    all_reduce(m.trace(), &d_out, f.hidden, cuda)
                 } else {
                     d_out
                 };
@@ -883,7 +921,7 @@ fn llama_like_cuda_text(
                 // fused form would mean an arm the else could not
                 // match.
                 let partial = matmul(&a, &w.o_proj);
-                let summed = cuda::all_reduce_out(&partial, f.hidden);
+                let summed = all_reduce(m.trace(), &partial, f.hidden, cuda);
                 let x = cuda::residual_add_rmsnorm(
                     &y, &summed, &w.mlp_norm.name, f.hidden,
                 );
@@ -892,7 +930,7 @@ fn llama_like_cuda_text(
                 // row-parallel through `down`, so its output is a
                 // partial too and lands the same way.
                 let mlp_out = matmul(&act, &w.down);
-                y += cuda::all_reduce(&mlp_out, f.hidden);
+                y += all_reduce(m.trace(), &mlp_out, f.hidden, cuda);
             } else {
                 // Pre-norm: `+=` of a fresh matmul IS the beta=1 fold.
                 y += matmul(&a, &w.o_proj);

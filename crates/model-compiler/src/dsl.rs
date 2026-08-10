@@ -344,6 +344,14 @@ impl Val {
     pub fn trace(&self) -> &Trace {
         &self.t
     }
+
+    /// The layer this value belongs to, or `None` in the prologue and
+    /// epilogue. A text needs it when it opens a value-producing guard
+    /// AROUND an existing value — the guard's own value must be tagged
+    /// the same way, or the depth axis would treat the two differently.
+    pub fn layer(&self) -> Option<u32> {
+        self.layer
+    }
 }
 
 impl M {
@@ -5523,11 +5531,57 @@ pub mod cuda {
     // it already divides by anything else. What needs vocabulary is the
     // point where the shards are recombined, because that is a launch.
 
+    /// `comm::all_reduce_bf16`: the NVLink P2P sum, out of place.
+    ///
+    /// ONE ARM OF A CHOICE THE DRIVER USED TO MAKE. `NcclComm::
+    /// all_reduce_bf16` asks `can_handle(bytes)` and routes to this
+    /// kernel below the threshold, `ncclAllReduce` above it — an `if`
+    /// inside a driver method picking between two implementations,
+    /// which is the shape this whole arc removes.
+    ///
+    /// So a text states the pair as a GUARD, the way qwen3.5's
+    /// recurrence states its three spellings and the fused landing
+    /// states its two. The predicate is the message size, which is
+    /// `TokensLE` — the threshold is bytes, and a row of `hidden` bf16
+    /// elements is a fixed number of them, so the token count IS the
+    /// test once the deployment's hidden size is known.
+    ///
+    /// What does NOT reduce to the predicate is buffer REGISTRATION:
+    /// the P2P kernel reads only buffers handed to `register_buffer`,
+    /// which is a placement fact of the deployment rather than a
+    /// property of the fire. It belongs on the facts beside
+    /// `gate_up_fused` — a load-time answer that erases into the trace.
+    pub fn all_reduce_p2p(x: &Val, hidden: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "comm::all_reduce_bf16",
+            vec![],
+            None,
+            vec![x.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
+        )
+        .expect("the collective produces its value")
+    }
+
     /// `dist::all_reduce_bf16`: sum this value across ranks, in place.
     ///
     /// The in-place form, which is what a post-norm landing takes: the
     /// partial is summed where it lies and the statement's result is the
     /// same bytes.
+    ///
+    /// THE OTHER ARM of [`all_reduce_p2p`]'s choice, and the one that is
+    /// not a kernel: NCCL is the comm plane, and `custom_all_reduce.hpp`
+    /// says in as many words where that knowledge belongs — with the
+    /// caller, not with a compute kernel. So this symbol has no
+    /// `kernel!` operand signature and cannot get one without moving
+    /// NCCL down a layer, which is a decision that was already made in
+    /// the other direction once.
+    ///
+    /// It is still a STATEMENT. What a symbol needs to be stated is a
+    /// name the declaration can choose and an arm that binds it; a
+    /// generated ABI entry point is a separate benefit that this one
+    /// does not get.
     pub fn all_reduce(x: &Val, hidden: u32) -> Val {
         record(
             &x.t,

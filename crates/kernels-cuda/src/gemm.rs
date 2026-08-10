@@ -58,6 +58,16 @@ pub static KERNELS: &[KernelSig] = &[
     // activation — which is why the row needs a pair list and not a
     // single alias. Whether a fire takes this or the two-step form is a
     // GUARD in the text, not a driver test: see `all_reduce_residual_rmsnorm`.
+    // The P2P arm of the all-reduce, and the one a row can describe: a
+    // kernels-side kernel reached through a kernels-side instance.
+    kernel!(all_reduce_p2p "comm::all_reduce_bf16", whole = true,
+        operands = operands![
+            car: CustomAllReduce,
+            input: Buf,
+            output: BufMut,
+            count: Usize,
+            stream: Stream,
+        ]),
     kernel!(all_reduce_residual_rmsnorm "comm::all_reduce_residual_rmsnorm_bf16",
         whole = true, in_place = &[(0, 1)],
         operands = operands![

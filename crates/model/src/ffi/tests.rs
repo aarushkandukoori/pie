@@ -1114,6 +1114,7 @@ fn lowered_trace_round_trips_through_the_arena() {
         proj_group: 0,
         proj_axis: 0,
         tp_size: 1,
+        all_reduce_p2p_max_rows: 0,
         // No window: null pointer, zero length -- what a caller written
         // before this field states by zero-init.
         window_left: std::ptr::null(),
@@ -1284,6 +1285,7 @@ fn traced_cuda_decode() -> PieForwardPlan {
         proj_group: 0,
         proj_axis: 0,
         tp_size: 1,
+        all_reduce_p2p_max_rows: 0,
         // No window: null pointer, zero length -- what a caller written
         // before this field states by zero-init.
         window_left: std::ptr::null(),
