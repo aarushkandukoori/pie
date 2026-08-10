@@ -1286,9 +1286,12 @@ bool forward_declared_tmpl(
         // corrects an earlier reading here that they did not -- so it is
         // the statement's value, with the guard's as the fallback and
         // `ws.attn_out` behind that.
-        const auto attn_dst = [&]() -> void* {
-            const auto o = plan.outputs(op);
-            if (o.size > 0) return values.slot(o[0]);
+        // What the shared arm is handed: the FALLBACK only, never the
+        // statement's own result. The arm reads that itself, and asking
+        // for `plan.outputs(op)[0]` here would ask it of every op the
+        // walk sees rather than of the dispatches — a slot lookup on a
+        // value that may be the backend's to bind, for no reason.
+        const auto attn_dst_fallback = [&]() -> void* {
             const std::uint32_t b =
                 at_op < binds.size() ? binds[at_op]
                                      : pie_forward::PIE_FORWARD_NO_VALUE;
@@ -1724,6 +1727,12 @@ case PieForwardOpKind::Launch: {
                 (SL >= 0 && SL < static_cast<int>(w.layers.size()))
                     ? w.layers[static_cast<std::size_t>(SL)].kv_layer
                     : -1,
+                // The plans the prepare built for this fire, and the
+                // destination for a dispatch whose enclosing guard owns
+                // the value. Both were this family's own attention arms
+                // a moment ago; the arms are one now, and this is what
+                // it took.
+                decode_plan, prefill_plan, attn_dst_fallback(),
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
@@ -1951,45 +1960,17 @@ case PieForwardOpKind::Launch: {
                 }
                 break;
             }
-            case declared::Kernel::AttnFlashinferDecode: {
-                if (decode_plan == nullptr) {
-                    throw_drift("trace states the flashinfer decode "
-                                "kernel but prepare built no decode plan");
-                }
-                auto kv_view = kv_view_of(SL);
-                // ISLAND (value arena), HALF of one. The query is the
-                // statement's operand. The RESULT is not: this launch
-                // declares no outputs, so the attention output has no id
-                // to write to and `ws.attn_out` stays -- see the guard
-                // note in the pin pass.
-                const auto ins = plan.inputs(op);
-                need(ins, 1, "decode attention inputs");
-                kernels::attn::dispatch_attention_flashinfer_decode(
-                    *decode_plan,
-                    values.slot(ins[0]), kv_view, attn_dst(),
-                    kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws.view(), stream);
-                break;
-            }
-            case declared::Kernel::AttnFlashinferPrefill: {
-                if (prefill_plan == nullptr) {
-                    throw_drift("trace states the flashinfer prefill "
-                                "kernel but prepare built no prefill plan");
-                }
-                auto kv_view = kv_view_of(SL);
-                // ISLAND (value arena), half of one -- see the decode
-                // arm above for what the other half is waiting on.
-                const auto ins = plan.inputs(op);
-                need(ins, 1, "prefill attention inputs");
-                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
-                    *prefill_plan,
-                    values.slot(ins[0]), kv_view.k_bf16_pages,
-                    kv_view.v_bf16_pages,
-                    attn_dst(),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws.view(), stream);
-                break;
-            }
+            // The two flashinfer dispatches are SHARED now. What kept
+            // them here was the plan, and the plan is the context's:
+            // this family resolves it off `plan_state` and hands it
+            // over, which is the only thing about the call that was
+            // ever this family's.
+            //
+            // A null plan no longer throws here — the shared arm
+            // returns false and the walk falls through to this switch,
+            // where `default` refuses by name. That is the same answer
+            // through one fewer copy of it.
+
             // The PAIR form (2d): two operands, both traced, so the
             // arm reads them off the plan. Only the dense MLP states
             // it -- the routed and shared legs always bind packed

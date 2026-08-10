@@ -366,6 +366,10 @@ bool gemma4_forward_declared(
     // residual stream, `ws.norm_x` the block scratch.
     void* per_layer_token = moe_ws.ple_token.data();
     void* per_layer_proj = moe_ws.ple_proj.data();
+    // A decode plan built for THIS fire, where the deployment cached
+    // none for the layer kind. Declared out here so it outlives the
+    // dispatch that reads it; see `decode_plan_for` in the walk.
+    kernels::attn::DecodePlanCachePtr lazy_decode_plan;
     int lm_head_rows = N;
 
     // Layer state the arms need, refreshed as the drive walks into a
@@ -577,6 +581,39 @@ bool gemma4_forward_declared(
             const auto aux = [&](std::size_t i) {
                 return plan.name(names[i]);
             };
+            // WHICH DECODE PLAN THIS LAYER'S DISPATCH TAKES, resolved
+            // before the shared switch rather than inside an arm.
+            //
+            // Two cached plans, and which one is the layer's: a
+            // full-attention layer and a sliding one are planned
+            // differently, and no statement says which kind a layer is.
+            // Where the deployment cached neither, one is built for this
+            // fire and kept alive by `lazy_decode_plan`, which outlives
+            // the walk.
+            //
+            // Asked ONLY of a decode dispatch. Every other op would pay
+            // for a plan nothing reads.
+            const auto decode_plan_for =
+                [&]() -> const kernels::attn::DecodePlanCache* {
+                if (declared::resolve_kernel(sym) !=
+                    declared::Kernel::AttnFlashinferDecode) {
+                    return nullptr;
+                }
+                if (auto* p = (cur_full ? moe_ws.decode_plan_full
+                                        : moe_ws.decode_plan_sliding)
+                                  .get()) {
+                    return p;
+                }
+                lazy_decode_plan = kernels::attn::make_decode_plan();
+                kernels::attn::plan_attention_flashinfer_decode(
+                    *lazy_decode_plan, kv_page_indptr_h, R,
+                    cfg.num_attention_heads, cur_hk / cur_d, cur_d,
+                    cache.page_size(), attn_ws.view(), stream,
+                    /*enable_cuda_graph=*/true,
+                    /*full_attention_variant=*/cur_full,
+                    cache.hnd_layout());
+                return lazy_decode_plan.get();
+            };
             // THE SHARED SWITCH FIRST (D1). Every symbol whose arm is
             // family-blind lives in `declared/execute.hpp`; what remains
             // below is this family's RESIDUE. A `false` is an answer --
@@ -594,6 +631,12 @@ bool gemma4_forward_declared(
                 0.f,
                 cfg.num_attention_heads, cfg.num_key_value_heads, cur_d, cur_d,
                 cur_layer,
+                // Resolved per op, which is exactly why the plan is a
+                // context field rather than something an arm could reach
+                // for. This family states no planned prefill, and every
+                // dispatch it states declares its own result.
+                decode_plan_for(), /*prefill_plan=*/nullptr,
+                /*attn_dst_fallback=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {
@@ -703,31 +746,11 @@ bool gemma4_forward_declared(
                         N * (row_width(outs[0]) / cur_d), cur_d, eps, stream);
                 }
                 break;
-            case declared::Kernel::AttnFlashinferDecode: {
-                auto kv_view = cache.layer_view(cur_layer);
-                kernels::attn::DecodePlanCache* p =
-                    (cur_full ? moe_ws.decode_plan_full
-                              : moe_ws.decode_plan_sliding).get();
-                kernels::attn::DecodePlanCachePtr owned;
-                if (p == nullptr) {
-                    owned = kernels::attn::make_decode_plan();
-                    p = owned.get();
-                    kernels::attn::plan_attention_flashinfer_decode(
-                        *p, kv_page_indptr_h, R, cfg.num_attention_heads,
-                        cur_hk / cur_d, cur_d, cache.page_size(), attn_ws.view(),
-                        stream, /*enable_cuda_graph=*/true,
-                        /*full_attention_variant=*/cur_full,
-                        cache.hnd_layout());
-                }
-                kernels::attn::dispatch_attention_flashinfer_decode(
-                    *p, values.slot(plan.inputs(op)[0]), kv_view,
-                    values.slot(plan.outputs(op)[0]),
-                    kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws.view(), stream,
-                    declared::stated_window_left(plan, op),
-                    /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
-                break;
-            }
+            // The decode dispatch is SHARED. What kept it here was which
+            // of two cached plans the layer takes, and that question is
+            // answered above `execute_shared` now (`decode_plan_for`).
+            // The pre-scaled query rides `sm_scale = 1.0f` in the
+            // context, where it already was.
             case declared::Kernel::ChunkedGegluTanh:
                 {
                     const auto ins = plan.inputs(op);

@@ -1796,6 +1796,25 @@ void llama_like_forward_declared(
                 cfg.rope_theta,
                 num_q_heads, num_kv_heads, d, dk,
                 L,
+                // NULL, and this is the one family for which that is a
+                // decision rather than an absence.
+                //
+                // The other three hand their decode plan over and the
+                // shared arm fires the dispatch. This family's dispatch
+                // is not one call: a banded tail pairs the BAND's plan
+                // with the band's own attention workspace, a union tail
+                // pairs the PREFIX plan with the suffix workspace, and
+                // an UnmaskedPrefix peel's regions consume hook-narrowed
+                // page CSRs rather than the fire's. Three axes, and only
+                // the first is a plan.
+                //
+                // So the plan is withheld deliberately: the shared arm
+                // refuses a null and the walk falls through to the
+                // residue below, which knows the other two axes. Handing
+                // it a plan here would silently take the ordinary case
+                // and leave the depth and mask forms unreachable.
+                /*decode_plan=*/nullptr, /*prefill_plan=*/nullptr,
+                /*attn_dst_fallback=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
