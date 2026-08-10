@@ -264,3 +264,7 @@ required-features = ["_cuda", "bridge"]
 [[test]]
 name = "facts_registry"
 required-features = ["_cuda", "abi"]
+
+[[test]]
+name = "shape_analysis"
+required-features = ["_cuda"]
