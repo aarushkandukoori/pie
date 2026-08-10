@@ -18,7 +18,7 @@ pub static KERNELS: &[KernelSig] = &[
             n: I32 <- Source::Rows,
             left_dim: I32 <- Source::OutWidth(0),
             right_dim: I32 <- Source::OutWidth(1),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(split_qwen_gdn_ba "layout::split_qwen_gdn_ba_bf16",
         operands = operands![
@@ -27,7 +27,7 @@ pub static KERNELS: &[KernelSig] = &[
             a_out: BufMut <- Source::Out(1),
             n: I32 <- Source::Rows,
             v_h: I32 <- Source::OutWidth(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // A copy that skips requests whose slot id is invalid: the launch happens
     // for every request every time and the slot decides whether it does

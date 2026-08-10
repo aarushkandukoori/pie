@@ -419,7 +419,7 @@ impl Ty {
 }
 
 /// One operand of a launcher, in the position the launcher takes it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Operand {
     /// The C++ parameter's name. Prose — nothing matches on it — but it is
     /// what makes a row diffable against the header by eye, and what a
@@ -455,7 +455,10 @@ pub struct Operand {
 /// the FIRE, never a family: an operand that could only be sourced from
 /// a workspace field is an operand whose arm is not shareable, which is
 /// the same boundary `ExecCtx` draws.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// `PartialEq` but not `Eq`: a [`Lit::F32`] is a float, and a float is
+/// not a total order. Nothing here is a map key — the comparisons are
+/// all "is this operand sourced from X", which partial equality answers.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Source {
     /// The row has not stated it; nothing may be generated from this.
     Unbound,
@@ -516,9 +519,14 @@ pub enum Source {
     /// Dimension `d` of the `i`-th result, which is how a head count
     /// reaches a launcher: the shape says `[Tokens, heads, dim]`.
     OutDim(u8, u8),
-    /// A named field of the executing context — the stream, the
-    /// handle, `eps`, the head geometry. The name is the C++ member,
-    /// and a context that does not have it does not compile.
+    /// A named field of the executing context — the stream, the handle,
+    /// `eps`, the head geometry.
+    ///
+    /// The name is the FIELD's, and nothing else. It used to carry the
+    /// C++ context object's struct nesting (`"arm.stream"`), which made
+    /// this vocabulary speak one consumer's shape: every other consumer
+    /// then had to strip a prefix it never had. A row names a fact; where
+    /// that fact sits inside a driver's context is the driver's business.
     Ctx(&'static str),
     /// [`Source::Ctx`], plus a GUARD: the generated branch fires only
     /// when the field is non-zero, and a family that leaves it zero
@@ -539,10 +547,36 @@ pub enum Source {
     /// which is a claim about the context field and not about any one
     /// call site.
     CtxNonZero(&'static str),
-    /// A literal, spelled as C++ spells it. For the arguments a
-    /// launcher takes that no statement and no context carries — an
-    /// `interleaved` flag a family never sets, a `beta` of zero.
-    Lit(&'static str),
+    /// A literal VALUE — for the arguments a launcher takes that no
+    /// statement and no context carries: an `interleaved` flag a family
+    /// never sets, a `beta` of zero, an optional buffer left absent.
+    ///
+    /// A value, not a string. It was `&'static str` holding C++ source
+    /// text (`"1.702f"`, `"nullptr"`, `"false"`), which meant every
+    /// consumer that was not C++ had to PARSE another language's syntax
+    /// to find out what number the row meant. `1.702f` is not a float in
+    /// any language that reads this table; it was a float in the one
+    /// language that wrote it.
+    Lit(Lit),
+}
+
+/// What a [`Source::Lit`] holds.
+///
+/// Deliberately small. A row states a constant the launcher needs and no
+/// statement supplies; anything that wants arithmetic or a name is a
+/// different `Source`, not a richer literal.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Lit {
+    /// An absent optional pointer. Typed by the operand it binds — the
+    /// row already says which pointer is missing.
+    Null,
+    /// A flag.
+    Bool(bool),
+    /// A float. `1.702` is gpt-oss's GLU alpha; the row carries the
+    /// number, and each consumer spells it its own way.
+    F32(f32),
+    /// An integer.
+    I32(i32),
 }
 
 /// One kernel's contract.

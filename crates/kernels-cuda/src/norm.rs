@@ -86,7 +86,7 @@ pub static KERNELS: &[KernelSig] = &[
             num_rows: I32 <- Source::Rows,
             hidden: I32 <- Source::InWidth(0),
             eps: F32 <- Source::Ctx("eps"),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // Gemma folds `(1 + w)` instead of `w` — different arithmetic, same
     // signature, same row space.
@@ -98,7 +98,7 @@ pub static KERNELS: &[KernelSig] = &[
             num_rows: I32 <- Source::Rows,
             hidden: I32 <- Source::InWidth(0),
             eps: F32 <- Source::Ctx("eps"),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(rmsnorm_with_fp16 "norm::rmsnorm_bf16_with_fp16",
         operands = operands![
@@ -201,7 +201,7 @@ pub static KERNELS: &[KernelSig] = &[
             num_rows: I32 <- Source::Rows,
             hidden_size: I32 <- Source::OutWidth(0),
             eps: F32 <- Source::Ctx("eps"),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // A rank-K residual stream: K parallel streams predicted from each
     // other, one of them run through the real layer, the rest corrected
@@ -271,7 +271,7 @@ pub static KERNELS: &[KernelSig] = &[
             t: I32 <- Source::Rows,
             h: I32 <- Source::InWidth(0),
             eps: F32 <- Source::Ctx("eps"),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // In place on the tensor it holds to a magnitude: the row states one
     // operand and one result and they are the same bytes, which is what
@@ -284,7 +284,7 @@ pub static KERNELS: &[KernelSig] = &[
             t: I32 <- Source::Rows,
             h: I32 <- Source::OutWidth(0),
             eps: F32 <- Source::Ctx("eps"),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // Weightless per-head norm (the V-norm) — no gamma, so no variant.
     kernel!(rmsnorm_no_scale "norm::rmsnorm_no_scale_bf16", in_place = &[(0, 0)],
@@ -323,7 +323,7 @@ pub static KERNELS: &[KernelSig] = &[
             num_rows: I32 <- Source::Rows,
             hidden_size: I32 <- Source::OutWidth(0),
             eps: F32 <- Source::Ctx("eps"),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // The SCALE is the statement's, in the bits the param channel has
     // room for. It was a NAME, and the driver held the arithmetic that
@@ -336,7 +336,7 @@ pub static KERNELS: &[KernelSig] = &[
             x: BufMut <- Source::Out(0),
             s: F32 <- Source::ParamF32(0),
             n: Usize <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // Accumulates into its FIRST argument. Stating it is what lets a
     // text add into a window (`select`) and have the window keep the
@@ -346,13 +346,13 @@ pub static KERNELS: &[KernelSig] = &[
             y: BufMut <- Source::Out(0),
             x: Buf <- Source::In(1),
             n: Usize <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(tanh "norm::tanh_bf16", in_place = &[(0, 0)],
         operands = operands![
             x: BufMut <- Source::Out(0),
             numel: I32 <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // The head GEOMETRY off the value, not off the context: this
     // statement's result is rank-3 `[Tokens, heads, head_dim]`, so the
@@ -368,6 +368,6 @@ pub static KERNELS: &[KernelSig] = &[
             n: I32 <- Source::Rows,
             num_heads: I32 <- Source::OutDim(0, 1),
             head_dim: I32 <- Source::OutDim(0, 2),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
 ];

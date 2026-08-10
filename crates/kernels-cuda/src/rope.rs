@@ -5,6 +5,7 @@
 
 use kernels::KernelSig;
 use kernels::{kernel, operands};
+use kernels::Lit;
 use kernels::Source;
 
 #[rustfmt::skip]
@@ -16,7 +17,7 @@ pub static KERNELS: &[KernelSig] = &[
             num_tokens: I32 <- Source::Rows,
             head_dim: I32 <- Source::Ctx("head_dim"),
             theta: F32 <- Source::CtxNonZero("rope_theta"),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // Not in the table until the ABI pilot; the vocabulary audit has been
     // counting it as undeclared. `interleaved` is where GLM and the MLA rope
@@ -45,8 +46,8 @@ pub static KERNELS: &[KernelSig] = &[
             num_kv_heads: I32 <- Source::Ctx("num_kv_heads"),
             head_dim: I32 <- Source::Ctx("head_dim"),
             theta: F32 <- Source::CtxNonZero("rope_theta"),
-            stream: Stream <- Source::Ctx("arm.stream"),
-            interleaved: Bool <- Source::Lit("false"),
+            stream: Stream <- Source::Ctx("stream"),
+            interleaved: Bool <- Source::Lit(Lit::Bool(false)),
         ]),
     // Norms AND rotates q and k where they lie -- `BufMut` on both, and
     // no destination to give them another. The `_rounded` twin below has
@@ -148,7 +149,7 @@ pub static KERNELS: &[KernelSig] = &[
             head_dim: I32 <- Source::Ctx("head_dim"),
             rotary_dim: I32 <- Source::Param(0),
             theta: F32 <- Source::CtxNonZero("rope_theta"),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // The other row the audit was counting as undeclared. It is `rope_partial`
     // with `positions` shifted by a host constant, and the delta sits between

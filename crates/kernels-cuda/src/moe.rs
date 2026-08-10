@@ -6,6 +6,7 @@
 
 use kernels::kernel;
 use kernels::operands;
+use kernels::Lit;
 use kernels::Source;
 use kernels::KernelSig;
 
@@ -213,8 +214,8 @@ pub static KERNELS: &[KernelSig] = &[
             num_experts: I32 <- Source::Param(0),
             block_size: I32 <- Source::Param(1),
             max_blocks: I32 <- Source::Param(2),
-            num_tokens_past_padded: I32sMut <- Source::Lit("nullptr"),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            num_tokens_past_padded: I32sMut <- Source::Lit(Lit::Null),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // THE THREE THAT REMAIN UNSTATED, and the one thing blocking all
     // three: they take the ROUTE count and `top_k` as separate
@@ -319,7 +320,7 @@ pub static KERNELS: &[KernelSig] = &[
             n: I32 <- Source::Rows,
             num_experts: I32 <- Source::InWidth(0),
             k: I32 <- Source::OutWidth(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // The whole routed block as one call — permute, both grouped GEMMs,
     // the activation and the weighted finalize. The leg decode actually
@@ -359,7 +360,7 @@ pub static KERNELS: &[KernelSig] = &[
             top_k: I32 <- Source::OutDim(0, 1),
             h: I32 <- Source::InWidth(1),
             i_moe: I32,
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(moe_down_gemv "moe::moe_down_decode_gemv_bf16",
         operands = operands![
@@ -384,7 +385,7 @@ pub static KERNELS: &[KernelSig] = &[
             num_tokens: I32 <- Source::Rows,
             top_k: I32 <- Source::InDim(0, 1),
             hidden: I32 <- Source::InDim(0, 2),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // The `_add` spelling accumulates into the residual, which the
     // statement carries as its THIRD operand (`weighted_sum_add(x,
@@ -402,7 +403,7 @@ pub static KERNELS: &[KernelSig] = &[
             num_tokens: I32 <- Source::Rows,
             top_k: I32 <- Source::InDim(0, 1),
             hidden: I32 <- Source::InDim(0, 2),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // The routed MXFP4 GEMVs. Like qwen3_5's GEMV leg the expert axis
     // rides INSIDE the value, so each is one rectangle over `N * k`

@@ -437,7 +437,7 @@ fn gemma4_matches_transformers_on_real_weights() {
     let ctx = DispatchCtx {
         stream: raw_stream,
         cublas: cublas.handle().expect("created").cast(),
-        rms_eps: 1e-6,
+        eps: 1e-6,
         rope_theta: 1e4,
         // `rope_parameters` splits by layer kind: sliding 1e4 default,
         // full 1e6 proportional — `per_layer_rope_theta`, expanded.
@@ -450,6 +450,8 @@ fn gemma4_matches_transformers_on_real_weights() {
             .map(|i| if facts.is_full_attn(i) { facts.global_rotary_dim } else { 0 })
             .collect(),
         head_dim: facts.head_dim as i32,
+        num_q_heads: facts.q_heads as i32,
+        num_kv_heads: facts.kv_heads as i32,
         vocab: i32::try_from(VOCAB).expect("vocab"),
         gate_second: false,
         rope_interleaved: false,

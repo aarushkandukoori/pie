@@ -110,6 +110,15 @@ mod bridge {
         let bindings = kernels_cuda::abi::emit_rust_bindings(&tables);
         std::fs::write(out_dir.join("launch_bindings.rs"), bindings).expect("write bindings");
 
+        // The DISPATCH, from the same rows. `emit_rust_dispatch` is the
+        // sibling of the C++ `emit_dispatch` the declared executor
+        // includes — same table, same guards, different strings — and it
+        // is generated here for the reason the bindings are: a second
+        // hand-written switch over a table that already knows the answer
+        // is the duplication this whole arc removes.
+        let dispatch = kernels_cuda::abi::emit_rust_dispatch(&tables);
+        std::fs::write(out_dir.join("rust_dispatch.rs"), dispatch).expect("write dispatch");
+
         println!("cargo:rerun-if-env-changed=CUDA_HOME");
         println!("cargo:rerun-if-env-changed=CUDA_PATH");
         let cuda_include = cuda_home().join("include");

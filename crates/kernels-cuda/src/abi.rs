@@ -370,193 +370,210 @@ mod tests {
 // generator that filled the gaps with guesses would be the hand-written
 // arm again with worse provenance.
 
-use kernels::Source;
+use kernels::{Lit, Source};
 
-/// The C++ expression that binds one operand, given the context
-/// variable's name.
-fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
+// ── THE DISPATCH, GENERATED ───────────────────────────────────────────
+//
+// A C++ twin of this stood here and is gone with the driver it served.
+// It emitted a `switch` into `model/declared/execute.hpp`; that tree is
+// reference now, not running code, and a generator with no consumer is a
+// second definition of the truth waiting to drift from the first.
+//
+// What it leaves behind is the SHAPE, which was right: one branch per row
+// that states where its arguments come from, keyed by the symbol, with
+// the arity the sources ask for as part of the match. A row that has not
+// stated its sources is absent and belongs to a hand-written arm until it
+// does — which is a row's work, not the driver's.
+//
+// The driver calls the FLAT entry point (`pie_k_*`), not the launcher —
+// it is not C++ and cannot be, which is what `entry_name` and the
+// compiled shim exist for. The shim earns its place twice over: it is
+// the only way across, and compiling it is what PROVES a row, since C++
+// overload resolution decides arity, order, constness and width all at
+// once. Take it away and the rows become unchecked claims.
+//
+// `ins`/`outs`/`aux` are not three spans here. A lowered `Launch` hands
+// the binder ONE run in stated order (inputs, outputs, then the weights
+// the statement names), so a generated branch slices it, and the counts
+// come off the op join.
+
+/// An element count, spelled the width the row declares — or `None`,
+/// which declines the whole row to a hand-written arm.
+fn elem_count(e: &str, ty: kernels::Ty) -> Option<String> {
+    Some(match ty {
+        kernels::Ty::Usize => e.to_string(),
+        kernels::Ty::I32 => format!("i32::try_from({e}).unwrap_or(0)"),
+        kernels::Ty::U32 => format!("u32::try_from({e}).unwrap_or(0)"),
+        kernels::Ty::I64 => format!("i64::try_from({e}).unwrap_or(0)"),
+        // A count in any other width is a row this generator does not
+        // understand, and the honest answer to that is the hand-written
+        // arm — same rule as an unrecognised literal.
+        _ => return None,
+    })
+}
+
+/// The Rust expression that binds one operand.
+///
+/// `n_in` names the local holding the input count, so the slicing reads
+/// the same in every branch. The casts mirror [`bind_expr`]'s and exist
+/// for its reason: a slot is opaque and the entry point's parameter is
+/// the row's declared width, so a substitution is a compile error rather
+/// than a stride bug.
+fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
     let e = match op.source {
         Source::Unbound => return None,
-        Source::In(i) => format!("{ctx}.arm.values.slot(ins[{i}])"),
-        Source::Out(i) => format!("{ctx}.arm.values.slot(outs[{i}])"),
-        Source::Weight(i) => {
-            format!("{ctx}.wb.require({ctx}.arm.plan.name(aux[{i}])).data()")
+        Source::In(i) => format!("b.args[{i}].ptr"),
+        Source::Out(i) => format!("b.args[n_in + {i}].ptr"),
+        Source::Weight(i) => format!("b.args[n_in + n_out + {i}].ptr"),
+        Source::Param(i) => format!("i32::try_from(spec.params[{i}]).unwrap_or(0)"),
+        Source::ParamF32(i) => format!("f32::from_bits(spec.params[{i}])"),
+        Source::Rows => "rows".to_string(),
+        Source::OutRows(i) => format!("rows_of(b, n_in + {i}, rows)"),
+        Source::InRows(i) => format!("rows_of(b, {i}, rows)"),
+        Source::OutWidth(i) => format!("width_of(b, n_in + {i})"),
+        Source::InWidth(i) => format!("width_of(b, {i})"),
+        // An element COUNT is a `usize` here and the row decides how wide
+        // the launcher wants it — some spell `std::size_t`, some `int`.
+        // The C++ emitter can cast unconditionally because C++ narrows
+        // silently; this one has to ask the row, which is the better of
+        // the two behaviours to have been forced into.
+        Source::OutElements(i) => {
+            elem_count(&format!("elems_of(b, n_in + {i}, rows)"), op.ty)?
         }
-        Source::Param(i) => format!("static_cast<int>(ps[{i}])"),
-        Source::ParamF32(i) => format!("f32_param(ps[{i}])"),
-        Source::Rows => format!("{ctx}.arm.rows"),
-        Source::OutRows(i) => format!(
-            "value_rows({ctx}.arm.plan, outs[{i}], {ctx}.arm.rows, {ctx}.num_requests)"
-        ),
-        Source::InRows(i) => format!(
-            "value_rows({ctx}.arm.plan, ins[{i}], {ctx}.arm.rows, {ctx}.num_requests)"
-        ),
-        Source::OutWidth(i) => format!("row_width({ctx}.arm.plan, outs[{i}])"),
-        Source::InWidth(i) => format!("row_width({ctx}.arm.plan, ins[{i}])"),
-        Source::OutElements(i) => format!(
-            "static_cast<::std::size_t>({ctx}.arm.rows) * \
-             static_cast<::std::size_t>(row_width({ctx}.arm.plan, outs[{i}]))"
-        ),
-        Source::InElements(i) => format!(
-            "static_cast<::std::size_t>({ctx}.arm.rows) * \
-             static_cast<::std::size_t>(row_width({ctx}.arm.plan, ins[{i}]))"
-        ),
-        Source::InDim(i, d) => format!(
-            "static_cast<int>({ctx}.arm.plan.value(ins[{i}]).dims[{d}].value)"
-        ),
-        Source::OutDim(i, d) => format!(
-            "static_cast<int>({ctx}.arm.plan.value(outs[{i}]).dims[{d}].value)"
-        ),
-        Source::Ctx(f) | Source::CtxNonZero(f) => format!("{ctx}.{f}"),
-        Source::Lit(l) => l.to_string(),
+        Source::InElements(i) => {
+            elem_count(&format!("elems_of(b, {i}, rows)"), op.ty)?
+        }
+        // A DIM is the plan's, not the binder's: an arg carries its row
+        // width and nothing about the shape behind it. The join could
+        // carry it, and until it does these rows stay hand-written —
+        // which is the same rule `Source::Unbound` gets, for the same
+        // reason (a partial binding is not a binding).
+        Source::InDim(..) | Source::OutDim(..) => return None,
+        Source::Ctx(f) | Source::CtxNonZero(f) => format!("ctx.{f}"),
+        // A NULL is returned fully typed and skips the cast step below:
+        // that step turns a slot into the row's pointee, and a null has
+        // no slot to turn. `null_mut().cast::<i32>()` leaves the original
+        // `T` for an inference with nothing to work from, so the row's
+        // own declared type produces the pointer directly.
+        Source::Lit(Lit::Null) => {
+            let rust = op.ty.rust();
+            return Some(match rust.strip_prefix("*mut ") {
+                Some(p) => format!("core::ptr::null_mut::<{p}>()"),
+                None => format!("core::ptr::null::<{}>()", rust.strip_prefix("*const ")?),
+            });
+        }
+        // The rest are values, and spelling a value is not parsing one.
+        // A short-lived version of this function had a miniature C++
+        // literal parser here, because the row held `"1.702f"` — which
+        // is what a vocabulary looks like when it speaks one consumer's
+        // language. The row holds `Lit::F32(1.702)` now and there is
+        // nothing to parse.
+        Source::Lit(Lit::Bool(v)) => v.to_string(),
+        Source::Lit(Lit::F32(v)) => format!("{v}f32"),
+        Source::Lit(Lit::I32(v)) => format!("{v}i32"),
     };
-    // The generated call goes through the flat ABI entry point, whose
-    // parameter types are the row's — so a cast that the row does not
-    // justify cannot be written here.
     Some(match op.ty {
-        kernels::Ty::Buf | kernels::Ty::BufMut => e,
-        kernels::Ty::I32sMut => format!("static_cast<::std::int32_t*>({e})"),
-        // The read-only element-typed arrays. A slot hands back `void*`
-        // and the callee takes `const int32_t*`; without the cast the
-        // generated call does not compile, which is the table's own
-        // point — the DECLARED width is what makes a substitution an
-        // error rather than a stride bug.
-        kernels::Ty::I32s => format!("static_cast<const ::std::int32_t*>({e})"),
-        kernels::Ty::U32s => format!("static_cast<const ::std::uint32_t*>({e})"),
-        kernels::Ty::U8s => format!("static_cast<const ::std::uint8_t*>({e})"),
-        kernels::Ty::I64s => format!("static_cast<const ::std::int64_t*>({e})"),
-        kernels::Ty::U32sMut => format!("static_cast<::std::uint32_t*>({e})"),
-        kernels::Ty::U8sMut => format!("static_cast<::std::uint8_t*>({e})"),
-        kernels::Ty::F32sMut => format!("static_cast<float*>({e})"),
-        kernels::Ty::F32s => format!("static_cast<const float*>({e})"),
+        kernels::Ty::Buf => format!("({e}).cast_const()"),
+        kernels::Ty::BufMut => e,
+        kernels::Ty::I32s => format!("({e}).cast_const().cast::<i32>()"),
+        kernels::Ty::U32s => format!("({e}).cast_const().cast::<u32>()"),
+        kernels::Ty::U8s => format!("({e}).cast_const().cast::<u8>()"),
+        kernels::Ty::I64s => format!("({e}).cast_const().cast::<i64>()"),
+        kernels::Ty::F32s => format!("({e}).cast_const().cast::<f32>()"),
+        kernels::Ty::I32sMut => format!("({e}).cast::<i32>()"),
+        kernels::Ty::U32sMut => format!("({e}).cast::<u32>()"),
+        kernels::Ty::U8sMut => format!("({e}).cast::<u8>()"),
+        kernels::Ty::F32sMut => format!("({e}).cast::<f32>()"),
+        kernels::Ty::U16s => format!("({e}).cast_const().cast::<u16>()"),
+        kernels::Ty::U16sMut => format!("({e}).cast::<u16>()"),
         _ => e,
     })
 }
 
-/// Emit one `case` per row whose operands are fully sourced.
+/// One `match` arm per row whose operands are fully sourced, for the Rust
+/// driver's `dispatch`.
 ///
-/// `ctx` is the C++ name of the `declared::ExecCtx` in scope. The body
-/// assumes `ins`, `outs`, `aux` and `ps` are already bound — the caller
-/// emits those once, because every case wants them and re-reading the
-/// plan per case would be the generator's own duplication.
-pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
+/// Emitted as the body of a function returning `bool` — `true` when a
+/// branch ran. A symbol with no generated branch, or one whose guard the
+/// statement does not satisfy, returns `false` and the caller falls
+/// through to the hand-written arm that knows the other spelling. That
+/// fallthrough is the whole reason the guards are here rather than in the
+/// arm: a generated branch must decline loudly, never guess.
+pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
     let mut out = String::from(
-        "// GENERATED by `kernels_cuda::abi::emit_dispatch` — DO NOT EDIT.\n\
+        "// GENERATED by `kernels_cuda::abi::emit_rust_dispatch` — DO NOT EDIT.\n\
          //\n\
          // One branch per kernel! row that states both its operand types\n\
          // and where each argument comes from. A row missing either is\n\
          // absent here and belongs to a hand-written arm until it states\n\
-         // them.\n\
+         // them — which is a row's work, not the driver's.\n\
          //\n\
-         // Keyed by the SYMBOL. The registry's enum is a handle a\n\
-         // hand-written switch needed; this needs none, and the symbol\n\
-         // is what the statement carries anyway.\n\n",
+         // Keyed by the SYMBOL, like the C++ twin: the statement carries\n\
+         // it, so there is no derived handle for the two to disagree on.\n\
+         //\n\
+         // A whole `match` EXPRESSION, not a run of arms: `include!` takes\n\
+         // an expression or an item and never a pattern, so a file of bare\n\
+         // arms has nowhere to be included from.\n\
+         match b.kernel {\n",
     );
     for k in stated(tables) {
         let binds: Option<Vec<String>> =
-            k.operands.iter().map(|o| bind_expr(o, ctx)).collect();
+            k.operands.iter().map(rust_bind_expr).collect();
         let Some(binds) = binds else { continue };
-        // THE ARITY THE SOURCES ASK FOR, as part of the match.
-        //
-        // A branch that indexes `outs[1]` must not run on a statement
-        // with one result, and rope is exactly that case: its Q-ONLY
-        // spelling states one, reaches the same launcher with
-        // `num_kv_heads = 0`, and would have read past the span here --
-        // which does not fault, it reads the NEXT statement's operands
-        // (the reason `need` exists at all).
-        //
-        // So the generated branch tests what it is about to index, and
-        // a statement that does not satisfy it falls through to the
-        // hand-written arm that knows the other spelling.
-        let mut need_in = 0u8;
-        let mut need_out = 0u8;
-        let mut need_aux = 0u8;
-        let mut need_ps = 0u8;
+
+        // THE ARITY THE SOURCES ASK FOR, as part of the match — the C++
+        // twin's reasoning verbatim. A branch that indexes `outs[1]` must
+        // not run on a statement with one result; here the cost of not
+        // checking is worse than a wrong answer, because the flat run
+        // means an over-index reads the NEXT operand rather than faulting.
+        let (mut need_in, mut need_out, mut need_w, mut need_ps) = (0u8, 0u8, 0u8, 0u8);
         for o in k.operands {
             match o.source {
                 Source::In(i)
                 | Source::InRows(i)
                 | Source::InElements(i)
-                | Source::InWidth(i)
-                | Source::InDim(i, _) => need_in = need_in.max(i + 1),
+                | Source::InWidth(i) => need_in = need_in.max(i + 1),
                 Source::Out(i)
                 | Source::OutRows(i)
                 | Source::OutWidth(i)
-                | Source::OutDim(i, _)
                 | Source::OutElements(i) => need_out = need_out.max(i + 1),
-                Source::Weight(i) => need_aux = need_aux.max(i + 1),
-                Source::Param(i) | Source::ParamF32(i) => {
-                    need_ps = need_ps.max(i + 1)
-                }
+                Source::Weight(i) => need_w = need_w.max(i + 1),
+                Source::Param(i) | Source::ParamF32(i) => need_ps = need_ps.max(i + 1),
                 _ => {}
             }
         }
         let mut guard = String::new();
-        for (n, span) in [
-            (need_in, "ins"),
-            (need_out, "outs"),
-            (need_aux, "aux"),
-            (need_ps, "ps"),
-        ] {
-            if n > 0 {
-                guard.push_str(&format!(" && {span}.size >= {n}"));
-            }
+        guard.push_str(&format!(
+            " if n_in >= {need_in} && n_out >= {need_out} \
+             && b.args.len() >= n_in + n_out + {need_w}"
+        ));
+        if need_ps > 0 {
+            guard.push_str(&format!(" && spec.params.len() >= {need_ps}"));
         }
-        // WHAT `Source::Rows` ASSUMES, made part of the match.
-        //
-        // `Rows` binds the RECTANGLE's row count, which is the fire's
-        // token count. That is the right answer only for a statement
-        // whose rows ARE tokens, and not every statement's are: the
-        // aligned MoE leg's values are `Dim::MoeAlignedRoutes`, a padded
-        // block-major extent, and a branch handing that kernel `N`
-        // activates the first N of the padded rows and leaves the rest
-        // holding whatever the GEMM wrote.
-        //
-        // qwen3.5's routed swiglu is exactly that statement, and it
-        // reached this generated branch before its family's arm — which
-        // computes the padded count — could see it. So the branch tests
-        // the assumption it is making, and a statement that does not
-        // meet it falls through to the arm that knows the other extent.
-        // A field a family zeroes to say "not mine" — see
-        // `Source::CtxNonZero`. The guard is the row's, not the reading
-        // arm's, which is what makes it survive the arm being generated.
+        // A field a family zeroes to say "not mine".
         for o in k.operands {
             if let Source::CtxNonZero(f) = o.source {
-                guard.push_str(&format!(" && {ctx}.{f} != 0"));
+                // `is_set` rather than `!= 0`: the emitter does not know
+                // the field's TYPE, and Rust will not compare an `f32` to
+                // an integer literal. The driver implements it for the
+                // kinds a context field can be, which puts the one thing
+                // the generator cannot know on the side that knows it.
+                guard.push_str(&format!(" && is_set(ctx.{f})"));
             }
         }
-        if k.operands.iter().any(|o| o.source == Source::Rows) {
-            let probe = if need_out > 0 { "outs[0]" } else { "ins[0]" };
-            if need_out > 0 || need_in > 0 {
-                guard.push_str(&format!(
-                    " && c.arm.plan.value({probe}).dims[0].kind == \
-                     pie_forward::PieForwardDimKind::Tokens"
-                ));
-            }
-        }
-        // KEYED BY NAME, not by an enumerator. The registry's enum
-        // exists so a HAND-written switch can have cases; a generated
-        // one needs no such handle, and taking the symbol directly
-        // removes the one place the two could disagree — the derived
-        // enumerator and the registry's canonical one are not the same
-        // string, and the first version of this generator proved it by
-        // emitting `RopeBf16` where the registry says `RopeFull`.
-        // Calls the LAUNCHER, not the flat entry point. The shim is a
-        // PROOF -- it compiles a forward with the header in scope, so a
-        // wrong row does not build -- and it is generated into a test's
-        // temp dir rather than into the archive. The driver is C++ and
-        // can call C++; a flat ABI matters for a consumer that is not,
-        // and there is none yet. When there is, this switches to
-        // `entry_name` and the shim joins the build.
+
         out.push_str(&format!(
-            "if (sym == \"{}\"{}) {{\n    {}{}(\n        {});\n    return true;\n}}\n",
+            "\"{}\"{} => unsafe {{\n    {}(\n        {},\n    );\n    true\n}}\n",
             k.symbol,
             guard,
-            if k.returns.is_empty() { "" } else { "(void)" },
-            cpp_path(k.symbol),
+            format!("crate::launch::ffi::{}", entry_name(k.symbol)),
             binds.join(",\n        "),
         ));
     }
+    // The fallthrough IS the answer for every symbol with no branch, and
+    // it is spelled here rather than at the include site so that what
+    // lands on disk is a complete expression — which `include!` requires,
+    // and which also means the file can be read on its own.
+    out.push_str("_ => false,\n}\n");
     out
 }
-

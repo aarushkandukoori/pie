@@ -128,6 +128,17 @@ pub struct LaunchSpec {
     /// tables (the C++ hand pass wires them through its workspace).
     /// Order, when present: `[dt_raw, a, d, dt_bias, dt_pre, da_pre]`.
     pub aux: Vec<Arg>,
+    /// How many of the launch's args are INPUTS, and how many OUTPUTS.
+    ///
+    /// A lowered `Launch` hands the binder one flat run in stated order
+    /// (inputs, then outputs, then the weights the statement names), and
+    /// the generated dispatch needs the split: a row sources its operands
+    /// as `In(i)` / `Out(i)` / `Weight(i)`, which are three spans in the
+    /// C++ context and three SLICES of one run here. The counts come off
+    /// the op, which is the only place that knows them.
+    pub n_in: usize,
+    /// See [`Self::n_in`].
+    pub n_out: usize,
     /// `OpKind::Launch::params` — the wire scalars a statement carries
     /// that no operand shape gives.
     ///
@@ -346,6 +357,8 @@ impl DispatchPlan {
                     _ => LaunchSpec::default(),
                 };
                 spec.outs = outs;
+                spec.n_in = op.inputs.len();
+                spec.n_out = op.outputs.len();
                 spec.state = op.kind.state_ref();
                 if let OpKind::RmsnormPerHead { head_dim, .. } = op.kind {
                     spec.per_head_dim = Some(head_dim);
@@ -614,7 +627,7 @@ pub struct DispatchCtx {
     /// The cuBLAS handle `gemm::act_x_w` routes through.
     pub cublas: *mut c_void,
     /// RMSNorm epsilon.
-    pub rms_eps: f32,
+    pub eps: f32,
     /// Rope theta, for the table fill.
     pub rope_theta: f32,
     /// PER-LAYER rope theta for families whose `rope_parameters` split
@@ -631,6 +644,15 @@ pub struct DispatchCtx {
     pub rotary_by_layer: Vec<u32>,
     /// Head width, for the table fill.
     pub head_dim: i32,
+    /// The head COUNTS, which a row may name the same way it names
+    /// `head_dim` — a fire-wide geometry fact, not something an arm
+    /// derives from a width. Added because the rows say `num_q_heads` /
+    /// `num_kv_heads` and a context that spelled them otherwise would
+    /// need a translation table between the declaration and the driver,
+    /// which is the thing being removed.
+    pub num_q_heads: i32,
+    /// See [`Self::num_q_heads`].
+    pub num_kv_heads: i32,
     /// Vocabulary rows the embed weight holds.
     pub vocab: i32,
     /// The packed gate‖up order `chunked_swiglu` was bound with.
@@ -866,6 +888,79 @@ pub enum DispatchRefusal {
         got: usize,
     },
 }
+/// The GENERATED dispatch: one branch per row that states its sources.
+///
+/// Ran BEFORE the hand-written match, and `false` means "not mine" —
+/// either no branch names this symbol, or the branch's guard was not
+/// satisfied and the statement is the other spelling. Both fall through
+/// to the arm that knows, which is the same fallthrough the C++ driver's
+/// generated switch has and for the same reason: a generated branch must
+/// decline rather than guess.
+///
+/// The included file is `emit_rust_dispatch`'s output over the same
+/// tables the shim and the bindings come from — one read of one table in
+/// one build script, so the three cannot disagree with each other.
+#[cfg(feature = "bridge")]
+fn dispatch_generated(
+    b: &BoundLaunch<'_>,
+    spec: &LaunchSpec,
+    ctx: &DispatchCtx,
+    rows: i32,
+) -> bool {
+    // What a generated branch may read about an operand: its row width,
+    // its row count, and the product. Free functions rather than inline
+    // expressions because every branch wants them and a generator that
+    // re-derived them per branch would be duplicating in the one place
+    // this whole exercise removes duplication from.
+    //
+    // `0` for an index the run does not hold. A branch that could index
+    // past its run is refused by its own guard before it gets here, so
+    // this is the belt to that suspenders — it must not fault, because a
+    // read past the run does not fault either, it reads the NEXT
+    // operand.
+    fn width_of(b: &BoundLaunch<'_>, i: usize) -> i32 {
+        b.args.get(i).map_or(0, |a| i32::try_from(a.width).unwrap_or(0))
+    }
+    fn rows_of(b: &BoundLaunch<'_>, i: usize, rows: i32) -> i32 {
+        let _ = (b, i);
+        rows
+    }
+    fn elems_of(b: &BoundLaunch<'_>, i: usize, rows: i32) -> usize {
+        (rows.max(0) as usize) * (width_of(b, i).max(0) as usize)
+    }
+
+    /// `Source::CtxNonZero`'s test: a family zeroes a context field to
+    /// say "this launch is not mine". The generator emits the call and
+    /// not `!= 0` because it does not know the field's TYPE, and Rust
+    /// will not compare an `f32` to an integer literal — so the one
+    /// thing the generator cannot know lives on the side that knows it.
+    trait IsSet {
+        fn is_set(self) -> bool;
+    }
+    impl IsSet for f32 {
+        fn is_set(self) -> bool {
+            self != 0.0
+        }
+    }
+    impl IsSet for i32 {
+        fn is_set(self) -> bool {
+            self != 0
+        }
+    }
+    impl IsSet for u32 {
+        fn is_set(self) -> bool {
+            self != 0
+        }
+    }
+    fn is_set<T: IsSet>(v: T) -> bool {
+        v.is_set()
+    }
+
+    let n_in = spec.n_in;
+    let n_out = spec.n_out;
+    include!(concat!(env!("OUT_DIR"), "/rust_dispatch.rs"))
+}
+
 
 /// Dispatch one bound launch through its `pie_k_*` entry.
 ///
@@ -891,6 +986,16 @@ pub fn dispatch<R: Resolver>(
     gdn: Option<&GdnCtx>,
 ) -> Result<(), DispatchRefusal> {
     use crate::launch::ffi;
+
+    let rows = i32::try_from(bound.rows.end - bound.rows.start).expect("rows fit i32");
+
+    // GENERATED FIRST. A row that states where its arguments come from
+    // needs no arm, and the branch for it is emitted from the row — so
+    // the hand-written match below is what is LEFT, not what is normal.
+    // It shrinks as rows state their sources, which is a row's work.
+    if dispatch_generated(bound, spec, ctx, rows) {
+        return Ok(());
+    }
 
     // The GDN arms' shared reads: the ctx itself, and the launch's state
     // layer's slab out of one of its per-layer vectors.
@@ -1027,7 +1132,7 @@ pub fn dispatch<R: Resolver>(
                     y.ptr,
                     num_rows,
                     hidden,
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -1121,7 +1226,7 @@ pub fn dispatch<R: Resolver>(
                     layer.page_size,
                     layer.hnd_layout,
                     ctx.theta_of(bound.layers.start as usize),
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -1231,7 +1336,7 @@ pub fn dispatch<R: Resolver>(
                     i32::try_from(k_out.width).expect("k width") / ctx.head_dim.max(1),
                     ctx.head_dim,
                     ctx.theta_of(bound.layers.start as usize),
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -1407,7 +1512,7 @@ pub fn dispatch<R: Resolver>(
             };
             unsafe {
                 ffi::pie_k_norm_rmsnorm_gemma_bf16(
-                    x.ptr, w, y.ptr, num_rows, hidden, ctx.rms_eps, ctx.stream,
+                    x.ptr, w, y.ptr, num_rows, hidden, ctx.eps, ctx.stream,
                 );
             }
         }
@@ -1748,7 +1853,7 @@ pub fn dispatch<R: Resolver>(
                     y.ptr,
                     rows * g.v_h,
                     g.v_d,
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -1866,7 +1971,7 @@ pub fn dispatch<R: Resolver>(
                     layer.page_size,
                     layer.hnd_layout,
                     ctx.theta_of(bound.layers.start as usize),
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -1932,7 +2037,7 @@ pub fn dispatch<R: Resolver>(
                     kv_heads,
                     layer.head_dim,
                     ctx.theta_of(bound.layers.start as usize),
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -2056,7 +2161,7 @@ pub fn dispatch<R: Resolver>(
                     norm_out.ptr,
                     rows,
                     i32::try_from(x.width).expect("hidden fits i32"),
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -2075,7 +2180,7 @@ pub fn dispatch<R: Resolver>(
                     hid_out.ptr,
                     rows,
                     i32::try_from(x.width).expect("hidden fits i32"),
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -2112,7 +2217,7 @@ pub fn dispatch<R: Resolver>(
                     y.ptr,
                     num_rows,
                     hidden,
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -2246,7 +2351,7 @@ pub fn dispatch<R: Resolver>(
                     hidden,
                     i32::try_from(gate.width).expect("width"),
                     hidden / g.n_groups.max(1),
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -2404,7 +2509,7 @@ pub fn dispatch<R: Resolver>(
                     rows,
                     i32::try_from(x_out.width).expect("width") / ctx.head_dim.max(1),
                     ctx.head_dim,
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -2424,7 +2529,7 @@ pub fn dispatch<R: Resolver>(
                     i32::try_from(y.width).expect("hidden"),
                     i32::try_from(x.width).expect("x stride"),
                     i32::try_from(y.width).expect("y stride"),
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }
@@ -2473,7 +2578,7 @@ pub fn dispatch<R: Resolver>(
                     i32::try_from(blocks.width).expect("width") / hidden.max(1),
                     hidden,
                     rows,
-                    ctx.rms_eps,
+                    ctx.eps,
                     ctx.stream,
                 );
             }

@@ -5,6 +5,7 @@
 
 use kernels::kernel;
 use kernels::operands;
+use kernels::Lit;
 use kernels::Source;
 use kernels::KernelSig;
 
@@ -32,8 +33,8 @@ pub static KERNELS: &[KernelSig] = &[
             // hand was for, and what the row says instead.
             n: I32 <- Source::OutRows(0),
             i: I32 <- Source::OutWidth(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
-            gate_second: Bool <- Source::Lit("false"),
+            stream: Stream <- Source::Ctx("stream"),
+            gate_second: Bool <- Source::Lit(Lit::Bool(false)),
         ]),
     kernel!(swiglu "mlp::swiglu_bf16",
         operands = operands![
@@ -41,7 +42,7 @@ pub static KERNELS: &[KernelSig] = &[
             up: Buf <- Source::In(1),
             y: BufMut <- Source::Out(0),
             num_elements: I32 <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(chunked_swiglu_strided "mlp::chunked_swiglu_strided_bf16",
         operands = operands![
@@ -88,7 +89,7 @@ pub static KERNELS: &[KernelSig] = &[
             x: Buf <- Source::In(0),
             y: BufMut <- Source::Out(0),
             num_elements: I32 <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // SiTU is not a swiglu variant: the tanh saturates far enough out that a
     // bf16 intermediate loses the distinction the gate exists to make.
@@ -137,7 +138,7 @@ pub static KERNELS: &[KernelSig] = &[
             up: Buf <- Source::In(1),
             y: BufMut <- Source::Out(0),
             num_elements: I32 <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(chunked_geglu_tanh "mlp::chunked_geglu_tanh_bf16",
         operands = operands![
@@ -145,8 +146,8 @@ pub static KERNELS: &[KernelSig] = &[
             y: BufMut <- Source::Out(0),
             n: I32 <- Source::Rows,
             i: I32 <- Source::OutWidth(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
-            gate_second: Bool <- Source::Lit("false"),
+            stream: Stream <- Source::Ctx("stream"),
+            gate_second: Bool <- Source::Lit(Lit::Bool(false)),
         ]),
     // SwiGLU with a clamp. `swiglu_limit` is a config constant, so this
     // is a different kernel and not a different argument.
@@ -158,15 +159,15 @@ pub static KERNELS: &[KernelSig] = &[
             up: Buf <- Source::In(1),
             y: BufMut <- Source::Out(0),
             num_elements: I32 <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
             limit: F32 <- Source::ParamF32(0),
             // The two the arm let DEFAULT. A generated call passes every
             // operand, so the row spells what the header's defaults are
             // — which is the better place for them anyway: a default in
             // a header is a fact about the launcher that no caller can
             // see it relying on.
-            alpha: F32 <- Source::Lit("1.702f"),
-            y_fp16: BufMut <- Source::Lit("nullptr"),
+            alpha: F32 <- Source::Lit(Lit::F32(1.702)),
+            y_fp16: BufMut <- Source::Lit(Lit::Null),
         ]),
     kernel!(sigmoid_scalar_gate_add "mlp::sigmoid_scalar_gate_add_bf16",
         operands = operands![
@@ -203,6 +204,6 @@ pub static KERNELS: &[KernelSig] = &[
             y: Buf <- Source::In(2),
             n: I32 <- Source::Rows,
             h: I32 <- Source::OutWidth(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
 ];

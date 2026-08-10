@@ -91,7 +91,7 @@ pub static KERNELS: &[KernelSig] = &[
             in_bf16: Buf <- Source::In(0),
             out_fp16: BufMut <- Source::Out(0),
             count: Usize <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(scale_rows "quant::scale_rows_bf16",
         operands = operands![

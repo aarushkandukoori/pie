@@ -506,7 +506,7 @@ pub static KERNELS: &[KernelSig] = &[
             k_h: I32 <- Source::InDim(0, 1),
             v_h: I32 <- Source::OutDim(0, 1),
             d: I32 <- Source::OutDim(0, 2),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // KDA's arithmetic is fp32 throughout, so operands living in bf16 in the
     // workspace cross explicitly. Launches, so the trace records them.
@@ -528,14 +528,14 @@ pub static KERNELS: &[KernelSig] = &[
             x: Buf <- Source::In(0),
             y: F32sMut <- Source::Out(0),
             n: Usize <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(f32_to_bf16 "ssm::fp32_to_bf16",
         operands = operands![
             x: F32s <- Source::In(0),
             y: BufMut <- Source::Out(0),
             n: Usize <- Source::OutElements(0),
-            stream: Stream <- Source::Ctx("arm.stream"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(zamba_rmsnorm_gated "ssm::zamba_rmsnorm_gated_bf16",
         operands = operands![
