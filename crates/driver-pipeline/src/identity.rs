@@ -46,13 +46,28 @@ use std::fmt::Write as _;
 use driver_abi::plan::LaunchStagePlan;
 use tensor_ir::fnv1a64;
 
-/// This backend's discriminant in the shared `BackendKind` enum.
+/// Which device shell is compiling.
 ///
-/// Written as a byte rather than pulled from `model-loader`, which owns the
-/// enum: the driver would take a dependency on the loader for one constant, and
-/// the constant is ABI in either case. The name is here so the number is not
-/// anonymous.
-const BACKEND_METAL: u8 = 1;
+/// This was a hardcoded `BACKEND_METAL: u8 = 1` while the layer was a module
+/// of the Metal shell, and it stopped being defensible the moment the CUDA
+/// shell read the same file: a byte that only ever holds one value keys
+/// nothing, and two shells writing one value would have their caches alias.
+/// They would not collide in memory — the caches are per-process — but they
+/// share `$PIE_HOME/cache`, and a cubin answering a request for a `.metallib`
+/// is a class of failure worth making unrepresentable.
+///
+/// The discriminants are `model_loader::types::BackendKind`'s, written as
+/// numbers rather than taken as a dependency: this crate would import the
+/// loader for one enum, and the numbers are ABI either way — they are already
+/// in every archive filename on disk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Backend {
+    /// `BackendKind::Cuda`. Compiles NVRTC cubins.
+    Cuda = 0,
+    /// `BackendKind::Metal`. Compiles pipeline state objects.
+    Metal = 1,
+}
 
 /// The row bucket this shell compiles for.
 ///
@@ -92,6 +107,49 @@ pub struct Versions {
     /// — the host emitter that produced the kernels being compiled. Taken from
     /// the registration, never hardcoded; see the module docs.
     pub emitter: u32,
+}
+
+/// `tensor_compiler::plan::COMPILER_VERSION`, mirrored.
+///
+/// Mirrored rather than imported for the reason [`Versions`] gives: this crate
+/// does not depend on the compiler, because the compiler produces what it
+/// consumes and the dependency would run the wrong way. Mirrored rather than
+/// left to each shell because there is no such thing as a per-backend answer —
+/// it is one number, owned upstream — and two shells each writing their own
+/// copy is two chances to be a version behind.
+///
+/// A hand-copied constant that nothing checks drifts, so a test compares it
+/// against the compiler's through the dev-dependency, exactly as
+/// [`lane::ABI_VERSION`](crate::LANE_ABI_VERSION) and `status::FAULT_CLASSES`
+/// are checked.
+pub const COMPILER_VERSION: u16 = 3;
+
+/// `tensor_compiler::plan::REGION_PLAN_VERSION`, mirrored on the same terms as
+/// [`COMPILER_VERSION`].
+pub const REGION_PLAN_VERSION: u16 = 4;
+
+impl Versions {
+    /// The three compiler-side numbers from their mirrors, and the emitter
+    /// from the wire.
+    ///
+    /// This is the constructor a driver shell should use, and the split it
+    /// encodes is the whole point. Three of the four are facts about the
+    /// toolchain that produced the program and are mirrored here, checked
+    /// against the compiler by test. The fourth cannot be: the C++ hardcoded
+    /// `kMetalM1EmitterVersion = 23` — a driver-side copy of a number the HOST
+    /// owns — and it had already drifted to 36 by the time anyone looked. A
+    /// copy of another process's version cannot do the job of noticing when
+    /// that process changes, so `emitter` is a parameter and comes from
+    /// [`PieProgramDesc::emitter_version`](driver_abi::local::PieProgramDesc).
+    #[must_use]
+    pub const fn mirrored(emitter: u32) -> Self {
+        Self {
+            compiler: COMPILER_VERSION,
+            region_plan: REGION_PLAN_VERSION,
+            lane_table: crate::lane::ABI_VERSION,
+            emitter,
+        }
+    }
 }
 
 /// How many bytes the identity record holds.
@@ -156,14 +214,15 @@ impl Record {
 
 /// Encode the compile-cache identity for one program on one device.
 ///
-/// `device` is the registry id of the GPU — two GPUs of different families
-/// compile the same source to different machine code, so an archive is not
-/// portable between them. `signature` is [`combined_signature`] over the
-/// program's stage plans.
+/// `backend` is which shell is asking, because the two compile the same
+/// program to different machine code and share a cache directory. `device` is
+/// the registry id of the GPU — two GPUs of different families compile the
+/// same source differently, so an archive is not portable between them.
+/// `signature` is [`combined_signature`] over the program's stage plans.
 #[must_use]
-pub fn cache_identity(device: u64, signature: u64, versions: Versions) -> String {
+pub fn cache_identity(backend: Backend, device: u64, signature: u64, versions: Versions) -> String {
     let mut record = Record::new();
-    record.put(&[BACKEND_METAL]);
+    record.put(&[backend as u8]);
     record.put(&device.to_le_bytes());
     record.put(&versions.compiler.to_le_bytes());
     record.put(&signature.to_le_bytes());
@@ -222,6 +281,7 @@ mod tests {
     #[test]
     fn the_record_is_the_fields_in_order_little_endian() {
         let identity = cache_identity(
+            Backend::Metal,
             0x0011_2233_4455_6677,
             0x8899_aabb_ccdd_eeff,
             Versions {
@@ -252,8 +312,9 @@ mod tests {
     /// length at both extremes is what says the widths match the types.
     #[test]
     fn the_encoding_is_fixed_width_for_every_version_a_field_can_hold() {
-        let zero = cache_identity(0, 0, Versions::default());
+        let zero = cache_identity(Backend::Metal, 0, 0, Versions::default());
         let max = cache_identity(
+            Backend::Metal,
             u64::MAX,
             u64::MAX,
             Versions {
@@ -283,11 +344,13 @@ mod tests {
             lane_table: 3,
             emitter: 36,
         };
-        let base = cache_identity(7, 9, versions);
+        let base = cache_identity(Backend::Metal, 7, 9, versions);
         let variants = [
-            cache_identity(8, 9, versions),
-            cache_identity(7, 10, versions),
+            cache_identity(Backend::Cuda, 7, 9, versions),
+            cache_identity(Backend::Metal, 8, 9, versions),
+            cache_identity(Backend::Metal, 7, 10, versions),
             cache_identity(
+                Backend::Metal,
                 7,
                 9,
                 Versions {
@@ -296,6 +359,7 @@ mod tests {
                 },
             ),
             cache_identity(
+                Backend::Metal,
                 7,
                 9,
                 Versions {
@@ -304,6 +368,7 @@ mod tests {
                 },
             ),
             cache_identity(
+                Backend::Metal,
                 7,
                 9,
                 Versions {
@@ -312,6 +377,7 @@ mod tests {
                 },
             ),
             cache_identity(
+                Backend::Metal,
                 7,
                 9,
                 Versions {
@@ -340,7 +406,53 @@ mod tests {
             emitter: 36 + (1 << 16),
             ..Versions::default()
         };
-        assert_ne!(cache_identity(0, 0, low), cache_identity(0, 0, high));
+        assert_ne!(
+            cache_identity(Backend::Metal, 0, 0, low),
+            cache_identity(Backend::Metal, 0, 0, high)
+        );
+    }
+
+    /// The one test that makes the mirrors safe. A hand-copied version number
+    /// that nothing checks drifts — the C++ proved it, with a driver-side
+    /// `kMetalM1EmitterVersion = 23` that was still 23 when the host reached
+    /// 36 — and a stale version in the key does not fail loudly: it makes a
+    /// cache HIT that should have been a miss, so the driver runs code the
+    /// current compiler would not have produced.
+    #[test]
+    fn the_mirrored_versions_still_match_the_compilers() {
+        assert_eq!(
+            COMPILER_VERSION,
+            tensor_compiler::plan::COMPILER_VERSION,
+            "the normalized form changed shape and this mirror did not"
+        );
+        assert_eq!(
+            REGION_PLAN_VERSION,
+            tensor_compiler::plan::REGION_PLAN_VERSION,
+            "region partitioning changed and this mirror did not"
+        );
+        assert_eq!(
+            crate::lane::ABI_VERSION,
+            tensor_compiler::plan::lane_table::LANE_TABLE_ABI_VERSION,
+            "the lane table's layout changed and this mirror did not"
+        );
+    }
+
+    /// The emitter is the one field that must NOT be mirrored: it belongs to
+    /// the host, which can bump it without this driver being rebuilt. The
+    /// constructor takes it and everything else is a mirror, and that split is
+    /// the correction to the C++'s hardcoded copy.
+    #[test]
+    fn only_the_emitter_version_comes_from_the_caller() {
+        let versions = Versions::mirrored(41);
+        assert_eq!(versions.emitter, 41);
+        assert_eq!(versions.compiler, COMPILER_VERSION);
+        assert_eq!(versions.region_plan, REGION_PLAN_VERSION);
+        assert_eq!(versions.lane_table, crate::lane::ABI_VERSION);
+        assert_ne!(
+            cache_identity(Backend::Cuda, 0, 0, Versions::mirrored(41)),
+            cache_identity(Backend::Cuda, 0, 0, Versions::mirrored(42)),
+            "a host-side emitter bump must miss the cache, which is the whole              reason the number crosses the ABI instead of being written here"
+        );
     }
 
     /// Stage order is program identity: the same stages in another order are

@@ -209,28 +209,24 @@ pub const fn channel_dtype(dtype: u8) -> u8 {
     }
 }
 
-/// One host-emitted MSL kernel, or the reason the host chose not to emit it.
+/// One host-emitted kernel, or the reason the host chose not to emit it.
 ///
-/// The empty-source-with-an-error form is deliberate and is not a failure to
-/// register: it is the host saying "I could not emit this one", and the
-/// runtime takes its fallback path. A record that dropped those entries would
-/// leave the runtime unable to tell "the host declined" from "the host was
-/// never asked".
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct EmittedKernel {
-    /// Which kernel kind this is, in the runtime's numbering.
-    pub kind: u32,
-    /// The stage it belongs to.
-    pub stage_index: u32,
-    /// The region within that stage.
-    pub region_index: u32,
-    /// The MSL entry point name.
-    pub entry_name: String,
-    /// The MSL source, empty when the host declined.
-    pub source: String,
-    /// Why the host declined, empty when it did not.
-    pub error: String,
-}
+/// [`driver_abi::plan::EmittedKernel`], re-exported rather than restated. The
+/// port declared its own field-identical copy of this struct — six fields, the
+/// same six names — and the two were never reconciled because nothing in the
+/// Metal shell called both halves: `Registry::register_program` took the copy
+/// and [`Emitted::index`](crate::Emitted::index) took the ABI type, so the
+/// duplication was invisible until a second shell tried to hand a registered
+/// program's kernels to the compiler and found the two types nominally
+/// distinct.
+///
+/// The ABI type is the right survivor. It is the one that arrives over the
+/// wire, the one the emitted-table index already reads, and the one whose
+/// `error`-with-no-source form is documented where a driver author will look
+/// for it. The empty-source-with-an-error case is deliberate and is not a
+/// failure to register: it is the host saying "I could not emit this one", and
+/// the runtime takes its fallback path.
+pub use driver_abi::plan::EmittedKernel;
 
 /// A registered program: its plan, its channel declarations, its kernels.
 #[derive(Debug)]

@@ -161,7 +161,7 @@ pub struct FaultClass {
 ///
 /// The per-channel classes own a run `base ..= base + MAX_CHANNELS - 1`; the
 /// tightest gap between two bases is `0x80`, which is what bounds
-/// [`MAX_CHANNELS`](crate::pipeline::MAX_CHANNELS). That invariant is checked
+/// [`MAX_CHANNELS`](crate::MAX_CHANNELS). That invariant is checked
 /// on the host and again in [`tests`] here, because a driver that decodes a
 /// number is now a second thing that breaks when the classes alias.
 pub const FAULT_CLASSES: &[FaultClass] = &[
@@ -241,7 +241,7 @@ pub struct Fault {
 ///
 /// `max_channel` is the highest channel index the program can address, which is
 /// what bounds a per-channel class's run. Pass
-/// [`MAX_CHANNELS`](crate::pipeline::MAX_CHANNELS)` - 1` when the program's own
+/// [`MAX_CHANNELS`](crate::MAX_CHANNELS)` - 1` when the program's own
 /// count is not to hand.
 #[must_use]
 pub fn describe_fault(fault: u32, max_channel: u32) -> Fault {
@@ -392,7 +392,7 @@ pub fn report(status: Status, dispatched: bool, max_channel: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipeline::MAX_CHANNELS;
+    use crate::MAX_CHANNELS;
 
     const LAST_CHANNEL: u32 = MAX_CHANNELS as u32 - 1;
 

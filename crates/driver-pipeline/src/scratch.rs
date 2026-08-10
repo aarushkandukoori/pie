@@ -169,7 +169,7 @@ pub fn layout(descriptors: &[ValueDesc]) -> Result<Layout, TooLarge> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipeline::extent::{Extents, describe};
+    use crate::extent::{Extents, describe};
     use driver_abi::local::PIE_EXTENT_STATIC;
     use driver_abi::plan::LaunchPlanValue;
 

@@ -101,7 +101,7 @@ pub struct Record {
     /// Rows of [`logits_base`](Self::logits_base) belonging to this lane.
     pub logits_row_count: u32,
     /// Live KV-cache entries. This and the six extents after it match
-    /// [`Extents`](crate::pipeline::Extents) field for field; they never enter
+    /// [`Extents`](crate::Extents) field for field; they never enter
     /// a stage signature, which is what lets one plan serve many batch shapes.
     pub kv_len: u32,
     /// KV-cache pages for this lane.
@@ -153,7 +153,7 @@ pub struct ChannelSlot {
     pub pending_cell: u64,
     /// *Ticket.* The ring head the host observed when it built the table;
     /// the kernel compares and refuses a stale table, never dereferences.
-    /// [`NO_TICKET`](crate::pipeline::NO_TICKET) means "not consuming".
+    /// [`NO_TICKET`](crate::NO_TICKET) means "not consuming".
     pub expected_head: u64,
     /// *Ticket.* The tail counterpart of
     /// [`expected_head`](Self::expected_head); `NO_TICKET` means "not
@@ -166,7 +166,7 @@ pub struct ChannelSlot {
 /// The grouped effect kernels read the ring through this rather than through
 /// per-program bindings: `words` is where the ring's head/tail live, and
 /// `flags` carries the channel-effect bits
-/// ([`channel_flags`](crate::pipeline::channel_flags) writes them,
+/// ([`channel_flags`](crate::channel_flags) writes them,
 /// `CHANNEL_VALID` through `CHANNEL_RETRY_INELIGIBLE`).
 ///
 /// Declared only as MSL text on the kernel side — the compiler's own preamble

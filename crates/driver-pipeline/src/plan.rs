@@ -5,7 +5,7 @@
 //! for execution: it does not say which values a given stage must evaluate,
 //! which const ports fold to which cells, or whether the program is even
 //! runnable on this CPU interpreter. [`ExecPlan`] is the package with those
-//! facts computed once, at adoption, so [`crate::pipeline::step`] never has to
+//! facts computed once, at adoption, so [`crate::step`] never has to
 //! re-derive them per fire.
 //!
 //! # Why adoption can reject

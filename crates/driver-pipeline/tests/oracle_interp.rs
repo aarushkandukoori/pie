@@ -2,17 +2,22 @@
 //!
 //! # What this pins
 //!
-//! `src/pipeline/` is a port of `csrc/src/pipeline/interp.hpp`, and
+//! This crate is a port of `driver-metal/csrc/src/pipeline/interp.hpp`, and
 //! `interp.hpp` says four times in its own comments that it is itself a copy —
 //! *"Mirrors interp.rs eval_op case for case"*, *"interp.rs step, minus the
 //! per-layer taps"*. `interp.rs` is [`tensor_compiler::eval::interp`], whose
 //! module doc calls it *"the golden model every backend diffs against"*.
 //!
-//! So the same semantics are maintained in three hand-written copies (the Rust
-//! original, CUDA's `tier0_runner.hpp`, and the Metal one this crate ports),
-//! and nothing has ever checked that they agree. This file is that check for
-//! the Metal one: one trace, compiled once, run through **both** interpreters,
+//! So the same semantics were maintained in three hand-written copies (the
+//! Rust original, CUDA's `tier0_runner.hpp`, and the Metal `interp.hpp` this
+//! crate ports), and nothing had ever checked that they agree. This file is
+//! that check: one trace, compiled once, run through **both** interpreters,
 //! and every observable compared.
+//!
+//! It is also why this layer is a crate rather than a module of one shell.
+//! Two of those three copies existed because a device driver could not import
+//! another device driver's directory; a crate both can import is the structural
+//! form of the fix, and this file is what proves the surviving copy is right.
 //!
 //! It is the same argument as `pipeline::status`'s fault-table check — a
 //! hand-copied table that nothing verifies drifts — which is why
@@ -30,7 +35,7 @@
 //! * the **driver** side lowers that same bound trace to a `LaunchPackage`
 //!   through [`tensor_compiler::codegen::launch::build`] — the artefact the
 //!   driver actually receives — adopts it, and runs
-//!   [`driver_metal_new::pipeline::step`].
+//!   [`driver_pipeline::step`].
 //!
 //! Both sides therefore start from one program, and a disagreement is a
 //! disagreement about semantics rather than about test setup. The lowering is
@@ -54,7 +59,7 @@
 
 use std::collections::BTreeMap;
 
-use driver_metal_new::pipeline::{
+use driver_pipeline::{
     ExecPlan, HostOp, PassInputs, StepOutcome, Value as DriverValue, adopt_launch_package,
     host_take, make_host_instance, step,
 };

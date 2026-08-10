@@ -42,7 +42,7 @@
 //! only reason a self-recursive stage does not deadlock at capacity, and it is
 //! why [`Effect`] carries `take` and `put` separately rather than one direction.
 
-use crate::pipeline::channel::ChannelState;
+use crate::channel::ChannelState;
 
 /// A ticket end the composer left unpinned.
 ///

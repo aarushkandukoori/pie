@@ -30,9 +30,9 @@
 //! is what a cache is allowed to do: it is an optimisation, and the one thing
 //! it must never do is turn a cache state into a program error.
 //!
-//! [`Failure::Deterministic`]: crate::pipeline::Failure
+//! [`Failure::Deterministic`]: crate::Failure
 
-use crate::pipeline::cache::{Bounded, MAX_STAGE_ENTRIES};
+use crate::cache::{Bounded, MAX_STAGE_ENTRIES};
 
 /// One cached stage: what was compiled, and the identity that proves the key
 /// found the right thing.

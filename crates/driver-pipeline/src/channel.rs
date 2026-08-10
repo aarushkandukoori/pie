@@ -252,7 +252,7 @@ impl ChannelState {
     /// ring's type or the ring is full.
     ///
     /// Returns `bool` rather than a `Result` because the two failure modes are
-    /// one bit each and the caller ([`host_put`], [`crate::pipeline::step`])
+    /// one bit each and the caller ([`host_put`], [`crate::step`])
     /// already knows which it is testing — a mismatched value cannot occur once
     /// `value_matches` has passed, and a full ring is the ordinary back-pressure
     /// signal, not an error.
@@ -269,7 +269,7 @@ impl ChannelState {
     /// Publish the head sequence word (release ordering).
     ///
     /// Separate from [`ChannelState::pop`] because the pass-atomic commit in
-    /// [`crate::pipeline::step`] computes every ring's next head *before* it
+    /// [`crate::step`] computes every ring's next head *before* it
     /// writes any of them, so it must advance the head word without also
     /// decoding a cell the way `pop` does.
     pub fn store_head(&self, sequence: u64) {

@@ -1,5 +1,23 @@
-//! The channel-plane interpreter: a CPU fallback for a launch program's
-//! prologue/epilogue "shell" stages.
+//! The PTIR channel plane: a launch program's runtime state, and the CPU
+//! fallback for its prologue/epilogue "shell" stages.
+//!
+//! # Why this is a crate and not a module
+//!
+//! It was a module of `driver-metal-new` until the CUDA shell reached the same
+//! file. Every line of it is arithmetic over the launch ABI's records: not one
+//! names a Metal type, and the compiler agrees — the whole directory built and
+//! tested on Linux while the crate around it did not. A layer that two device
+//! shells need and neither one owns is a crate, and the alternative was the
+//! thing the C++ actually did: THREE hand-written copies of one golden model
+//! (`tensor-compiler`'s interpreter, the CUDA driver's `tier0_runner.hpp`, the
+//! Metal driver's `interp.hpp`), which is why `PARITY-INTERP.md` opens by
+//! counting them.
+//!
+//! The seam is directional rather than polymorphic, and that is why there is
+//! no `trait Backend` here. This crate never calls a device; a device shell
+//! calls this crate. `driver-cuda-new` packs the lane table this crate lays
+//! out and hands it to `cuLaunchKernel`; `driver-metal-new` packs the same
+//! bytes into an argument table. The bytes are the interface.
 //!
 //! # The problem this solves
 //!
@@ -30,9 +48,20 @@
 //! pass-atomically, publishing channel effects only after every resulting ring
 //! is validated.
 
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![deny(missing_docs)]
+#![deny(
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::dbg_macro,
+    clippy::mem_forget
+)]
+#![deny(clippy::print_stdout, clippy::print_stderr)]
+
 mod cache;
 mod channel;
 mod emitted;
+mod error;
 mod extent;
 mod group;
 mod identity;
@@ -50,6 +79,33 @@ mod status;
 mod step;
 mod value;
 
+pub use error::{Error, Result};
+
+/// The launch ABI, re-exported.
+///
+/// Not a convenience. This crate's public API is *written in* these types —
+/// [`ExecPlan::package`] is a [`driver_abi::plan::LaunchPackage`], every stage
+/// plan is a [`driver_abi::plan::LaunchStagePlan`], and the emitted-kernel
+/// kinds are `driver_abi::local`'s constants — so a consumer cannot call
+/// `adopt_launch_package` or read what it returns without naming them. Making
+/// them reachable from here is what stops two shells from each declaring their
+/// own `driver-abi` dependency and, one day, resolving it to two versions:
+/// the types would then be nominally distinct and the mismatch would surface
+/// as an inscrutable trait error rather than as a version conflict.
+pub use driver_abi;
+
+/// The IR vocabulary, re-exported.
+///
+/// Re-exported for the same reason as [`driver_abi`], one step weaker: this
+/// crate's *signatures* mostly do not name `tensor_ir` types, but its
+/// *contracts* are written in them — [`Value`] is a `DType`'s lanes, an
+/// [`OpParams`] carries an `IntrinsicId`, and the RNG a shell must reproduce
+/// on-device is `tensor_ir::rng`'s. A shell that has to restate the dependency
+/// to read them is a shell that can resolve a second copy of the op table, and
+/// two op tables that disagree by one tag is a wrong token rather than a build
+/// error.
+pub use tensor_ir;
+
 pub use cache::{
     Bounded, Failure, MAX_NEGATIVE_ENTRIES, MAX_PROGRAM_ENTRIES, MAX_STAGE_ENTRIES,
     Stats as CacheStats,
@@ -65,7 +121,9 @@ pub use group::{
     CHANNEL_VALID, GroupKey, MAX_CHANNELS, TooManyChannels, channel_flags, schedule_bucket,
     used_channel_slots,
 };
-pub use identity::{Versions, cache_identity, combined_signature};
+pub use identity::{
+    Backend, COMPILER_VERSION, REGION_PLAN_VERSION, Versions, cache_identity, combined_signature,
+};
 pub use lane::{
     ABI_VERSION as LANE_ABI_VERSION, ChannelMeta, ChannelSlot as LaneChannelSlot,
     FLAG_RAGGED as LANE_FLAG_RAGGED, GroupLayout, HEADER_BYTES as LANE_HEADER_BYTES,

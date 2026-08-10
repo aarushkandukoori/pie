@@ -18,11 +18,11 @@
 //! device in it — and because it is what [`readiness::check`] consumes, so the
 //! two belong next to each other.
 //!
-//! [`readiness::check`]: crate::pipeline::check
+//! [`readiness::check`]: crate::check
 
 use driver_abi::plan::{LaunchChannel, LaunchOp};
 
-use crate::pipeline::readiness::Effect;
+use crate::readiness::Effect;
 
 /// `PIE_READINESS_NEEDS_FULL`: the first op to touch the channel takes or
 /// reads, so a cell must already be there.
