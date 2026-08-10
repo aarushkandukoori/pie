@@ -383,6 +383,7 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
             format!("{ctx}.wb.require({ctx}.arm.plan.name(aux[{i}])).data()")
         }
         Source::Param(i) => format!("static_cast<int>(ps[{i}])"),
+        Source::ParamF32(i) => format!("f32_param(ps[{i}])"),
         Source::Rows => format!("{ctx}.arm.rows"),
         Source::OutRows(i) => format!(
             "value_rows({ctx}.arm.plan, outs[{i}], {ctx}.arm.rows, {ctx}.num_requests)"
@@ -468,7 +469,9 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
                 | Source::OutDim(i, _)
                 | Source::OutElements(i) => need_out = need_out.max(i + 1),
                 Source::Weight(i) => need_aux = need_aux.max(i + 1),
-                Source::Param(i) => need_ps = need_ps.max(i + 1),
+                Source::Param(i) | Source::ParamF32(i) => {
+                    need_ps = need_ps.max(i + 1)
+                }
                 _ => {}
             }
         }

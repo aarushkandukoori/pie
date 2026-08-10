@@ -17,6 +17,7 @@
 // a buffer, because buffer assignment is a backend job that was written as
 // family convention) replaces the routing conventions.
 
+#include <bit>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -124,6 +125,16 @@ inline int row_width(const pie_forward::ForwardPlan& plan,
         out *= val.dims[d].value;
     }
     return static_cast<int>(out);
+}
+
+// A FLOAT out of the param channel.
+//
+// `aux_params` is untyped `u32` — "what each slot means is the SYMBOL's
+// contract" — so a statement carrying a scale carries its BITS. This is
+// the read; `std::bit_cast` rather than a union or a reinterpret, so it
+// is one constant-folded move and not a strict-aliasing question.
+inline float f32_param(std::uint32_t bits) {
+    return std::bit_cast<float>(bits);
 }
 
 // A VALUE'S LEADING EXTENT, resolved for this fire.

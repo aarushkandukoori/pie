@@ -320,12 +320,18 @@ pub static KERNELS: &[KernelSig] = &[
             eps: F32 <- Source::Ctx("eps"),
             stream: Stream <- Source::Ctx("arm.stream"),
         ]),
+    // The SCALE is the statement's, in the bits the param channel has
+    // room for. It was a NAME, and the driver held the arithmetic that
+    // turned four names into four numbers -- all four derived from dims
+    // the host already knew. A family whose facts do not carry the
+    // number states no param and falls through this branch's arity
+    // guard, which is what gemma-3n and gemma-2 do.
     kernel!(scalar_mul "norm::scalar_mul_bf16", in_place = &[(0, 0)],
         operands = operands![
-            x: BufMut,
-            s: F32,
-            n: Usize,
-            stream: Stream,
+            x: BufMut <- Source::Out(0),
+            s: F32 <- Source::ParamF32(0),
+            n: Usize <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // Accumulates into its FIRST argument. Stating it is what lets a
     // text add into a window (`select`) and have the window keep the

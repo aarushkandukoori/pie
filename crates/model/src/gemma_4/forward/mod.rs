@@ -140,7 +140,11 @@ pub fn gemma4_cuda(
 
         // ── Prologue ────────────────────────────────────────────────
         // The token embedding, scaled by sqrt(hidden).
-        let mut y = dsl::cuda::scalar_mul(&dsl::embed_with(t, "embed", hidden), "sqrt_hidden");
+        let mut y = dsl::cuda::scalar_mul(
+            &dsl::embed_with(t, "embed", hidden),
+            "sqrt_hidden",
+            Some((hidden as f32).sqrt()),
+        );
 
         // PLE: a SECOND embedding table, projected to the whole stack's
         // per-layer width, normed, scaled and relaid so each layer reads
@@ -150,6 +154,7 @@ pub fn gemma4_cuda(
         let table = dsl::cuda::scalar_mul(
             &dsl::embed_with(t, "embed_per_layer", ple_total),
             "sqrt_ple_dim",
+            Some((facts.ple_dim as f32).sqrt()),
         );
         // The projection consumes the MAIN embedding, not the table:
         // `per_layer_proj = inputs_embeds @ ple_model_proj.T`. The table
@@ -165,7 +170,8 @@ pub fn gemma4_cuda(
                 repr: WeightRepr::Bf16,
             },
         );
-        let scaled = dsl::cuda::scalar_mul(&ple, "rsqrt_hidden");
+        let scaled =
+            dsl::cuda::scalar_mul(&ple, "rsqrt_hidden", Some(1.0 / (hidden as f32).sqrt()));
         let normed_ple = dsl::cuda::rmsnorm(
             &scaled,
             &NormW {
@@ -181,7 +187,7 @@ pub fn gemma4_cuda(
         // its scale consumes and found two producers where the trace had
         // one.
         let ple = dsl::cuda::residual_add(&normed_ple, &table, ple_total);
-        let ple = dsl::cuda::scalar_mul(&ple, "rsqrt_2");
+        let ple = dsl::cuda::scalar_mul(&ple, "rsqrt_2", Some(1.0 / 2f32.sqrt()));
         let ple_table = dsl::cuda::transpose_nld_to_lnd(&ple, facts.layers, facts.ple_dim);
 
         // ── Layers ──────────────────────────────────────────────────

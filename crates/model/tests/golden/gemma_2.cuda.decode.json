@@ -6870,6 +6870,9 @@
           "kernel": "norm::scalar_mul_bf16",
           "weights": [
             "scale.embed_scale"
+          ],
+          "params": [
+            1114601297
           ]
         }
       },

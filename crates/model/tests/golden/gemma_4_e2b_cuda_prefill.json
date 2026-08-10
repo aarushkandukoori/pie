@@ -5631,6 +5631,9 @@
           "kernel": "norm::scalar_mul_bf16",
           "weights": [
             "scale.sqrt_hidden"
+          ],
+          "params": [
+            1109181553
           ]
         }
       },
@@ -5660,6 +5663,9 @@
           "kernel": "norm::scalar_mul_bf16",
           "weights": [
             "scale.sqrt_ple_dim"
+          ],
+          "params": [
+            1098907648
           ]
         }
       },
@@ -5692,6 +5698,9 @@
           "kernel": "norm::scalar_mul_bf16",
           "weights": [
             "scale.rsqrt_hidden"
+          ],
+          "params": [
+            1020331499
           ]
         }
       },
@@ -5739,6 +5748,9 @@
           "kernel": "norm::scalar_mul_bf16",
           "weights": [
             "scale.rsqrt_2"
+          ],
+          "params": [
+            1060439283
           ]
         }
       },
