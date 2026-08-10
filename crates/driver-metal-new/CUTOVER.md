@@ -1,11 +1,16 @@
 # Cutover: how `driver-metal-new` replaces `driver-metal`
 
-> **Superseded in part, 2026-08-10.** Metal is going all in on the
-> `model-compiler` path, so the serving path this document plans a cutover
-> *to* is no longer the per-family executor it assumes. `DIRECTION.md` is the
-> current plan. What stays true here: the decision to replace at the Rust
-> boundary rather than behind the twelve `pie_metal_*` symbols, the gate's six
-> items, and the dependency chain among them.
+> **Largely obsolete, 2026-08-10.** `driver-metal` is retired: removed from the
+> workspace and from `engine`'s graph, source kept for reference only
+> (`crates/driver-metal/README.md`). There is no longer a backend to cut over
+> *from*, so this document's mechanics — the additive feature, the canary, the
+> per-process config key, the one-release overlap, the rollback — describe a
+> transition that will not happen. `DIRECTION.md` is the plan.
+>
+> What survives here and is still worth reading: the six-item gate (items 1 and
+> 4 hold), the dependency chain among those items, and the decision to replace
+> at the Rust boundary rather than behind the twelve `pie_metal_*` symbols —
+> which has now happened by deletion rather than by migration.
 
 Written 2026-08-09, at the point the `m1_runtime.cpp` port closed out. This
 is the plan the handoff said must exist before the port finishes: what

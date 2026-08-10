@@ -105,6 +105,22 @@ family, by hand** — `psos_llama.rs`, `psos_gemma4.rs`, `psos_gptoss.rs`,
 `psos_mb.rs`. Those are the driver choosing kernels, and they are what the
 lowering replaces.
 
+## The C++ driver is retired as of 2026-08-10
+
+Executed, not planned. `crates/driver-metal` is out of the workspace members
+and out of `engine`'s dependency graph; `engine/src/driver/backend/metal.rs`
+and the `DriverBackend::Metal` variant are deleted, and the `driver-metal`
+feature is gone from `engine`, `worker`, `tests/gpu` and the root manifest.
+The source stays as reference — `crates/driver-metal/README.md` says what is
+still worth reading in it and why.
+
+**The consequence, stated plainly: Metal has no serving backend right now.**
+The C++ was already off by default (`worker`'s default feature set is empty),
+so no default build changes, but the option is gone and nothing replaces it
+until the executor below lands. That is the deliberate order — the alternative
+was maintaining a driver whose shape is retired while building the one that
+replaces it.
+
 ## What this retires
 
 Roughly 8.5k lines across 21 files, plus the qwen path embedded in the shared
