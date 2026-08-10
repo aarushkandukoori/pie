@@ -775,12 +775,9 @@ fn bisect(class: FireClass) {
         }
     } else {
         Step {
-            token_ids: &[
-                128_000, 9906, 1917, 11, 420, 374, 264, 1296, 315, 279, 1646,
-                596, 4741, 1522, 902, 1288,
-            ],
-            qo_indptr: &[0, 16],
-            sampling_indices: &[15],
+            token_ids: &[128_000, 9906],
+            qo_indptr: &[0, 2],
+            sampling_indices: &[0],
             ..Step::default()
         }
     };
@@ -1207,35 +1204,24 @@ fn one_token_at_position_zero_agrees_with_mlx() {
 /// a sampler wants. MLX's answer for `[128000, 9906]` at position 1 is argmax
 /// **0** with the distribution spanning [-5.42, 18.56].
 ///
-/// # Ignored, and the reason is a precondition rather than a bug
+/// # Ignored, and what it is waiting on
 ///
-/// Two rows do not tile. `qmm_t.metal` has no `M` argument -- its own header
-/// says *"the driver only selects this kernel when M % BM == 0 ... every tile
-/// is full and the `load_unsafe` path is the only one reachable; the row count
-/// lives in the grid"* -- and `QMM_BMS` starts at sixteen. So `Rule::Qmm`
-/// refuses this fire with `Ungeometric::PartialTile { rows: 2, tile: 16 }`,
-/// which is the honest answer and the reason this stays ignored.
+/// It RUNS now. The text states the GEMM/GEMV pair as a guard
+/// (`GuardPred::TokensGT(tile - 1)`) rather than a Rust `if`, so a prefill
+/// below the tile takes the matvec — which is what `Rule::Qmm`'s refusal was
+/// asking for. `qmm_t.metal` has no `M` argument and requires `M % BM == 0`;
+/// the driver must not paper over that and now does not.
 ///
-/// Both substitutions were tried here first, against this checkpoint, and both
-/// were wrong:
+/// The lane's numbers are still not MLX's. Through the projections it agrees
+/// exactly — q_proj 1.32031 against MLX's 1.320, value for value with the
+/// decode lane — so the arithmetic reaches attention intact. What happens
+/// after wants the same three narrowing steps that found the decode lane's
+/// `w_stride`, and `the_prefill_lane_too` prints the stages to compare.
 ///
-///   * the MATVEC's grid under the GEMM's symbol — which is what the arm did
-///     before — made every logit **NaN**;
-///   * rounding the row axis up made them finite and WRONG: q_proj came out
-///     1.258 where the matvec and MLX both say 1.320. That is the worse of the
-///     two, because the arena is laid out back to back and fourteen rows of
-///     overrun land on the next value.
-///
-/// What it wants is a TEXT that states the pair with a predicate on rows, the
-/// way the DSL states every other polymorphism — a driver picking between two
-/// kernels is the thing this crate exists to remove. Until then a prefill is
-/// served at sixteen rows and up, which is what
-/// `device_text_fire::a_prefill_step_fires_too...` now posts.
-///
-/// Reviving this test therefore means changing the TEXT, not this file, and
-/// the constants below are ready for when it happens.
+/// The MLX constants below are the target: `[128000, 9906]` at position 1 is
+/// argmax 0 spanning [-5.42, 18.56].
 #[test]
-#[ignore = "two rows do not tile; Rule::Qmm refuses, and the text has no short-row arm yet"]
+#[ignore = "the prefill lane runs and agrees through the projections; past attention it does not yet"]
 fn a_two_token_prefill_agrees_with_mlx() {
     let Some(snapshot) = snapshot() else {
         eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT to an MLX snapshot");

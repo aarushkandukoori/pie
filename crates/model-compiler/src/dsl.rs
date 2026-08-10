@@ -2015,46 +2015,57 @@ pub mod metal {
         head_dim: u32,
         table: bool,
     ) -> Val {
+        // IN PLACE, and the statement has to say so. Every `neox` entrypoint
+        // takes ONE buffer -- `device T* x`, read and written -- so a
+        // statement that declared a separate result had the row's `Out(0)`
+        // bind the RESULT's slot, which no kernel had written. The rotation
+        // then read whatever the arena held there and the value everything
+        // downstream wanted was never rotated at all.
+        //
+        // Position zero hid it completely: rope is the identity at position
+        // zero (cos 0 = 1, sin 0 = 0), so rotating the wrong buffer and
+        // rotating the right one agree exactly, and the first reference gate
+        // was set there for an unrelated reason.
+        //
+        // Stating no result makes `dispatch::reorder` bind `Out(0)` to the
+        // last widthed operand, which for a one-operand launch is the input --
+        // the buffer the kernel actually mutates. The value handed back is the
+        // input's, because after the launch that IS the rotated tensor.
+        //
         // A deployment that RESCALES its frequency ladder cannot state a base:
         // llama-3 rescales piecewise and YaRN rescales differently, and both
         // are tables. The driver derives one at load and answers it as
         // `Source::RopeFrequencies`, so the statement's job is only to say
         // WHICH form this deployment takes.
-        if table {
-            return with_params(
-                &x.t,
-                x.layer,
-                "neox_freqs_decode_bfloat16",
-                vec![],
-                None,
+        let (kernel, params) = if table {
+            (
+                "neox_freqs_decode_bfloat16".to_string(),
                 // Scale, head width, and YaRN's `mscale` -- one for llama-3,
                 // whose rescaling lives entirely in the frequencies.
                 vec![scale.to_bits(), head_dim, 1.0f32.to_bits()],
-                vec![x.id],
-                Some(same_shape(x)),
             )
-            .expect("a rotation produces its value");
-        }
-        let kernel = if multi_batch {
-            "neox_mb_bfloat16"
         } else {
-            "neox_decode_bfloat16"
+            let stem = if multi_batch { "neox_mb_bfloat16" } else { "neox_decode_bfloat16" };
+            (
+                stem.to_string(),
+                // The rotation's scale, its log2 base and the head width. The
+                // base is `log2(theta)` because the shader raises two to it --
+                // `rope_neox_geometric_body` -- and handing it theta rotates
+                // by a frequency ladder wrong from the second channel on.
+                vec![scale.to_bits(), theta.log2().to_bits(), head_dim],
+            )
         };
         with_params(
-            &x.t,
-            x.layer,
-            kernel,
+            x.trace(),
+            x.layer(),
+            &kernel,
             vec![],
             None,
-            // The rotation's scale, its log2 base and the head width. The base
-            // is `log2(theta)` because the shader raises two to it —
-            // `rope_neox_geometric_body` — and handing it theta rotates by a
-            // frequency ladder that is wrong from the second channel on.
-            vec![scale.to_bits(), theta.log2().to_bits(), head_dim],
+            params,
             vec![x.id],
-            Some(same_shape(x)),
-        )
-        .expect("a rotation produces its value")
+            None,
+        );
+        x.clone()
     }
 
     /// `attn/split_qkv.metal::split_qkv_bf16`: deinterleave the packed QKV

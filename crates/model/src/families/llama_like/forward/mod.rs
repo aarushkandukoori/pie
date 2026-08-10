@@ -314,27 +314,61 @@ fn llama_like_metal_text(
         let kv_w = f.kv_width();
         let post_norm = f.norm_placement == NormPlacement::Post;
 
-        // The projection arm this deployment takes, chosen once: GEMV on
-        // the M=1 lane, MLX's steel GEMM above the batch gate.
+        // The projection this deployment takes: MLX's steel GEMM above the
+        // batch gate, the GEMV below it.
+        //
+        // A GUARD and not a Rust `if`, because the condition is the FIRE's and
+        // not the deployment's. `qmm_t.metal` has no `M` argument -- its
+        // header says the driver only selects it when `M % BM == 0`, so the
+        // row count lives in the grid and every tile is full -- and the
+        // narrowest tile is `qmm_tile.0`. A prefill of fewer rows than that
+        // cannot take the GEMM at all.
+        //
+        // The driver used to paper over it, and both ways were measured wrong
+        // against a real checkpoint: handing the GEMM's symbol the matvec's
+        // grid gave NaN, and rounding the row axis up gave a finite wrong
+        // answer plus a tile's worth of overrun into the next value.
+        // `Rule::Qmm` refuses now (`Ungeometric::PartialTile`), which is the
+        // right answer for a driver and leaves the choice here -- where a
+        // choice between two kernels belongs.
+        //
+        // `TokensGT(tile - 1)` rather than `TokensLE`: the arm that runs first
+        // is the one that wants to be read first.
+        let tile = metal.qmm_tile.0.max(1);
         let gemm = |x: &Val, w: &MatW| {
-            if multi_batch && metal.qmm_multi_batch {
-                dsl::metal::qmm(x, w, &gemm_point)
-            } else {
-                dsl::metal::qmv(x, w, &point)
+            if !(multi_batch && metal.qmm_multi_batch) {
+                return dsl::metal::qmv(x, w, &point);
             }
+            let shape = (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16);
+            let (g, v) = dsl::guarded_value(x.trace(), w.layer, shape);
+            g.arm(GuardPred::TokensGT(tile - 1), || {
+                dsl::metal::qmm(x, w, &gemm_point);
+            })
+            .otherwise(|| {
+                dsl::metal::qmv(x, w, &point);
+            });
+            v
         };
         // A `beta_one` matmul: the epilogue fold when the deployment has
         // it, the projection plus an explicit landing when it does not.
+        // The residual-fused twin, guarded the same way and for the same
+        // reason: `affine_qmm_t_residual` is the same tiling with an epilogue.
         let gemm_add = |x: &Val, w: &MatW, residual: &Val| {
-            if metal.fuse_residual_gemv {
-                if multi_batch && metal.qmm_multi_batch {
-                    dsl::metal::qmm_residual(x, w, residual, &gemm_point)
-                } else {
-                    dsl::metal::qmv_residual(x, w, residual, &point)
-                }
-            } else {
-                dsl::metal::residual_add(&gemm(x, w), residual)
+            if !metal.fuse_residual_gemv {
+                return dsl::metal::residual_add(&gemm(x, w), residual);
             }
+            if !(multi_batch && metal.qmm_multi_batch) {
+                return dsl::metal::qmv_residual(x, w, residual, &point);
+            }
+            let shape = (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16);
+            let (g, v) = dsl::guarded_value(x.trace(), w.layer, shape);
+            g.arm(GuardPred::TokensGT(tile - 1), || {
+                dsl::metal::qmm_residual(x, w, residual, &gemm_point);
+            })
+            .otherwise(|| {
+                dsl::metal::qmv_residual(x, w, residual, &point);
+            });
+            v
         };
         // ALWAYS paged, and the class is not the question -- the POOL's
         // layout is. `model::kv::Pool` allocates `[page, token, head, dim]`
@@ -1562,10 +1596,20 @@ mod metal_tests {
             // operand shape gives. So the count is exact, and that exactness
             // is the property: nothing in this text is a kind the driver has
             // to recognise.
+            // Guards are not launches and never were: `OpKind::Guard` states
+            // WHICH arm runs and the arms' own launches are counted above. The
+            // property is unchanged — nothing in this text is a kind the
+            // driver has to recognise — and a guard is the one kind the driver
+            // is *supposed* to evaluate.
+            let guards = plan
+                .ops
+                .iter()
+                .filter(|op| matches!(op.kind, model_compiler::trace::OpKind::Guard { .. }))
+                .count();
             assert_eq!(
-                launches,
+                launches + guards,
                 plan.ops.len(),
-                "every op of the metal text is a stated kernel"
+                "every op of the metal text is a stated kernel or a guard"
             );
         }
     }
@@ -1616,14 +1660,18 @@ mod metal_tests {
             &LlamaLikeMetalFacts::synthetic(),
             FireClass::Prefill,
         );
-        // `affine_qmv_fast` prefixes `affine_qmv_fast_residual`'s point too,
-        // so the readout is the difference of the two counts.
-        assert_eq!(
-            count(&mb, "affine_qmv_fast") - count(&mb, "affine_qmv_fast_residual"),
-            1,
-            "the readout only"
+        // Both arms of the projection GUARD are in the text, which is the
+        // point of a guard: the GEMM's tile does not divide every row count
+        // (`qmm_t.metal` has no `M` argument and needs `M % BM == 0`), so the
+        // text states the pair with `TokensGT(tile - 1)` and the FIRE picks.
+        // A Rust `if` here would have resolved at trace time and left a
+        // prefill under the tile with nothing to run.
+        assert!(
+            count(&mb, "affine_qmv_fast") > 1,
+            "the M>1 text carries the GEMV arm as well as the readout"
         );
         assert!(count(&mb, "affine_qmm_t_residual") > 0);
+        assert!(count(&mb, "affine_qmv_fast_residual") > 0, "and its twin");
         // The attention width is the DEPLOYMENT's, not a literal. It was
         // `_d_256` unconditionally, and `qwen3_0_6b`'s heads are 128 wide — a
         // 256-wide kernel over them reads past the end of every head and
