@@ -254,17 +254,20 @@ fn the_stated_ssm_rows_describe_their_launchers() {
     // THREE rows stay unstated, and naming them is the point of pinning
     // the count rather than asserting it away:
     //
-    //   * the two `build_nemotron_moe_ptrs_*` builders take
-    //     `const void* const*` and `void**` -- POINTER ARRAYS, which the
-    //     operand vocabulary has no kind for. `gemm`'s batched and
-    //     grouped rows are unstated for the same reason, so the kind is
-    //     one piece of work that unblocks five rows across two families.
-    //   * `flashinfer_mamba_ssu_bf16` is declared behind the vendored
-    //     FlashInfer headers rather than in `ssm/`.
+    // ONE row stays unstated: `flashinfer_mamba_ssu_bf16` is declared
+    // behind the vendored FlashInfer headers rather than in `ssm/`, so
+    // the shim has nothing local to include.
+    //
+    // The two `build_nemotron_moe_ptrs_*` builders came IN with the
+    // pointer-array kinds -- they take `const void* const*` for the
+    // weights they read and `void**` for the arrays they fill, and only
+    // `BufArray` vs `BufArrayOutMut` makes the difference a compile
+    // error instead of a builder writing an array it was handed to
+    // read.
     let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
     assert_eq!(
         stated,
-        table.len() - 3,
+        table.len() - 1,
         "the unstated ssm rows changed; a row that arrived here needs a \
          signature, and one that left needs this count lowered"
     );

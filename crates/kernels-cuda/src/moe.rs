@@ -47,7 +47,23 @@ pub static KERNELS: &[KernelSig] = &[
             stream: Stream,
         ]),
     kernel!(mxfp4_moe_gate_up_decode_grouped "quant::mxfp4_moe_gate_up_decode_grouped_bf16",
-        whole = true),
+        whole = true,
+        operands = operands![
+            act_fp16: Buf,
+            sorted_route_ids: I32s,
+            counts: I32s,
+            gate_up_packed: U8Array,
+            gate_up_scales: U8Array,
+            gate_bias: BufArray,
+            up_bias: BufArray,
+            gate_out_bf16: BufMut,
+            up_out_bf16: BufMut,
+            num_experts: I32,
+            top_k: I32,
+            hidden: I32,
+            intermediate: I32,
+            stream: Stream,
+        ]),
     // Namespaced in the symbol because it lives in the vendored `marlin_moe`
     // tree, the same way the `ops::` entries do.
     kernel!(mxfp4_moe_gemm_w4a16 "marlin_moe::launch_mxfp4_moe_gemm_w4a16_bf16", whole = true),
@@ -276,5 +292,18 @@ pub static KERNELS: &[KernelSig] = &[
     // routes; unlike it, the weight slot names a per-expert POINTER
     // BANK, which is a binding question and not a shape one.
     kernel!(mxfp4_moe_gate_up "quant::mxfp4_moe_gate_up_decode_bf16"),
-    kernel!(mxfp4_moe_down "quant::mxfp4_moe_down_decode_bf16"),
+    kernel!(mxfp4_moe_down "quant::mxfp4_moe_down_decode_bf16",
+        operands = operands![
+            act_fp16: Buf,
+            topk_idx: I32s,
+            down_packed: U8Array,
+            down_scales: U8Array,
+            down_bias: BufArray,
+            out_bf16: BufMut,
+            num_tokens: I32,
+            top_k: I32,
+            hidden: I32,
+            intermediate: I32,
+            stream: Stream,
+        ]),
 ];
