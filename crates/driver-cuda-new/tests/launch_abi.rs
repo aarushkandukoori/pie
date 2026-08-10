@@ -315,6 +315,10 @@ fn the_dispatch_generates_from_rows_that_state_their_sources() {
             kernels_cuda::rope::KERNELS,
             kernels_cuda::norm::KERNELS,
             kernels_cuda::mlp::KERNELS,
+            kernels_cuda::layout::KERNELS,
+            kernels_cuda::quant::KERNELS,
+            kernels_cuda::moe::KERNELS,
+            kernels_cuda::attn::KERNELS,
         ],
         "c",
     );

@@ -5,6 +5,7 @@
 
 use kernels::kernel;
 use kernels::operands;
+use kernels::Source;
 use kernels::KernelSig;
 
 #[rustfmt::skip]
@@ -14,20 +15,20 @@ pub static KERNELS: &[KernelSig] = &[
     // form. A load-time fact, so the declaration states it.
     kernel!(chunked_swiglu "mlp::chunked_swiglu_bf16",
         operands = operands![
-            packed: Buf,
-            y: BufMut,
-            n: I32,
-            i: I32,
-            stream: Stream,
-            gate_second: Bool,
+            packed: Buf <- Source::In(0),
+            y: BufMut <- Source::Out(0),
+            n: I32 <- Source::Rows,
+            i: I32 <- Source::OutWidth(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
+            gate_second: Bool <- Source::Lit("false"),
         ]),
     kernel!(swiglu "mlp::swiglu_bf16",
         operands = operands![
-            gate: Buf,
-            up: Buf,
-            y: BufMut,
-            num_elements: I32,
-            stream: Stream,
+            gate: Buf <- Source::In(0),
+            up: Buf <- Source::In(1),
+            y: BufMut <- Source::Out(0),
+            num_elements: I32 <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(chunked_swiglu_strided "mlp::chunked_swiglu_strided_bf16",
         operands = operands![

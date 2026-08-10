@@ -386,6 +386,13 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
         Source::Rows => format!("{ctx}.arm.rows"),
         Source::OutWidth(i) => format!("row_width({ctx}.arm.plan, outs[{i}])"),
         Source::InWidth(i) => format!("row_width({ctx}.arm.plan, ins[{i}])"),
+        Source::OutElements(i) => format!(
+            "static_cast<::std::size_t>({ctx}.arm.rows) * \
+             static_cast<::std::size_t>(row_width({ctx}.arm.plan, outs[{i}]))"
+        ),
+        Source::InDim(i, d) => format!(
+            "static_cast<int>({ctx}.arm.plan.value(ins[{i}]).dims[{d}].value)"
+        ),
         Source::OutDim(i, d) => format!(
             "static_cast<int>({ctx}.arm.plan.value(outs[{i}]).dims[{d}].value)"
         ),
