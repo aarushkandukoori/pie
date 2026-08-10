@@ -635,6 +635,27 @@ pub fn lm_head_at(t: &Trace, x: &Val, weight: &str, vocab: u32) -> Val {
     }
 }
 
+/// The epilogue, with the TIED-EMBEDDING fact resolved here rather than
+/// by each caller.
+///
+/// The fork is one line — `if tied { "embed" } else { "lm_head" }` — and
+/// four families wrote it: llama_like, gemma-4, qwen3.5 and gpt-oss. A
+/// FIFTH did not, and that is why this exists rather than being left as
+/// four tidy duplicates.
+///
+/// gemma-2 carries `tied_embeddings: true` in its facts, correctly (the
+/// checkpoint ships no `lm_head.weight`), and its text named `"lm_head"`
+/// unconditionally. A fact declared and never read — so the trace asked
+/// the binder for a tensor the checkpoint does not contain, and the
+/// family sits in `NOT_YET_OPENABLE` where nothing could notice.
+///
+/// A one-line fork repeated per family is a fact each family can forget
+/// to read. Taking the BOOLEAN instead of the resolved name means the
+/// forgetting has nowhere to happen.
+pub fn lm_head_tied(t: &Trace, x: &Val, tied: bool, vocab: u32) -> Val {
+    lm_head_at(t, x, if tied { "embed" } else { "lm_head" }, vocab)
+}
+
 // ── The semantic vocabulary, as free functions ─────────────────────────
 
 /// `x[index]` — the window of a value along its LEADING dim.
