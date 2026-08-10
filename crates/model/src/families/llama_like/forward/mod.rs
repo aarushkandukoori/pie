@@ -332,53 +332,62 @@ fn llama_like_metal_text(
         // right answer for a driver and leaves the choice here -- where a
         // choice between two kernels belongs.
         //
-        // A RUST `if`, and the guard that belongs here is blocked one level
-        // down. Written up because it has now been tried twice and the second
-        // attempt got further.
+        // A GUARD, not a Rust `if`, because the condition is the FIRE's.
         //
         // `qmm_t.metal` has no `M` argument -- its header says the driver only
-        // selects it when `M % BM == 0` -- so a prefill under `qmm_tile.0`
-        // cannot take the GEMM, and `Rule::Qmm` refuses such a fire
-        // (`Ungeometric::PartialTile`). The answer is a text stating the pair
-        // with `GuardPred::TokensGT(tile - 1)`, which is what the DSL's guard
-        // vocabulary is for.
+        // selects it when `M % BM == 0`, so the row count lives in the grid
+        // and every tile is full -- and the narrowest tile is `qmm_tile.0`. A
+        // prefill of fewer rows cannot take the GEMM at all, and a Rust `if`
+        // resolves at trace time and would leave it with nothing to run.
+        // `Rule::Qmm` refuses such a fire (`Ungeometric::PartialTile`), which
+        // is the right answer for a driver and leaves the choice here.
         //
-        // Attempt one had the arms record their own values, so the guard's was
-        // never written and every statement after read the slot one before it:
-        // the KV pool came back holding q in its K pages and k in its V.
+        // It took both halves of a mechanism whose doc had described it for
+        // longer than either half existed. `guarded_value`: *"each region's
+        // launches are their lowerings, binding the same output buffer and
+        // recording no SSA outputs of their own."* The arms record no output
+        // (`dsl::metal`'s projections ask `inside_value_region`, as
+        // `seam::attn_at` always has) and the lowering binds the guard's to
+        // them (`Lowering::region_outs`). Missing either one is a silent wrong
+        // answer, and both were measured on a real checkpoint: without the
+        // first the KV pool held q in its K pages, without the second every
+        // projection wrote zeros over its own input.
         //
-        // Attempt two fixed that half. `dsl::metal`'s projections ask
-        // `TraceBuilder::inside_value_region` now and record no output inside
-        // a region, exactly as `seam::attn_at` does -- that part is right and
-        // stays. But nothing then binds the GUARD's output to the arm's
-        // launch, so `dispatch::reorder` resolved `Out(0)` to the launch's
-        // only widthed operand, which is its INPUT, and every projection wrote
-        // zeros over the value it had just read.
-        //
-        // So the missing piece is in `model-compiler::lower`: an arm's launch
-        // has to inherit the enclosing guard's output as its result operand.
-        // `guarded_value`'s own doc already states the semantics -- "each
-        // region's launches are their lowerings, binding the same output
-        // buffer and recording no SSA outputs of their own" -- and the tape
-        // half of it exists. The lowering half does not.
+        // `TokensGT(tile - 1)` rather than `TokensLE`: the arm that runs on
+        // the common path is the one that wants to be read first.
+        let tile = metal.qmm_tile.0.max(1);
         let gemm = |x: &Val, w: &MatW| {
-            if multi_batch && metal.qmm_multi_batch {
-                dsl::metal::qmm(x, w, &gemm_point)
-            } else {
-                dsl::metal::qmv(x, w, &point)
+            if !(multi_batch && metal.qmm_multi_batch) {
+                return dsl::metal::qmv(x, w, &point);
             }
+            let shape = (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16);
+            let (g, v) = dsl::guarded_value(x.trace(), w.layer, shape);
+            g.arm(GuardPred::TokensGT(tile - 1), || {
+                dsl::metal::qmm(x, w, &gemm_point);
+            })
+            .otherwise(|| {
+                dsl::metal::qmv(x, w, &point);
+            });
+            v
         };
-        // The residual-fused twin. Same story as `gemm` above.
+        // The residual-fused twin, guarded the same way and for the same
+        // reason: `affine_qmm_t_residual` is that tiling with an epilogue.
         let gemm_add = |x: &Val, w: &MatW, residual: &Val| {
-            if metal.fuse_residual_gemv {
-                if multi_batch && metal.qmm_multi_batch {
-                    dsl::metal::qmm_residual(x, w, residual, &gemm_point)
-                } else {
-                    dsl::metal::qmv_residual(x, w, residual, &point)
-                }
-            } else {
-                dsl::metal::residual_add(&gemm(x, w), residual)
+            if !metal.fuse_residual_gemv {
+                return dsl::metal::residual_add(&gemm(x, w), residual);
             }
+            if !(multi_batch && metal.qmm_multi_batch) {
+                return dsl::metal::qmv_residual(x, w, residual, &point);
+            }
+            let shape = (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16);
+            let (g, v) = dsl::guarded_value(x.trace(), w.layer, shape);
+            g.arm(GuardPred::TokensGT(tile - 1), || {
+                dsl::metal::qmm_residual(x, w, residual, &gemm_point);
+            })
+            .otherwise(|| {
+                dsl::metal::qmv_residual(x, w, residual, &point);
+            });
+            v
         };
         // ALWAYS paged, and the class is not the question -- the POOL's
         // layout is. `model::kv::Pool` allocates `[page, token, head, dim]`
@@ -1670,14 +1679,17 @@ mod metal_tests {
             &LlamaLikeMetalFacts::synthetic(),
             FireClass::Prefill,
         );
-        // `affine_qmv_fast` prefixes `affine_qmv_fast_residual`'s point too,
-        // so the readout is the difference of the two counts.
-        assert_eq!(
-            count(&mb, "affine_qmv_fast") - count(&mb, "affine_qmv_fast_residual"),
-            1,
-            "the readout only"
+        // BOTH arms of the projection guard are in the M>1 text, which is what
+        // a guard is for: `qmm_t.metal` needs `M % BM == 0` and no row count
+        // under `qmm_tile.0` gives it, so the text states the pair with
+        // `TokensGT(tile - 1)` and the FIRE picks. A Rust `if` would resolve
+        // at trace time and leave a short prefill with nothing to run.
+        assert!(
+            count(&mb, "affine_qmv_fast") > 1,
+            "the M>1 text carries the GEMV arm as well as the readout"
         );
         assert!(count(&mb, "affine_qmm_t_residual") > 0);
+        assert!(count(&mb, "affine_qmv_fast_residual") > 0, "and its twin");
         // The attention width is the DEPLOYMENT's, not a literal. It was
         // `_d_256` unconditionally, and `qwen3_0_6b`'s heads are 128 wide — a
         // 256-wide kernel over them reads past the end of every head and

@@ -791,15 +791,12 @@ fn bisect(class: FireClass) {
             ..Step::default()
         }
     } else {
-        // SIXTEEN rows, because `Rule::Qmm` refuses a row count its tile does
-        // not divide and `QMM_BMS` starts there.
+        // TWO rows, which the GEMM's tile does not divide -- the guard's
+        // GEMV arm is what serves them.
         Step {
-            token_ids: &[
-                128_000, 9906, 1917, 11, 420, 374, 264, 1296, 315, 279, 1646,
-                596, 4741, 1522, 902, 1288,
-            ],
-            qo_indptr: &[0, 16],
-            sampling_indices: &[15],
+            token_ids: &[128_000, 9906],
+            qo_indptr: &[0, 2],
+            sampling_indices: &[0],
             ..Step::default()
         }
     };
@@ -1258,37 +1255,27 @@ fn one_token_at_position_zero_agrees_with_mlx() {
 /// a sampler wants. MLX's answer for `[128000, 9906]` at position 1 is argmax
 /// **0** with the distribution spanning [-5.42, 18.56].
 ///
-/// # Ignored, and what it is waiting on
+/// # Ignored, and the gap is now one statement
 ///
-/// Two rows do not tile. `qmm_t.metal` has no `M` argument -- its header says
-/// the driver only selects it when `M % BM == 0`, so the row count lives in
-/// the grid -- and `QMM_BMS` starts at sixteen, so `Rule::Qmm` refuses this
-/// fire with `Ungeometric::PartialTile { rows: 2, tile: 16 }`.
+/// It runs, and it agrees — with position ZERO. `sampling_indices: &[1]` asks
+/// for the last token's distribution and the readout answers 16309 at 6.40625,
+/// which is MLX's answer for position 0 to the last bf16 place.
 ///
-/// The answer to a refusal is a TEXT that states the pair, and it was tried:
-/// `dsl::guarded_value` + `GuardPred::TokensGT(tile - 1)` around the
-/// projection and its residual twin. It compiles, it fires, and it is WRONG,
-/// for a reason worth writing down — `guarded_value` hands back a value the
-/// ARMS are expected to write, which is right for the in-place arms
-/// `llama_like_cuda` uses (`all_reduce_p2p` mutates `x`) and wrong for a
-/// projection, which produces a NEW value. Both arms produced their own and
-/// dropped them; the guard's value was never written; every statement after
-/// read the slot one before it.
+/// So every stage before it is right. What is missing is a ROW GATHER: the
+/// readout is `[Requests, vocab]` and reads row 0 of a `[Tokens, hidden]`
+/// residual stream, so a prefill's sampled row never reaches it. The retiring
+/// driver had one — `Kernel::G4RowGather` — and `device_text_fire`'s own
+/// header records it as "deliberately absent at M=1", which is true and stops
+/// being enough the moment M is not 1.
 ///
-/// The measurement that caught it is the one this file is for: the KV pool
-/// came back holding **q** in its K pages and **k** in its V pages, and the
-/// two rotations landed on an empty slot and on q. A byte count would have
-/// said the pool was written and stopped there.
+/// That is a statement the TEXT owes, not a driver gap: which rows a fire
+/// samples is `Step::sampling_indices`, a fire table, and gathering by it is
+/// a launch like any other. `layout/` already has the kernels.
 ///
-/// So what is missing is a DSL form for value-producing arms — an
-/// `arm_value(pred, |‥| -> Val)` binding the arm's result to the guard's.
-/// Until it exists a short prefill is refused, and a refusal is the right
-/// failure: it says what cannot be served instead of serving it wrongly.
-///
-/// The MLX constants below are the target: `[128000, 9906]` at position 1 is
-/// argmax 0 spanning [-5.42, 18.56].
+/// The MLX constants below are position 1 of `[128000, 9906]`: argmax 0
+/// spanning [-5.42, 18.56].
 #[test]
-#[ignore = "two rows do not tile; the guard that would fix it needs a value-producing arm the DSL lacks"]
+#[ignore = "the text states no row gather, so a prefill's readout reads row 0"]
 fn a_two_token_prefill_agrees_with_mlx() {
     let Some(snapshot) = snapshot() else {
         eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT to an MLX snapshot");
@@ -1311,10 +1298,16 @@ fn a_two_token_prefill_agrees_with_mlx() {
         driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
 
     // ONE request, TWO tokens: a prefill.
+    //
+    // `sampling_indices: &[1]` — the LAST token's, which is what a prefill
+    // produces and what a sampler wants. Asking for index 0 returns position
+    // zero's distribution, and it returns it EXACTLY: 16309 at 6.40625,
+    // matching the decode gate and MLX. Worth knowing, because it means the
+    // readout gather is right and the difference below is the sequence.
     let step = Step {
         token_ids: &[128_000, 9906],
         qo_indptr: &[0, 2],
-        sampling_indices: &[0],
+        sampling_indices: &[1],
         ..Step::default()
     };
     let plan = llama_like_metal(&facts, &metal, FireClass::Prefill);
