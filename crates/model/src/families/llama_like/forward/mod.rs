@@ -366,7 +366,7 @@ fn llama_like_metal_text(
             let x = if post_norm {
                 y.clone()
             } else {
-                dsl::metal::rms_norm(&y, &w.attn_norm)
+                dsl::metal::rms_norm(&y, &w.attn_norm, f.hidden, metal.rms_eps)
             };
 
             let (q, k, v) = if f.fused_qkv {
@@ -382,32 +382,32 @@ fn llama_like_metal_text(
                 (q, k)
             } else {
                 (
-                    dsl::metal::rms_norm(&q, &w.q_norm),
-                    dsl::metal::rms_norm(&k, &w.k_norm),
+                    dsl::metal::rms_norm(&q, &w.q_norm, f.head_dim, metal.rms_eps),
+                    dsl::metal::rms_norm(&k, &w.k_norm, f.head_dim, metal.rms_eps),
                 )
             };
             // One dispatch for q and k together, as `declared_dag.hpp`'s
             // `Kind::Rope` states it.
-            let (q, k) = dsl::metal::rope(&q, &k, multi_batch);
+            let (q, k) = dsl::metal::rope(&q, &k, multi_batch, metal.rope_theta, 1.0, f.head_dim);
             dsl::metal::kv_append(&k, &v, &w.kv, paged);
             let a = dsl::metal::sdpa(&q, &w.kv, q_w, f.head_dim, paged)
                 .expect("a plain attention statement produces its value");
 
             if post_norm {
-                let o = dsl::metal::rms_norm(&gemm(&a, &w.o_proj), &w.attn_norm);
+                let o = dsl::metal::rms_norm(&gemm(&a, &w.o_proj), &w.attn_norm, f.hidden, metal.rms_eps);
                 y = dsl::metal::residual_add(&o, &y);
                 let h = gated(&y, &w);
-                let d = dsl::metal::rms_norm(&gemm(&h, &w.down), &w.mlp_norm);
+                let d = dsl::metal::rms_norm(&gemm(&h, &w.down), &w.mlp_norm, f.hidden, metal.rms_eps);
                 y = dsl::metal::residual_add(&d, &y);
             } else {
                 y = gemm_add(&a, &w.o_proj, &y);
-                let x = dsl::metal::rms_norm(&y, &w.mlp_norm);
+                let x = dsl::metal::rms_norm(&y, &w.mlp_norm, f.hidden, metal.rms_eps);
                 let h = gated(&x, &w);
                 y = gemm_add(&h, &w.down, &y);
             }
         }
 
-        let normed = dsl::metal::rms_norm(&y, &m.final_norm());
+        let normed = dsl::metal::rms_norm(&y, &m.final_norm(), f.hidden, metal.rms_eps);
         let head = if f.tied_embeddings { "embed" } else { "lm_head" };
         dsl::metal::lm_head(&normed, head, f.vocab, metal.proj_repr, &point);
     })

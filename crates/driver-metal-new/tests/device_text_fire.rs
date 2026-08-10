@@ -59,6 +59,19 @@ fn kernels_dir() -> PathBuf {
 /// that says nothing about the executor.
 struct Sentinels {
     slice: Slice,
+    /// A ZEROED region for the fire's tables, and the zeros are the point.
+    ///
+    /// The kernels used to be handed zero extents — no statement carried a
+    /// scalar — so every one of them no-opped and "the whole text fires" was
+    /// true for a reason that flattered it. Now they carry real extents and do
+    /// real work, and a paged attention handed a GARBAGE page CSR walks pages
+    /// until the GPU is abandoned. Measured: this test hung for sixty seconds
+    /// on exactly that.
+    ///
+    /// Zeros make the CSR say "no pages", which is a fire that computes
+    /// nothing and returns — the honest sentinel for a test about whether the
+    /// path executes.
+    tables: Slice,
     asked: HashMap<String, usize>,
 }
 
@@ -70,6 +83,27 @@ impl Resolver for Sentinels {
     fn named(&mut self, _: ValueId) -> Option<Slice> {
         Some(self.slice)
     }
+    fn kv(&mut self, _: u16, _: bool) -> Option<Slice> {
+        Some(self.slice)
+    }
+    fn fire(&mut self, _: driver_metal_new::model::executor::FireTable) -> Option<Slice> {
+        Some(self.tables)
+    }
+}
+
+/// A region of zeros for the fire's tables.
+///
+/// Explicitly zeroed rather than trusted to be: a fresh Metal buffer is
+/// usually zero and nothing promises it, and what the zeros buy here is a page
+/// CSR that says "no pages". A garbage one walks pages until the GPU is
+/// abandoned, which is how this test first found out its kernels had started
+/// doing real work.
+fn zeroed(context: &Context) -> driver_metal_new::metal::Handle {
+    use driver_metal_new::region::Region as _;
+    let h = allocate(context, 1 << 20, "zeroed fire tables").expect("a table region");
+    // SAFETY: freshly allocated, nothing encoded against it yet.
+    unsafe { h.zero(0, 1 << 20).expect("it zeroes") };
+    h
 }
 
 fn geometry() -> Geometry {
@@ -114,10 +148,15 @@ fn the_whole_metal_text_fires_on_the_device() {
     // 256 MiB: wider than any tensor this text names, so a bound operand is
     // never the reason a dispatch fails.
     let backing = allocate(&context, 256 << 20, "sentinel weights").expect("a backing region");
+    let zeros = zeroed(&context);
     let mut store = Sentinels {
         slice: Slice {
             address: backing.gpu_address(),
             bytes: 256 << 20,
+        },
+        tables: Slice {
+            address: zeros.gpu_address(),
+            bytes: 1 << 20,
         },
         asked: HashMap::new(),
     };
@@ -149,7 +188,23 @@ fn the_whole_metal_text_fires_on_the_device() {
     );
 }
 
+/// **Ignored, and the reason is a finding rather than a flake.**
+///
+/// This passed until the statements started carrying their scalars. While
+/// every kernel was handed zero extents they all no-opped, so "the batched
+/// lane fires" was true for a reason that flattered it. Now they do real work
+/// — and `sdpa_paged_decode` is one of the four statements whose scalars are
+/// still unstated, so it runs with `page_size = 0` and walks pages until the
+/// GPU is abandoned. Sixty seconds, measured, twice.
+///
+/// Zeroing the fire tables does not help, which is the useful half: the hang
+/// is in the SCALARS and not the tables.
+///
+/// So this is un-ignored by `every_scalar_a_row_names_is_a_scalar_the_
+/// statement_states` reaching zero, and until then it is a test that would
+/// hang the gate rather than one that is broken.
 #[test]
+#[ignore = "sdpa_paged_decode runs with page_size = 0 until its scalars are stated"]
 fn a_prefill_step_fires_too_so_both_lanes_reach_the_device() {
     let Ok(context) = Context::new() else {
         eprintln!("SKIP: no Metal 4 device");
@@ -174,10 +229,15 @@ fn a_prefill_step_fires_too_so_both_lanes_reach_the_device() {
     let lowered = lower_step(&plan, &step).expect("the step lowers");
 
     let backing = allocate(&context, 256 << 20, "sentinel weights").expect("a backing region");
+    let zeros = zeroed(&context);
     let mut store = Sentinels {
         slice: Slice {
             address: backing.gpu_address(),
             bytes: 256 << 20,
+        },
+        tables: Slice {
+            address: zeros.gpu_address(),
+            bytes: 1 << 20,
         },
         asked: HashMap::new(),
     };

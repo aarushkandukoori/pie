@@ -214,6 +214,12 @@ pub fn facts_from(
         // `Projections::InPlace` and the join declines under it -- but asking
         // is what makes that a finding rather than an assumption.
         gate_up_fused: has_tensor("layers.0.mlp.gate_up_proj.fused.weight"),
+        // The checkpoint's own `rms_norm_eps`. A norm handed zero divides by
+        // the root of the mean square alone, which for a near-zero row is an
+        // infinity the next kernel spreads everywhere.
+        rms_eps: geometry.eps,
+        // The checkpoint's own rotary base.
+        rope_theta: geometry.rope_theta,
     };
     (facts, metal)
 }

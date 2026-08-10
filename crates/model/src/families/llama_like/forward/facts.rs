@@ -432,7 +432,7 @@ pub struct LlamaLikeCudaFacts {
 /// rather than measured. `.wiki/tart/macos.md` records the ladder; the
 /// precedent for refusing to call an unmeasured fact set measured is
 /// [`Qwen35CudaFacts::qwen3_5_0_8b_synthetic`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LlamaLikeMetalFacts {
     /// The projection GEMV folds the block residual in its epilogue
     /// (`affine_qmv_fast_residual`, `Dispatch::fuse_residual`,
@@ -511,6 +511,24 @@ pub struct LlamaLikeMetalFacts {
     /// fire that runs.
     #[serde(default)]
     pub gate_up_fused: bool,
+    /// `rms_norm_eps`, the epsilon every norm of this deployment carries.
+    ///
+    /// A load-time fact and not a constant: it comes from the checkpoint's
+    /// config, and the shader takes it as a field of `RmsParams` rather than
+    /// baking one in. A norm handed zero divides by the root of the mean
+    /// square alone, which for a near-zero row is an infinity the next kernel
+    /// spreads everywhere.
+    #[serde(default)]
+    pub rms_eps: f32,
+    /// `rope_theta`, the rotary base.
+    ///
+    /// Stated rather than defaulted for the reason `ModelFacts::rope_theta`
+    /// gives about its own: a reader that only knows the flat key finds
+    /// nothing on a config that nests it, silently keeps its default, and the
+    /// rotated channels come out wrong in a way that compounds layer over
+    /// layer until the activations saturate.
+    #[serde(default)]
+    pub rope_theta: f32,
 }
 
 impl LlamaLikeMetalFacts {
@@ -540,6 +558,12 @@ impl LlamaLikeMetalFacts {
             // `Projections::InPlace` is what `compile_load_plan` authors with,
             // and the join declines under it.
             gate_up_fused: false,
+            // qwen3's `rms_norm_eps`.
+            rms_eps: 1e-6,
+            // qwen3's `rope_theta`. The shader raises TWO to a base, so the
+            // statement hands it `log2(theta)`; handing theta rotates by a
+            // frequency ladder that is wrong from the second channel on.
+            rope_theta: 1_000_000.0,
         }
     }
 }

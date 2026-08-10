@@ -536,3 +536,80 @@ fn every_slot_a_row_names_is_a_slot_a_statement_fills() {
         holes.join("\n")
     );
 }
+
+/// **Do the statements carry the scalars their rows name?**
+///
+/// A row says `in_vec_size: I32 <- Param(0)`; the statement has to state a
+/// scalar for slot 0 or the kernel reads a buffer nobody wrote. This is the
+/// operand question one level down, and the same answer applies: a slot nobody
+/// fills is read anyway.
+///
+/// It is separate from the operand check because it fails differently. A
+/// missing OPERAND is a wrong pointer; a missing SCALAR is a wrong extent, and
+/// a kernel told its output is zero wide computes nothing and reports success.
+#[test]
+fn every_scalar_a_row_names_is_a_scalar_the_statement_states() {
+    let mut short: Vec<String> = Vec::new();
+    for text in texts() {
+        for (_, low) in fires(&text) {
+            let mut seen = BTreeSet::new();
+            for launch in &low.launches {
+                let symbol = &low.kernels[launch.kernel as usize];
+                if !seen.insert(symbol.clone()) {
+                    continue;
+                }
+                let Some(sig) = kernels::sig_in(kernels_metal::KERNELS, symbol) else {
+                    continue;
+                };
+                let wants = sig
+                    .operands
+                    .iter()
+                    .filter_map(|o| match o.source {
+                        kernels::Source::Param(i) | kernels::Source::ParamF32(i) => {
+                            Some(usize::from(i) + 1)
+                        }
+                        _ => None,
+                    })
+                    .max()
+                    .unwrap_or(0);
+                let states = (launch.params.end - launch.params.start) as usize;
+                if states < wants {
+                    short.push(format!(
+                        "  {symbol}: row names {wants} scalar(s), statement states {states}"
+                    ));
+                }
+            }
+        }
+    }
+    short.sort();
+    short.dedup();
+
+    eprintln!(
+        "{} statement(s) state fewer scalars than their row names:\n{}",
+        short.len(),
+        short.join("\n")
+    );
+    // FOUR, down from THIRTEEN — which was every statement but the QKV split,
+    // the only one that had ever stated a scalar. Every projection was told
+    // its extents were zero and computed nothing; every rope was told its head
+    // width was zero; the attention was told its strides were zero and read
+    // one key forever.
+    //
+    // The rows made it askable. Before they named their `Param` slots nothing
+    // stated how many scalars a kernel wants, so nothing could notice that
+    // none were supplied.
+    //
+    // The four that remain all want the SAME thing and it is not the text's to
+    // give: the KV pool's strides. `k_head_stride` is `max_ctx * head_dim` and
+    // `k_seq_stride` is `head_dim` — the shape the DRIVER allocated
+    // (`model::kv::Shape`), which a model text cannot know and should not
+    // guess. They want a `Source` variant naming the pool's geometry, beside
+    // the `KvKeys`/`KvValues` that name its pages.
+    assert!(
+        short.len() <= 4,
+        "the gap GREW to {}. A kernel told its output is zero wide computes \
+         nothing and reports success.\n{}",
+        short.len(),
+        short.join("\n")
+    );
+}

@@ -206,14 +206,29 @@ fn a_statement_that_states_scalars_carries_them_to_its_dispatch() {
     );
     assert_eq!(split.param_slots[0].at, 0);
 
-    // And every other statement states none, so the channel is not a general
-    // escape hatch that grew.
-    let others = planned(&low)
+    // It used to be the ONLY statement carrying scalars, and this asserted
+    // that — "the channel is not a general escape hatch that grew". It grew,
+    // deliberately: the rows named their `Param` slots and every statement but
+    // four states them now, because a projection told its extents are zero
+    // computes nothing. So the assertion inverts.
+    let without: Vec<&str> = planned(&low)
         .0
         .into_iter()
-        .filter(|d| d.symbol != "split_qkv_bf16" && !d.params.is_empty())
-        .count();
-    assert_eq!(others, 0, "{others} other statements have grown scalars");
+        .filter(|d| d.params.is_empty())
+        .map(|d| d.symbol)
+        .collect();
+    let unexpected: BTreeSet<&str> = without
+        .into_iter()
+        // `silu_mul` takes none and its row names none — a kernel with no
+        // scalars is not a statement missing them.
+        .filter(|s| !s.starts_with("kv_append") && !s.starts_with("sdpa_") && *s != "silu_mul_bfloat16")
+        .collect();
+    assert!(
+        unexpected.is_empty(),
+        "a statement other than the KV writes and the attentions carries no \
+         scalars: {unexpected:?}. Those four want the POOL's strides, which \
+         the text cannot state."
+    );
 }
 
 #[test]

@@ -1640,8 +1640,39 @@ pub mod metal {
         inputs: Vec<crate::trace::ValueId>,
         out: Option<(Shape, DType)>,
     ) -> Option<Val> {
+        with_params(t, layer, kernel, weights, state, Vec::new(), inputs, out)
+    }
+
+    /// [`record`], plus the scalars the symbol's row names.
+    ///
+    /// A kernel takes numbers no operand shape gives — a projection's two
+    /// extents, a norm's epsilon, an attention's strides. The row says which
+    /// slot wants which; this is where the statement supplies them, and the
+    /// order is the row's `Param(i)` order.
+    ///
+    /// A float rides as its bits (`f32::to_bits`) and the row reads it back
+    /// with `ParamF32`: the channel is untyped `u32` and what each slot means
+    /// is the symbol's contract, which is the row.
+    #[allow(clippy::too_many_arguments)]
+    fn with_params(
+        t: &Trace,
+        layer: Option<u32>,
+        kernel: &str,
+        weights: Vec<String>,
+        state: Option<StateRef>,
+        params: Vec<u32>,
+        inputs: Vec<crate::trace::ValueId>,
+        out: Option<(Shape, DType)>,
+    ) -> Option<Val> {
         let ids = t.with(layer, |b| {
-            b.launch(kernel, weights, state, inputs, out.into_iter().collect())
+            b.launch_with_params(
+                kernel,
+                weights,
+                state,
+                params,
+                inputs,
+                out.into_iter().collect(),
+            )
         });
         ids.first().map(|&id| Val {
             t: t.clone(),
@@ -1676,12 +1707,13 @@ pub mod metal {
         } else {
             "embed_gather_4bit"
         };
-        record(
+        with_params(
             t,
             None,
             &format!("{stem}{point}"),
             quant_table(weight, repr),
             None,
+            vec![hidden],
             vec![],
             Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
         )
@@ -1691,14 +1723,25 @@ pub mod metal {
     /// `rms_norm.metal::rms_single_row_bfloat16` — ONE entrypoint for
     /// every norm this family states (attn_norm, mlp_norm, q_norm,
     /// k_norm, final_norm; the driver fans five `Kernel` kinds onto it).
-    pub fn rms_norm(x: &Val, w: &NormW) -> Val {
+    pub fn rms_norm(x: &Val, w: &NormW, row: u32, eps: f32) -> Val {
         let out = same_shape(x);
-        record(
+        with_params(
             &x.t,
             w.layer,
             "rms_single_row_bfloat16",
             vec![w.name.clone()],
             None,
+            // `RmsParams`, field for field: eps, axis_size, w_stride,
+            // plus_one, gain. The weight is one row so its stride is the
+            // axis; `plus_one` is the `(1 + w)` reading gemma takes and this
+            // family does not; the gain is unity.
+            vec![
+                eps.to_bits(),
+                row,
+                row,
+                u32::from(w.variant == crate::trace::NormVariant::Gemma),
+                1.0f32.to_bits(),
+            ],
             vec![x.id],
             Some(out),
         )
@@ -1747,6 +1790,19 @@ pub mod metal {
         format!("_bfloat16_gs_{group}_b_{bits}")
     }
 
+    /// A value's row width, from the shape the trace already carries.
+    ///
+    /// A projection's INPUT extent, which no fact states and no operand
+    /// carries — the statement's own operand does, and this reads it. Zero for
+    /// a shape whose trailing dim is not a constant, which is a shape no
+    /// projection here has.
+    fn in_width(x: &Val) -> u32 {
+        match x.t.inner.borrow().value_shape(x.id).0.last() {
+            Some(Dim::Const(n)) => *n,
+            _ => 0,
+        }
+    }
+
     fn quant_weights(w: &MatW) -> Vec<String> {
         let mut out = vec![w.name.clone()];
         out.extend(w.scale_names());
@@ -1771,12 +1827,16 @@ pub mod metal {
     /// `quantized_qmv.metal::affine_qmv_fast` — the projection GEMV,
     /// M=1. The driver fans every projection kind onto it.
     pub fn qmv(x: &Val, w: &MatW, point: &str) -> Val {
-        record(
+        with_params(
             &x.t,
             w.layer,
             &format!("affine_qmv_fast{point}"),
             quant_weights(w),
             None,
+            // The GEMV's two extents: the row it reads and the row it writes.
+            // A projection told its output is zero wide computes nothing and
+            // reports success, which is why these are stated and not derived.
+            vec![in_width(x), w.width],
             vec![x.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
         )
@@ -1787,12 +1847,13 @@ pub mod metal {
     /// with the block residual folded into its epilogue, which is what a
     /// `beta_one` matmul is on this backend.
     pub fn qmv_residual(x: &Val, w: &MatW, residual: &Val, point: &str) -> Val {
-        record(
+        with_params(
             &x.t,
             w.layer,
             &format!("affine_qmv_fast_residual{point}"),
             quant_weights(w),
             None,
+            vec![in_width(x), w.width],
             vec![x.id, residual.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
         )
@@ -1802,12 +1863,16 @@ pub mod metal {
     /// `quantized_qmm_t.metal::affine_qmm_t` — MLX's steel quantized
     /// GEMM, the M>1 projection.
     pub fn qmm(x: &Val, w: &MatW, point: &str) -> Val {
-        record(
+        with_params(
             &x.t,
             w.layer,
             &format!("affine_qmm_t{point}"),
             quant_weights(w),
             None,
+            // The GEMV's two extents: the row it reads and the row it writes.
+            // A projection told its output is zero wide computes nothing and
+            // reports success, which is why these are stated and not derived.
+            vec![in_width(x), w.width],
             vec![x.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
         )
@@ -1816,12 +1881,13 @@ pub mod metal {
 
     /// `quantized_qmm_t.metal::affine_qmm_t_residual`.
     pub fn qmm_residual(x: &Val, w: &MatW, residual: &Val, point: &str) -> Val {
-        record(
+        with_params(
             &x.t,
             w.layer,
             &format!("affine_qmm_t_residual{point}"),
             quant_weights(w),
             None,
+            vec![in_width(x), w.width],
             vec![x.id, residual.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
         )
@@ -1848,10 +1914,17 @@ pub mod metal {
     /// `rope/rope.metal::neox_decode_bfloat16` (M=1) /
     /// `neox_mb_bfloat16` (M>1). One dispatch for q and k together,
     /// as the plan states it (`declared_dag.hpp`'s `Kind::Rope`).
-    pub fn rope(q: &Val, k: &Val, multi_batch: bool) -> (Val, Val) {
+    pub fn rope(
+        q: &Val,
+        k: &Val,
+        multi_batch: bool,
+        theta: f32,
+        scale: f32,
+        head_dim: u32,
+    ) -> (Val, Val) {
         (
-            rope_one(q, multi_batch),
-            rope_one(k, multi_batch),
+            rope_one(q, multi_batch, theta, scale, head_dim),
+            rope_one(k, multi_batch, theta, scale, head_dim),
         )
     }
 
@@ -1869,18 +1942,23 @@ pub mod metal {
     ///
     /// In place, so the result is the operand: the row states `x` as its
     /// `Out(0)` and the same buffer is read and written.
-    fn rope_one(x: &Val, multi_batch: bool) -> Val {
+    fn rope_one(x: &Val, multi_batch: bool, theta: f32, scale: f32, head_dim: u32) -> Val {
         let kernel = if multi_batch {
             "neox_mb_bfloat16"
         } else {
             "neox_decode_bfloat16"
         };
-        record(
+        with_params(
             &x.t,
             x.layer,
             kernel,
             vec![],
             None,
+            // The rotation's scale, its log2 base and the head width. The base
+            // is `log2(theta)` because the shader raises two to it —
+            // `rope_neox_geometric_body` — and handing it theta rotates by a
+            // frequency ladder that is wrong from the second channel on.
+            vec![scale.to_bits(), theta.log2().to_bits(), head_dim],
             vec![x.id],
             Some(same_shape(x)),
         )
@@ -2000,12 +2078,13 @@ pub mod metal {
     /// `quantized_qmv.metal::affine_qmv_fast` against the lm head — the
     /// readout, `[Requests, vocab]` f32 like every family's.
     pub fn lm_head(x: &Val, weight: &str, vocab: u32, repr: WeightRepr, point: &str) -> Val {
-        record(
+        with_params(
             &x.t,
             None,
             &format!("affine_qmv_fast{point}"),
             quant_table(weight, repr),
             None,
+            vec![in_width(x), vocab],
             vec![x.id],
             Some((Shape(vec![Dim::Requests, Dim::Const(vocab)]), DType::F32)),
         )
