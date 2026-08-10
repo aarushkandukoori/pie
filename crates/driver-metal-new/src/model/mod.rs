@@ -19,6 +19,8 @@
 //!   a model. Apple-only.
 //! * [`load`] — the call that was missing between `loader/` and
 //!   `metal::stage_plan_weights`, producing what `resolve` reads. Apple-only.
+//! * [`text`] — which text the loaded checkpoint is. A LOOKUP, not a choice:
+//!   remove it and the same kernels fire.
 //! * [`resolve`] — the map from the names a text states to the tensors a
 //!   checkpoint holds. The one per-family piece, and a map rather than a
 //!   switch: it chooses nothing, it translates a spelling.
@@ -39,6 +41,7 @@ pub mod kv;
 #[cfg(target_vendor = "apple")]
 pub mod load;
 pub mod resolve;
+pub mod text;
 #[cfg(target_vendor = "apple")]
 pub mod run;
 

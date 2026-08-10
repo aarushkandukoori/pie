@@ -111,3 +111,32 @@ fn load_model_takes_one_descriptor_because_this_backend_holds_one_model() {
         "a missing snapshot should fail on the checkpoint it looked for: {why}"
     );
 }
+
+#[test]
+fn a_frame_that_cannot_fit_the_pool_is_impossible_rather_than_an_error() {
+    // Admission is not a failure. A frame whose demand exceeds the PHYSICAL
+    // pool can never be made to fit by evicting, so it is `Impossible` and the
+    // engine stops re-posting it; one that merely does not fit right now would
+    // be `Exhausted`. Both are outcomes, and neither is an `Err`.
+    let Ok((mut backend, _)) = DriverBackend::metal_create(b"{}") else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+    // Before a load there is no pool at all, and that IS an error — the
+    // scheduler asked a driver to run a model it never gave it.
+    let frame = engine::driver::FrameSubmission {
+        instance_ids: vec![1],
+        kv_translation: vec![0],
+        kv_translation_indptr: vec![0, 1],
+        required_kv_pages: 1,
+        steps: Vec::new(),
+    };
+    let why = match backend.launch(&frame) {
+        Err(why) => format!("{why}"),
+        Ok(_) => panic!("launch before load_model is drift, not admission"),
+    };
+    assert!(
+        why.contains("before load_model"),
+        "the refusal should say which order was broken: {why}"
+    );
+}

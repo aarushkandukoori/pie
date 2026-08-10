@@ -23,6 +23,17 @@ use crate::error::Result;
 use crate::metal::{ArgumentTable, Compiler, Context, Handle, Stepper, Timing, allocate};
 use crate::region::Region as _;
 use kernels::KernelSig;
+
+/// The signature table this backend dispatches against.
+///
+/// A function rather than a re-export so that the one place naming the table
+/// is here: `model::dispatch::plan` takes the vocabulary as a parameter, which
+/// keeps it testable against a table of its own, and this is the answer every
+/// real caller gives it.
+#[must_use]
+pub fn table() -> &'static [KernelSig] {
+    kernels_metal::KERNELS
+}
 use crate::model::dispatch::{Dispatch, Geometry, Undispatchable, plan};
 use crate::model::encode::{Params, Pipelines, encode};
 use crate::model::executor::{Frame, Resolver, Slice};
@@ -94,12 +105,6 @@ impl Prepared {
 
 /// Plan, prepare, compile and run one lowered fire.
 ///
-/// `table_rows` is `kernels_metal::KERNELS` in every caller. It is a parameter
-/// because this crate depends on the table only in dev builds — the driver
-/// deliberately does not link the signature table at build time — and because
-/// a walk that took the vocabulary rather than one table is the more honest
-/// shape anyway.
-///
 /// Returns the [`Timing`] the stepper measured, so a caller can compare a fire
 /// against the handwritten path it replaces without instrumenting anything.
 ///
@@ -112,7 +117,6 @@ pub fn run<R: Resolver>(
     compiler: &Compiler,
     pipelines: &mut Pipelines,
     lowered: &Lowered,
-    table_rows: &'static [KernelSig],
     geometry: Geometry,
     resolver: &mut R,
 ) -> Result<Timing> {
@@ -132,7 +136,7 @@ pub fn run<R: Resolver>(
         },
     };
     let dispatches =
-        plan(lowered, table_rows, frame, geometry, resolver).map_err(refusal)?;
+        plan(lowered, table(), frame, geometry, resolver).map_err(refusal)?;
     let params = Params::stage(context, &dispatches)?;
     let table = ArgumentTable::new(context, table_width(&dispatches))?;
     pipelines.ensure(context, compiler, &dispatches)?;

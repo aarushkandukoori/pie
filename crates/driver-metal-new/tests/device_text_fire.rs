@@ -115,7 +115,6 @@ fn the_whole_metal_text_fires_on_the_device() {
         &compiler,
         &mut pipelines,
         &lowered,
-        kernels_metal::KERNELS,
         geometry(),
         &mut store,
     )
@@ -176,7 +175,6 @@ fn a_prefill_step_fires_too_so_both_lanes_reach_the_device() {
         &compiler,
         &mut pipelines,
         &lowered,
-        kernels_metal::KERNELS,
         geometry(),
         &mut store,
     )
