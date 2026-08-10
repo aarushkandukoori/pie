@@ -464,6 +464,38 @@ pub struct LlamaLikeMetalFacts {
     /// Serde-defaulted, so a fixture written before this field reads as it did.
     #[serde(default)]
     pub proj_repr: model_compiler::dsl::WeightRepr,
+    /// Bits per packed weight element — 4 or 8.
+    ///
+    /// The affine entrypoints are instantiated over `(group size × bit
+    /// width)`, so the SYMBOL a statement names carries both. `proj_repr`
+    /// already carries the group; this is the other half, and it is a separate
+    /// field because `WeightRepr::Scaled` has nowhere to put it (a bit width
+    /// is a property of the weight's dtype, which the trace does not spell).
+    ///
+    /// This is the `_d_256` lesson generalised: a symbol whose axis point is
+    /// wrong does not fail, it reads the wrong bytes. A symbol that is a bare
+    /// STEM does not resolve at all, which is the better failure and the one
+    /// the runtime compiler reports by listing what the shader does export.
+    #[serde(default)]
+    pub affine_bits: u32,
+    /// The GEMM's `(row tile, column tile)`, as the entrypoint spells them.
+    ///
+    /// `affine_qmm_t` is instantiated over `(group × bits × bm × bn)`, so the
+    /// batched projection's symbol carries a TILE — and a tile is chosen from
+    /// the ROW COUNT, which is a fire-time fact a trace cannot know.
+    ///
+    /// So it is a load-time fact instead, and that is the honest reading of
+    /// what the driver was doing: `qmm_bm` picks the widest rung at or under
+    /// `n`, and a deployment that always fires the same window always picks
+    /// the same one. A deployment that wants the tile chosen per fire needs
+    /// the row count on a guard axis, which is a change to `Row` and not to
+    /// this text.
+    ///
+    /// Serde-defaulted to `(0, 0)`, which spells no tile — right for the
+    /// GEMV-only deployments, wrong loudly for a GEMM one, because a symbol
+    /// with no tile does not resolve.
+    #[serde(default)]
+    pub qmm_tile: (u32, u32),
 }
 
 impl LlamaLikeMetalFacts {
@@ -485,6 +517,11 @@ impl LlamaLikeMetalFacts {
                 axis: 0,
                 zero_point: true,
             },
+            affine_bits: 4,
+            // The narrowest rung `qmm_bm` can pick, so it is the one a short
+            // window fires; `bn = 32` is the only column tile the residual
+            // variant is instantiated at.
+            qmm_tile: (16, 32),
         }
     }
 }

@@ -64,7 +64,7 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(sdpa_paged_tiled_strided "sdpa_paged_tiled_strided",
         axes = &[BF16, Axis { what: "head dim", points: &["_d_256"] }]),
     // 3 in sdpa_vector.metal
-    kernel!(sdpa_vector_decode "sdpa_vector_decode", file = Some("attn/sdpa_sliding.metal"), launch = kernels::LaunchRule::SdpaVector,
+    kernel!(sdpa_vector_decode "sdpa_vector_decode", file = Some("attn/sdpa_vector.metal"), launch = kernels::LaunchRule::SdpaVector,
         lacks = &[Cap::Scores, Cap::PageMaskSink],
         axes = &[BF16, Axis { what: "head dim", points: &["_d_64", "_d_128", "_d_256"] }]),
     // 1 in sdpa_sliding.metal

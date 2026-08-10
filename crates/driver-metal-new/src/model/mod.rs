@@ -20,6 +20,8 @@
 //!   switch: it chooses nothing, it translates a spelling.
 //! * [`encode`] — the one half that needs a GPU: compile the symbols, bind the
 //!   addresses, dispatch. Apple-only.
+//! * [`run`] — the four calls in one place: allocate the arena the lowering
+//!   asked for, plan, compile, encode. Apple-only.
 
 pub mod dispatch;
 #[cfg(target_vendor = "apple")]
@@ -29,6 +31,8 @@ pub mod frame;
 pub mod geometry;
 pub mod grid;
 pub mod resolve;
+#[cfg(target_vendor = "apple")]
+pub mod run;
 
 pub use dispatch::{Dispatch, Geometry, Undispatchable, plan as plan_dispatches};
 pub use executor::{BindRefusal, BoundArg, BoundLaunch, Frame, Resolver, Slice, bind, resolve_arg};

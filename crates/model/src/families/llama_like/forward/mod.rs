@@ -299,6 +299,17 @@ fn llama_like_metal_text(
         m.depth_window();
 
         let f = facts.clone();
+        // The affine entrypoints are instantiated over (dtype x group x bits),
+        // so every statement below names its POINT and not the stem. A stem
+        // does not resolve, and the runtime compiler says so by listing what
+        // the shader exports — which is the failure worth having, because a
+        // WRONG point compiles and reads the wrong bytes (the `_d_256` defect,
+        // one axis over).
+        let point = dsl::metal::affine_point(metal.proj_repr, metal.affine_bits);
+        // The GEMM carries its tile too — see `LlamaLikeMetalFacts::qmm_tile`
+        // for why a tile is a load-time fact and not a fire-time one.
+        let gemm_point =
+            dsl::metal::affine_gemm_point(metal.proj_repr, metal.affine_bits, metal.qmm_tile);
         let q_w = f.q_width();
         let kv_w = f.kv_width();
         let post_norm = f.norm_placement == NormPlacement::Post;
@@ -307,9 +318,9 @@ fn llama_like_metal_text(
         // the M=1 lane, MLX's steel GEMM above the batch gate.
         let gemm = |x: &Val, w: &MatW| {
             if multi_batch && metal.qmm_multi_batch {
-                dsl::metal::qmm(x, w)
+                dsl::metal::qmm(x, w, &gemm_point)
             } else {
-                dsl::metal::qmv(x, w)
+                dsl::metal::qmv(x, w, &point)
             }
         };
         // A `beta_one` matmul: the epilogue fold when the deployment has
@@ -317,9 +328,9 @@ fn llama_like_metal_text(
         let gemm_add = |x: &Val, w: &MatW, residual: &Val| {
             if metal.fuse_residual_gemv {
                 if multi_batch && metal.qmm_multi_batch {
-                    dsl::metal::qmm_residual(x, w, residual)
+                    dsl::metal::qmm_residual(x, w, residual, &gemm_point)
                 } else {
-                    dsl::metal::qmv_residual(x, w, residual)
+                    dsl::metal::qmv_residual(x, w, residual, &point)
                 }
             } else {
                 dsl::metal::residual_add(&gemm(x, w), residual)
@@ -327,7 +338,7 @@ fn llama_like_metal_text(
         };
         let paged = multi_batch && metal.paged_multi_batch;
 
-        let mut y = dsl::metal::embed_gather(m.trace(), "embed", f.hidden, multi_batch, metal.proj_repr);
+        let mut y = dsl::metal::embed_gather(m.trace(), "embed", f.hidden, multi_batch, metal.proj_repr, &point);
 
         for l in 0..f.layers {
             let w = m.layer(l);
@@ -378,7 +389,7 @@ fn llama_like_metal_text(
 
         let normed = dsl::metal::rms_norm(&y, &m.final_norm());
         let head = if f.tied_embeddings { "embed" } else { "lm_head" };
-        dsl::metal::lm_head(&normed, head, f.vocab, metal.proj_repr);
+        dsl::metal::lm_head(&normed, head, f.vocab, metal.proj_repr, &point);
     })
 }
 
@@ -1450,10 +1461,17 @@ mod metal_tests {
             },
             FireClass::Decode,
         );
+        // By PREFIX: an affine symbol is its INSTANTIATION POINT
+        // (`affine_qmv_fast_bfloat16_gs_64_b_4`), because a bare stem is not
+        // an entry point any shader exports. The stems are unambiguous
+        // prefixes of each other's points except for the residual pair, which
+        // is why the assertions below name the residual form explicitly.
         let count = |p: &ForwardPlan, sym: &str| {
             p.ops
                 .iter()
-                .filter(|op| matches!(&op.kind, OpKind::Launch { kernel, .. } if kernel == sym))
+                .filter(
+                    |op| matches!(&op.kind, OpKind::Launch { kernel, .. } if kernel.starts_with(sym)),
+                )
                 .count()
         };
         assert_eq!(count(&fold, "residual_add_bfloat16"), 0);
@@ -1469,7 +1487,13 @@ mod metal_tests {
             &LlamaLikeMetalFacts::synthetic(),
             FireClass::Prefill,
         );
-        assert_eq!(count(&mb, "affine_qmv_fast"), 1, "the readout only");
+        // `affine_qmv_fast` prefixes `affine_qmv_fast_residual`'s point too,
+        // so the readout is the difference of the two counts.
+        assert_eq!(
+            count(&mb, "affine_qmv_fast") - count(&mb, "affine_qmv_fast_residual"),
+            1,
+            "the readout only"
+        );
         assert!(count(&mb, "affine_qmm_t_residual") > 0);
         // The attention width is the DEPLOYMENT's, not a literal. It was
         // `_d_256` unconditionally, and `qwen3_0_6b`'s heads are 128 wide — a

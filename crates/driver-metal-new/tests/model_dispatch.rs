@@ -443,7 +443,10 @@ mod the_map {
         let qkv = low
             .launches
             .iter()
-            .find(|l| low.kernels[l.kernel as usize] == "affine_qmv_fast")
+            // By PREFIX: the symbol is the instantiated point
+            // (`affine_qmv_fast_bfloat16_gs_64_b_4`), because a bare stem does
+            // not resolve to any entry point the shader exports.
+            .find(|l| low.kernels[l.kernel as usize].starts_with("affine_qmv_fast_bfloat16"))
             .expect("the text states a quantized projection");
         let weights: Vec<&str> = low.args[qkv.args.start as usize..qkv.args.end as usize]
             .iter()

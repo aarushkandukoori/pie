@@ -1669,8 +1669,9 @@ pub mod metal {
         hidden: u32,
         multi_batch: bool,
         repr: WeightRepr,
+        point: &str,
     ) -> Val {
-        let kernel = if multi_batch {
+        let stem = if multi_batch {
             "embed_gather_mb_4bit"
         } else {
             "embed_gather_4bit"
@@ -1678,7 +1679,7 @@ pub mod metal {
         record(
             t,
             None,
-            kernel,
+            &format!("{stem}{point}"),
             quant_table(weight, repr),
             None,
             vec![],
@@ -1714,6 +1715,38 @@ pub mod metal {
     /// descriptor and never routes: it binds the names the statement gives it
     /// and calls the symbol the statement names"* — and the Metal statements
     /// now say the same thing.
+    /// The instantiation point an affine entrypoint is compiled at.
+    ///
+    /// `quantized_qmv.metal` stamps one template over
+    /// `(activation dtype × group size × bit width)`, so the symbol a
+    /// statement names is `affine_qmv_fast_bfloat16_gs_64_b_4` and not the
+    /// stem. A stem does not resolve — which is the GOOD failure: the runtime
+    /// compiler reports it by listing what the shader does export, where a
+    /// WRONG point would compile and read the wrong bytes (the `_d_256`
+    /// defect, one axis over).
+    ///
+    /// Both numbers come from the deployment's facts. Nothing here derives
+    /// them: g64/b8 and g128/b4 pack to identical shapes, so no tensor can be
+    /// asked.
+    /// The GEMM's instantiation point: [`affine_point`] plus its tile.
+    ///
+    /// `affine_qmm_t` is stamped over `(group × bits × bm × bn)`, so its
+    /// symbol carries two more numbers than the GEMV's.
+    #[must_use]
+    pub fn affine_gemm_point(repr: WeightRepr, bits: u32, tile: (u32, u32)) -> String {
+        let (bm, bn) = tile;
+        format!("{}_bm_{bm}_bn_{bn}", affine_point(repr, bits))
+    }
+
+    #[must_use]
+    pub fn affine_point(repr: WeightRepr, bits: u32) -> String {
+        let group = match repr {
+            WeightRepr::Scaled { group, .. } => group,
+            _ => 0,
+        };
+        format!("_bfloat16_gs_{group}_b_{bits}")
+    }
+
     fn quant_weights(w: &MatW) -> Vec<String> {
         let mut out = vec![w.name.clone()];
         out.extend(w.scale_names());
@@ -1737,11 +1770,11 @@ pub mod metal {
 
     /// `quantized_qmv.metal::affine_qmv_fast` — the projection GEMV,
     /// M=1. The driver fans every projection kind onto it.
-    pub fn qmv(x: &Val, w: &MatW) -> Val {
+    pub fn qmv(x: &Val, w: &MatW, point: &str) -> Val {
         record(
             &x.t,
             w.layer,
-            "affine_qmv_fast",
+            &format!("affine_qmv_fast{point}"),
             quant_weights(w),
             None,
             vec![x.id],
@@ -1753,11 +1786,11 @@ pub mod metal {
     /// `quantized_qmv.metal::affine_qmv_fast_residual` — the same GEMV
     /// with the block residual folded into its epilogue, which is what a
     /// `beta_one` matmul is on this backend.
-    pub fn qmv_residual(x: &Val, w: &MatW, residual: &Val) -> Val {
+    pub fn qmv_residual(x: &Val, w: &MatW, residual: &Val, point: &str) -> Val {
         record(
             &x.t,
             w.layer,
-            "affine_qmv_fast_residual",
+            &format!("affine_qmv_fast_residual{point}"),
             quant_weights(w),
             None,
             vec![x.id, residual.id],
@@ -1768,11 +1801,11 @@ pub mod metal {
 
     /// `quantized_qmm_t.metal::affine_qmm_t` — MLX's steel quantized
     /// GEMM, the M>1 projection.
-    pub fn qmm(x: &Val, w: &MatW) -> Val {
+    pub fn qmm(x: &Val, w: &MatW, point: &str) -> Val {
         record(
             &x.t,
             w.layer,
-            "affine_qmm_t",
+            &format!("affine_qmm_t{point}"),
             quant_weights(w),
             None,
             vec![x.id],
@@ -1782,11 +1815,11 @@ pub mod metal {
     }
 
     /// `quantized_qmm_t.metal::affine_qmm_t_residual`.
-    pub fn qmm_residual(x: &Val, w: &MatW, residual: &Val) -> Val {
+    pub fn qmm_residual(x: &Val, w: &MatW, residual: &Val, point: &str) -> Val {
         record(
             &x.t,
             w.layer,
-            "affine_qmm_t_residual",
+            &format!("affine_qmm_t_residual{point}"),
             quant_weights(w),
             None,
             vec![x.id, residual.id],
@@ -1946,11 +1979,11 @@ pub mod metal {
 
     /// `quantized_qmv.metal::affine_qmv_fast` against the lm head — the
     /// readout, `[Requests, vocab]` f32 like every family's.
-    pub fn lm_head(x: &Val, weight: &str, vocab: u32, repr: WeightRepr) -> Val {
+    pub fn lm_head(x: &Val, weight: &str, vocab: u32, repr: WeightRepr, point: &str) -> Val {
         record(
             &x.t,
             None,
-            "affine_qmv_fast",
+            &format!("affine_qmv_fast{point}"),
             quant_table(weight, repr),
             None,
             vec![x.id],
