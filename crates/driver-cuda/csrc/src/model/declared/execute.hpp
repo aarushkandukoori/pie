@@ -21,6 +21,34 @@
 // caller's own switch runs. That residue is what is left of a family
 // executor, and it shrinks as arms land here — which is the measure
 // this file exists to make, rather than a claim it exists to support.
+//
+// ── WHERE AN ARM COMES FROM, and it is not this file ────────────────
+//
+// "A new kernel means one more case here" is the answer this design
+// exists to avoid. The answer it gives instead: the `kernel!` ROW says
+// where each argument comes from, and the arm is DERIVED —
+// `generated_dispatch.inc`, included below, one branch per fully-stated
+// row. A hand-written case here is the fallback, not the route.
+//
+// Two things that only became visible once arms started generating, and
+// both are the same shape — a REFUSAL that lived in an arm rather than
+// in the row it was about:
+//
+//   * The rope arms refuse a zero theta, because gemma-4 alternates
+//     theta per layer and says so by leaving the context field zero.
+//     The generated branch inherited the argument and not the refusal,
+//     and it runs FIRST — so it would have rotated half that model by
+//     nothing. `Source::CtxNonZero` moves the refusal into the row.
+//   * `Source::Rows` binds the FIRE's row count, which is not every
+//     statement's. The MoE aligned leg's rows are a padded block-major
+//     count, and a branch handing that kernel `N` activates the first N
+//     of them. `Source::OutRows` resolves the value's own extent, which
+//     is both the fix and the deletion of a formula five hand-written
+//     forwards restate.
+//
+// The rule they teach: a fact an arm KNOWS is a fact the row should
+// SAY, because an arm can be replaced by a generated one and a row
+// cannot.
 
 #include <cstdint>
 #include <cstring>
