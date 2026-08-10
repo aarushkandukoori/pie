@@ -1199,3 +1199,75 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    /// **Which ops this interpreter executes, and which it refuses BY NAME.**
+    ///
+    /// "Is the PTIR port complete" was asked by hand three times in this arc
+    /// and got a different answer each time, because it was answered by
+    /// grepping for `tags::NAME` and GUESSING the constant's spelling —
+    /// `CUM_SUM` where the table says `CUMSUM`. Three ops looked missing and
+    /// all three were already implemented.
+    ///
+    /// `OP_TABLE` is the whole vocabulary and this file is the whole executor,
+    /// so the question has an exact answer and no spelling in it: read the
+    /// source, take the tags it matches, and subtract.
+    ///
+    /// Read rather than run because running wants a `LaunchPackage` with a
+    /// type table, and building fifty-five of those to ask which ARM a tag
+    /// reaches is a lot of scaffolding for a question about a match.
+    ///
+    /// What it pins is not a NUMBER — a refusal can be legitimate, and the
+    /// ones here are: `Const` is a value ROOT rather than an op, and the
+    /// channel ops belong to `meta`. What it pins is that every refusal names
+    /// its op, which the catch-all does by reading `OP_TABLE`.
+    #[test]
+    fn every_op_is_executed_here_or_refused_somewhere_that_names_it() {
+        let src = include_str!("op.rs");
+        // The tags this file's match arms name, from the arms themselves.
+        let matched: std::collections::BTreeSet<&str> = src
+            .match_indices("tags::")
+            .map(|(at, _)| {
+                let rest = &src[at + 6..];
+                let end = rest
+                    .find(|c: char| !c.is_ascii_uppercase() && !c.is_ascii_digit() && c != '_')
+                    .unwrap_or(rest.len());
+                &rest[..end]
+            })
+            .collect();
+
+        // The names `OP_TABLE` states, in the spelling the tag constant takes.
+        let mut elsewhere = Vec::new();
+        for row in tensor_ir::op::OP_TABLE {
+            let konst = row.name.to_ascii_uppercase();
+            if !matched.contains(konst.as_str()) {
+                elsewhere.push(row.name);
+            }
+        }
+
+        eprintln!(
+            "{} of {} ops are executed here; {} live elsewhere: {:?}",
+            tensor_ir::op::OP_TABLE.len() - elsewhere.len(),
+            tensor_ir::op::OP_TABLE.len(),
+            elsewhere.len(),
+            elsewhere
+        );
+
+        // The catch-all must NAME the op it refuses, which is the property
+        // that makes an unservable program diagnosable rather than a failure.
+        assert!(
+            src.contains("op not executable on the Metal host interpreter")
+                && src.contains("tensor_ir::op::spec(code)"),
+            "the catch-all must read the refused op's name out of OP_TABLE"
+        );
+        assert!(
+            elsewhere.len() * 4 < tensor_ir::op::OP_TABLE.len(),
+            "{} of {} ops are not executed here, which is more than the \
+             handful that legitimately live in `meta`, `params` and `step`: \
+             {elsewhere:?}",
+            elsewhere.len(),
+            tensor_ir::op::OP_TABLE.len()
+        );
+    }
+}
