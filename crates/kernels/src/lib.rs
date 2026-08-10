@@ -468,8 +468,33 @@ pub enum Source {
     Weight(u8),
     /// The `i`-th scalar the statement carries (`Launch`'s params).
     Param(u8),
+    /// The same slot read as a FLOAT.
+    ///
+    /// The param channel is untyped `u32` — "what each slot means is the
+    /// SYMBOL's contract" — and a scale is a float. gemma-4 fires one
+    /// kernel four times per fire with four different constants, all
+    /// derived from dims the HOST knows, and the driver held a
+    /// name-to-arithmetic table to get them back. The statement carries
+    /// the number instead, in the bits the slot already has room for.
+    ParamF32(u8),
     /// The rectangle's row count.
+    ///
+    /// The fire's, and only right for a statement whose rows ARE the
+    /// fire's — which is most of them and not all. Where a value's own
+    /// leading extent is the answer, [`Source::OutRows`] says so and
+    /// covers this case too.
     Rows,
+    /// The `i`-th result's LEADING extent, resolved for this fire.
+    ///
+    /// `Rows` for a token-shaped value, a constant for a fixed one, and
+    /// for the MoE aligned path the padded block-major count — which is
+    /// `Dim::MoeAlignedRoutes`, the one extent in the tree that is
+    /// neither the fire's rows nor a load-time number. Five hand-written
+    /// forwards restate the formula for it; a row that says `OutRows`
+    /// gets it from the one place that computes it.
+    OutRows(u8),
+    /// The same for the `i`-th operand.
+    InRows(u8),
     /// The trailing-dims product of the `i`-th result — what a row of
     /// it is worth in elements.
     OutWidth(u8),
@@ -478,6 +503,13 @@ pub enum Source {
     /// Rows times the `i`-th result's row width — the ELEMENT count a
     /// flat launcher takes where a row-shaped one takes both.
     OutElements(u8),
+    /// The same for the `i`-th OPERAND.
+    ///
+    /// The MoE routing kernels want the ROUTE count, which is the fire's
+    /// tokens times `top_k` — and `topk_idx` is `[Tokens, top_k]`, so it
+    /// is exactly that operand's element count. A product the table has
+    /// no arithmetic for, read off a value that already is it.
+    InElements(u8),
     /// Dimension `d` of the `i`-th operand. The routed combine reads
     /// `[Tokens, top_k, H]` and both extents come off it.
     InDim(u8, u8),
@@ -488,6 +520,25 @@ pub enum Source {
     /// handle, `eps`, the head geometry. The name is the C++ member,
     /// and a context that does not have it does not compile.
     Ctx(&'static str),
+    /// [`Source::Ctx`], plus a GUARD: the generated branch fires only
+    /// when the field is non-zero, and a family that leaves it zero
+    /// keeps its own arm.
+    ///
+    /// This exists because of one number. gemma-4 alternates its rope
+    /// theta per layer, so the single `rope_theta` a context can carry
+    /// is the wrong one for half that model, and the family says so by
+    /// leaving the field zero — a convention the hand-written shared
+    /// rope arm already had (`if (c.rope_theta == 0.f) return false;`).
+    /// When the rope rows started generating, the generated branch ran
+    /// FIRST and had no such refusal: it would have rotated half of
+    /// gemma-4 by nothing, silently, past an arm written to prevent
+    /// exactly that.
+    ///
+    /// So the refusal belongs to the ROW rather than to whichever arm
+    /// happens to be reading the field. Zero means "not this family's",
+    /// which is a claim about the context field and not about any one
+    /// call site.
+    CtxNonZero(&'static str),
     /// A literal, spelled as C++ spells it. For the arguments a
     /// launcher takes that no statement and no context carries — an
     /// `interleaved` flag a family never sets, a `beta` of zero.

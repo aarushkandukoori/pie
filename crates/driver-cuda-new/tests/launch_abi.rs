@@ -97,6 +97,53 @@ fn compile(shim: &str) -> Result<(), String> {
     }
 }
 
+/// The toolkit's include directory, if this machine has one — `build.rs`'s
+/// `cuda_home()` resolution, which is where the pairing matters: a test that
+/// looked somewhere else would prove a different build than the one shipped.
+fn cuda_include() -> Option<PathBuf> {
+    let home = std::env::var_os("CUDA_HOME")
+        .or_else(|| std::env::var_os("CUDA_PATH"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/usr/local/cuda"));
+    let inc = home.join("include");
+    inc.join("cuda_runtime.h").exists().then_some(inc)
+}
+
+/// [`compile`] with extra include directories, for the one case whose
+/// headers the stub cannot serve.
+fn compile_with(shim: &str, extra: &[PathBuf]) -> Result<(), String> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "pie-launch-abi-x{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let src = dir.join("shim.cpp");
+    std::fs::write(&src, shim).expect("write shim");
+
+    let stub = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/launch_abi/stub");
+    let mut cmd = Command::new("g++");
+    cmd.arg("-std=c++20").arg("-fsyntax-only");
+    for e in extra {
+        cmd.arg(format!("-I{}", e.display()));
+    }
+    // The stub goes LAST: where the toolkit has the real header, the real
+    // one wins, and the stub only fills what it does not.
+    let out = cmd
+        .arg(format!("-I{}", csrc().display()))
+        .arg(format!("-I{}", stub.display()))
+        .arg(&src)
+        .output()
+        .expect("g++ must be available");
+    let _ = std::fs::remove_dir_all(&dir);
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).into_owned())
+    }
+}
+
 fn rope_shim(table: &'static [KernelSig]) -> String {
     kernels_cuda::abi::emit_c_shim(&[table], &[ROPE_HPP]).expect("no entry-point collisions")
 }
@@ -810,11 +857,32 @@ fn the_whole_bridge_generates_for_both_sides() {
         &[kernels_cuda::KERNELS, kernels_cuda::driver_internal::DRIVER_KERNELS];
     let refs: Vec<&str> = headers.iter().map(String::as_str).collect();
     let shim = kernels_cuda::abi::emit_c_shim(tables, &refs).expect("no entry-point collisions");
-    if let Err(err) = compile(&shim) {
-        panic!(
-            "the whole-bridge shim does not compile, so a row's launcher is \
-             not reachable from the headers `build.rs` includes:\n{err}"
-        );
+
+    // The WHOLE bridge needs the real toolkit headers, and that is the
+    // difference from every per-family case above. Those compile against
+    // `tests/oracle/launch_abi/stub/`, which supplies the two CUDA names
+    // they touch and nothing else — which is what lets this crate's CI job
+    // run them with no toolkit installed. The vision towers include
+    // `<cuda_bf16.h>`, so the union cannot be served that way.
+    //
+    // So this half runs where `build.rs` would run, and says so where it
+    // cannot. Skipping loudly beats either alternative: dropping the
+    // toolkit-dependent headers would make the union stop being the union,
+    // and requiring a toolkit would take the whole file out of the
+    // toolkit-free job for one case.
+    match cuda_include() {
+        Some(inc) => {
+            if let Err(err) = compile_with(&shim, &[inc]) {
+                panic!(
+                    "the whole-bridge shim does not compile, so a row's launcher \
+                     is not reachable from the headers `build.rs` includes:\n{err}"
+                );
+            }
+        }
+        None => eprintln!(
+            "SKIPPED the shim half: no CUDA include directory (set CUDA_HOME or \
+             CUDA_PATH). The operand-name half below still ran."
+        ),
     }
 
     // The Rust half. `KEYWORDS` is the raw-identifier set: a name in it is
@@ -1392,4 +1460,99 @@ fn the_enum_mirrors_carry_the_cpp_discriminants() {
     if let Err(err) = compile(&tu) {
         panic!("an enum mirror disagrees with the C++:\n{err}");
     }
+}
+
+/// Every launcher the GENERATED dispatch calls is declared by a header
+/// `execute.hpp` includes.
+///
+/// The generator emits a CALL and nothing else. Whether that call has a
+/// declaration in scope is the including file's business, and the
+/// including file is one: `model/declared/execute.hpp`, which pulls the
+/// `.inc` in mid-function. So a row that starts generating drags a
+/// header requirement with it, and until this test existed the only
+/// thing that noticed was a CUDA build — which this crate's CI job does
+/// not run.
+///
+/// It checks DIRECT includes, deliberately. A launcher reachable only
+/// through some other header's include is a build that works by
+/// accident, and the fix for a failure here is one line either way.
+#[test]
+fn every_generated_call_has_its_header_in_scope() {
+    let dispatch = kernels_cuda::abi::emit_dispatch(
+        &[
+            kernels_cuda::attn::KERNELS,
+            kernels_cuda::gemm::KERNELS,
+            kernels_cuda::layout::KERNELS,
+            kernels_cuda::mlp::KERNELS,
+            kernels_cuda::moe::KERNELS,
+            kernels_cuda::norm::KERNELS,
+            kernels_cuda::quant::KERNELS,
+            kernels_cuda::rope::KERNELS,
+            kernels_cuda::sample::KERNELS,
+            kernels_cuda::ssm::KERNELS,
+        ],
+        "c",
+    );
+
+    let execute = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../driver-cuda/csrc/src/model/declared/execute.hpp");
+    let included = std::fs::read_to_string(&execute)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", execute.display()));
+
+    // Every header under `kernels-cuda/csrc/src`, by the text it holds.
+    let mut headers: Vec<(String, String)> = Vec::new();
+    let mut stack = vec![csrc()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "hpp") {
+                let rel = p
+                    .strip_prefix(csrc())
+                    .expect("under csrc")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    headers.push((rel, text));
+                }
+            }
+        }
+    }
+
+    let mut missing: Vec<String> = Vec::new();
+    for line in dispatch.lines() {
+        let Some(at) = line.find("::pie_cuda_driver::kernels::") else { continue };
+        let call = &line[at..];
+        let Some(open) = call.find('(') else { continue };
+        let path = &call[..open];
+        let Some(name) = path.rsplit("::").next() else { continue };
+        // A header DECLARES it if the name appears as a call-shaped
+        // token; a header is IN SCOPE if `execute.hpp` includes it.
+        let declared_in: Vec<&str> = headers
+            .iter()
+            .filter(|(_, text)| text.contains(&format!("{name}(")))
+            .map(|(rel, _)| rel.as_str())
+            .collect();
+        if declared_in.is_empty() {
+            // No header declares it at all — a different failure, and
+            // the shim compile is what catches that one.
+            continue;
+        }
+        if !declared_in
+            .iter()
+            .any(|rel| included.contains(&format!("#include \"{rel}\"")))
+        {
+            missing.push(format!("  {name} — declared in {declared_in:?}"));
+        }
+    }
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "the generated dispatch calls launchers `execute.hpp` has no \
+         declaration for; add the header(s):\n{}",
+        missing.join("\n")
+    );
 }

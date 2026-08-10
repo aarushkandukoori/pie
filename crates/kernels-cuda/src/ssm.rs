@@ -6,6 +6,7 @@
 
 use kernels::kernel;
 use kernels::operands;
+use kernels::Source;
 use kernels::KernelSig;
 
 #[rustfmt::skip]
@@ -492,15 +493,20 @@ pub static KERNELS: &[KernelSig] = &[
             write_state: Bool,
             write_state_mask: U8s,
         ]),
+    // The head geometry off the two VALUES: the compact operand is
+    // `[Tokens, key_heads, key_dim]` and the repeated result is
+    // `[Tokens, value_heads, key_dim]`, so all three counts are dims the
+    // statement already carries. It states its result since the repeat
+    // stopped being output-less.
     kernel!(repeat_interleave_heads "ssm::repeat_interleave_heads_fp32",
         operands = operands![
-            in_: F32s,
-            out: F32sMut,
-            n: I32,
-            k_h: I32,
-            v_h: I32,
-            d: I32,
-            stream: Stream,
+            in_: F32s <- Source::In(0),
+            out: F32sMut <- Source::Out(0),
+            n: I32 <- Source::Rows,
+            k_h: I32 <- Source::InDim(0, 1),
+            v_h: I32 <- Source::OutDim(0, 1),
+            d: I32 <- Source::OutDim(0, 2),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // KDA's arithmetic is fp32 throughout, so operands living in bf16 in the
     // workspace cross explicitly. Launches, so the trace records them.
@@ -514,19 +520,22 @@ pub static KERNELS: &[KernelSig] = &[
             eps: F32,
             stream: Stream,
         ]),
+    // The two casts, and the first rows whose every argument the
+    // statement already carries: one operand, one result, and an element
+    // count that is the result's own extent.
     kernel!(bf16_to_f32 "ssm::bf16_to_fp32",
         operands = operands![
-            x: Buf,
-            y: F32sMut,
-            n: Usize,
-            stream: Stream,
+            x: Buf <- Source::In(0),
+            y: F32sMut <- Source::Out(0),
+            n: Usize <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(f32_to_bf16 "ssm::fp32_to_bf16",
         operands = operands![
-            x: F32s,
-            y: BufMut,
-            n: Usize,
-            stream: Stream,
+            x: F32s <- Source::In(0),
+            y: BufMut <- Source::Out(0),
+            n: Usize <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(zamba_rmsnorm_gated "ssm::zamba_rmsnorm_gated_bf16",
         operands = operands![

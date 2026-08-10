@@ -140,7 +140,11 @@ pub fn gemma4_cuda(
 
         // ── Prologue ────────────────────────────────────────────────
         // The token embedding, scaled by sqrt(hidden).
-        let mut y = dsl::cuda::scalar_mul(&dsl::embed_with(t, "embed", hidden), "sqrt_hidden");
+        let mut y = dsl::cuda::scalar_mul(
+            &dsl::embed_with(t, "embed", hidden),
+            "sqrt_hidden",
+            Some((hidden as f32).sqrt()),
+        );
 
         // PLE: a SECOND embedding table, projected to the whole stack's
         // per-layer width, normed, scaled and relaid so each layer reads
@@ -150,6 +154,7 @@ pub fn gemma4_cuda(
         let table = dsl::cuda::scalar_mul(
             &dsl::embed_with(t, "embed_per_layer", ple_total),
             "sqrt_ple_dim",
+            Some((facts.ple_dim as f32).sqrt()),
         );
         // The projection consumes the MAIN embedding, not the table:
         // `per_layer_proj = inputs_embeds @ ple_model_proj.T`. The table
@@ -165,7 +170,8 @@ pub fn gemma4_cuda(
                 repr: WeightRepr::Bf16,
             },
         );
-        let scaled = dsl::cuda::scalar_mul(&ple, "rsqrt_hidden");
+        let scaled =
+            dsl::cuda::scalar_mul(&ple, "rsqrt_hidden", Some(1.0 / (hidden as f32).sqrt()));
         let normed_ple = dsl::cuda::rmsnorm(
             &scaled,
             &NormW {
@@ -181,7 +187,7 @@ pub fn gemma4_cuda(
         // its scale consumes and found two producers where the trace had
         // one.
         let ple = dsl::cuda::residual_add(&normed_ple, &table, ple_total);
-        let ple = dsl::cuda::scalar_mul(&ple, "rsqrt_2");
+        let ple = dsl::cuda::scalar_mul(&ple, "rsqrt_2", Some(1.0 / 2f32.sqrt()));
         let ple_table = dsl::cuda::transpose_nld_to_lnd(&ple, facts.layers, facts.ple_dim);
 
         // ── Layers ──────────────────────────────────────────────────
@@ -324,7 +330,19 @@ pub fn gemma4_cuda(
             // stream, then land it — and, for every layer but the last,
             // produce the NEXT layer's input norm in the same launch.
             let gate = matmul(&y, &w.ple_gate);
-            let gated = dsl::cuda::geglu_tanh_pair(&gate, &ple_table, facts.ple_dim);
+            // THIS LAYER's slice of the relay, as a `select` rather than
+            // as an offset the executor computes. The relay is `[L,
+            // Tokens, ple_dim]` -- the layer axis leads, which is the
+            // whole reason the transpose above exists -- so a select at
+            // `l` IS the slice, and `Buffers::assign` places it at
+            // `offset(relay) + l * N * ple_dim` without being told.
+            //
+            // The arm used to add that offset itself, and to tell this
+            // site from the MLP's by comparing the result's WIDTH
+            // against `ple_dim`. Both go: the two sites now differ only
+            // in which values they name.
+            let slice = dsl::select(&ple_table, l);
+            let gated = dsl::cuda::geglu_tanh_pair(&gate, &slice, facts.ple_dim);
             let ple_out = matmul(&gated, &w.ple_proj);
             if l + 1 < facts.layers {
                 let next = Gemma4LayerW::new(l + 1, facts);

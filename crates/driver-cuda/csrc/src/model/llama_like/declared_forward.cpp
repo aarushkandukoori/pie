@@ -1469,24 +1469,34 @@ void llama_like_forward_declared(
             // (llama_like.cpp) argument for argument. The trace states
             // the op after the lora guard and before norms/rope, which
             // is exactly where the hand-written block sits.
+            //
+            // IN PLACE on its operand — `kernels::semantic_in_place`
+            // joins the pair, so the arena hands both ends the same
+            // bytes. That is what took the FIELD out of this arm: it
+            // used to fork on q/k/v to pick a workspace buffer AND the
+            // width that buffer implies, and both come off the value
+            // now. What is left is the binder answering the name, which
+            // is the check the fork was standing in for.
             const std::string_view name = plan.weight_name(op);
-            const ParsedWeightName nm = parse_weight_name(name);
-            const auto& layer = layer_of(w, nm, name);
-            if (nm.field == "q_bias") {
-                kernels::norm::add_bias_bf16(
-                    ws.q.data(), wb.require(name).data(),
-                    N, Hq, stream);
-            } else if (nm.field == "k_bias") {
-                kernels::norm::add_bias_bf16(
-                    ws.k.data(), wb.require(name).data(),
-                    N, Hk, stream);
-            } else if (nm.field == "v_bias") {
-                kernels::norm::add_bias_bf16(
-                    ws.v.data(), wb.require(name).data(),
-                    N, Hk, stream);
-            } else {
-                throw_unknown_weight(name);
+            const auto bins = plan.inputs(op);
+            const auto bouts = plan.outputs(op);
+            if (bins.size < 1 || bouts.size < 1) {
+                throw std::runtime_error(
+                    "declared forward: a bias add states " +
+                    std::to_string(bins.size) + " operands and " +
+                    std::to_string(bouts.size) +
+                    " results, wants one of each");
             }
+            const int bias_w = declared::row_width(plan, bouts[0]);
+            if (bias_w <= 0) {
+                throw std::runtime_error(
+                    "declared forward: a bias add's result states a "
+                    "non-constant row width, so the broadcast has no "
+                    "extent");
+            }
+            kernels::norm::add_bias_bf16(
+                values.slot(bouts[0], plan.value(bouts[0])),
+                wb.require(name).data(), N, bias_w, stream);
             break;
         }
         case PieForwardOpKind::Matmul: {
@@ -1786,28 +1796,32 @@ void llama_like_forward_declared(
                 cfg.rope_theta,
                 num_q_heads, num_kv_heads, d, dk,
                 L,
+                // NULL, and this is the one family for which that is a
+                // decision rather than an absence.
+                //
+                // The other three hand their decode plan over and the
+                // shared arm fires the dispatch. This family's dispatch
+                // is not one call: a banded tail pairs the BAND's plan
+                // with the band's own attention workspace, a union tail
+                // pairs the PREFIX plan with the suffix workspace, and
+                // an UnmaskedPrefix peel's regions consume hook-narrowed
+                // page CSRs rather than the fire's. Three axes, and only
+                // the first is a plan.
+                //
+                // So the plan is withheld deliberately: the shared arm
+                // refuses a null and the walk falls through to the
+                // residue below, which knows the other two axes. Handing
+                // it a plan here would silently take the ordinary case
+                // and leave the depth and mask forms unreachable.
+                /*decode_plan=*/nullptr, /*prefill_plan=*/nullptr,
+                /*attn_dst_fallback=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
-            case declared::Kernel::RopeStandardTable: {
-                if (ws.rope_table.empty()) {
-                    throw std::runtime_error(
-                        "declared forward: trace states the rope table "
-                        "build but the workspace carries no table");
-                }
-                // ISLAND (value arena), BOTH ENDS. The table is a
-                // traced value -- this launch declares it and the fused
-                // decode-QKV below takes it as a second operand -- so
-                // producer and consumer move together, which is the only
-                // way either may move.
-                kernels::rope::rope_standard_table(
-                    positions,
-                    static_cast<float*>(
-                        values.slot(plan.outputs(op)[0],
-                                    plan.value(plan.outputs(op)[0]))),
-                    N, d, cfg.rope_theta, stream);
-                break;
-            }
+            // The rope table GENERATES. It declares its result, takes
+            // the fire's positions and rows and the context's head dim,
+            // and refuses a zero theta the way every other rope row
+            // does -- which is the whole call.
             case declared::Kernel::QkvDecodeQkNormRopeWriteKv: {
                 // aux_names = [q_norm, k_norm], signature order; the
                 // second INPUT, when present, is the rope-table value —
@@ -1824,17 +1838,43 @@ void llama_like_forward_declared(
                 if (q_nm.field != "q_norm") throw_unknown_weight(q_name);
                 const auto& layer = layer_of(w, q_nm, q_name);
                 const float* table =
-                    plan.inputs(op).size >= 2 && !ws.rope_table.empty()
+                    plan.inputs(op).size >= 2
                         ? static_cast<const float*>(
                               values.slot(plan.inputs(op)[1],
                                           plan.value(plan.inputs(op)[1])))
                         : nullptr;
+                // ISLAND (value arena), BOTH ENDS — and this one was
+                // SPLIT. The packed projection is `inputs[0]`, written
+                // by the `qkv` matmul above through `out_slot(0)`, and
+                // this arm read `ws.qkv_fused` instead: with the host
+                // assigning (the default since A2) the two are not the
+                // same bytes, so the epilogue read a buffer the GEMM no
+                // longer wrote. The roped q is the same story at the
+                // other end — attention takes it from the arena.
+                //
+                // The PEEL's prefix region states no result (the peel
+                // owns q; `qkv_decode_qk_norm_rope_write_kv_region`),
+                // so there the destination is still the convention's,
+                // and it says so rather than indexing an empty span.
+                const auto fouts = plan.outputs(op);
+                if (plan.inputs(op).size < 1) {
+                    throw std::runtime_error(
+                        "declared forward: the fused decode-QKV states no "
+                        "packed operand");
+                }
+                const void* const packed =
+                    values.slot(plan.inputs(op)[0],
+                                plan.value(plan.inputs(op)[0]));
+                void* const roped_q =
+                    fouts.size >= 1
+                        ? values.slot(fouts[0], plan.value(fouts[0]))
+                        : ws.q.data();
                 if (peel_window_d != nullptr) {
                     // Device-window capture: the prefix form — the word's
                     // START is this kernel's row count.
                     kernels::attn::qkv_decode_qk_norm_rope_write_kv_bf16_devwin(
-                        ws.qkv_fused.data(),
-                        ws.q.data(),
+                        packed,
+                        roped_q,
                         cache.k(q_nm.layer), cache.v(q_nm.layer),
                         require(layer.q_norm, q_name)->data(),
                         require(layer.k_norm, k_name)->data(),
@@ -1851,8 +1891,8 @@ void llama_like_forward_declared(
                     break;
                 }
                 kernels::attn::qkv_decode_qk_norm_rope_write_kv_bf16(
-                    ws.qkv_fused.data(),
-                    ws.q.data(),
+                    packed,
+                    roped_q,
                     cache.k(q_nm.layer), cache.v(q_nm.layer),
                     require(layer.q_norm, q_name)->data(),
                     require(layer.k_norm, k_name)->data(),

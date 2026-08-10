@@ -366,6 +366,10 @@ bool gemma4_forward_declared(
     // residual stream, `ws.norm_x` the block scratch.
     void* per_layer_token = moe_ws.ple_token.data();
     void* per_layer_proj = moe_ws.ple_proj.data();
+    // A decode plan built for THIS fire, where the deployment cached
+    // none for the layer kind. Declared out here so it outlives the
+    // dispatch that reads it; see `decode_plan_for` in the walk.
+    kernels::attn::DecodePlanCachePtr lazy_decode_plan;
     int lm_head_rows = N;
 
     // Layer state the arms need, refreshed as the drive walks into a
@@ -577,6 +581,39 @@ bool gemma4_forward_declared(
             const auto aux = [&](std::size_t i) {
                 return plan.name(names[i]);
             };
+            // WHICH DECODE PLAN THIS LAYER'S DISPATCH TAKES, resolved
+            // before the shared switch rather than inside an arm.
+            //
+            // Two cached plans, and which one is the layer's: a
+            // full-attention layer and a sliding one are planned
+            // differently, and no statement says which kind a layer is.
+            // Where the deployment cached neither, one is built for this
+            // fire and kept alive by `lazy_decode_plan`, which outlives
+            // the walk.
+            //
+            // Asked ONLY of a decode dispatch. Every other op would pay
+            // for a plan nothing reads.
+            const auto decode_plan_for =
+                [&]() -> const kernels::attn::DecodePlanCache* {
+                if (declared::resolve_kernel(sym) !=
+                    declared::Kernel::AttnFlashinferDecode) {
+                    return nullptr;
+                }
+                if (auto* p = (cur_full ? moe_ws.decode_plan_full
+                                        : moe_ws.decode_plan_sliding)
+                                  .get()) {
+                    return p;
+                }
+                lazy_decode_plan = kernels::attn::make_decode_plan();
+                kernels::attn::plan_attention_flashinfer_decode(
+                    *lazy_decode_plan, kv_page_indptr_h, R,
+                    cfg.num_attention_heads, cur_hk / cur_d, cur_d,
+                    cache.page_size(), attn_ws.view(), stream,
+                    /*enable_cuda_graph=*/true,
+                    /*full_attention_variant=*/cur_full,
+                    cache.hnd_layout());
+                return lazy_decode_plan.get();
+            };
             // THE SHARED SWITCH FIRST (D1). Every symbol whose arm is
             // family-blind lives in `declared/execute.hpp`; what remains
             // below is this family's RESIDUE. A `false` is an answer --
@@ -594,34 +631,21 @@ bool gemma4_forward_declared(
                 0.f,
                 cfg.num_attention_heads, cfg.num_key_value_heads, cur_d, cur_d,
                 cur_layer,
+                // Resolved per op, which is exactly why the plan is a
+                // context field rather than something an arm could reach
+                // for. This family states no planned prefill, and every
+                // dispatch it states declares its own result.
+                decode_plan_for(), /*prefill_plan=*/nullptr,
+                /*attn_dst_fallback=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {
-            case declared::Kernel::ScalarMul: {
-                const std::string_view which = aux(0);
-                // ISLAND (value arena). Four sites that named four
-                // buffers and four element counts to apply one scalar.
-                // The buffer and the count are the value's; only the
-                // SCALAR is a declared fact, and it stays read by name.
-                const auto outs = plan.outputs(op);
-                need(outs, 1, "scalar_mul outputs");
-                float by;
-                if (which == "scale.sqrt_hidden") {
-                    by = std::sqrt(static_cast<float>(H));
-                } else if (which == "scale.sqrt_ple_dim") {
-                    by = std::sqrt(static_cast<float>(ple_dim));
-                } else if (which == "scale.rsqrt_hidden") {
-                    by = 1.0f / std::sqrt(static_cast<float>(H));
-                } else if (which == "scale.rsqrt_2") {
-                    by = 1.0f / std::sqrt(2.0f);
-                } else {
-                    throw_drift("scale '" + std::string(which) + "'");
-                }
-                kernels::norm::scalar_mul_bf16(
-                    values.slot(outs[0]), by,
-                    static_cast<std::size_t>(N) * row_width(outs[0]), stream);
-                break;
-            }
+            // The SCALE generates. Four sites named four buffers and
+            // four element counts to apply one scalar; the buffer and
+            // the count are the value's, and the scalar is the
+            // statement's now -- a number in the param channel, where it
+            // was a NAME this arm turned back into arithmetic the host
+            // had already done.
             case declared::Kernel::LoraQkvCorrection:
                 // Unreachable by construction: the `HasLora` guard's
                 // then-region needs a lora row, and gemma-4 states none.
@@ -703,83 +727,21 @@ bool gemma4_forward_declared(
                         N * (row_width(outs[0]) / cur_d), cur_d, eps, stream);
                 }
                 break;
-            case declared::Kernel::AttnFlashinferDecode: {
-                auto kv_view = cache.layer_view(cur_layer);
-                kernels::attn::DecodePlanCache* p =
-                    (cur_full ? moe_ws.decode_plan_full
-                              : moe_ws.decode_plan_sliding).get();
-                kernels::attn::DecodePlanCachePtr owned;
-                if (p == nullptr) {
-                    owned = kernels::attn::make_decode_plan();
-                    p = owned.get();
-                    kernels::attn::plan_attention_flashinfer_decode(
-                        *p, kv_page_indptr_h, R, cfg.num_attention_heads,
-                        cur_hk / cur_d, cur_d, cache.page_size(), attn_ws.view(),
-                        stream, /*enable_cuda_graph=*/true,
-                        /*full_attention_variant=*/cur_full,
-                        cache.hnd_layout());
-                }
-                kernels::attn::dispatch_attention_flashinfer_decode(
-                    *p, values.slot(plan.inputs(op)[0]), kv_view,
-                    values.slot(plan.outputs(op)[0]),
-                    kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws.view(), stream,
-                    declared::stated_window_left(plan, op),
-                    /*logits_soft_cap=*/0.f, /*sm_scale=*/1.0f);
-                break;
-            }
-            case declared::Kernel::ChunkedGegluTanh:
-                {
-                    const auto ins = plan.inputs(op);
-                    const auto outs = plan.outputs(op);
-                    need(ins, 1, "chunked geglu inputs");
-                    need(outs, 1, "chunked geglu outputs");
-                    kernels::mlp::chunked_geglu_tanh_bf16(
-                        values.slot(ins[0]), values.slot(outs[0]), N,
-                        row_width(outs[0]), stream);
-                }
-                break;
-            case declared::Kernel::GegluTanh: {
-                // TWO sites for one kernel, told apart by the WIDTH the
-                // op declares — not by a counter. The PLE gate is
-                // `ple_dim` wide and its "up" operand is this layer's
-                // slice of the relay; the unfused MLP is `cur_inter`
-                // wide and its operands are the two projections.
-                const auto out = plan.outputs(op);
-                const auto& val = plan.value(out[0]);
-                const std::uint32_t width =
-                    val.dims[val.rank - 1].value;
-                if (static_cast<int>(width) == ple_dim) {
-                    // The SIGNAL is this layer's slice of the relay. The
-                    // declaration passes the WHOLE table as the second
-                    // operand and the layer offset is the arm's, so the
-                    // base has to come from the arena like everything
-                    // else: reading `per_layer_token` here while the
-                    // transpose that fills it writes to a host-assigned
-                    // buffer is a producer and a consumer in different
-                    // places, which is the one rule this migration has.
-                    //
-                    // The offset is `layer * N * ple_dim` because the
-                    // transpose lands the relay `[L, N, ple_dim]` -- the
-                    // layer axis leads, which is the whole reason that
-                    // statement exists.
-                    const auto ins = plan.inputs(op);
-                    need(ins, 2, "ple geglu inputs");
-                    const auto* signal =
-                        static_cast<const std::uint16_t*>(values.slot(ins[1])) +
-                        static_cast<std::size_t>(cur_layer) * N * ple_dim;
-                    kernels::mlp::geglu_tanh_bf16(
-                        values.slot(ins[0]), signal,
-                        values.slot(out[0]), N * ple_dim, stream);
-                } else {
-                    const auto ins = plan.inputs(op);
-                    need(ins, 2, "geglu pair inputs");
-                    kernels::mlp::geglu_tanh_bf16(
-                        values.slot(ins[0]), values.slot(ins[1]),
-                        values.slot(out[0]), N * row_width(out[0]), stream);
-                }
-                break;
-            }
+            // The decode dispatch is SHARED. What kept it here was which
+            // of two cached plans the layer takes, and that question is
+            // answered above `execute_shared` now (`decode_plan_for`).
+            // The pre-scaled query rides `sm_scale = 1.0f` in the
+            // context, where it already was.
+            // The chunked geglu GENERATES: its row states one operand,
+            // one result, the fire's rows and the result's width, which
+            // is the whole call.
+            // The GEGLU PAIR generates, both of its sites. They were
+            // told apart by comparing the result's WIDTH against
+            // `ple_dim`, because the PLE gate's second operand was the
+            // WHOLE relay and the layer offset was this arm's to add.
+            // The text states a `select` of the relay now, so the offset
+            // is a placement the host makes and the two sites differ
+            // only in which values they name.
             case declared::Kernel::NormResidualScaleNorm: {
                 const std::string_view first = aux(0);
                 const ParsedName nm = parse_name(first);
@@ -810,20 +772,10 @@ bool gemma4_forward_declared(
                     N, H, eps, stream);
                 break;
             }
-            case declared::Kernel::NormResidualAdd: {
-                // The `ple_norm` test that used to live here chose
-                // between two input scratches. The trace names the
-                // input, so there is nothing left to tell apart.
-                const std::string_view first = aux(0);
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "norm-residual-add inputs");
-                need(outs, 1, "norm-residual-add outputs");
-                kernels::norm::rmsnorm_residual_add_bf16(
-                    values.slot(ins[0]), wb.require(first).data(),
-                    values.slot(outs[0]), N, H, eps, stream);
-                break;
-            }
+            // The norm-and-residual-add GENERATES. The `ple_norm` test
+            // that used to live here chose between two input scratches,
+            // and the trace naming its input is what removed it; the
+            // width being the result's is what removed the rest.
             case declared::Kernel::LogitSoftcap:
                 kernels::attn::logit_softcap_bf16(
                     values.slot(plan.outputs(op)[0]),

@@ -1894,6 +1894,27 @@ pub mod cuda {
     /// `q_pe` -- and a statement returning one of them would leave the other
     /// three unnamed on the tape, which is exactly the silent dataflow gap
     /// the trace exists to make visible.
+    /// [`record_many`], plus the scalar arguments — [`record_with_params`]
+    /// for a statement with more than one result.
+    fn record_many_with_params(
+        t: &Trace,
+        layer: Option<u32>,
+        kernel: &str,
+        weights: Vec<String>,
+        params: Vec<u32>,
+        inputs: Vec<crate::trace::ValueId>,
+        outs: Vec<(Shape, DType)>,
+    ) -> Vec<Val> {
+        let n = outs.len();
+        let ids = t.with(layer, |b| {
+            b.launch_with_params(kernel, weights, None, params, inputs, outs)
+        });
+        assert_eq!(ids.len(), n, "the tape recorded a different arity than stated");
+        ids.into_iter()
+            .map(|id| Val { t: t.clone(), id, layer })
+            .collect()
+    }
+
     fn record_many(
         t: &Trace,
         layer: Option<u32>,
@@ -2573,7 +2594,8 @@ pub mod cuda {
     /// entirely to the executor -- readable, but not a declaration.
     pub fn moe_grouped_gemm(
         act: &Val,
-        sorted_route_ids: &Val,
+        expert_ids: &Val,
+        stage: &Val,
         aligned: Dim,
         width: u32,
         bank: &str,
@@ -2584,7 +2606,14 @@ pub mod cuda {
             "moe::moe_grouped_gemm_bf16",
             vec![bank.to_string()],
             None,
-            vec![act.id, sorted_route_ids.id],
+            // The second operand is the ALIGN's per-block expert id --
+            // what the kernel indexes the bank by. It used to be the
+            // sorted route order, which the kernel never reads: the
+            // statement named one array and the executor bound another
+            // (`mw.aligned_expert_ids`), so the declaration could not be
+            // checked against the call. The third is the DESTINATION,
+            // named by the pointer build above and written in place.
+            vec![act.id, expert_ids.id, stage.id],
             // Block-major rows, not tokens: the operand this multiplies is
             // the gathered aligned bank, and saying `Tokens` here made the
             // routed leg's values indistinguishable from the shared
@@ -4557,18 +4586,25 @@ pub mod cuda {
     /// Returns `(sorted_route_ids, expert_ids, route_to_aligned_row)` — the
     /// permutation, which expert each block belongs to, and the inverse map
     /// the combine reads.
+    /// The three load-time numbers ride the param channel. They are the
+    /// permutation's own shape — how many experts to bucket into, how
+    /// wide a block is, how many blocks the padding admits — and the
+    /// executor was reading two of them out of a config struct and one
+    /// out of its MoE workspace.
     pub fn moe_align(
         topk_idx: &Val,
         max_blocks: u32,
         block_size: u32,
         top_k: u32,
+        num_experts: u32,
     ) -> (Val, Val, Val) {
         let routes = Dim::Const(top_k);
-        let outs = record_many(
+        let outs = record_many_with_params(
             &topk_idx.t,
             topk_idx.layer,
             "moe::moe_align_decode",
             vec![],
+            vec![num_experts, block_size, max_blocks],
             vec![topk_idx.id],
             vec![
                 (
@@ -4606,28 +4642,62 @@ pub mod cuda {
         .expect("the gather produces its value")
     }
 
-    /// `kernels::moe::build_moe_ptrs_aligned_bf16`: the pointer arrays one
-    /// batched GEMM per projection needs.
+    /// `kernels::moe::build_moe_ptrs_aligned_bf16`: the aligned leg's
+    /// staging, and the pointer arrays one batched GEMM per projection
+    /// needs into it.
     ///
-    /// Produces no tensor — it fills device pointer arrays. Stated anyway,
-    /// because a reader following the dataflow has to see where the batched
-    /// GEMM's operands come from.
+    /// It DECLARES the staging, which is the only SSA-valid way to say
+    /// what this call does. The kernel bakes the three staging buffers'
+    /// BASE ADDRESSES into device pointer arrays, so it has to know
+    /// where they are before anything writes them — and a statement
+    /// cannot take an operand that a later statement produces. So the
+    /// build is what fixes where the aligned staging lives, and the two
+    /// grouped GEMMs and the swiglu between them fill buffers it named:
+    /// each takes its destination as an operand and writes it in place.
+    /// Before this, all three were `mw.aligned_*` in the executor and
+    /// the declaration ended at "a pointer build happens here".
+    ///
+    /// `(gate_up, act, out)` — `[aligned, 2·I]`, `[aligned, I]`,
+    /// `[aligned, H]`, all bf16, all block-major.
+    ///
+    /// The six POINTER ARRAYS are still the driver's: an array of device
+    /// addresses has no dtype in this vocabulary, and inventing one to
+    /// hold `void*` is a wider change than this statement needs. They
+    /// are reachable only from the two GEMMs that this call also serves,
+    /// so the gap is bounded — see the executor's fallback arm.
     pub fn build_moe_ptrs_aligned(
         expert_ids: &Val,
         aligned_in: &Val,
         l: u32,
         gate_up_bank: &str,
         down_bank: &str,
-    ) {
-        record(
+        aligned: Dim,
+        hidden: u32,
+        moe_intermediate: u32,
+    ) -> (Val, Val, Val) {
+        let outs = record_many(
             &expert_ids.t,
             Some(l),
             "moe::build_moe_ptrs_aligned_bf16",
             vec![gate_up_bank.to_string(), down_bank.to_string()],
-            None,
             vec![expert_ids.id, aligned_in.id],
-            None,
+            vec![
+                (
+                    Shape(vec![aligned, Dim::Const(2 * moe_intermediate)]),
+                    DType::BF16,
+                ),
+                (
+                    Shape(vec![aligned, Dim::Const(moe_intermediate)]),
+                    DType::BF16,
+                ),
+                (Shape(vec![aligned, Dim::Const(hidden)]), DType::BF16),
+            ],
         );
+        let mut it = outs.into_iter();
+        let gate_up = it.next().expect("the ptr build states three stages");
+        let act = it.next().expect("the ptr build states three stages");
+        let out = it.next().expect("the ptr build states three stages");
+        (gate_up, act, out)
     }
 
     /// `kernels::moe::reorder_moe_aligned_output_bf16`: undo the block
@@ -5009,7 +5079,19 @@ pub mod cuda {
     ///
     /// HF computes this in fp32 and casts back; the kernel folds both, so
     /// the trace states one op where the reference states three.
-    pub fn tanh(x: &Val, width: u32) -> Val {
+    /// The result is the OPERAND's shape, read off the trace rather than
+    /// respelled: this kernel takes one pointer and rewrites it, so the
+    /// two are one buffer and a second spelling can only disagree.
+    ///
+    /// It did. `[Tokens, width]` was the spelling, and gemma-3n's altup
+    /// coefficients run over a `Select`ed stream slice whose leading dim
+    /// is the STREAM count, not the fire's tokens — so the operand was
+    /// `[4, 4]` and the result claimed `[Tokens, 4]`. Nothing compared
+    /// them until the row said in place, at which point the arena put
+    /// one buffer where two shapes disagreed and
+    /// `an_alias_lands_inside_its_owner` refused it.
+    pub fn tanh(x: &Val) -> Val {
+        let out = (x.t.inner.borrow().value_shape(x.id), DType::BF16);
         record(
             &x.t,
             x.layer,
@@ -5017,7 +5099,7 @@ pub mod cuda {
             vec![],
             None,
             vec![x.id],
-            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+            Some(out),
         )
         .expect("the activation produces its value")
     }
@@ -5242,14 +5324,29 @@ pub mod cuda {
     /// The name rides the weight slot because that is what a name slot
     /// is: `scale.` marks it as a constant rather than a tensor, so a
     /// binder never looks for it.
-    pub fn scalar_mul(x: &Val, scale: &str) -> Val {
+    /// The NUMBER rides the param channel, in the bits an untyped `u32`
+    /// slot already has room for. The name stays because a reader wants
+    /// it; the driver used to need it, and that is the difference. It
+    /// held a name-to-arithmetic table — `sqrt(hidden)`, `sqrt(ple_dim)`,
+    /// `1/sqrt(hidden)`, `1/sqrt(2)` — recomputing on the device side
+    /// what the host had already derived from its own dims, and an
+    /// unrecognised name was a runtime refusal rather than a number.
+    /// `by` is OPTIONAL, and a `None` is a family saying its facts do
+    /// not carry the number yet — gemma-3n's altup and laurel scales and
+    /// gemma-2's query scale are per-layer constants nothing on the host
+    /// side has derived, and inventing one here would be worse than the
+    /// name it replaces. A statement without the param falls through the
+    /// generated branch's arity guard to whatever arm knows better,
+    /// which for those two families is the hand-written pass.
+    pub fn scalar_mul(x: &Val, scale: &str, by: Option<f32>) -> Val {
         let out = (x.t.inner.borrow().value_shape(x.id), DType::BF16);
-        record(
+        record_with_params(
             &x.t,
             x.layer,
             "norm::scalar_mul_bf16",
             vec![format!("scale.{scale}")],
             None,
+            by.map(f32::to_bits).into_iter().collect(),
             vec![x.id],
             Some(out),
         )
@@ -5819,6 +5916,33 @@ pub mod cuda {
         .expect("the activation produces its value")
     }
 
+    /// `kernels::mlp::chunked_swiglu_bf16` over the ALIGNED leg's
+    /// block-major staging: [`Self::swiglu`]'s shape, plus the
+    /// destination the pointer build named.
+    ///
+    /// Its own statement because the destination is not this call's to
+    /// choose. The aligned staging's addresses are baked into the
+    /// pointer arrays, so the activation has to land on the buffer
+    /// `build_moe_ptrs_aligned` declared — an operand, written in place,
+    /// exactly as the two grouped GEMMs around it do. Stating it any
+    /// other way puts the activation somewhere the down projection's
+    /// pointers do not point.
+    pub fn swiglu_aligned(x: &Val, stage: &Val, aligned: Dim, intermediate: u32) -> Val {
+        record(
+            &x.t,
+            x.layer,
+            "mlp::chunked_swiglu_bf16",
+            vec![],
+            None,
+            vec![x.id, stage.id],
+            Some((
+                Shape(vec![aligned, Dim::Const(intermediate)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the aligned activation produces its value")
+    }
+
     /// `kernels::mlp::swiglu_bf16` in its PAIR form: two operands, the
     /// gate and the up projection, into one activation.
     ///
@@ -6233,13 +6357,24 @@ pub mod cuda {
     /// one re-cast the block input while the routed activations were
     /// never written — a live defect the ledger, the golden and the
     /// registry all passed.
-    pub fn gpt_oss_glu(gate: &Val, up: &Val, top_k: u32, intermediate: u32) -> Val {
-        record(
+    /// `limit` is the deployment's `swiglu_limit`, and it rides the
+    /// param channel for the reason [`Self::scalar_mul`]'s scale does:
+    /// it is a load-time number the host has, and the executor was
+    /// reaching into a config struct for it.
+    pub fn gpt_oss_glu(
+        gate: &Val,
+        up: &Val,
+        top_k: u32,
+        intermediate: u32,
+        limit: f32,
+    ) -> Val {
+        record_with_params(
             &gate.t,
             gate.layer,
             "mlp::gpt_oss_glu_bf16",
             vec![],
             None,
+            vec![limit.to_bits()],
             vec![gate.id, up.id],
             Some((
                 Shape(vec![
@@ -6455,14 +6590,24 @@ pub mod cuda {
     }
 
     /// `kernels::ssm::repeat_interleave_heads_fp32`: materialize the
-    /// K_h → V_h head repeat of a compact per-head f32 value into the
-    /// workspace buffer the cached recurrence family reads. Output-less:
-    /// where that buffer lives is the driver's binding, not dataflow —
-    /// the same stance as the KV writes. Stated only inside the cached
-    /// arm, because only that kernel family consumes the repeated layout
-    /// (the decode-GQA step, warp-tiled and FLA kernels all index the
-    /// compact layout directly).
-    pub fn repeat_interleave_heads(x: &Val) {
+    /// K_h → V_h head repeat of a compact per-head f32 value. Stated
+    /// only inside the cached arm, because only that kernel family
+    /// consumes the repeated layout (the decode-GQA step, warp-tiled and
+    /// FLA kernels all index the compact layout directly).
+    ///
+    /// It DECLARES its result, which it did not use to. Output-less, the
+    /// stance was "where that buffer lives is the driver's binding, not
+    /// dataflow" — and the cost of that stance was paid twice over: the
+    /// driver kept a `repeat_next_is_k` toggle to decide which of two
+    /// workspace fields a launch meant, the emitter kept the SAME toggle
+    /// to decide it statically, and the recurrence below could not name
+    /// its own q/k operands because the value between them had no id.
+    /// A repeat is dataflow; it took a value to say so.
+    ///
+    /// `[Tokens, value_heads, key_dim]` f32 — the compact `[Tokens,
+    /// key_heads, key_dim]` operand with each key head repeated to fill
+    /// the value-head count.
+    pub fn repeat_interleave_heads(x: &Val, value_heads: u32, key_dim: u32) -> Val {
         record(
             &x.t,
             x.layer,
@@ -6470,8 +6615,16 @@ pub mod cuda {
             vec![],
             None,
             vec![x.id],
-            None,
-        );
+            Some((
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(value_heads),
+                    Dim::Const(key_dim),
+                ]),
+                DType::F32,
+            )),
+        )
+        .expect("the head repeat produces its value")
     }
 
     /// `"qwen35_verify_stash_load"`: replay the layer's stashed in-proj

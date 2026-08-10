@@ -612,6 +612,13 @@ bool gpt_oss_forward_declared(
                 cfg.rope_theta,
                 cfg.num_attention_heads, cfg.num_key_value_heads, d, d,
                 cur_layer,
+                // One decode plan for the fire, built on the way in.
+                // This family states no planned prefill (its prefill is
+                // the plan-free wrapper) and every dispatch here
+                // declares its own result, so there is no fallback to
+                // hand over.
+                decode_plan.get(), /*prefill_plan=*/nullptr,
+                /*attn_dst_fallback=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {
@@ -641,22 +648,12 @@ bool gpt_oss_forward_declared(
                     row_width(ins[0]), stream);
                 break;
             }
-            case declared::Kernel::AttnFlashinferDecode: {
-                // SHARED ARM. The plan is this family's -- one decode
-                // plan for the fire -- and the call is not.
-                //
-                // The LSE is the second OUTPUT where the sink layers
-                // ask for it, and `d_lse` where they do not: gpt-oss is
-                // the only family that asks, and it asks by stating two
-                // results.
-                declared::arm_attention_decode(
-                    {plan, values, N, 0, stream}, op, *decode_plan,
-                    cache.layer_view(cur_layer), kv_page_indices,
-                    kv_page_indptr, kv_last_page_lens, attn_ws.view(),
-                    declared::stated_window_left(plan, op),
-                    /*sm_scale=*/-1.f, d_lse.data());
-                break;
-            }            case declared::Kernel::AttnSinkRescale: {
+            // The decode dispatch left with the plan. It was already
+            // calling the shared `arm_attention_decode` -- what kept the
+            // case here was that the arm needed a plan, a cache view and
+            // an LSE fallback handed to it, and all three are context
+            // fields now.
+            case declared::Kernel::AttnSinkRescale: {
                 // ISLAND (value arena). Rescales the attention output
                 // in place -- now stated, so `outs[0]` and `ins[0]` are
                 // one buffer -- against the LSE, which is input 1 and
@@ -709,22 +706,11 @@ bool gpt_oss_forward_declared(
                     N, top_k, H, I, stream);
                 break;
             }
-            case declared::Kernel::GptOssGlu: {
-                // ISLAND (value arena). `gate = glu(gate, up)`, which is
-                // why the pointer appeared twice; the alias is stated
-                // now, so `outs[0]` IS `ins[0]`.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 2, "glu inputs");
-                need(outs, 1, "glu outputs");
-                kernels::mlp::gpt_oss_glu_bf16(
-                    values.slot(ins[0]), values.slot(ins[1]),
-                    values.slot(outs[0]),
-                    static_cast<int>(
-                        declared::value_elements(plan, outs[0], N, R)),
-                    stream, /*limit=*/cfg.swiglu_limit);
-                break;
-            }
+            // The clamped GLU GENERATES. `gate = glu(gate, up)` is why
+            // the pointer appeared twice and the alias is stated; the
+            // CLAMP was the last thing left, reached out of a config
+            // struct, and it is a number the host has — so it rides the
+            // param channel like every other load-time constant.
             case declared::Kernel::Mxfp4Down: {
                 // ISLAND (value arena).
                 const auto ins = plan.inputs(op);

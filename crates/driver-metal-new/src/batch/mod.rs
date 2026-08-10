@@ -33,8 +33,11 @@ mod gptoss_consts;
 mod gptoss_solve;
 mod heap_budget;
 mod llama;
+mod logits;
+mod marshal;
 mod mask;
 mod member;
+mod paged_state;
 mod paging;
 mod psos;
 mod psos_gemma4;
@@ -42,7 +45,9 @@ mod psos_gptoss;
 mod psos_llama;
 mod psos_mb;
 mod schedule;
+mod sequence;
 mod sizing;
+mod tickets;
 mod timing;
 mod worker;
 
@@ -108,15 +113,25 @@ pub use gptoss::{
 pub use gptoss_consts::{RowGatherParams, SwiGluParams, gptoss_qmv_kn, yarn_inv_freq, yarn_mscale};
 pub use gptoss_solve::{StagedQuant, bits_from_extents, solve_quant_into, solve_staged_quant};
 pub use heap_budget::{
-    PAGED_MAX_FORWARD_TOKENS, PAGED_MIN_FORWARD_TOKENS, gemma4_extra_heap_bytes,
-    gptoss_extra_heap_bytes, llama_extra_heap_bytes, max_forward_tokens_for_budget,
+    MAX_RS_SLOTS, PAGED_MAX_FORWARD_TOKENS, PAGED_MIN_FORWARD_TOKENS, RS_SLOT_BUDGET_FLOOR,
+    gemma4_extra_heap_bytes, gptoss_extra_heap_bytes, llama_extra_heap_bytes,
+    max_forward_tokens_for_budget, rs_slot_budget_bytes, rs_slot_bytes, rs_slots_for_budget,
     stream_predicate,
 };
 pub use llama::{LlamaGeometry, llama_decode_geometry, llama_geometry_from_facts, llama_qmv_kn};
+pub use logits::{LengthMismatch, bf16_to_f32, widen, widen_into};
+pub use marshal::{
+    Admission, Fleet, MemberRejected, MemberRows, PoolFacts, RequestPlan, StepInputs, concat_fleet,
+    marshal_fleet, plan_member,
+};
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
+pub use paged_state::{
+    PagedRefused, RsBinding, commit_paged, rs_binding, validate_paged_continuation,
+};
 pub use paging::{
-    Cut, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging, renumber_routing,
+    Cut, IdsLayout, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging,
+    renumber_routing,
 };
 pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, plan_decode_psos};
 pub use psos_gemma4::{gemma4_mb_plan, gemma4_step_plan};
@@ -132,10 +147,17 @@ pub use schedule::{
     BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,
     find_request, validate_capacity, validate_paged,
 };
-pub use sizing::{
-    RoutedProjection, RowAxis, ValueExtent, moe_sorted_rows, pool_colour_elems, scratch_slot_elems,
-    scratch_widest_elems, sorted_rows,
+pub use sequence::{
+    Backing, Continuation, SequenceRefused, SequenceState, close as close_sequence,
+    validate_continuation,
 };
+pub use sizing::{
+    RoutedProjection, RowAxis, Target, ValueExtent, conv_state_target_bytes, kv_pool_row_bytes,
+    kv_pool_target_bytes, moe_sorted_rows, pool_colour_elems, recurrent_state_target_bytes,
+    ring_target_bytes, row_scaled_target_bytes, scratch_slot_elems, scratch_widest_elems,
+    sorted_rows,
+};
+pub use tickets::{ChannelTicket, MemberChannels, TicketRefused, compose_tickets};
 pub use timing::{
     Ablation, BoundaryMismatch, DispatchAttribution, DispatchInfo, StepAttribution, attribute_step,
 };

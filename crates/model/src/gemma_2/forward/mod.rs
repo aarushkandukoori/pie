@@ -89,7 +89,11 @@ pub fn gemma2_cuda(facts: &Gemma2Facts, class: FireClass) -> ForwardPlan {
         dsl::seam(t, &dsl::seam::IN, &[], None);
         let embedded = dsl::embed_with(t, "embed", facts.hidden);
         // `sqrt(hidden)` on the embedding — a launch, not a fold.
-        let mut y = dsl::cuda::scalar_mul(&embedded, "embed_scale");
+        let mut y = dsl::cuda::scalar_mul(
+            &embedded,
+            "embed_scale",
+            Some((facts.hidden as f32).sqrt()),
+        );
 
         for l in 0..facts.layers {
             // THIS LAYER's sliding window, `-1` for none — a
@@ -122,7 +126,7 @@ pub fn gemma2_cuda(facts: &Gemma2Facts, class: FireClass) -> ForwardPlan {
             };
             // The pre-attention query scale is its OWN launch.
             let q = if a.query_pre_attn_scale {
-                dsl::cuda::scalar_mul(&q, &format!("layer.{l}.query_scale"))
+                dsl::cuda::scalar_mul(&q, &format!("layer.{l}.query_scale"), None)
             } else {
                 q
             };

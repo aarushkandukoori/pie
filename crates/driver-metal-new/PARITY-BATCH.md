@@ -7,6 +7,25 @@ timing. Same rules as the other ledgers: every entry is **ported**,
 **dropped** (with the reason the C++ needed it and the Rust does not), or
 **missing** (with what blocks it). The portable half goes first.
 
+> **A `missing` row is only true on the day it is written.**
+>
+> A `ported` row is written by the commit that ports the thing, so it cannot
+> drift. A `missing` row is written by a *different* commit — the one that
+> found the gap — and nothing brings the author back when the gap closes. On
+> 2026-08-09 an audit found **five of thirteen** `missing` rows here describing
+> work that was already done: the whole of `scratch.{hpp,cpp}` and
+> `scratch_color.hpp` (twice, in two rows), `golden_tap.cpp`, `run_segments`,
+> and `load_multibatch_psos`. Each had landed under a name the row did not
+> predict — `schedule_scratch`, `batch/golden.rs`, `Stepper::run_segments`,
+> `psos_mb.rs` — so no text search would have caught it either.
+>
+> This is the same defect as `HANDOFF.md`'s stale "What is left", in the file
+> that document tells readers to trust instead. The rule that follows:
+> **when a slice lands, re-read the `missing` rows that named it as their
+> blocker** — a row saying "with the family port" is a note addressed to
+> whoever finishes the family port, and it is their job to answer it. The
+> `PARITY-M1.md` struct-zoo rows were the same shape and got the same fix.
+
 ## The batch shape — `src/batch/schedule.rs`
 
 From `batch_schedule.hpp` (220 lines), the one file of `batch/` the C++
@@ -22,7 +41,9 @@ kept deliberately pure — and shipped without a checked build.
 | `validate_paged_batch_capacity` | `validate_capacity` | ported |
 | `BatchSchedule::m1` | `BatchSchedule::single` | ported |
 | `kRsFlagReset` | `driver_abi::local::PIE_RS_FLAG_RESET` | dropped |
-| `BatchStepInputs` | — | missing: the marshaling container belongs to the forward port |
+| `BatchStepInputs` | `batch::StepInputs` | ported |
+| the fleet concatenation (`forward.cpp` 3844-3930) | `batch::concat_fleet` | ported; request-local indices rebased onto the fire, both CSRs closed, the mask materialised only when a member carries one |
+| `run_paged_batch_forward`'s per-member admission + span derivation | `batch::marshal_fleet` / `plan_member` → `RequestPlan` | ported; the portable half of the marshaling |
 
 The build/validate split survives — the geometry gate needs fire-time
 arrays the build does not — but the build stops trusting its inputs:
@@ -44,6 +65,25 @@ and tested.
 
 Ten tests, portable, including the write-descriptor formula held exactly and
 both wrap refusals.
+
+### `close_linear_sequence` cannot close what `copy_state` created
+
+The C++ clears a slot only when
+
+```cpp
+state.has_resident && (state.ring_backed || state.paged_backed) &&
+    state.resident_sequence_id == sequence_id
+```
+
+and `copy_state` produces precisely the excluded state: it copies a source
+slot's bookkeeping to a destination and sets `ring_backed = false`, so a copy
+taken from a **ring-backed** source has neither flag while `has_resident` stays
+true. That slot can then never be closed. Its metadata outlives every
+`close_sequence` the caller issues, and the entry becomes a permanent resident
+in the table the close exists to keep clean.
+
+The backing describes *how* a sequence is resident, not *whether* it is, so it
+has no business in the predicate. `close_sequence` matches on the id alone.
 
 ## The wire mask — `src/batch/mask.rs`
 
@@ -206,7 +246,22 @@ first arm of `forward.cpp`'s orchestration exists as `metal/decoder.rs`.
 | slotted GDN / paged KV / paged SDPA const arms | `metal/bind.rs` | ported — found by the paged bisect after being omitted (an unbound constant is zero output, not a fault) |
 | `ab_*` A/B levers, `PIE_METAL_PAGING_TRACE` | — | dropped: crate policy denies prints; the smoke's env levers are the equivalents |
 | `forward.cpp`: fire loop, page/slot assignment, conv orientation | `metal/decoder.rs` | ported in first form: per-width step cache, per-token prefill streams, fleet fires, per-slot orientation with the join copy |
-| `forward.cpp`: elastic KV resize, EOS/argmax loop, copy_state/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
+| `ensure_elastic_storage`'s sizing arithmetic | `batch::sizing::{kv_pool_target_bytes, ring_target_bytes, conv_state_target_bytes, recurrent_state_target_bytes, row_scaled_target_bytes}` + `Target` | ported; the clamp is a value, not a silent `min` |
+| `kv_pool_row_bytes`, and its inline second spelling in `ensure_elastic_storage` | `batch::sizing::kv_pool_row_bytes` | ported, one spelling |
+| `ensure_elastic_buffers_atomically` (the commit itself) | `metal::Elastic` | ported |
+| `logits_convert.hpp` (30) | `batch/logits.rs` | ported; one spelling of the widening, which `batch/golden.rs` now calls instead of carrying its own |
+| the EOS substrate: `ArgmaxParams` (vocab + `n_eos` + 8 ids), the `eos_flag` buffer, `bind::Argmax::{Params, EosFlag}` | `batch::ArgmaxParams` (size-asserted at 40), `metal::storage`'s `eos_flag`, the family bind walks, `Decoder::greedy` | ported |
+| the "resident loop" the C++ comments describe | — | **there is nothing to port**: `heap_bind.cpp` sets `n_eos = 0` and says "executor/resident loop rewrites vocab+eos per gen", and `mtl4_context.hpp` calls it the shippable fix it does not have. It is an aspiration in comments, not code |
+| `LinearSequenceState` | `batch::SequenceState` + `Backing` | ported; the two `*_backed` bools become one enum, because a slot is ring-backed **or** paged **or** neither and the pair could spell a fourth thing |
+| `validate_linear_sequence_geometry` | `batch::validate_continuation` | ported; the nine refusals kept one for one, each a fire that would otherwise answer with someone else's history |
+| `close_linear_sequence` | `batch::close_sequence` | ported, defect fixed — see below |
+| `request_rs_binding` | `batch::rs_binding` | ported; the legacy member-level arm is dropped — `ForwardDesc::rs_slot` already derives that view from the per-request vectors, so there is no arm to pick |
+| `validate_paged_request_state` | `batch::validate_paged_continuation` | ported; the five not-matching cases stay five answers, for the reason the C++ gives |
+| `commit_paged_request_state` | `batch::commit_paged` | ported, defect fixed: the C++ is `void` and returns silently on a guard the validation should have made unreachable — but if it fires, the fire has already run and the slot keeps pre-fire state, so the NEXT continuation validates against a position the device moved past and passes |
+| `rs_slot_bytes_for` | `batch::rs_slot_bytes` | ported; the conv stride counts twice because the state is a ping-pong pair |
+| `rs_slot_budget_bytes` | `batch::rs_slot_budget_bytes` + `RS_SLOT_BUDGET_FLOOR` | ported |
+| `rs_slots_for_budget` | `batch::rs_slots_for_budget` + `MAX_RS_SLOTS` | ported, with the shipped bug it records: `requested` was applied as `max(slots, requested)`, which made the budget decorative — 64 slots at 170 MiB each is 10.6 GiB, 5.2 GiB over the device, and the OOM arrived as a command buffer that never ran so every PTIR lane read its own zero fill back as a fault |
+| `forward.cpp`: `copy_state`/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
 
 Verified on device (Qwen3.6-27B, `tests/device_smoke.rs`): the M=1 ring
 decode, the paged sequential and per-row-stream prefills, the equal
@@ -336,7 +391,7 @@ The portable half of `batch/expert_paging.hpp` (195), now that
 | `ExpertPaging::plan` | `plan_paging(cuts, dag_size, SlabShape, …)` | ported; five refusals become four named `PagingRefused` variants |
 | ids-not-host-readable refusal | — | stays with the device half: a `SlotHandle`'s readability is a Metal fact |
 | the in-place id rewrite inside `fire` | `renumber_routing` | ported; takes the slab's `ensure_resident` as a closure, so the rewrite is tested without a device |
-| `fire`'s segment loop / `run_segments` | — | missing: drives a command queue; lands with the `src/metal/` paging glue. The pins-back-FIRST rule is stated in this module's docs because it is a budget fact, not a queue fact |
+| `fire`'s segment loop / `run_segments` | `metal::Stepper::run_segments` | ported; the pins-back-FIRST rule is stated in the budget module's docs because it is a budget fact, not a queue fact |
 | `PIE_METAL_PAGING_TRACE` stderr dump | — | dropped: the crate denies `print_stderr`; a caller that wants the trace logs the buffer it owns |
 | `[pie-metal] … experts paged through …` banner | `PagingPlan::worst_case_experts` + slab accessors | dropped as a print; the numbers it printed are readable off the plan and the slab |
 
@@ -363,7 +418,7 @@ enum, the argmax params and the graph key.
 | `Kernel` (98 kinds) | `Kernel`, macro-derived | ported |
 | `Kernel::KindCount` | `Kernel::COUNT` via `Kernel::ALL` | ported |
 | `ForwardGraphKey` / `PAGE_BUCKET_GRAN` | `ForwardGraphKey::of` | ported |
-| the ~30 `bind::` layouts | — | missing: each is one kernel's ABI and lands beside the encoder that binds it |
+| the 36 `bind::` layouts (`decode_abi.hpp` 123-475) | `metal::bind::slot`, `bind_mb::slot_mb`, `gptoss_bind::slot` and the family bind walks | ported — audited 2026-08-09, see below |
 
 The argument is the count that was forty kinds short: `KindCount` was once
 spelled `G4PleResidual + 1`, so `psos[LmHeadUntied]` indexed past every
@@ -378,8 +433,12 @@ insertion upstream of one fails loudly instead of renumbering silently.
 
 | C++ | lines | |
 |---|---|---|
-| `compose.cpp` rest: `LaunchMember`, `LaunchJobData`, tickets | ~90 | missing — the job container, with the worker port |
-| `scratch.hpp` / `scratch.cpp`: `build_scratch_schedule`, `bind_scratch`, the footprint helpers | ~540 | missing — coupled to `DecodeGeometry`/`Dispatch`, with the family port |
+| `ChannelTicket` + `kNoChannelTicket` | `batch::ChannelTicket` + `pipeline::NO_TICKET` | ported |
+| the ticket composition loop (`context.cpp` 1061-1092) | `batch::compose_tickets` | ported; the pin rules (a take pins its head, a put pins its tail) refused at composition, where the member and dense index are still in hand |
+| `LaunchMember::{instance_id, needs_forward, requires_m2, mtp_draft_row, fwd_slot, build_err}` | — | missing: per-member launch state, with the forward port |
+| `LaunchMember::terminal_cell` / `LaunchJobData::{completion, lease_id}` | — | missing: the completion broker, with the engine seam |
+| `LaunchJobData` | — | missing: the async job container — `worker_.post`, the owned deep copy, the settle/publish walk — with the worker port |
+| `scratch.hpp` / `scratch.cpp`: `build_scratch_schedule`, `bind_scratch`, the footprint helpers | `batch::schedule_scratch` + `metal::bind_scratch` + `batch::sizing` | ported — see the scratch row below |
 | — | — | — (`decode_timing` ported below) |
 
 ## The attribution — `src/batch/timing.rs`
@@ -416,8 +475,13 @@ stdout/stderr by policy.
 
 Five timing tests plus the abi name test; the monotonic guard (a clock
 wrap attributes zero, not a negative share) is kept and tested.
-| `expert_paging.hpp` | 195 | missing — `fire` needs `ExpertSlab` (loader) |
-| `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` | 650 | missing |
+| `expert_paging.hpp` (195): `ExpertPaging::plan` | `batch::plan_paging` → `PagingPlan` | ported; a rejected plan is not a value — the C++ assigns `slab_`, `cuts_` and both counts BEFORE validating, so a `plan` that returns false leaves `cuts_` non-empty and `active()` answering **true**, and a caller that trusts `active()` fires a shape that was refused |
+| `ExpertPaging::fire` | `metal::fire_paged` | ported; drives `Stepper::run_segments`, pins back before the page-in |
+| the in-place id rewrite | `batch::renumber_routing` | ported; refuses `ShortIds` before touching a byte, where the C++ walks `rows` rows at a trusted stride with no bound on the buffer |
+| `ids_row_stride_bytes = 0` (defaulted `size_t`) | `IdsLayout` | ported; the packed/strided distinction the C++ spends 22 comment lines on — "fluent wrong text rather than an error" — carried in a named struct beside the two counts it has to agree with, rather than in a defaulted integer |
+| `Cut::ids` (a handle per cut, tail cut holds a null one) | `fire_paged`'s `ids: &[Handle]` against `PagingPlan::mixture_layers` | ported; "the tail has no ids" becomes a length that cannot be wrong |
+| the `fprintf` on the success path | — | dropped: a successful plan printed a line to stderr unconditionally |
+| `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` (650) | `batch/color.rs` + `batch/sizing.rs` + `metal/bind.rs` | ported: `Use`/`Coloring`/`color_live_ranges` and `build_scratch_schedule` → `schedule_scratch`; `scratch_widest_elems`/`scratch_slot_elems` → `batch::sizing`; `bind_scratch` → `metal::bind`. `ScratchDispatch` is dropped — the C++'s per-dispatch struct is one row of `ScratchSchedule::per_dispatch`, and a struct holding one vector is a name for a row |
 | `batch_schedule.hpp` (done above) | — | — |
 | — | — | — (`decode_psos`'s M=1 half ported below) |
 
@@ -434,7 +498,7 @@ configuration compiles and which kinds each serves. The metal half is
 | the format-dependent `entrypoint()` names | `EntryNames`, table-checked | ported |
 | `DecodeStepPsos` fan-out | `DecodePsoPlan::source_of` | ported |
 | `load_decode_psos` (the compile loop) | `Compiler::compile_batch` + `source_of` | dropped |
-| `load_multibatch_psos` / `MultiBatchPsos` | — | missing: the qmm tile grammar and tuning constants land with the family port |
+| `load_multibatch_psos` / `MultiBatchPsos` | `batch::plan_multibatch_psos` + `MbRequest` / `MbFeatures` (`psos_mb.rs`) | ported |
 
 The C++ `entrypoint()` refuses a name no shader instantiates, so an
 uninstantiated format fails at load naming the formats that exist instead
@@ -451,7 +515,7 @@ still clears the world down to the two second-format projections.
 Five portable tests: the 25-kind base surface, the full feature set with
 single-claim disjointness, the override ordering, `routing_only`, and the
 signature-table validation.
-| `golden_tap.cpp` | 238 | missing |
+| `golden_tap.cpp` (238) | `batch/golden.rs` | ported function for function: `tap_for`, `golden_tap_dir` → `dir_from_env`, `golden_taps_recycle` → `taps_recycle`, `write_npy`, `dump_golden_bf16*` → `dump_bf16*`, `dump_golden_tokens` → `dump_tokens`. Same file names and shapes as the MLX reference, so the two trees diff tap by tap |
 | — | — | — (`worker.hpp` ported below) |
 
 ## The executor worker — `src/batch/worker.rs`
@@ -493,8 +557,34 @@ panic resume + survival, contained post panics, drop-as-barrier.
 | the gpt-oss engine | `metal/gptoss_engine.rs` | ported; the llama assembly plus the family's one load-time difference — the trio is SOLVED off the staged heap before a single pipeline is planned, inside `new()`, because the plan's entry names depend on the answer. `the_gptoss_engine_decodes_across_fires` cross-validates the PAGED KV path against the ring: the same eight-token greedy chain the M=1 smoke produced through the contiguous ring, reproduced through pages |
 | the gemma4 MB path + engine | `dispatch_gemma4.rs::build_gemma4_dag_mb` + `psos_gemma4.rs::gemma4_mb_plan` + `metal/gemma4_step.rs::Gemma4MbStep` + `metal/gemma4_engine.rs` | ported and verified: the decide-once MB DAG at per-layer widths, ONE `SdpaPaged` kind whose instantiation the step resolves from the layer (d256 sliding / d512 full — missing refuses: the d256 pipeline over 512-wide heads strides past every head), the strided PLE geglu claimed by kind, the alt-quant probe inside `new()`. `the_gemma4_engine_decodes_across_fires` lands the ring's exact chain through pages, first run — all four families now have engines, three with ring↔page cross-validation |
 | the multi-request fleet contract | `tests/device_smoke.rs::the_llama_engine_isolates_two_requests` | verified: two conversations share every fire — disjoint physical pages (request 1 at page 64 under logical positions 0..17, so the indirection itself is under test), per-request page walks, a 2-row decode fleet — and each continues ITS chain token-exact, same first token and different second, so contamination would show immediately |
-| taps; the M=1 ring engine surface; split-K/fp16/tiled rungs; forward.cpp's remaining runtime (elastic KV, EOS device loop, copy_state, PTIR hooks, timing) | — | missing/deferred |
+| the M=1 ring engine surface; split-K/fp16/tiled rungs; forward.cpp's engine-facing wiring (PTIR hooks, the timing hand-off, logits views) | — | missing/deferred. Since landed: `copy_state`'s deciding half (`store/control.rs`), taps (`batch/golden.rs`), the elastic sizing (`batch/sizing.rs`), the EOS substrate, and the timing attribution itself (`batch/timing.rs`) — what is left is the wiring, not the logic |
 | `forward.cpp` / `forward.hpp` | 5393 | missing — the executor; last, over everything above |
+
+### The bind audit (2026-08-09)
+
+`decode_abi.hpp`'s `namespace bind` declares **36** `enum class` layouts, one
+per kernel, each naming that kernel's buffer ordinals. The row above carried
+them as missing; they are not.
+
+* All 36 have a Rust home. Twenty-seven are findable by their C++ name; the
+  other nine landed under a family or kernel spelling the row could not have
+  guessed — `MoeRouteSort`/`MoeRouteRows` are `Kernel::LlMoeSort`/`LlMoeGather`
+  with `MoeRouteParams`, `MoeCombineSorted` is `ExpertCombineParams`, and
+  `Embed`, `Geglu`, `Softcap`, `PleCombine`, `SdpaSliding` and `SharedCombine`
+  sit in the family bind files that own them.
+* The ordinals match, spot-checked against the C++ enums:
+  `Sdpa` (`K`=1, `V`=2, `GqaFactor`=4, `N`=5, `KHeadStride`=6),
+  `SdpaPaged` (`GqaFactor`=4, `PageSize`=9, `NKvHeads`=10, `Scale`=11),
+  `KvAppendPaged` (`HeadDim`=5, `KHeadStride`=6, `KSeqStride`=7, `PageSize`=10,
+  `NKvHeads`=12) and `RowGather` (`Rows`=2) are identical on both sides.
+  106 `slot::` constants carry them, plus the per-family walks.
+
+The table is the weaker evidence. The stronger is that four families decode
+**token-exact against mlx_lm** on device, and a bind ordinal that is off by one
+is not a subtle error — it is a different buffer. The one bind the audit found
+genuinely wrong is the C++'s: `KvAppendPaged::SrcRowStride` (ordinal 15) is
+declared and read by the kernel and never bound by the C++ walk, which the
+llama row above already records as found and fixed.
 
 ## The gpt-oss family — `csrc/src/model/gptoss/`
 

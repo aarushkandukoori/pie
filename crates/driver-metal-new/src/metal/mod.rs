@@ -54,6 +54,7 @@ mod llama_bind;
 mod llama_engine;
 mod llama_step;
 mod memory;
+mod paging;
 mod pipeline;
 mod pool;
 mod program;
@@ -100,6 +101,7 @@ pub use llama_bind::bind_llama_consts;
 pub use llama_engine::LlamaEngine;
 pub use llama_step::{LlamaMbStep, LlamaStep, llama_mb_pso};
 pub use memory::{Memory, Pages, reclaimable_pages};
+pub use paging::fire_paged;
 pub use pipeline::{Archived, Compiled, Compiler, Math};
 pub use pool::{DEFAULT_CAPACITY, Pool, PoolStats, SMALLEST_CLASS, Transient};
 pub use program::{

@@ -636,13 +636,14 @@ bool forward_declared_tmpl(
     // commit_len); else the env-gated cached kernel; else the batched
     // GQA-aware FLA (the c>=64 spec path). `use_batched_fla_gqa` also
     // decides whether GdnPrep skips the repeat_interleave materialisation.
+    //
     // What the recurrence consumes when the GQA kernels don't index the
-    // compact K_h layout directly (the `q_recur_full` indirection).
-    const float* q_recur_full =
-        (V_h == K_h) ? la.q_pre.data() : la.q_norm.data();
-    const float* k_recur_full =
-        (V_h == K_h) ? la.k_pre.data() : la.k_norm.data();
-
+    // compact K_h layout directly used to be a pair of host
+    // indirections here (`q_recur_full`, `k_recur_full`), forking on
+    // `V_h == K_h` to pick between the pre-repeat and post-repeat
+    // workspace fields. Both are gone: the repeat declares its result,
+    // so the cached arm states it as the recurrence's operand and the
+    // fork the driver was making is the DECLARATION's.
 
     // Commit-advance op filter — the walk's mirror of the hand-written
     // layer loop's `if (commit_advance) { if (!is_linear) continue; ...
@@ -652,11 +653,6 @@ bool forward_declared_tmpl(
     // (the hand-written `replay_load` false branch — same launches, same
     // degenerate reliance on whatever norm_x holds).
 
-    // The repeat_interleave pair's operand order is fixed by the
-    // declaration (q then k), so a toggle binds them. It is the ONE
-    // piece of state that crosses statements, and it belongs to the
-    // arms, not to a traversal.
-    bool repeat_next_is_k = false;
     // The row axes this family does NOT state are what makes the drive
     // short. No peel (its hooks are observation-only and fire-wide), no
     // spatial mask split, no depth bands, no lora lanes — so every
@@ -1290,9 +1286,12 @@ bool forward_declared_tmpl(
         // corrects an earlier reading here that they did not -- so it is
         // the statement's value, with the guard's as the fallback and
         // `ws.attn_out` behind that.
-        const auto attn_dst = [&]() -> void* {
-            const auto o = plan.outputs(op);
-            if (o.size > 0) return values.slot(o[0]);
+        // What the shared arm is handed: the FALLBACK only, never the
+        // statement's own result. The arm reads that itself, and asking
+        // for `plan.outputs(op)[0]` here would ask it of every op the
+        // walk sees rather than of the dispatches — a slot lookup on a
+        // value that may be the backend's to bind, for no reason.
+        const auto attn_dst_fallback = [&]() -> void* {
             const std::uint32_t b =
                 at_op < binds.size() ? binds[at_op]
                                      : pie_forward::PIE_FORWARD_NO_VALUE;
@@ -1309,27 +1308,23 @@ bool forward_declared_tmpl(
             throw_drift("a launch that declares no output sits in no "
                         "value-producing guard");
         };
-        // The recurrence's five operands. v/g/beta are the GDN prep's
-        // results and always the statement's; q/k are too UNTIL the GQA
-        // repeat sits between them, and that repeat declares no output
-        // of its own -- `repeat_interleave_heads` records `None` -- so
-        // its result is `la.q_norm`/`la.k_norm` by convention and the
-        // recurrence reads THAT. The declaration still names q_pre
-        // there, which is the same "declares no output" gap the
-        // attention has; the difference is that here it costs only two
-        // operands and the repeat's own SOURCE is stated, so the chain
-        // stays consistent either way.
+        // The recurrence's five operands, all five the statement's.
+        //
+        // q and k were the exception until the repeat declared its
+        // result: the GQA head repeat sits between the prep and the
+        // cached recurrence, and while it was output-less the value it
+        // produced had no id, so the recurrence's stated q/k still named
+        // the PRE-repeat pair and the arm had to substitute a workspace
+        // buffer for both. The cached arm now states the repeat's
+        // results as the recurrence's operands, which is what the arm
+        // always meant, so this reads the span and nothing else.
         const auto rec_in = [&](std::size_t i) -> const float* {
             const auto ins = plan.inputs(op);
             need(ins, 5, "recurrence inputs");
             return static_cast<const float*>(values.slot(ins[i]));
         };
-        const auto rec_q = [&]() -> const float* {
-            return (V_h == K_h) ? rec_in(0) : q_recur_full;
-        };
-        const auto rec_k = [&]() -> const float* {
-            return (V_h == K_h) ? rec_in(1) : k_recur_full;
-        };
+        const auto rec_q = [&]() -> const float* { return rec_in(0); };
+        const auto rec_k = [&]() -> const float* { return rec_in(1); };
         if (pin_audit) audit(op);
         if (ext_dump) extents(op);
         switch (op.kind) {
@@ -1732,6 +1727,12 @@ case PieForwardOpKind::Launch: {
                 (SL >= 0 && SL < static_cast<int>(w.layers.size()))
                     ? w.layers[static_cast<std::size_t>(SL)].kv_layer
                     : -1,
+                // The plans the prepare built for this fire, and the
+                // destination for a dispatch whose enclosing guard owns
+                // the value. Both were this family's own attention arms
+                // a moment ago; the arms are one now, and this is what
+                // it took.
+                decode_plan, prefill_plan, attn_dst_fallback(),
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
@@ -1876,24 +1877,11 @@ case PieForwardOpKind::Launch: {
                     R, K_h, V_h, K_d, V_d, stream, write_state,
                     commit_lens);
                 break;
-            case declared::Kernel::RepeatInterleave: {
-                // The declaration states the pair q-then-k; the toggle
-                // binds them in that order.
-                // ISLAND (value arena) on the SOURCE. The
-                // DESTINATION stays `la.q_norm`/`la.k_norm`: this
-                // launch declares no output, so the repeated heads are
-                // a value nothing names.
-                const auto rins = plan.inputs(op);
-                need(rins, 1, "repeat inputs");
-                const float* src =
-                    static_cast<const float*>(values.slot(rins[0]));
-                float* dst = repeat_next_is_k ? la.k_norm.data()
-                                              : la.q_norm.data();
-                kernels::ssm::repeat_interleave_heads_fp32(
-                    src, dst, N, K_h, V_h, K_d, stream);
-                repeat_next_is_k = !repeat_next_is_k;
-                break;
-            }
+            // The head repeat GENERATES, which it could not while it
+            // was output-less: all three counts are dims of the two
+            // values -- `[Tokens, key_heads, key_dim]` in, `[Tokens,
+            // value_heads, key_dim]` out -- so the row names them and
+            // the arm derives.
             case declared::Kernel::VerifyStashLoad:
             case declared::Kernel::VerifyStashStore: {
                 // The pseudo-symbols name an OPERATION the driver
@@ -1931,107 +1919,59 @@ case PieForwardOpKind::Launch: {
                 const std::size_t n_ab =
                     static_cast<std::size_t>(N) * V_h *
                     sizeof(std::uint16_t);
+                // ISLAND (value arena), BOTH ENDS. The pair declares the
+                // triple on both sides -- `verify_stash_load` states
+                // three results, `verify_stash_store` three operands --
+                // so the slab's peer is the statement's, and the arm no
+                // longer restates which workspace field the in-proj
+                // triple happens to live in. That was the DSL's own
+                // deferral ("WHERE those buffers live is the driver's
+                // binding") and the declaration outgrew it.
+                const auto trip = load ? plan.outputs(op) : plan.inputs(op);
+                if (trip.size != 3) {
+                    throw_drift("a stash op states " +
+                                std::to_string(trip.size) +
+                                " halves of the in-proj triple, wants 3");
+                }
+                void* const v_qkv = values.slot(trip[0]);
+                void* const v_a = values.slot(trip[1]);
+                void* const v_b = values.slot(trip[2]);
                 if (load) {
-                    cp(la.mixed_qkv.data(), stash, n_qkv);
-                    cp(la.a.data(), stash + stash_a_off, n_ab);
-                    cp(la.b.data(), stash + stash_b_off, n_ab);
+                    cp(v_qkv, stash, n_qkv);
+                    cp(v_a, stash + stash_a_off, n_ab);
+                    cp(v_b, stash + stash_b_off, n_ab);
                 } else {
-                    cp(stash, la.mixed_qkv.data(), n_qkv);
-                    cp(stash + stash_a_off, la.a.data(), n_ab);
-                    cp(stash + stash_b_off, la.b.data(), n_ab);
+                    cp(stash, v_qkv, n_qkv);
+                    cp(stash + stash_a_off, v_a, n_ab);
+                    cp(stash + stash_b_off, v_b, n_ab);
                 }
                 break;
             }
-            case declared::Kernel::AttnFlashinferDecode: {
-                if (decode_plan == nullptr) {
-                    throw_drift("trace states the flashinfer decode "
-                                "kernel but prepare built no decode plan");
-                }
-                auto kv_view = kv_view_of(SL);
-                // ISLAND (value arena), HALF of one. The query is the
-                // statement's operand. The RESULT is not: this launch
-                // declares no outputs, so the attention output has no id
-                // to write to and `ws.attn_out` stays -- see the guard
-                // note in the pin pass.
-                const auto ins = plan.inputs(op);
-                need(ins, 1, "decode attention inputs");
-                kernels::attn::dispatch_attention_flashinfer_decode(
-                    *decode_plan,
-                    values.slot(ins[0]), kv_view, attn_dst(),
-                    kv_page_indices, kv_page_indptr, kv_last_page_lens,
-                    attn_ws.view(), stream);
-                break;
-            }
-            case declared::Kernel::AttnFlashinferPrefill: {
-                if (prefill_plan == nullptr) {
-                    throw_drift("trace states the flashinfer prefill "
-                                "kernel but prepare built no prefill plan");
-                }
-                auto kv_view = kv_view_of(SL);
-                // ISLAND (value arena), half of one -- see the decode
-                // arm above for what the other half is waiting on.
-                const auto ins = plan.inputs(op);
-                need(ins, 1, "prefill attention inputs");
-                kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
-                    *prefill_plan,
-                    values.slot(ins[0]), kv_view.k_bf16_pages,
-                    kv_view.v_bf16_pages,
-                    attn_dst(),
-                    qo_indptr, kv_page_indices, kv_page_indptr,
-                    kv_last_page_lens, attn_ws.view(), stream);
-                break;
-            }
+            // The two flashinfer dispatches are SHARED now. What kept
+            // them here was the plan, and the plan is the context's:
+            // this family resolves it off `plan_state` and hands it
+            // over, which is the only thing about the call that was
+            // ever this family's.
+            //
+            // A null plan no longer throws here — the shared arm
+            // returns false and the walk falls through to this switch,
+            // where `default` refuses by name. That is the same answer
+            // through one fewer copy of it.
+
             // The PAIR form (2d): two operands, both traced, so the
             // arm reads them off the plan. Only the dense MLP states
             // it -- the routed and shared legs always bind packed
             // banks and take the chunked kernel below.
-            case declared::Kernel::ChunkedSwiglu: {
-                // Three callers share this kernel: the dense MLP's, the
-                // routed leg's (block-major rows) and the shared expert's
-                // (token rows). The operand's OWN extent tells them apart --
-                // not a counter, and not the intermediate width, which the
-                // routed and shared banks can and do share.
-                const auto ins = plan.inputs(op);
-                const bool aligned_rows_in =
-                    ins.size > 0 &&
-                    plan.value(ins[0]).dims[0].kind ==
-                        pie_forward::PieForwardDimKind::MoeAlignedRoutes;
-                if constexpr (!kIsDense) {
-                    if (aligned_rows_in || !ins.size) {
-                        if (moe_ws == nullptr) {
-                            throw_drift("the MoE leg needs its workspace");
-                        }
-                        Qwen3_5MoeMlpWorkspace& mw = *moe_ws;
-                        const int Im = cfg.moe_intermediate_size;
-                        const int routes = N * cfg.num_experts_per_tok;
-                        const int block = mw.aligned_block_size;
-                        const int cap = std::min(cfg.num_experts, routes);
-                        const int aligned_rows =
-                            ((routes + cap * (block - 1) + block - 1) / block) *
-                            block;
-                        kernels::mlp::chunked_swiglu_bf16(
-                            mw.aligned_gate_up.data(), mw.aligned_act.data(),
-                            aligned_rows, Im, stream);
-                        break;
-                    }
-                    if (moe_ws != nullptr) {
-                        kernels::mlp::chunked_swiglu_bf16(
-                            moe_ws->shared_gate_up.data(),
-                            moe_ws->shared_act.data(),
-                            N, cfg.shared_expert_intermediate_size, stream);
-                        break;
-                    }
-                }
-                // ISLAND (value arena). The dense caller; the routed
-                // and shared-expert callers of the same kernel are
-                // above, on the MoE workspace.
-                const auto outs = plan.outputs(op);
-                need(outs, 1, "swiglu outputs");
-                kernels::mlp::chunked_swiglu_bf16(
-                    values.slot(ins[0]), values.slot(outs[0]), N,
-                    row_width(outs[0]), stream);
-                break;
-            }
+            // The CHUNKED SWIGLU generates, and all three of its
+            // callers with it -- the dense MLP's, the shared expert's
+            // and the routed leg's.
+            //
+            // Three arms, because three answers to "how many rows".
+            // Dense and shared run over tokens; the routed leg runs over
+            // the padded block-major count, and this executor computed
+            // that from a formula it kept beside four other copies. The
+            // row says `OutRows` now, so the count comes off the value's
+            // own leading extent and the three arms are one.
             // ── The aligned MoE leg ──────────────────────────────────
             //
             // MoE-only, so the whole group is fenced: a dense weights type
@@ -2079,14 +2019,15 @@ case PieForwardOpKind::Launch: {
                                 values.slot(plan.outputs(op)[1])),
                             N, E, Ktop, stream);
                         break;
-                    case declared::Kernel::MoeAlignDecode:
-                        kernels::moe::moe_align_decode(
-                            mw.topk_idx.data(), mw.aligned_route_ids.data(),
-                            mw.aligned_expert_ids.data(),
-                            /*route_to_aligned_row=*/nullptr,
-                            routes, E, block, max_blocks,
-                            /*num_tokens_past_padded=*/nullptr, stream);
-                        break;
+                    // The PERMUTATION generates. Its route count is
+                    // the operand's element count -- `topk_idx` is
+                    // `[Tokens, top_k]` -- and its three load-time
+                    // numbers ride the param channel, where two came out
+                    // of a config struct and one out of the MoE
+                    // workspace. It binds the INVERSE MAP too, which the
+                    // arm passed null for: the statement declares three
+                    // results, and "declared but not written" is a claim
+                    // the declaration does not make.
                     case declared::Kernel::MoeGatherAligned:
                         // ISLAND (value arena).
                         // `gather_moe_aligned_inputs(x, sorted_route_ids)`
@@ -2106,14 +2047,33 @@ case PieForwardOpKind::Launch: {
                                         std::to_string(aux.size) +
                                         " banks, wants 2");
                         }
+                        // ISLAND (value arena). Two operands, three
+                        // results: the build DECLARES the aligned
+                        // staging, because it bakes those buffers' base
+                        // addresses into the pointer arrays and so has to
+                        // know where they are before anything writes
+                        // them. Everything downstream takes its
+                        // destination from here.
+                        //
+                        // The six POINTER ARRAYS are what is left. An
+                        // array of device addresses has no dtype in the
+                        // trace's vocabulary, so they stay the MoE
+                        // workspace's -- reachable only from the two
+                        // GEMMs this same call serves, which is what
+                        // bounds the gap.
+                        const auto bins = plan.inputs(op);
+                        const auto bouts = plan.outputs(op);
+                        need(bins, 2, "ptr build inputs");
+                        need(bouts, 3, "ptr build outputs");
                         kernels::moe::build_moe_ptrs_aligned_bf16(
-                            mw.aligned_expert_ids.data(),
+                            static_cast<const std::int32_t*>(
+                                values.slot(bins[0])),
                             wb.require(plan.name(aux[0])).data(),
                             wb.require(plan.name(aux[1])).data(),
-                            mw.aligned_expert_in.data(),
-                            mw.aligned_gate_up.data(),
-                            mw.aligned_act.data(),
-                            mw.aligned_out.data(),
+                            values.slot(bins[1]),
+                            values.slot(bouts[0]),
+                            values.slot(bouts[1]),
+                            values.slot(bouts[2]),
                             reinterpret_cast<const void**>(mw.a_gu_ptrs.data()),
                             reinterpret_cast<const void**>(mw.b_gu_ptrs.data()),
                             reinterpret_cast<void**>(mw.c_gu_ptrs.data()),
@@ -2139,19 +2099,36 @@ case PieForwardOpKind::Launch: {
                         const std::string_view bank = plan.name(aux[0]);
                         const bool is_gate_up =
                             bank.find("gate_up") != std::string_view::npos;
+                        // ISLAND (value arena). Every buffer is the
+                        // statement's now: the block-major source is
+                        // `inputs[0]`, the per-block expert id the kernel
+                        // indexes the bank by is `inputs[1]`, and the
+                        // destination is `inputs[2]` -- the staging the
+                        // pointer build named, which the result aliases.
+                        // The fork on the bank name picks WIDTHS and
+                        // nothing else.
+                        //
+                        // `inputs[1]` used to be the sorted route order,
+                        // which this kernel never reads: the statement
+                        // named one array and the arm bound another
+                        // (`mw.aligned_expert_ids`), so there was nothing
+                        // the declaration could be checked against.
+                        const auto gins = plan.inputs(op);
+                        const auto gouts = plan.outputs(op);
+                        need(gins, 3, "grouped gemm inputs");
+                        need(gouts, 1, "grouped gemm outputs");
                         const int out_w = is_gate_up ? 2 * Im : H;
                         const int in_w = is_gate_up ? H : Im;
-                        const std::uint16_t* src =
-                            is_gate_up ? mw.aligned_expert_in.data()
-                                       : mw.aligned_act.data();
-                        std::uint16_t* dst =
-                            is_gate_up ? mw.aligned_gate_up.data()
-                                       : mw.aligned_out.data();
+                        const auto* src = static_cast<const std::uint16_t*>(
+                            values.slot(gins[0]));
+                        const auto* expert_ids = static_cast<const std::int32_t*>(
+                            values.slot(gins[1]));
+                        auto* dst =
+                            static_cast<std::uint16_t*>(values.slot(gouts[0]));
                         if (kernels::moe::moe_grouped_gemm_bf16_supported(
                                 block, out_w, in_w)) {
                             kernels::moe::moe_grouped_gemm_bf16(
-                                src, wb.require(bank).data(), dst,
-                                mw.aligned_expert_ids.data(),
+                                src, wb.require(bank).data(), dst, expert_ids,
                                 max_blocks, block, out_w, in_w, stream);
                         } else {
                             // The batched-cuBLAS fallback the hand path
@@ -2171,58 +2148,32 @@ case PieForwardOpKind::Launch: {
                         }
                         break;
                     }
-                    case declared::Kernel::MoeReorderAligned:
+                    case declared::Kernel::MoeReorderAligned: {
+                        // ISLAND (value arena).
+                        // `reorder_moe_aligned_output(down, sorted)` --
+                        // both operands and the result are stated.
+                        const auto rins = plan.inputs(op);
+                        const auto routs = plan.outputs(op);
+                        need(rins, 2, "reorder inputs");
+                        need(routs, 1, "reorder outputs");
                         kernels::moe::reorder_moe_aligned_output_bf16(
-                            mw.aligned_out.data(), mw.aligned_route_ids.data(),
-                            mw.expert_out.data(), routes, aligned_rows, H,
+                            values.slot(rins[0]),
+                            static_cast<const std::int32_t*>(
+                                values.slot(rins[1])),
+                            values.slot(routs[0]), routes, aligned_rows, H,
                             shared_row_begin, N,
                             /*shared_out=*/nullptr, stream);
                         break;
-                    case declared::Kernel::MoeWeightedSum:
-                        // The reorder above already put the rows back in
-                        // ROUTE order, so this is the plain token-batched
-                        // sum. `_aligned_` names a kernel that reads
-                        // block-major rows; by here there are none.
-                        // `_add_`, onto `ws.y`: at tp=1 the aligned leg is
-                        // reached only through the decode fast path, where
-                        // the hand body sets `add_to_residual` and `moe_out`
-                        // IS the residual stream. The declaration says the
-                        // same thing, so there is no trailing add to make.
-                        // ISLAND (value arena). `weighted_sum_add(x,
-                        // weights, residual)` accumulates INTO the
-                        // residual, which is operand 2 and which the
-                        // `kernel!` row now aliases the result over.
-                        kernels::moe::token_batched_weighted_sum_add_bf16(
-                            values.slot(plan.outputs(op)[0]),
-                            values.slot(plan.inputs(op)[0]),
-                            static_cast<const float*>(
-                                values.slot(plan.inputs(op)[1])),
-                            N, Ktop, H, stream);
-                        break;
-                    case declared::Kernel::SigmoidDotScalarGateAdd: {
-                        const auto aux = plan.aux_names(op);
-                        if (aux.size != 1) {
-                            throw_drift("the shared gate names " +
-                                        std::to_string(aux.size) +
-                                        " weights, wants 1");
-                        }
-                        // (x, gate_weight, ACCUMULATOR, addend) -- the
-                        // hand call's order. Reversing the last two lands
-                        // the gate on the wrong buffer and still compiles.
-                        // ISLAND (value arena).
-                        // `sigmoid_dot_scalar_gate_add(x, base, shared)`
-                        // -- `base` is the residual stream and the
-                        // kernel's own header calls that argument the
-                        // "in-place add destination", which the table
-                        // now says too.
-                        kernels::mlp::sigmoid_dot_scalar_gate_add_bf16(
-                            values.slot(plan.inputs(op)[0]),
-                            wb.require(plan.name(aux[0])).data(),
-                            values.slot(plan.outputs(op)[0]),
-                            values.slot(plan.inputs(op)[2]),
-                            N, H, stream);
-                        break;
                     }
+                    // The COMBINE and the SHARED GATE generate. Both
+                    // read their extents off the values -- the reorder
+                    // above produces `[Tokens, top_k, hidden]`, so the
+                    // route count and the width are its own dims -- and
+                    // both accumulate into an operand the `kernel!` row
+                    // aliases the result over. The shared gate's arm
+                    // carried a warning that reversing its last two
+                    // arguments lands the gate on the wrong buffer and
+                    // still compiles; the row states that order once.
                     default:
                         break;
                     }

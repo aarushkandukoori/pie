@@ -122,9 +122,9 @@ impl G3nLayerW {
 /// how the result unpacks.
 fn altup_coefs(x: &Val, norm: &NormW, router: &MatW, coefs: &MatW, scale: &str) -> Val {
     let n = dsl::cuda::rmsnorm(x, norm);
-    let n = dsl::cuda::scalar_mul(&n, scale);
+    let n = dsl::cuda::scalar_mul(&n, scale, None);
     let modality = matmul(&n, router);
-    let modality = dsl::cuda::tanh(&modality, router.width);
+    let modality = dsl::cuda::tanh(&modality);
     matmul(&modality, coefs)
 }
 
@@ -194,7 +194,7 @@ pub fn gemma3n_cuda(facts: &Gemma3nFacts, class: FireClass) -> ForwardPlan {
             let o = dsl::cuda::rmsnorm(&o, &w.post_attn_norm);
             let mid = dsl::cuda::residual_add(&p_active, &o, facts.hidden);
             let mid = dsl::cuda::residual_add(&mid, &lau, facts.hidden);
-            let mid = dsl::cuda::scalar_mul(&mid, &format!("layer.{l}.laurel_scale"));
+            let mid = dsl::cuda::scalar_mul(&mid, &format!("layer.{l}.laurel_scale"), None);
 
             // ── MLP ──────────────────────────────────────────────────
             let m = dsl::cuda::rmsnorm(&mid, &w.mlp_norm);

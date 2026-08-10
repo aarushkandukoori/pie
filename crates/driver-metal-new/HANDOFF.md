@@ -99,7 +99,7 @@ argument for each design decision lives.
 
 ## What has been done
 
-133 commits on `origin/rewrite` as of `9a2b5f363`, in four phases plus a
+143 commits on `origin/rewrite` as of `8037b7add`, in five phases plus a
 crash fix.
 
 ### Phase 1 — the shell (`mtl4_context.hpp`, 27 commits)
@@ -198,6 +198,34 @@ its heads, a router read at the wrong quantisation while every feeding tensor
 agreed, a declared binding no walk ever wrote. Verification found them, and
 each is one commit.
 
+### Phase 5 — the gate, and an audit of the ledgers (2026-08-09/10)
+
+`668cf47d2` … `8037b7add`. Ten commits, and the shape of them is worth
+knowing because it says what this port's remaining risk actually is.
+
+Four are ordinary slices: the interpreter oracle in both halves
+(`oracle_interp.rs`, `device_oracle.rs`), the three control ops' deciding half
+(`store/control.rs`), expert paging's device half (`metal/paging.rs`), and
+`compose.cpp`'s ticket composition (`batch/tickets.rs`).
+
+The other six are corrections, and **nine separate entries turned out to be
+recorded as outstanding while already done**: `interp.hpp` (1.7k), `registry.cpp`
+(452), `descriptor_resolve.hpp` (400), `scratch.{hpp,cpp}` + `scratch_color.hpp`
+(650, carried in two rows), `golden_tap.cpp` (238), `run_segments`,
+`load_multibatch_psos`, `expert_paging.hpp`'s portable half, and the 36
+`bind::` layouts. Two whole days of work were nearly spent re-porting things
+the crate already had — gate item 4 was picked up as a 1.7k-line port that did
+not exist to do, and gate item 2 as a harness that cannot be written yet.
+
+Every one had landed under a name its ledger row could not have predicted, so
+no search for the C++ name would have found it. The cause and the rule are at
+the top of `PARITY-BATCH.md`; the short version is that a `ported` row is
+written by the commit that ports the thing and a `missing` row is not, so only
+one of the two maintains itself.
+
+**Before starting anything this ledger calls `missing`, look for it.** The hit
+rate on that check has been nine for eleven.
+
 ## What is left
 
 **This section goes stale between refreshes and the ledgers do not.** Every
@@ -205,8 +233,11 @@ slice updates its `PARITY-*.md` row in the same commit, so the ledgers are
 never more than one commit behind; this table is refreshed by hand and has
 twice been read as current when it was a day old. Trust
 `PARITY.md`, `PARITY-M1.md`, `PARITY-INTERP.md`, `PARITY-REGISTRY.md`,
-`PARITY-BATCH.md`, `PARITY-LOADER.md` and `PARITY-STORE.md` over anything written here. Last
-refreshed **2026-08-09, after `9a2b5f363`**.
+`PARITY-BATCH.md`, `PARITY-LOADER.md` and `PARITY-STORE.md` over anything
+written here — but read the box at the top of `PARITY-BATCH.md` first: the
+ledgers' `missing` rows have the same rot this section does, for the same
+reason, and only their `ported` half is self-maintaining. Last refreshed
+**2026-08-10, after `8037b7add`**.
 
 | subsystem | state |
 |---|---|
@@ -214,28 +245,39 @@ refreshed **2026-08-09, after `9a2b5f363`**.
 | `batch/` | done through the multibatch layer and all four families: independent surface, DAG builders (M=1 and MB), dataflow walk, PSO plans, binds tables, golden taps |
 | `loader/` portable | done; `transcode.hpp` dropped with receipts |
 | `metal/` step + runner | done: storage staging (arena mode), the four bind passes, MB binds, PSO loaders, DecodeStep/MbStep, `decoder.rs`, and a per-family engine — `llama_engine.rs`, `gptoss_engine.rs`, `gemma4_engine.rs` beside the qwen path |
+| `store/` | portable half done: the paged pool's move arithmetic, the GDN slot bookkeeping, and the three control ops' deciding half (`PARITY-STORE.md`) |
+| the interpreter oracle | done, both halves. `tests/oracle_interp.rs` pins `pipeline::step` bit-for-bit against the original golden model; `tests/device_oracle.rs` runs the compiler's real emitted MSL on device. Gate item 4 holds |
 | device verification | Qwen3.6-27B token-exact on the M=1 ring, paged prefills, per-row streams and fleets (equal and mixed length); llama, gpt-oss and gemma4 token-exact against mlx_lm, three of them ring↔page cross-validated; cross-fire KV continuity on three engines; **multi-request fleet isolation** — two conversations in one fire on disjoint pages, each continuing its own chain; 1000 greedy tokens at a flat 18.6 tok/s with no fault, NaN or rate creep |
 
-### Remaining, largest first
+### Remaining — one critical path
 
-`forward.cpp`/`forward.hpp` (5393) is the executor and goes **last, over
-everything below it**. Its runtime is ledgered as separate entries because
-they land with the cutover wiring, not with it: elastic KV resize, the EOS
-device loop, `copy_state`/reset ABI arms, logits views, PTIR hooks, timing
-attribution. `BatchStepInputs` is its marshaling container.
+**Everything left is `forward.cpp` or downstream of it.** That is the useful
+sentence in this section, and it is new: the audit above closed the rows that
+made the remainder look wide.
+
+`forward.cpp`/`forward.hpp` (5393) is the executor. Its runtime is ledgered as
+separate entries because they land with the cutover wiring rather than with it:
+elastic KV resize, the EOS device loop, `copy_state`/reset ABI arms, logits
+views, PTIR hooks, timing attribution. `BatchStepInputs` is its marshaling
+container.
+
+`CUTOVER.md`'s "the gate is a chain, not a checklist" is the other half of the
+picture: gate item 2 needs `launch`, which needs `forward.cpp`; items 5 and 6
+need item 2; item 3's remaining leg needs item 2. Items 1 and 4 are the two
+that never did, and both hold.
+
+A slice of `forward.cpp` should follow the method that has worked for the whole
+port: take a subject, find its portable half, and leave the device half for the
+module that owns the buffers. `BatchStepInputs`'s marshaling and the elastic KV
+resize arm are the two smallest entry points.
 
 | what | where it is ledgered |
 |---|---|
-| `scratch.{hpp,cpp}` + `scratch_color.hpp`, `build_scratch_schedule`, `bind_scratch` | `PARITY-BATCH.md` — coupled to `DecodeGeometry`/`Dispatch` |
-| `fire`'s segment loop / `run_segments` | `PARITY-BATCH.md` — lands with the `src/metal/` paging glue |
-| the ~30 `bind::` layouts | `PARITY-BATCH.md` — each is one kernel's ABI, beside its encoder |
-| `golden_tap.cpp` (238), taps, the M=1 ring engine surface | `PARITY-BATCH.md` — diagnostics |
-| `compose.cpp` rest (`LaunchMember`, `LaunchJobData`, tickets, ~90) | `PARITY-BATCH.md` — with the worker port |
-| `expert_paging.hpp` (195) | `PARITY-BATCH.md` — `fire` needs `ExpertSlab` |
-| `load_multibatch_psos` / `MultiBatchPsos` | `PARITY-BATCH.md` — qmm tile grammar + tuning constants |
-| `KvPagePool` (SlotHandles + counters) | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
+| the M=1 ring engine surface | `PARITY-BATCH.md` — diagnostics; `golden_tap.cpp` and the taps landed as `batch/golden.rs` |
+| `compose.cpp`'s job container (`LaunchJobData`, per-member launch state, the completion broker) | `PARITY-BATCH.md` — with the worker port; the tickets themselves have landed |
+| `KvPagePool` (SlotHandles + counters), and the control ops' moving half | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
 | ~~the oracle harness~~ | **done** — `tests/oracle_interp.rs` (CPU, pins `pipeline::step` bit-for-bit against `tensor_compiler::eval::interp`) and `tests/device_oracle.rs` (device, real emitted MSL). Gate item 4's tolerance is now measured: one ulp, spent only on transcendentals (`PARITY-INTERP.md`) |
-| registry (`registry.cpp` 452 + `descriptor_resolve.hpp` 400), ring registry, `copy_kv`/`copy_state`/`resize_pool`, `store/`+`model/` glue (~375) | `CUTOVER.md` prerequisites |
+| the ring registry for `register_channel`/`close_channel`, and `store/`+`model/` glue (~375) | `CUTOVER.md` prerequisites. The registry itself and the control ops' deciding half have landed (`PARITY-REGISTRY.md`, `PARITY-STORE.md`) |
 
 Deferred on purpose, each with its reason in the ledger: split-K; FP16
 staging (`bind_mb_fp16_qmm`, `bind_gptoss_fp16_qmm`, precast — `mb_pso` is

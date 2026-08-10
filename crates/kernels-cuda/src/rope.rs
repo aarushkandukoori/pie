@@ -11,9 +11,12 @@ use kernels::Source;
 pub static KERNELS: &[KernelSig] = &[
     kernel!(rope_standard_table "rope::rope_standard_table",
         operands = operands![
-            positions: I32s, table: F32sMut,
-            num_tokens: I32, head_dim: I32, theta: F32,
-            stream: Stream,
+            positions: I32s <- Source::Ctx("positions"),
+            table: F32sMut <- Source::Out(0),
+            num_tokens: I32 <- Source::Rows,
+            head_dim: I32 <- Source::Ctx("head_dim"),
+            theta: F32 <- Source::CtxNonZero("rope_theta"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // Not in the table until the ABI pilot; the vocabulary audit has been
     // counting it as undeclared. `interleaved` is where GLM and the MLA rope
@@ -41,7 +44,7 @@ pub static KERNELS: &[KernelSig] = &[
             num_q_heads: I32 <- Source::Ctx("num_q_heads"),
             num_kv_heads: I32 <- Source::Ctx("num_kv_heads"),
             head_dim: I32 <- Source::Ctx("head_dim"),
-            theta: F32 <- Source::Ctx("rope_theta"),
+            theta: F32 <- Source::CtxNonZero("rope_theta"),
             stream: Stream <- Source::Ctx("arm.stream"),
             interleaved: Bool <- Source::Lit("false"),
         ]),
@@ -49,6 +52,14 @@ pub static KERNELS: &[KernelSig] = &[
     // no destination to give them another. The `_rounded` twin below has
     // said so since gemma-4's conversion; this row had not, and
     // llama_like states it 84 times per decode text.
+    // NOT sourced, and the reason is not that the arguments are
+    // unreachable — every one of them is. It is that llama_like fires a
+    // DIFFERENT launcher for this same stated symbol on a peel's tail
+    // region (`..._devwin`, below), so a generated branch would take the
+    // plain form on a fire that wanted the windowed one. `CtxNonZero`
+    // says "zero means not mine"; what this row needs is the opposite
+    // sense on a pointer, and inventing that for one row before a second
+    // asks for it is how a guard vocabulary stops being readable.
     kernel!(qk_rmsnorm_rope "rope::qk_rmsnorm_rope_bf16",
         in_place = &[(0, 0), (1, 1)],
         operands = operands![
@@ -136,7 +147,7 @@ pub static KERNELS: &[KernelSig] = &[
             num_kv_heads: I32 <- Source::Ctx("num_kv_heads"),
             head_dim: I32 <- Source::Ctx("head_dim"),
             rotary_dim: I32 <- Source::Param(0),
-            theta: F32 <- Source::Ctx("rope_theta"),
+            theta: F32 <- Source::CtxNonZero("rope_theta"),
             stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // The other row the audit was counting as undeclared. It is `rope_partial`

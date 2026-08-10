@@ -265,21 +265,26 @@ pub static KERNELS: &[KernelSig] = &[
             // row author's (`renaming_an_operand_is_not_a_mistake`), and
             // `ref` is a Rust keyword — `emit_rust_bindings` would emit it
             // verbatim into an `extern "C"` block that does not parse.
-            reference: Buf,
-            target_rms_out: F32sMut,
-            t: I32,
-            h: I32,
-            eps: F32,
-            stream: Stream,
+            // The C++ side is unaffected; only this table's spelling moves.
+            reference: Buf <- Source::In(0),
+            target_rms_out: F32sMut <- Source::Out(0),
+            t: I32 <- Source::Rows,
+            h: I32 <- Source::InWidth(0),
+            eps: F32 <- Source::Ctx("eps"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
+    // In place on the tensor it holds to a magnitude: the row states one
+    // operand and one result and they are the same bytes, which is what
+    // lets `x` bind from `Out(0)` and the width come off the value.
     kernel!(magnitude_rescale "norm::magnitude_rescale_bf16",
+        in_place = &[(0, 0)],
         operands = operands![
-            x: BufMut,
-            target_rms: F32s,
-            t: I32,
-            h: I32,
-            eps: F32,
-            stream: Stream,
+            x: BufMut <- Source::Out(0),
+            target_rms: F32s <- Source::In(1),
+            t: I32 <- Source::Rows,
+            h: I32 <- Source::OutWidth(0),
+            eps: F32 <- Source::Ctx("eps"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // Weightless per-head norm (the V-norm) — no gamma, so no variant.
     kernel!(rmsnorm_no_scale "norm::rmsnorm_no_scale_bf16", in_place = &[(0, 0)],
@@ -312,20 +317,26 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     kernel!(norm_residual_add "norm::rmsnorm_residual_add_bf16", in_place = &[(0, 1)],
         operands = operands![
-            x: Buf,
-            weight: Buf,
-            hidden: BufMut,
-            num_rows: I32,
-            hidden_size: I32,
-            eps: F32,
-            stream: Stream,
+            x: Buf <- Source::In(0),
+            weight: Buf <- Source::Weight(0),
+            hidden: BufMut <- Source::Out(0),
+            num_rows: I32 <- Source::Rows,
+            hidden_size: I32 <- Source::OutWidth(0),
+            eps: F32 <- Source::Ctx("eps"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
+    // The SCALE is the statement's, in the bits the param channel has
+    // room for. It was a NAME, and the driver held the arithmetic that
+    // turned four names into four numbers -- all four derived from dims
+    // the host already knew. A family whose facts do not carry the
+    // number states no param and falls through this branch's arity
+    // guard, which is what gemma-3n and gemma-2 do.
     kernel!(scalar_mul "norm::scalar_mul_bf16", in_place = &[(0, 0)],
         operands = operands![
-            x: BufMut,
-            s: F32,
-            n: Usize,
-            stream: Stream,
+            x: BufMut <- Source::Out(0),
+            s: F32 <- Source::ParamF32(0),
+            n: Usize <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // Accumulates into its FIRST argument. Stating it is what lets a
     // text add into a window (`select`) and have the window keep the
@@ -337,20 +348,26 @@ pub static KERNELS: &[KernelSig] = &[
             n: Usize <- Source::OutElements(0),
             stream: Stream <- Source::Ctx("arm.stream"),
         ]),
-    kernel!(tanh "norm::tanh_bf16",
+    kernel!(tanh "norm::tanh_bf16", in_place = &[(0, 0)],
         operands = operands![
-            x: BufMut,
-            numel: I32,
-            stream: Stream,
+            x: BufMut <- Source::Out(0),
+            numel: I32 <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
+    // The head GEOMETRY off the value, not off the context: this
+    // statement's result is rank-3 `[Tokens, heads, head_dim]`, so the
+    // two counts are its own dims. That is the difference between a
+    // fully-stated row and one that needs a context field it would then
+    // share with every other family's idea of "the head count".
     kernel!(attn_sink_correction "norm::attn_sink_correction_bf16",
+        in_place = &[(0, 0)],
         operands = operands![
-            attn_out: BufMut,
-            lse: F32s,
-            sink: F32s,
-            n: I32,
-            num_heads: I32,
-            head_dim: I32,
-            stream: Stream,
+            attn_out: BufMut <- Source::Out(0),
+            lse: F32s <- Source::In(1),
+            sink: F32s <- Source::Weight(0),
+            n: I32 <- Source::Rows,
+            num_heads: I32 <- Source::OutDim(0, 1),
+            head_dim: I32 <- Source::OutDim(0, 2),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
 ];

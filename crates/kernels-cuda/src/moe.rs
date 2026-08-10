@@ -11,12 +11,17 @@ use kernels::KernelSig;
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
+    // `c` is an OPERAND as well as the result: the aligned staging's
+    // addresses are baked into the pointer arrays
+    // `build_moe_ptrs_aligned` fills, so this GEMM's destination is the
+    // buffer that build named, not one the arena may pick freshly.
     kernel!(moe_grouped_gemm "moe::moe_grouped_gemm_bf16",
+        in_place = &[(0, 2)],
         operands = operands![
-            a: Buf,
-            weight_base: Buf,
-            c: BufMut,
-            expert_ids: I32s,
+            a: Buf <- Source::In(0),
+            weight_base: Buf <- Source::Weight(0),
+            c: BufMut <- Source::Out(0),
+            expert_ids: I32s <- Source::In(1),
             max_blocks: I32,
             m: I32,
             n: I32,
@@ -187,19 +192,43 @@ pub static KERNELS: &[KernelSig] = &[
     // permutation is computed over ALL routes in the fire, so a statement
     // addressed through `sorted_route_ids` cannot take a row window -- the
     // window would name different routes than the sort did.
+    // `num_routes` is the OPERAND's element count: `topk_idx` is
+    // `[Tokens, top_k]`, so the fire's tokens times `top_k` is exactly
+    // what it holds. That product is what kept this row unstated — the
+    // table has no arithmetic — and reading it off a value that already
+    // is it costs none.
+    //
+    // `route_to_aligned_row` is BOUND, where the arm passed null. The
+    // statement declares three results and the arena places all three;
+    // the inverse map is the one this leg's combine does not read, and
+    // "declared but not written" is a claim the declaration does not
+    // make.
     kernel!(moe_align "moe::moe_align_decode", whole = true,
         operands = operands![
-            topk_idx: I32s,
-            sorted_route_ids: I32sMut,
-            expert_ids: I32sMut,
-            route_to_aligned_row: I32sMut,
-            num_routes: I32,
-            num_experts: I32,
-            block_size: I32,
-            max_blocks: I32,
-            num_tokens_past_padded: I32sMut,
-            stream: Stream,
+            topk_idx: I32s <- Source::In(0),
+            sorted_route_ids: I32sMut <- Source::Out(0),
+            expert_ids: I32sMut <- Source::Out(1),
+            route_to_aligned_row: I32sMut <- Source::Out(2),
+            num_routes: I32 <- Source::InElements(0),
+            num_experts: I32 <- Source::Param(0),
+            block_size: I32 <- Source::Param(1),
+            max_blocks: I32 <- Source::Param(2),
+            num_tokens_past_padded: I32sMut <- Source::Lit("nullptr"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
+    // THE THREE THAT REMAIN UNSTATED, and the one thing blocking all
+    // three: they take the ROUTE count and `top_k` as separate
+    // arguments, and neither is reachable here. `moe_align` above got
+    // its route count from `Source::InElements` because `topk_idx` is
+    // `[Tokens, top_k]` and holds exactly that product — these three do
+    // not take `topk_idx`, and giving them a dataflow edge to it that
+    // the kernel does not read would be a lie about the trace.
+    //
+    // Both numbers ARE in the aligned dim's packed word. What is missing
+    // is a way to say "the fire's rows times a number packed in a dim",
+    // and the table deliberately has no arithmetic: an expression
+    // language here is one more place a binding can be wrong, checked by
+    // nothing. The next ask decides whether that is worth revisiting.
     kernel!(gather_moe_aligned_inputs "moe::gather_moe_aligned_inputs_bf16", whole = true,
         operands = operands![
             norm_x: Buf,
@@ -361,16 +390,19 @@ pub static KERNELS: &[KernelSig] = &[
     // statement carries as its THIRD operand (`weighted_sum_add(x,
     // weights, residual)`); the plain spelling above writes a fresh
     // value and aliases nothing.
+    // The route count and the hidden width are the OPERAND's own dims:
+    // the reorder above it produces `[Tokens, top_k, hidden]`, so a row
+    // that reads them there needs neither a config nor a context field.
     kernel!(moe_weighted_sum_add "moe::token_batched_weighted_sum_add_bf16",
         in_place = &[(0, 2)],
         operands = operands![
-            out: BufMut,
-            src: Buf,
-            weights: F32s,
-            num_tokens: I32,
-            top_k: I32,
-            hidden: I32,
-            stream: Stream,
+            out: BufMut <- Source::Out(0),
+            src: Buf <- Source::In(0),
+            weights: F32s <- Source::In(1),
+            num_tokens: I32 <- Source::Rows,
+            top_k: I32 <- Source::InDim(0, 1),
+            hidden: I32 <- Source::InDim(0, 2),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // The routed MXFP4 GEMVs. Like qwen3_5's GEMV leg the expert axis
     // rides INSIDE the value, so each is one rectangle over `N * k`

@@ -21,6 +21,34 @@
 // caller's own switch runs. That residue is what is left of a family
 // executor, and it shrinks as arms land here — which is the measure
 // this file exists to make, rather than a claim it exists to support.
+//
+// ── WHERE AN ARM COMES FROM, and it is not this file ────────────────
+//
+// "A new kernel means one more case here" is the answer this design
+// exists to avoid. The answer it gives instead: the `kernel!` ROW says
+// where each argument comes from, and the arm is DERIVED —
+// `generated_dispatch.inc`, included below, one branch per fully-stated
+// row. A hand-written case here is the fallback, not the route.
+//
+// Two things that only became visible once arms started generating, and
+// both are the same shape — a REFUSAL that lived in an arm rather than
+// in the row it was about:
+//
+//   * The rope arms refuse a zero theta, because gemma-4 alternates
+//     theta per layer and says so by leaving the context field zero.
+//     The generated branch inherited the argument and not the refusal,
+//     and it runs FIRST — so it would have rotated half that model by
+//     nothing. `Source::CtxNonZero` moves the refusal into the row.
+//   * `Source::Rows` binds the FIRE's row count, which is not every
+//     statement's. The MoE aligned leg's rows are a padded block-major
+//     count, and a branch handing that kernel `N` activates the first N
+//     of them. `Source::OutRows` resolves the value's own extent, which
+//     is both the fix and the deletion of a formula five hand-written
+//     forwards restate.
+//
+// The rule they teach: a fact an arm KNOWS is a fact the row should
+// SAY, because an arm can be replaced by a generated one and a row
+// cannot.
 
 #include <cstdint>
 #include <cstring>
@@ -34,6 +62,14 @@
 #include "layout/deinterleave.hpp"
 #include "norm/residual_add.hpp"
 #include "norm/rmsnorm.hpp"
+// Headers the GENERATED half calls into. A row that states its sources
+// puts a call here, and the launcher has to be declared for it — which
+// is how this list grows and why it is not a curated one: the compiler
+// names the header the moment a row starts generating without it.
+#include "norm/altup_aux.hpp"
+#include "norm/dsv4_hc.hpp"
+#include "norm/scalar_mul.hpp"
+#include "ssm/gated_delta_net.hpp"
 #include "mlp/swiglu.hpp"
 #include "moe/moe_dispatch.hpp"
 #include "moe/topk_softmax.hpp"
@@ -132,6 +168,37 @@ struct ExecCtx {
     // Negative means this fire's layer has no cache slot, which is a
     // drift if a KV write is stated over it.
     int kv_layer = -1;
+
+    // ── THE ATTENTION PLAN, already resolved ────────────────────────
+    //
+    // A flashinfer dispatch takes a PLAN the prepare built, and which
+    // plan is the one thing about the dispatch that is not the
+    // statement's. Every family had its own answer and therefore its
+    // own copy of one call: llama_like and qwen3.5 read a `plan_state`,
+    // mixtral builds one per fire, gemma-4 keeps TWO and picks by
+    // whether the layer is full-attention or sliding — and llama_like
+    // swaps in a DEPTH-PREFIX plan for one launch per layer of a union
+    // tail.
+    //
+    // None of that is derivable here, and all of it is derivable
+    // there. So this follows `kv_layer`: the family resolves and hands
+    // the answer over, per op if it varies per op, and the arm takes a
+    // plan the way it takes `cublas` — given, never reached for.
+    //
+    // Null means "this fire built none", which is a drift if a dispatch
+    // is stated over it, and the arm says so by name.
+    const kernels::attn::DecodePlanCache* decode_plan = nullptr;
+    const kernels::attn::PrefillPlanCache* prefill_plan = nullptr;
+
+    // Where a dispatch writes when the statement declares no result.
+    //
+    // The GUARD-region spelling: a value-producing guard owns the
+    // output and its arms record none, so the destination is the
+    // guard's and only the family's walk knows which value that is.
+    // `lse_fallback`'s peer, and null is the honest default — an arm
+    // handed neither a result nor a fallback refuses rather than
+    // writing somewhere plausible.
+    void* attn_dst_fallback = nullptr;
 };
 
 // Run `op`'s arm if this file owns its symbol.
@@ -398,6 +465,63 @@ inline bool execute_shared(const ExecCtx& c,
         return true;
     }
 
+    // ── the PLANNED dispatches ─────────────────────────────────────
+    //
+    // One arm each, for the first time. These were four copies of one
+    // call: what differed between them was the PLAN, and the plan is
+    // now the context's — resolved by the family, which is the only
+    // party that can (see `decode_plan`).
+    //
+    // What survives as an argument rather than a fork: the window
+    // (stated), the softmax scale (the context's, because a pre-scaled
+    // query and a padded head dim are both the caller's business), and
+    // the destination when the statement declares none.
+    case Kernel::AttnFlashinferDecode: {
+        if (c.decode_plan == nullptr) return false;
+        if (c.kv_layer < 0) {
+            throw std::runtime_error(
+                "declared arm: a decode dispatch is stated over a layer "
+                "with no cache slot");
+        }
+        arm_attention_decode(c.arm, op, *c.decode_plan,
+                             c.cache.layer_view(c.kv_layer),
+                             c.kv_page_indices, c.kv_page_indptr,
+                             c.kv_last_page_lens, c.attn_ws.view(),
+                             stated_window_left(plan, op), c.sm_scale,
+                             c.lse_fallback, c.attn_dst_fallback);
+        return true;
+    }
+
+    case Kernel::AttnFlashinferPrefill: {
+        if (c.prefill_plan == nullptr) return false;
+        if (c.kv_layer < 0) {
+            throw std::runtime_error(
+                "declared arm: a prefill dispatch is stated over a layer "
+                "with no cache slot");
+        }
+        need(ins, 1, "prefill attention inputs");
+        // The guard-region spelling again: the arms of a value-producing
+        // guard record no result, so the destination is the guard's.
+        void* const dst = outs.size > 0 ? values.slot(outs[0])
+                                        : c.attn_dst_fallback;
+        if (dst == nullptr) {
+            throw std::runtime_error(
+                "declared arm: a prefill dispatch names no destination");
+        }
+        const auto kv_view = c.cache.layer_view(c.kv_layer);
+        // No `window_left` here, unlike the decode: this launcher takes
+        // none. A windowed deployment's prefill carries its window in
+        // the PLAN the prepare built, which is one more reason the plan
+        // belongs to the family rather than to this call.
+        kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
+            *c.prefill_plan, values.slot(ins[0]), kv_view.k_bf16_pages,
+            kv_view.v_bf16_pages, dst, c.qo_indptr, c.kv_page_indices,
+            c.kv_page_indptr, c.kv_last_page_lens, c.attn_ws.view(), stream,
+            /*logits_soft_cap=*/0.f, c.sm_scale,
+            outs.size >= 2 ? static_cast<float*>(values.slot(outs[1]))
+                           : c.lse_fallback);
+        return true;
+    }
 
     default:
         return false;

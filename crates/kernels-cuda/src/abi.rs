@@ -383,12 +383,23 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
             format!("{ctx}.wb.require({ctx}.arm.plan.name(aux[{i}])).data()")
         }
         Source::Param(i) => format!("static_cast<int>(ps[{i}])"),
+        Source::ParamF32(i) => format!("f32_param(ps[{i}])"),
         Source::Rows => format!("{ctx}.arm.rows"),
+        Source::OutRows(i) => format!(
+            "value_rows({ctx}.arm.plan, outs[{i}], {ctx}.arm.rows, {ctx}.num_requests)"
+        ),
+        Source::InRows(i) => format!(
+            "value_rows({ctx}.arm.plan, ins[{i}], {ctx}.arm.rows, {ctx}.num_requests)"
+        ),
         Source::OutWidth(i) => format!("row_width({ctx}.arm.plan, outs[{i}])"),
         Source::InWidth(i) => format!("row_width({ctx}.arm.plan, ins[{i}])"),
         Source::OutElements(i) => format!(
             "static_cast<::std::size_t>({ctx}.arm.rows) * \
              static_cast<::std::size_t>(row_width({ctx}.arm.plan, outs[{i}]))"
+        ),
+        Source::InElements(i) => format!(
+            "static_cast<::std::size_t>({ctx}.arm.rows) * \
+             static_cast<::std::size_t>(row_width({ctx}.arm.plan, ins[{i}]))"
         ),
         Source::InDim(i, d) => format!(
             "static_cast<int>({ctx}.arm.plan.value(ins[{i}]).dims[{d}].value)"
@@ -396,7 +407,7 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
         Source::OutDim(i, d) => format!(
             "static_cast<int>({ctx}.arm.plan.value(outs[{i}]).dims[{d}].value)"
         ),
-        Source::Ctx(f) => format!("{ctx}.{f}"),
+        Source::Ctx(f) | Source::CtxNonZero(f) => format!("{ctx}.{f}"),
         Source::Lit(l) => l.to_string(),
     };
     // The generated call goes through the flat ABI entry point, whose
@@ -405,6 +416,17 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
     Some(match op.ty {
         kernels::Ty::Buf | kernels::Ty::BufMut => e,
         kernels::Ty::I32sMut => format!("static_cast<::std::int32_t*>({e})"),
+        // The read-only element-typed arrays. A slot hands back `void*`
+        // and the callee takes `const int32_t*`; without the cast the
+        // generated call does not compile, which is the table's own
+        // point — the DECLARED width is what makes a substitution an
+        // error rather than a stride bug.
+        kernels::Ty::I32s => format!("static_cast<const ::std::int32_t*>({e})"),
+        kernels::Ty::U32s => format!("static_cast<const ::std::uint32_t*>({e})"),
+        kernels::Ty::U8s => format!("static_cast<const ::std::uint8_t*>({e})"),
+        kernels::Ty::I64s => format!("static_cast<const ::std::int64_t*>({e})"),
+        kernels::Ty::U32sMut => format!("static_cast<::std::uint32_t*>({e})"),
+        kernels::Ty::U8sMut => format!("static_cast<::std::uint8_t*>({e})"),
         kernels::Ty::F32sMut => format!("static_cast<float*>({e})"),
         kernels::Ty::F32s => format!("static_cast<const float*>({e})"),
         _ => e,
@@ -452,15 +474,20 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
         let mut need_ps = 0u8;
         for o in k.operands {
             match o.source {
-                Source::In(i) | Source::InWidth(i) | Source::InDim(i, _) => {
-                    need_in = need_in.max(i + 1)
-                }
+                Source::In(i)
+                | Source::InRows(i)
+                | Source::InElements(i)
+                | Source::InWidth(i)
+                | Source::InDim(i, _) => need_in = need_in.max(i + 1),
                 Source::Out(i)
+                | Source::OutRows(i)
                 | Source::OutWidth(i)
                 | Source::OutDim(i, _)
                 | Source::OutElements(i) => need_out = need_out.max(i + 1),
                 Source::Weight(i) => need_aux = need_aux.max(i + 1),
-                Source::Param(i) => need_ps = need_ps.max(i + 1),
+                Source::Param(i) | Source::ParamF32(i) => {
+                    need_ps = need_ps.max(i + 1)
+                }
                 _ => {}
             }
         }
@@ -473,6 +500,38 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
         ] {
             if n > 0 {
                 guard.push_str(&format!(" && {span}.size >= {n}"));
+            }
+        }
+        // WHAT `Source::Rows` ASSUMES, made part of the match.
+        //
+        // `Rows` binds the RECTANGLE's row count, which is the fire's
+        // token count. That is the right answer only for a statement
+        // whose rows ARE tokens, and not every statement's are: the
+        // aligned MoE leg's values are `Dim::MoeAlignedRoutes`, a padded
+        // block-major extent, and a branch handing that kernel `N`
+        // activates the first N of the padded rows and leaves the rest
+        // holding whatever the GEMM wrote.
+        //
+        // qwen3.5's routed swiglu is exactly that statement, and it
+        // reached this generated branch before its family's arm — which
+        // computes the padded count — could see it. So the branch tests
+        // the assumption it is making, and a statement that does not
+        // meet it falls through to the arm that knows the other extent.
+        // A field a family zeroes to say "not mine" — see
+        // `Source::CtxNonZero`. The guard is the row's, not the reading
+        // arm's, which is what makes it survive the arm being generated.
+        for o in k.operands {
+            if let Source::CtxNonZero(f) = o.source {
+                guard.push_str(&format!(" && {ctx}.{f} != 0"));
+            }
+        }
+        if k.operands.iter().any(|o| o.source == Source::Rows) {
+            let probe = if need_out > 0 { "outs[0]" } else { "ins[0]" };
+            if need_out > 0 || need_in > 0 {
+                guard.push_str(&format!(
+                    " && c.arm.plan.value({probe}).dims[0].kind == \
+                     pie_forward::PieForwardDimKind::Tokens"
+                ));
             }
         }
         // KEYED BY NAME, not by an enumerator. The registry's enum

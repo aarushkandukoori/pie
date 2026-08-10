@@ -17,6 +17,7 @@
 // a buffer, because buffer assignment is a backend job that was written as
 // family convention) replaces the routing conventions.
 
+#include <bit>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -124,6 +125,63 @@ inline int row_width(const pie_forward::ForwardPlan& plan,
         out *= val.dims[d].value;
     }
     return static_cast<int>(out);
+}
+
+// A FLOAT out of the param channel.
+//
+// `aux_params` is untyped `u32` — "what each slot means is the SYMBOL's
+// contract" — so a statement carrying a scale carries its BITS. This is
+// the read; `std::bit_cast` rather than a union or a reinterpret, so it
+// is one constant-folded move and not a strict-aliasing question.
+inline float f32_param(std::uint32_t bits) {
+    return std::bit_cast<float>(bits);
+}
+
+// A VALUE'S LEADING EXTENT, resolved for this fire.
+//
+// `row_width` above answers "how wide is a row of this"; this answers
+// "how many rows", and the two together are what a row-shaped launcher
+// takes. Most values answer `Tokens` and the rectangle's count is
+// already the answer — which is why `Source::Rows` existed first and
+// covers most rows.
+//
+// The case it does NOT cover is the MoE aligned leg. Its values are
+// `Dim::MoeAlignedRoutes`: every (token, expert) route bucketed by
+// expert and each bucket padded to a whole block, so the extent is
+// `ceil((N·k + min(E, N·k)·(block-1)) / block) · block` — a function of
+// the fire's token count and three load-time numbers, and the one
+// extent in the tree that is neither the fire's rows nor a constant.
+// The dim PACKS those three into its `value` word (see
+// `PieForwardDimKind::MoeAlignedRoutes`), so this is the whole of what
+// it takes to resolve, and it is the only place in the driver that
+// does — five hand-written forwards restate the formula, and each
+// restatement is a place it can drift.
+inline int value_rows(const pie_forward::ForwardPlan& plan,
+                      std::uint32_t id, int fire_rows, int fire_requests) {
+    const auto& val = plan.value(id);
+    if (val.rank == 0) return fire_rows;
+    const auto& d0 = val.dims[0];
+    switch (d0.kind) {
+    case pie_forward::PieForwardDimKind::Tokens:
+        return fire_rows;
+    case pie_forward::PieForwardDimKind::Requests:
+        return fire_requests;
+    case pie_forward::PieForwardDimKind::Const:
+        return static_cast<int>(d0.value);
+    case pie_forward::PieForwardDimKind::MoeAlignedRoutes: {
+        const int block = static_cast<int>(d0.value & 0xffu);
+        const int experts = static_cast<int>((d0.value >> 8) & 0xffffu);
+        const int top_k = static_cast<int>((d0.value >> 24) & 0xffu);
+        if (block <= 0) {
+            throw std::runtime_error(
+                "declared arm: an aligned extent packs a zero block size");
+        }
+        const int routes = fire_rows * top_k;
+        const int cap = std::min(experts, routes);
+        return ((routes + cap * (block - 1) + block - 1) / block) * block;
+    }
+    }
+    return fire_rows;
 }
 
 // THIS LAYER'S SLIDING WINDOW, off the statement.
