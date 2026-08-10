@@ -23,7 +23,14 @@ pub static KERNELS: &[KernelSig] = &[
         operands = operands![
             packed: Buf <- Source::In(0),
             y: BufMut <- Source::Out(0),
-            n: I32 <- Source::Rows,
+            // `OutRows`, not `Rows`: THREE callers share this kernel and
+            // one of them is the routed MoE leg, whose rows are the
+            // padded block-major count rather than the fire's tokens.
+            // Binding the fire's would have activated the first N of the
+            // padded rows and left the rest holding whatever the GEMM
+            // wrote — which is what the arm computing `aligned_rows` by
+            // hand was for, and what the row says instead.
+            n: I32 <- Source::OutRows(0),
             i: I32 <- Source::OutWidth(0),
             stream: Stream <- Source::Ctx("arm.stream"),
             gate_second: Bool <- Source::Lit("false"),

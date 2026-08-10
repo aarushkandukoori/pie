@@ -455,7 +455,23 @@ pub enum Source {
     /// The `i`-th scalar the statement carries (`Launch`'s params).
     Param(u8),
     /// The rectangle's row count.
+    ///
+    /// The fire's, and only right for a statement whose rows ARE the
+    /// fire's — which is most of them and not all. Where a value's own
+    /// leading extent is the answer, [`Source::OutRows`] says so and
+    /// covers this case too.
     Rows,
+    /// The `i`-th result's LEADING extent, resolved for this fire.
+    ///
+    /// `Rows` for a token-shaped value, a constant for a fixed one, and
+    /// for the MoE aligned path the padded block-major count — which is
+    /// `Dim::MoeAlignedRoutes`, the one extent in the tree that is
+    /// neither the fire's rows nor a load-time number. Five hand-written
+    /// forwards restate the formula for it; a row that says `OutRows`
+    /// gets it from the one place that computes it.
+    OutRows(u8),
+    /// The same for the `i`-th operand.
+    InRows(u8),
     /// The trailing-dims product of the `i`-th result — what a row of
     /// it is worth in elements.
     OutWidth(u8),

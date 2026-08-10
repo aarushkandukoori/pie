@@ -1962,67 +1962,16 @@ case PieForwardOpKind::Launch: {
             // arm reads them off the plan. Only the dense MLP states
             // it -- the routed and shared legs always bind packed
             // banks and take the chunked kernel below.
-            case declared::Kernel::ChunkedSwiglu: {
-                // Three callers share this kernel: the dense MLP's, the
-                // routed leg's (block-major rows) and the shared expert's
-                // (token rows). The operand's OWN extent tells them apart --
-                // not a counter, and not the intermediate width, which the
-                // routed and shared banks can and do share.
-                const auto ins = plan.inputs(op);
-                // An operand-less spelling used to fall into the routed
-                // arm and take its buffers by convention. With the
-                // buffers coming off the statement there is nothing for
-                // it to bind, so it refuses instead of picking one of
-                // three legs by elimination.
-                need(ins, 1, "swiglu inputs");
-                const bool aligned_rows_in =
-                    plan.value(ins[0]).dims[0].kind ==
-                    pie_forward::PieForwardDimKind::MoeAlignedRoutes;
-                if constexpr (!kIsDense) {
-                    if (aligned_rows_in) {
-                        if (moe_ws == nullptr) {
-                            throw_drift("the MoE leg needs its workspace");
-                        }
-                        Qwen3_5MoeMlpWorkspace& mw = *moe_ws;
-                        const int Im = cfg.moe_intermediate_size;
-                        const int routes = N * cfg.num_experts_per_tok;
-                        const int block = mw.aligned_block_size;
-                        const int cap = std::min(cfg.num_experts, routes);
-                        const int aligned_rows =
-                            ((routes + cap * (block - 1) + block - 1) / block) *
-                            block;
-                        // ISLAND (value arena). The ROW COUNT is still
-                        // the formula's -- `MoeAlignedRoutes` is a padded
-                        // extent the lowering sizes but does not report
-                        // back per fire -- and the BUFFERS are the
-                        // statement's, which is what told the routed leg
-                        // apart from the shared one to begin with.
-                        const auto souts = plan.outputs(op);
-                        need(souts, 1, "routed swiglu outputs");
-                        kernels::mlp::chunked_swiglu_bf16(
-                            values.slot(ins[0]), values.slot(souts[0]),
-                            aligned_rows, Im, stream);
-                        break;
-                    }
-                }
-                // ISLAND (value arena). TWO callers land here, and they
-                // are one arm: the dense MLP's and the shared expert's.
-                // Both run over token rows, so the row count is the
-                // fire's and the width is the value's -- what
-                // distinguished them was only which buffers they named,
-                // and the shared leg's were a SPLIT island besides
-                // (`mw.shared_gate_up` while the projection above wrote
-                // the arena). What still tells the routed leg apart is
-                // its operand's own extent, above, which is the one
-                // question a width could never answer: the routed and
-                // shared banks can and do share an intermediate.
-                const auto outs = plan.outputs(op);
-                need(outs, 1, "swiglu outputs");
-                kernels::mlp::chunked_swiglu_bf16(
-                    values.slot(ins[0]), values.slot(outs[0]), N,
-                    row_width(outs[0]), stream);
-                break;
-            }
+            // The CHUNKED SWIGLU generates, and all three of its
+            // callers with it -- the dense MLP's, the shared expert's
+            // and the routed leg's.
+            //
+            // Three arms, because three answers to "how many rows".
+            // Dense and shared run over tokens; the routed leg runs over
+            // the padded block-major count, and this executor computed
+            // that from a formula it kept beside four other copies. The
+            // row says `OutRows` now, so the count comes off the value's
+            // own leading extent and the three arms are one.
             // ── The aligned MoE leg ──────────────────────────────────
             //
             // MoE-only, so the whole group is fenced: a dense weights type
