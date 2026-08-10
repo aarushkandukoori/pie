@@ -1426,6 +1426,41 @@ pub fn dispatch<R: Resolver>(
         }
         // args: [k_curr, v_curr]; the layer view, the CSRs and the fire
         // scalars are the fire's.
+        // args: [k_curr, v_curr]. The write-descriptor spelling: the fire
+        // steers a graph replay, so the destination page and offset of
+        // every row are DESCRIPTORS the host published rather than
+        // something the kernel derives from the CSRs. `HasWriteDesc` is
+        // the guard that picks it, and `AttnCtx` already carried the three
+        // descriptor arrays — the arm was simply never written, because
+        // nothing in the corpus set the mark.
+        "attn::write_kv_explicit_bf16" => {
+            need(2)?;
+            let a = attn
+                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
+            let layer = a
+                .layers
+                .get(bound.layers.start as usize)
+                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
+            if a.w_page_d.is_null() || a.w_off_d.is_null() {
+                return Err(DispatchRefusal::NoAttnCtx(format!(
+                    "{}: the fire published no write descriptors",
+                    bound.kernel
+                )));
+            }
+            let (k_curr, v_curr) = (bound.args[0], bound.args[1]);
+            unsafe {
+                ffi::pie_k_attn_write_kv_explicit_bf16(
+                    *layer,
+                    k_curr.ptr,
+                    v_curr.ptr,
+                    a.w_page_d,
+                    a.w_off_d,
+                    rows,
+                    ctx.stream,
+                    a.row_valid_d,
+                );
+            }
+        }
         "attn::write_kv_to_pages" => {
             need(2)?;
             let a = attn

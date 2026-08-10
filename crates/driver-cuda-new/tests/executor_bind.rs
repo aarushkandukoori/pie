@@ -882,6 +882,25 @@ fn hooked_lowered(rows: usize) -> Lowered {
 /// is the point: a `GuardPred` no row satisfies removes its arm before
 /// the kernel list is built, so an axis with no fire in this corpus is an
 /// axis whose symbols are outside the closed set entirely.
+/// The UNION lowering: every guard arm present, nothing decided.
+///
+/// The one corpus entry that is not a fire shape but a MODE. A union
+/// capture records every arm and lets a conditional decide at replay, so
+/// every arm has to exist — and an arm that only a guard's losing side
+/// states is invisible to every lowering above, because `Resolve` deletes
+/// it before the kernel list is built.
+fn union_lowered(rows: usize) -> Lowered {
+    let plan = plan_of(FireClass::Decode);
+    let r: Vec<Row> = vec![Row { samples: true, ..Row::default() }; rows];
+    model_compiler::lower::lower_with(
+        &plan,
+        &r,
+        Fire { captures_across_splits: false },
+        model_compiler::lower::GuardMode::Union,
+    )
+    .expect("the union lowers")
+}
+
 fn every_mark_lowered(rows: usize) -> Lowered {
     let plan = plan_of(FireClass::Decode);
     let r: Vec<Row> = vec![
@@ -990,6 +1009,7 @@ fn every_lowered_symbol_has_an_arm() {
         masked_lowered(4),
         hooked_lowered(4),
         every_mark_lowered(4),
+        union_lowered(4),
     ] {
         every.extend(l.kernels.iter().cloned());
     }
@@ -1058,16 +1078,25 @@ fn every_lowered_symbol_has_an_arm() {
         //    windowed rectangle and every arm binds base pointers plus a
         //    count. See `bridge_smoke`'s ignored peel gate.
         "attn::dispatch_attention_flashinfer_prefill_custom",
-        // ── The WRITE-DESCRIPTOR axis: what a fire states when it steers
-        //    a graph replay, so its KV write takes explicit descriptors
-        //    instead of deriving them. Note the second one — the trace
-        //    already knows there is a `_capture` spelling of the decode
-        //    dispatch, and the executor does not. These joined when the
-        //    corpus gained a fire carrying every row mark; before that,
-        //    `write_desc` had no fire and its symbols were outside the
-        //    closed set rather than inside it as gaps.
+        // ── The ATTENTION-SCORE axis (`WantsAttnScore`). `_capture` here
+        //    means capturing SCORES, not capturing a graph — the row takes
+        //    `score_out` and `score_indptr_d` on top of the ordinary
+        //    decode dispatch's operands, and `AttnCtx` carries neither.
+        //
+        //    It joined when the corpus gained a fire carrying every row
+        //    mark, alongside `attn::write_kv_explicit_bf16` (which LEFT
+        //    the same day: `AttnCtx` already had its three descriptor
+        //    arrays, so that arm was twenty lines nobody had written
+        //    because no fire in the corpus set the mark).
+        //
+        //    This one is the last thing between here and a union capture
+        //    of llama_like's decode, and it is not just an arm. Scores are
+        //    a FOLDED predicate — slot 3 — so one exec has to serve a fire
+        //    that wants them and a fire that does not, which means the
+        //    score buffers must be fire-stable and real at capture time.
+        //    Recording nulls would fault the moment the predicate went
+        //    true. Same shape as the lora slab.
         "attn::dispatch_attention_flashinfer_decode_capture",
-        "attn::write_kv_explicit_bf16",
         // ── kimi_k3: KDA, the per-key-channel delta rule ──────────────
         //
         // `ssm::bf16_to_fp32` left this list without an arm being

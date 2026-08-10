@@ -517,73 +517,69 @@ fn a_resolved_walk_captures_and_replays() {
     zero_weight_decode(Leg::Captured);
 }
 
-/// The constraint the union imposes on the arms, pinned as a closed set.
+/// **A5, at one lane: the UNION captured and replayed on real geometry.**
 ///
-/// A union capture records EVERY arm, including the ones this fire's
-/// predicates are false for -- that is the whole point, since the
-/// conditional is what decides at replay. So an arm must be ISSUABLE
-/// even when its predicate does not hold.
+/// Everything else proves a piece. `gpu_supergraph` proves the mechanism
+/// against memsets; `union_lower` proves the launch list, GPU-free;
+/// `a_resolved_walk_captures_and_replays` proves a capture of an
+/// already-decided program. This one keeps every guard, records every arm
+/// into conditional bodies, arms the predicates from a device word, and
+/// then asks the only question that matters: does the same decode come
+/// out?
 ///
-/// Some are not. `pie_lora_qkv_correction` refuses when the fire staged
-/// no adapters, which under `Resolve` is unreachable (the guard removed
-/// the arm) and under `Union` is exactly the case that has to record. The
-/// arm is safe to record with a null state precisely BECAUSE the
-/// conditional guarding it reads the same fact the refusal does -- but
-/// nothing has taught it that yet.
+/// The arena is wiped between the capture and the replay, so the residual
+/// and logit invariants can only be met by work the replay did — through
+/// the conditionals, off the predicate word.
 ///
-/// This is the C++ arc's S4 "LoRA capture-safety" item, arrived at from
-/// the other direction. The list is closed and this test is how it stays
-/// closed: an arm that learns to record leaves it, and an arm that starts
-/// refusing joins it before it can surprise a capture.
+/// What it is NOT yet is A5 in full: the plan asks for byte-identity
+/// across CONCURRENT structurally-distinct lanes, which needs more than
+/// one fire in flight. This is the single-lane form, and it is the one
+/// that had to work first.
+///
+/// # Why this is `ignore`d
+///
+/// llama_like's union states
+/// `attn::dispatch_attention_flashinfer_decode_capture` — the
+/// SCORE-capturing decode dispatch, which `WantsAttnScore` selects — and
+/// nothing arms it. `AttnCtx` carries no `score_out` or `score_indptr_d`.
+///
+/// And an arm alone would not be enough, which is the part worth knowing
+/// before someone starts. Scores are a FOLDED predicate (slot 3), so one
+/// exec must serve a fire that wants them and a fire that does not;
+/// recording the arm with null score buffers would fault the instant the
+/// predicate went true. The buffers have to be real and fire-stable at
+/// capture time — the same conclusion the lora slab forced, for the same
+/// reason.
+///
+/// The warm-up is also wrong for this leg as written: it walks the UNION
+/// eagerly, which runs both sides of every guard over the same rows. A
+/// warm-up exists only to make the launchers allocate their workspaces,
+/// so it should walk a RESOLVED lowering and the capture should take the
+/// union.
 #[test]
-fn the_union_capture_needs_every_arm_issuable() {
-    use driver_cuda_new::model::executor::{RunRefusalKind, DispatchRefusal};
-
-    /// Arms that cannot yet be issued with their predicate false.
-    ///
-    /// `pie_lora_qkv_correction` LEFT this list on 2026-08-10, by
-    /// answering instead of refusing: no adapters staged means no
-    /// correction, which is a result and not a missing capability. The
-    /// bucket key is what makes that safe rather than merely quiet —
-    /// `lora_shape` is zero for a fire with none, so an exec recorded that
-    /// way serves only fires that also have none.
-    ///
-    /// What it revealed underneath is the WRITE-DESCRIPTOR axis. A fire
-    /// that steers a graph replay states `attn::write_kv_explicit_bf16`,
-    /// and nothing serves it — the probe finds these one at a time because
-    /// each guard axis has its own, which is the same lesson `UNARMED`
-    /// learned this morning from the other direction.
-    const NOT_YET_ISSUABLE: &[&str] = &["attn::write_kv_explicit_bf16"];
-
-    let Some((kernel, why)) = union_walk_refusal() else {
-        assert!(
-            NOT_YET_ISSUABLE.is_empty(),
-            "every arm is issuable, but NOT_YET_ISSUABLE still names some"
-        );
-        return;
-    };
-    assert!(
-        NOT_YET_ISSUABLE.contains(&kernel.as_str()),
-        "a NEW arm refuses under the union: {kernel} ({why:?}). Either make \
-         it issuable with a false predicate, or add it to NOT_YET_ISSUABLE \
-         so the gap is closed rather than discovered by a capture."
-    );
-    assert!(
-        matches!(why, RunRefusalKind::Dispatch(DispatchRefusal::NoArm(_))),
-        "expected a NoArm refusal, got {why:?}"
-    );
+#[ignore = "the union states the score-capturing decode dispatch; see the doc comment"]
+fn the_union_captures_and_replays_the_same_decode() {
+    zero_weight_decode(Leg::CapturedUnion);
 }
 
-/// Lower the anchor decode with every guard KEPT and walk it eagerly,
-/// returning the first arm that refuses to be issued.
+/// Every arm the union states is now armed, and that claim moved.
 ///
-/// Eager rather than captured on purpose: the question is whether the ARM
-/// can be issued at all with its predicate false, and a capture would
-/// answer it by aborting the process (a C++ `throw` crossing `extern "C"`)
-/// rather than by returning a refusal one can read.
-fn union_walk_refusal() -> Option<(String, driver_cuda_new::model::executor::RunRefusalKind)> {
-    zero_weight_decode(Leg::UnionProbe)
-}
+/// This file used to carry a runtime probe: lower with every guard KEPT,
+/// walk eagerly, and report the first arm that refused. It found the two
+/// gaps it was built for — `pie_lora_qkv_correction`, which refused when a
+/// fire staged no adapters, and `attn::write_kv_explicit_bf16`, which had
+/// no arm at all — and then it could not survive its own success. With
+/// everything armed, walking a union EAGERLY runs both sides of every
+/// guard over the same rows, which is not a meaningful program: the
+/// explicit KV write and the CSR-derived one both fire, and the fire
+/// faults rather than refusing.
+///
+/// So the check is static now and lives where the other closed set does:
+/// `executor_bind`'s corpus gained a `union_lowered` entry, so an arm that
+/// only a guard's losing side states is inside `UNARMED` rather than
+/// invisible to it. What a static check cannot see is an arm that EXISTS
+/// and refuses at runtime, which is what the lora one did — that is
+/// covered by actually capturing a union, which is A5.
 
 /// Which leg of the zero-weight decode to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -593,22 +589,21 @@ enum Leg {
     /// Resolve the guards, warm up, WIPE, capture, replay, assert the
     /// same invariants against what the replay alone produced.
     Captured,
-    /// Keep the guards and walk eagerly, reporting the first arm that
-    /// cannot be issued with its predicate false. Asserts nothing.
-    UnionProbe,
+    /// KEEP the guards and capture. The union records every arm and lets
+    /// a conditional decide at replay, so this is the leg that asks
+    /// whether the whole design produces the right numbers — not the
+    /// mechanism in isolation (`gpu_supergraph`) and not the launch list
+    /// in isolation (`union_lower`).
+    CapturedUnion,
     /// A fire whose LAST TWO ROWS carry attached programs, which makes
-    /// `lower` split it on the hook axis. The tail region then addresses
-    /// rows at absolute offsets and takes `_devwin` statements, so this is
-    /// the only leg that exercises a peel at all.
-    ///
-    /// No programs are actually attached, so the two regions compute the
-    /// same thing the unpeeled fire does — which is exactly why it is a
-    /// good gate: the invariants below must come out unchanged, and a
-    /// devwin launch that read the wrong window would change them.
+    /// `lower` split it on the hook axis. The tail then addresses rows at
+    /// absolute offsets, takes `_devwin` statements, and needs its own
+    /// prepared attention state — so this is the only leg that exercises
+    /// a peel.
     Hooked,
 }
 
-fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::executor::RunRefusalKind)> {
+fn zero_weight_decode(leg: Leg) {
     use std::collections::BTreeMap;
 
     use driver_cuda_new::cuda::cublas::{CublasHandle, LiveCublas};
@@ -624,7 +619,7 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
     use model_compiler::trace::{FireClass, ValueId};
 
     let _gpu = gpu_guard();
-    let Some(_dev) = device_or_skip("full zero-weight decode") else { return None };
+    let Some(_dev) = device_or_skip("full zero-weight decode") else { return };
     let stream = OwnedStream::new(0).expect("stream");
     let raw_stream = stream.as_ref().as_raw().cast::<std::ffi::c_void>();
     let mut alloc = Allocator::new();
@@ -657,7 +652,7 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
     }
     // The captured leg KEEPS every guard: that is what makes one capture
     // able to serve fires that differ in their variant bits.
-    let mode = if leg == Leg::UnionProbe { GuardMode::Union } else { GuardMode::Resolve };
+    let mode = if leg == Leg::CapturedUnion { GuardMode::Union } else { GuardMode::Resolve };
     let l = lower_with(&plan, &rows, Fire { captures_across_splits: false }, mode)
         .expect("lowers");
     let dplan = DispatchPlan::new(&plan, &l);
@@ -971,23 +966,17 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
             logits_value = Some(*value);
         }
     }
-    if leg == Leg::UnionProbe {
-        let refusal = run(&l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), None)
-            .err()
-            .map(|e| (e.kernel, e.why));
-        stream.as_ref().synchronize().ok();
-        ws.release(&mut sops);
-        cublas.release(&mut cublas_ops);
-        return refusal;
-    }
-
-    let ran = if leg == Leg::Captured {
+    let ran = if leg == Leg::Captured || leg == Leg::CapturedUnion {
         use driver_cuda_new::cuda::{PredicateWord, SupergraphBuilder};
         use driver_cuda_new::model::supergraph::fire_predicates;
 
         // The word is filled and uploaded BEFORE the capture opens: the
         // host decides the fire's bits, the graph reads them.
         let mut preds = PredicateWord::new(&alloc).expect("predicate word");
+        // Under `Union` the conditionals are real and this word is what
+        // decides them; under `Resolve` the tree is empty and it decides
+        // nothing. The same call serves both, which is the point of
+        // `fire_predicates` reading the tree rather than a fire's flags.
         fire_predicates(&rows, &l.conds, &mut preds).expect("the fire's bits");
         preds.upload(stream.as_ref()).expect("upload");
         stream.as_ref().synchronize().expect("the word lands before the capture");
@@ -1070,7 +1059,6 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
 
     ws.release(&mut sops);
     cublas.release(&mut cublas_ops);
-    None
 }
 
 /// The FULL prefill: the decode walk's twin over `qwen3_0_6b`'s real
