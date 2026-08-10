@@ -420,6 +420,58 @@ pub struct Operand {
     /// `row_valid` says "may be null" in a comment today, and a comment is
     /// not something a binding can be generated from.
     pub nullable: bool,
+    /// WHERE the value comes from when a driver binds this slot.
+    ///
+    /// The signature says what TYPE goes here and the row's arity says
+    /// how many; neither says that `q` is the statement's first OUTPUT
+    /// and `positions` is the fire's. That correspondence is what every
+    /// hand-written arm encodes, one arm at a time, and it is the last
+    /// thing standing between a table that describes a call and a table
+    /// a call can be GENERATED from.
+    ///
+    /// [`Source::Unbound`] — the default — means the row has not said,
+    /// and a generator skips it exactly as it skips a row with no
+    /// operands. Filling it is per-row work like the signature was.
+    pub source: Source,
+}
+
+/// Where a bound argument comes from.
+///
+/// The vocabulary is deliberately small and describes the STATEMENT and
+/// the FIRE, never a family: an operand that could only be sourced from
+/// a workspace field is an operand whose arm is not shareable, which is
+/// the same boundary `ExecCtx` draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// The row has not stated it; nothing may be generated from this.
+    Unbound,
+    /// The statement's `i`-th operand, as a device pointer.
+    In(u8),
+    /// The statement's `i`-th result, as a device pointer.
+    Out(u8),
+    /// The `i`-th weight the statement NAMES, resolved through the
+    /// binder.
+    Weight(u8),
+    /// The `i`-th scalar the statement carries (`Launch`'s params).
+    Param(u8),
+    /// The rectangle's row count.
+    Rows,
+    /// The trailing-dims product of the `i`-th result — what a row of
+    /// it is worth in elements.
+    OutWidth(u8),
+    /// The same for the `i`-th operand.
+    InWidth(u8),
+    /// Dimension `d` of the `i`-th result, which is how a head count
+    /// reaches a launcher: the shape says `[Tokens, heads, dim]`.
+    OutDim(u8, u8),
+    /// A named field of the executing context — the stream, the
+    /// handle, `eps`, the head geometry. The name is the C++ member,
+    /// and a context that does not have it does not compile.
+    Ctx(&'static str),
+    /// A literal, spelled as C++ spells it. For the arguments a
+    /// launcher takes that no statement and no context carries — an
+    /// `interleaved` flag a family never sets, a `beta` of zero.
+    Lit(&'static str),
 }
 
 /// One kernel's contract.
@@ -669,13 +721,16 @@ macro_rules! kernel {
 /// depend on macro lookahead rather than on anything a reader can see.
 #[macro_export]
 macro_rules! operands {
-    ($($name:ident : $ty:ident $(| $null:ident)?),* $(,)?) => {
+    ($($name:ident : $ty:ident $(| $null:ident)? $(<- $src:expr)?),* $(,)?) => {
         &[$($crate::Operand {
             name: stringify!($name),
             ty: $crate::Ty::$ty,
             nullable: $crate::operands!(@nullable $($null)?),
+            source: $crate::operands!(@source $($src)?),
         }),*]
     };
+    (@source) => { $crate::Source::Unbound };
+    (@source $src:expr) => { $src };
     (@nullable) => { false };
     (@nullable null) => { true };
 }

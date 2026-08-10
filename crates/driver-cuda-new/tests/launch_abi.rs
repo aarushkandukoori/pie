@@ -302,6 +302,33 @@ fn every_ssm_row_states_its_launcher_exactly() {
     }
 }
 
+/// The generated DISPATCH, which is what the shim was proved for.
+///
+/// A row that states its operand types AND where each argument comes
+/// from is a row the call can be derived from — so the arm nobody
+/// writes is the arm nobody writes wrong. This prints what comes out
+/// for the rows that have said both.
+#[test]
+fn the_dispatch_generates_from_rows_that_state_their_sources() {
+    let text = kernels_cuda::abi::emit_dispatch(
+        &[
+            kernels_cuda::rope::KERNELS,
+            kernels_cuda::norm::KERNELS,
+            kernels_cuda::mlp::KERNELS,
+        ],
+        "c",
+    );
+    let cases = text.matches("if (sym == ").count();
+    eprintln!("{text}");
+    eprintln!("generated {cases} dispatch case(s)");
+    // A generator that produced nothing would pass every other
+    // assertion here, so the floor is the assertion.
+    assert!(
+        cases >= 1,
+        "no row states its sources, so nothing was generated"
+    );
+}
+
 /// The pilot itself: every stated `rope` row describes its launcher exactly.
 #[test]
 fn every_rope_row_states_its_launcher_exactly() {
@@ -611,7 +638,7 @@ fn a_wrong_row_does_not_compile() {
         ("the stream is dropped", ops[..ops.len() - 1].to_vec()),
         ("an operand is invented", {
             let mut v = ops.to_vec();
-            v.insert(5, Operand { name: "extra", ty: Ty::I32, nullable: false });
+            v.insert(5, Operand { name: "extra", ty: Ty::I32, nullable: false, source: kernels::Source::Unbound });
             v
         }),
         ("q and k_weight trade places", swap(0, 3)),
