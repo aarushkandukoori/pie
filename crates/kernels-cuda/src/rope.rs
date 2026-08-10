@@ -5,6 +5,7 @@
 
 use kernels::KernelSig;
 use kernels::{kernel, operands};
+use kernels::Source;
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
@@ -27,13 +28,22 @@ pub static KERNELS: &[KernelSig] = &[
         // symbol now, and a host that assigns addresses reads the pair
         // list off the row.
         in_place = &[(0, 0), (1, 1)],
+        // WHERE EACH ARGUMENT COMES FROM, so the arm is generated
+        // rather than written. `interleaved` is a literal because no
+        // statement and no context carries it: the families that pass
+        // `true` (GLM, MLA) are not declared, and a row that pretended
+        // otherwise would be guessing on their behalf.
         operands = operands![
-            q: BufMut, k: BufMut,
-            positions: I32s,
-            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32, head_dim: I32,
-            theta: F32,
-            stream: Stream,
-            interleaved: Bool,
+            q: BufMut <- Source::Out(0),
+            k: BufMut <- Source::Out(1),
+            positions: I32s <- Source::Ctx("positions"),
+            num_tokens: I32 <- Source::Rows,
+            num_q_heads: I32 <- Source::Ctx("num_q_heads"),
+            num_kv_heads: I32 <- Source::Ctx("num_kv_heads"),
+            head_dim: I32 <- Source::Ctx("head_dim"),
+            theta: F32 <- Source::Ctx("rope_theta"),
+            stream: Stream <- Source::Ctx("arm.stream"),
+            interleaved: Bool <- Source::Lit("false"),
         ]),
     // Norms AND rotates q and k where they lie -- `BufMut` on both, and
     // no destination to give them another. The `_rounded` twin below has
