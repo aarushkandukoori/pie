@@ -1782,13 +1782,27 @@ pub mod metal {
             vec![w.name.clone()],
             None,
             // `RmsParams`, field for field: eps, axis_size, w_stride,
-            // plus_one, gain. The weight is one row so its stride is the
-            // axis; `plus_one` is the `(1 + w)` reading gemma takes and this
-            // family does not; the gain is unity.
+            // plus_one, gain.
+            //
+            // `w_stride` is ONE, and the distance between this and the `row`
+            // it used to say is the whole of a wrong answer. It is the stride
+            // between consecutive CHANNELS of the gain vector -- `ws[w_stride
+            // * i]` in the shader -- and a contiguous row's channels are one
+            // apart. `rms.metal`'s own header says `w_stride=1`.
+            //
+            // Passing the axis made every norm read `w[2048 * i]`: it strode
+            // out of the gain vector on the second channel and multiplied by
+            // whatever followed it in the checkpoint. Measured against MLX at
+            // position zero, channel 1 came out -0.016 where the reference
+            // says +0.052 -- the wrong SIGN, from the wrong tensor, on the
+            // second statement of the fire.
+            //
+            // `plus_one` is the `(1 + w)` reading gemma takes and this family
+            // does not; the gain is unity.
             vec![
                 eps.to_bits(),
                 row,
-                row,
+                1,
                 u32::from(w.variant == crate::trace::NormVariant::Gemma),
                 1.0f32.to_bits(),
             ],

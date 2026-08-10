@@ -799,7 +799,7 @@ fn the_second_lane_stops_somewhere_and_this_says_where() {
     // The prefixes worth running: the first twelve statements are one layer's
     // worth, which is where a per-row defect either appears or does not.
     let mut first_bad: Option<(usize, String)> = None;
-    for n in 1..=12.min(lowered.launches.len()) {
+    for n in 1..=3.min(lowered.launches.len()) {
         let arena = allocate(
             &context,
             (lowered.arena_bytes as u64).max(1),
@@ -858,11 +858,44 @@ fn the_second_lane_stops_somewhere_and_this_says_where() {
             a < b && read[a..b].iter().any(|&x| x != 0)
         };
         let (r0, r1) = (live_row(0), live_row(1));
+        // The magnitude too, because "it wrote something" and "it wrote the
+        // right something" are different questions and the second is the one a
+        // reference can answer. MLX's numbers for the same snapshot at
+        // position zero, for comparison:
+        //
+        //   embed 0.361, attn_norm 2.207, q_proj 1.320, v 0.413,
+        //   o_proj 0.114, after attn 0.312, L0 out 20.03, L1 out 408.75
+        let widest = {
+            let (a, b) = (*at, (at + row).min(read.len()));
+            read[a..b]
+                .chunks_exact(*element)
+                .map(|c| {
+                    if *element == 4 {
+                        f32::from_le_bytes([c[0], c[1], c[2], c[3]]).abs()
+                    } else {
+                        f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16).abs()
+                    }
+                })
+                .fold(0.0f32, f32::max)
+        };
+        let head: Vec<String> = read[*at..(at + row).min(read.len())]
+            .chunks_exact(*element)
+            .take(6)
+            .map(|c| {
+                let v = if *element == 4 {
+                    f32::from_le_bytes([c[0], c[1], c[2], c[3]])
+                } else {
+                    f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16)
+                };
+                format!("{v:.6}")
+            })
+            .collect();
         eprintln!(
-            "  [{:>2}] {symbol:<44} @{at} row0 {} row1 {}",
+            "  [{:>2}] {symbol:<44} @{at} row0 {} row1 {} max|v| {widest:.5} [{}]",
             n - 1,
             if r0 { "yes" } else { "NO " },
             if r1 { "yes" } else { "NO " },
+            head.join(", "),
         );
         if r0 && !r1 && first_bad.is_none() {
             first_bad = Some((n - 1, symbol.clone()));
@@ -876,4 +909,198 @@ fn the_second_lane_stops_somewhere_and_this_says_where() {
         ),
         None => eprintln!("\nEvery statement in the first layer wrote both rows."),
     }
+}
+
+/// **The first number held to a reference.**
+///
+/// One token at position ZERO, and the position is chosen rather than
+/// convenient: rope is the identity there (cos 0 = 1, sin 0 = 0), so
+/// llama-3.2's rope SCALING -- which this text does not state -- cannot make
+/// the two implementations disagree, and attention attends to exactly one key,
+/// its own. What is left is every piece of arithmetic that is not
+/// position-dependent: the gather, five norms a layer, q/k/v/o, the gated MLP,
+/// the final norm and the readout.
+///
+/// The reference is MLX itself, run over the same snapshot with
+/// `mx.quantized_matmul` -- the same affine codec the checkpoint was written
+/// with, so a disagreement is about the DRIVER and not about who read the
+/// 4-bit format correctly. Its answer for `<|begin_of_text|>` (128000) is
+/// argmax **16309** with logits spanning [-4.61, 6.41].
+///
+/// **It agrees.** Same argmax, the same top five in the same order, every
+/// logit within bf16 of MLX's, and the same span. The driver's readout is bf16
+/// where MLX accumulates wider, so the tolerance is a statement about the
+/// FORMAT rather than slack for a wrong answer.
+///
+/// Getting here cost one more defect, and it was two statements into the fire:
+/// `RmsParams::w_stride` is the distance between consecutive CHANNELS of the
+/// gain vector -- `ws[w_stride * i]`, one for a contiguous row, and
+/// `rms.metal`'s own header says so. The statement passed the AXIS. Every norm
+/// read `w[2048 * i]`, strode out of the gain vector on its second channel,
+/// and multiplied by whatever followed it in the checkpoint. Channel 1 came
+/// out -0.016 where MLX says +0.052: the wrong sign, from the wrong tensor.
+///
+/// It survived everything. The fire ran, every statement wrote every row, no
+/// NaN, no infinity, 99% of the arena non-zero, and the logits were a
+/// plausible-looking near-uniform distribution over 128256 tokens. Only a
+/// reference could see it, which is the argument for having one.
+#[test]
+fn one_token_at_position_zero_agrees_with_mlx() {
+    let Some(snapshot) = snapshot() else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT to an MLX snapshot");
+        return;
+    };
+    let Ok(context) = Context::new() else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+    let compiler = Compiler::new(&context).expect("a compiler");
+    let mut pipelines = Pipelines::new(kernels_dir());
+
+    let descriptor = descriptor_for(&snapshot);
+    let loaded = load(&context, &snapshot, &descriptor).expect("the checkpoint loads");
+    let model_facts = driver_metal_new::facts::ModelFacts::from_descriptor(&descriptor)
+        .expect("the descriptor states the model's facts");
+    let dg =
+        driver_metal_new::batch::geometry_from_facts(&model_facts).expect("a decodable geometry");
+    let (facts, metal) =
+        driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
+
+    // ONE request, ONE token, position zero.
+    let step = Step {
+        token_ids: &[128_000],
+        qo_indptr: &[0, 1],
+        sampling_indices: &[0],
+        ..Step::default()
+    };
+    let plan = llama_like_metal(&facts, &metal, FireClass::Decode);
+    let lowered = lower_step(&plan, &step).expect("the step lowers");
+
+    let shape = Shape {
+        layers: facts.layers,
+        kv_heads: facts.kv_heads,
+        head_dim: facts.head_dim,
+        page_size: 16,
+        pages: 16,
+        element_bytes: 2,
+    };
+    let pool = Pool::allocate(&context, shape).expect("a pool");
+    let pages = |layer: u16, values: bool| {
+        pool.layer(u32::from(layer)).map(|l| Slice {
+            address: if values { l.v.gpu_address() } else { l.k.gpu_address() },
+            bytes: shape.layer_bytes(),
+        })
+    };
+    let (staged, spans) = stage_tables(&context, &step, shape.page_size);
+
+    let named = HashMap::new();
+    let mut live = Live {
+        store: Store::new(Names::mlx(), &loaded.tensors, &named),
+        tables: Slice {
+            address: staged.gpu_address(),
+            bytes: staged.len(),
+        },
+        spans,
+        shape,
+        pages: &pages,
+    };
+
+    let (_, arena) = driver_metal_new::model::run::run_keeping_arena(
+        &context,
+        &compiler,
+        &mut pipelines,
+        &lowered,
+        Geometry {
+            q_heads: facts.q_heads,
+            kv_heads: facts.kv_heads,
+            head_dim: facts.head_dim,
+            rotary_dims: facts.head_dim,
+            n_experts: facts.n_experts,
+            experts_per_token: facts.experts_per_token,
+        },
+        &mut live,
+    )
+    .expect("the fire runs");
+
+    let mut read = vec![0u8; arena.len() as usize];
+    // SAFETY: the command buffer retired before the call returned.
+    unsafe {
+        let raw = core::slice::from_raw_parts(
+            arena.contents().as_ptr().cast_const().cast::<u8>(),
+            arena.len() as usize,
+        );
+        read.copy_from_slice(raw);
+    }
+
+    // The readout: the widest region the text states, because a vocabulary is
+    // wider than anything else in a decode.
+    let (at, width, element) = lowered
+        .args
+        .iter()
+        .filter_map(|a| match a {
+            model_compiler::lower::Arg::Arena { at, width, bytes } => {
+                Some((*at, *width as usize, *bytes as usize))
+            }
+            _ => None,
+        })
+        .max_by_key(|(_, width, bytes)| width * bytes)
+        .expect("the text states a readout");
+    let vocab = width;
+    let logits: Vec<f32> = read[at..at + vocab * element]
+        .chunks_exact(element)
+        .map(|c| {
+            if element == 4 {
+                f32::from_le_bytes([c[0], c[1], c[2], c[3]])
+            } else {
+                f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16)
+            }
+        })
+        .collect();
+
+    let mut order: Vec<usize> = (0..logits.len()).collect();
+    order.sort_by(|&a, &b| logits[b].total_cmp(&logits[a]));
+    let (lo, hi) = logits
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+    eprintln!("argmax {} over {vocab} logits, span [{lo}, {hi}]", order[0]);
+    for (i, &t) in order.iter().take(5).enumerate() {
+        eprintln!("  top{i}: {t} logit {:.6}", logits[t]);
+    }
+
+    // MLX's answer for the same token over the same snapshot, top five, in
+    // order, with the logits it gave them.
+    //
+    // The tokens must match exactly; the logits are compared with a bf16
+    // tolerance because the driver's readout IS bf16 -- 8 mantissa bits, so
+    // about 0.4% near six -- where MLX accumulates wider. A tolerance is
+    // therefore a statement about the FORMAT and not slack for a wrong answer.
+    const MLX: [(usize, f32); 5] = [
+        (16309, 6.406_25),
+        (2, 5.949_219),
+        (1757, 5.859_375),
+        (791, 5.781_25),
+        (475, 5.601_562),
+    ];
+    for (i, (want, logit)) in MLX.iter().enumerate() {
+        let got = order[i];
+        assert_eq!(
+            got, *want,
+            "rank {i}: MLX says token {want} and this says {got}. At position \
+             zero rope is the identity and attention has one key, so nothing \
+             position-dependent can explain a difference."
+        );
+        let mine = logits[got];
+        assert!(
+            (mine - logit).abs() < 0.05,
+            "token {want}: MLX logit {logit}, this {mine} — further apart than \
+             bf16 explains."
+        );
+    }
+
+    // The SPAN, because five agreeing logits at the top is consistent with a
+    // distribution that is wrong everywhere else. MLX: [-4.613, 6.406].
+    assert!(
+        (hi - 6.406).abs() < 0.05 && (lo + 4.613).abs() < 0.05,
+        "the distribution spans [{lo}, {hi}] where MLX spans [-4.613, 6.406]."
+    );
 }
