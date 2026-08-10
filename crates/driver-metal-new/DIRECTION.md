@@ -55,9 +55,14 @@ symbols the body names must be Metal symbols. A CUDA text does not serve.
 What exists: `crates/model/src/families/llama_like/forward/mod.rs`'s
 `llama_like_metal_text`. Its own doc states the gaps, and they are the work:
 
-* the **M>1 lane is a guess** — the driver's `MultiBatchPsos` carries split-k,
-  fp16-precast, strided and bias variants behind a `kQmmMinBatch` gate; the
-  text states one GEMM and one paged attention;
+* ~~the M>1 lane is a guess~~ — **checked and closed, 2026-08-10.** The live
+  `MbFeatures` for this family is `{ gdn, sdpa_d256 }`: split-k, fp16-precast,
+  strided, fp16-strided, d512 and residual are `false` in every live path and
+  true only in a test fixture, and `PARITY-BATCH.md` already records them as
+  deferred with reasons. `bias` belongs to gpt-oss and `routed` to a mixture
+  `llama_like` does not model. The driver carries rungs nothing turns on; the
+  text states the lane that fires. Only the `kQmmMinBatch` gate is untested,
+  and the text takes it as a load-time fact rather than deciding it;
 * `sdpa_*_d_256` **pins head_dim 256**, where the driver compiles other widths
   (`d_512` for gemma4);
 * **no seams** — the adapter, the two observation taps and the boundaries the
