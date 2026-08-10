@@ -476,6 +476,25 @@ pub enum Source {
     /// derived from dims the HOST knows, and the driver held a
     /// name-to-arithmetic table to get them back. The statement carries
     /// the number instead, in the bits the slot already has room for.
+    ///
+    /// WHAT IS STILL BLOCKED ON THIS, and it is one thing wearing three
+    /// hats. Every row below is fully derivable EXCEPT for a load-time
+    /// number the model-side FACTS do not carry:
+    ///
+    /// * gemma-4's per-layer rope theta (`rope_partial_bf16`,
+    ///   `qk_rmsnorm_rope_bf16_rounded`) — the driver reads it off the
+    ///   weights struct, which is loaded, not traced.
+    /// * gemma-4's per-layer PLE scalar
+    ///   (`rmsnorm_residual_add_scale_rmsnorm_bf16`) — the same.
+    /// * gpt-oss's five yarn constants (`rope_yarn_original_bf16`) — in
+    ///   the forward config, not in `GptOssFacts`.
+    ///
+    /// Each is one fixture field away, and the field is the work: a
+    /// declaration states what the deployment IS, so the number has to
+    /// be the deployment's real one. `dsl::cuda::rope_partial`'s note
+    /// says why inventing them is worse than a driver reading a config
+    /// value, and that judgment is what these rows are waiting on rather
+    /// than any missing vocabulary.
     ParamF32(u8),
     /// The rectangle's row count.
     ///
