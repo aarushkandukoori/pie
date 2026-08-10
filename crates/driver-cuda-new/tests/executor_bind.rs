@@ -1215,6 +1215,16 @@ fn every_lowered_symbol_has_an_arm() {
         // extent in the tree that is neither the fire's rows nor a
         // load-time number.
         //
+        // IT IS UNWRITTEN ON PURPOSE. No MoE checkpoint fits this
+        // machine — the L40S holds 46 GB, Qwen3.5-35B-A3B is 67 GB,
+        // Qwen3.6-27B is 52 GB, gpt-oss-20b is 39 GB and needs its own
+        // family besides — so no fire can reach the arm and no A/B could
+        // catch a mistake in it. `cuda.md` §5.D1 refuses exactly this
+        // trade for the MLA/DSA/KDA arms, and §4's record backs it: all
+        // four decline-rules this port has found came from a GPU failure,
+        // never from a compile error. Writing it here would be code whose
+        // only gate is that it compiles.
+        //
         // Note this is the path the LIVE L40S facts take for BOTH
         // classes: `moe_cutlass_max_rows = 0` sends decode down the
         // aligned body too, so arming these opens the mixture outright
