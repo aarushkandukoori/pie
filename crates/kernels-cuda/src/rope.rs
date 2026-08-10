@@ -11,9 +11,12 @@ use kernels::Source;
 pub static KERNELS: &[KernelSig] = &[
     kernel!(rope_standard_table "rope::rope_standard_table",
         operands = operands![
-            positions: I32s, table: F32sMut,
-            num_tokens: I32, head_dim: I32, theta: F32,
-            stream: Stream,
+            positions: I32s <- Source::Ctx("positions"),
+            table: F32sMut <- Source::Out(0),
+            num_tokens: I32 <- Source::Rows,
+            head_dim: I32 <- Source::Ctx("head_dim"),
+            theta: F32 <- Source::CtxNonZero("rope_theta"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // Not in the table until the ABI pilot; the vocabulary audit has been
     // counting it as undeclared. `interleaved` is where GLM and the MLA rope

@@ -1818,20 +1818,10 @@ void llama_like_forward_declared(
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
-            case declared::Kernel::RopeStandardTable: {
-                // ISLAND (value arena), BOTH ENDS. The table is a
-                // traced value -- this launch declares it and the fused
-                // decode-QKV below takes it as a second operand -- so
-                // producer and consumer move together, which is the only
-                // way either may move.
-                kernels::rope::rope_standard_table(
-                    positions,
-                    static_cast<float*>(
-                        values.slot(plan.outputs(op)[0],
-                                    plan.value(plan.outputs(op)[0]))),
-                    N, d, cfg.rope_theta, stream);
-                break;
-            }
+            // The rope table GENERATES. It declares its result, takes
+            // the fire's positions and rows and the context's head dim,
+            // and refuses a zero theta the way every other rope row
+            // does -- which is the whole call.
             case declared::Kernel::QkvDecodeQkNormRopeWriteKv: {
                 // aux_names = [q_norm, k_norm], signature order; the
                 // second INPUT, when present, is the rope-table value —

@@ -57,6 +57,16 @@ if (sym == "mlp::relu2_bf16" && ins.size >= 1 && outs.size >= 1) {
         c.arm.stream);
     return true;
 }
+if (sym == "mlp::chunked_geglu_tanh_bf16" && ins.size >= 1 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::mlp::chunked_geglu_tanh_bf16(
+        c.arm.values.slot(ins[0]),
+        c.arm.values.slot(outs[0]),
+        c.arm.rows,
+        row_width(c.arm.plan, outs[0]),
+        c.arm.stream,
+        false);
+    return true;
+}
 if (sym == "moe::topk_softmax_bf16" && ins.size >= 1 && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::moe::topk_softmax_bf16(
         c.arm.values.slot(ins[0]),
@@ -167,6 +177,16 @@ if (sym == "quant::bf16_to_fp16" && ins.size >= 1 && outs.size >= 1) {
         c.arm.stream);
     return true;
 }
+if (sym == "rope::rope_standard_table" && outs.size >= 1 && c.rope_theta != 0 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::rope::rope_standard_table(
+        c.positions,
+        static_cast<float*>(c.arm.values.slot(outs[0])),
+        c.arm.rows,
+        c.head_dim,
+        c.rope_theta,
+        c.arm.stream);
+    return true;
+}
 if (sym == "rope::rope_bf16" && outs.size >= 2 && c.rope_theta != 0 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::rope::rope_bf16(
         c.arm.values.slot(outs[0]),
@@ -192,6 +212,17 @@ if (sym == "rope::rope_partial_bf16" && outs.size >= 2 && ps.size >= 1 && c.rope
         c.head_dim,
         static_cast<int>(ps[0]),
         c.rope_theta,
+        c.arm.stream);
+    return true;
+}
+if (sym == "ssm::repeat_interleave_heads_fp32" && ins.size >= 1 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::ssm::repeat_interleave_heads_fp32(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        static_cast<float*>(c.arm.values.slot(outs[0])),
+        c.arm.rows,
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(outs[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(outs[0]).dims[2].value),
         c.arm.stream);
     return true;
 }

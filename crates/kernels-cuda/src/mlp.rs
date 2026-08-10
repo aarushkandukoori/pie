@@ -129,12 +129,12 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     kernel!(chunked_geglu_tanh "mlp::chunked_geglu_tanh_bf16",
         operands = operands![
-            packed: Buf,
-            y: BufMut,
-            n: I32,
-            i: I32,
-            stream: Stream,
-            gate_second: Bool,
+            packed: Buf <- Source::In(0),
+            y: BufMut <- Source::Out(0),
+            n: I32 <- Source::Rows,
+            i: I32 <- Source::OutWidth(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
+            gate_second: Bool <- Source::Lit("false"),
         ]),
     // SwiGLU with a clamp. `swiglu_limit` is a config constant, so this
     // is a different kernel and not a different argument.
