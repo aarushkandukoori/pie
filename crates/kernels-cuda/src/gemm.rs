@@ -67,13 +67,76 @@ pub static KERNELS: &[KernelSig] = &[
     // off the weight's own, which is how the loader already finds them.
     // A dense statement names one tensor; a quantized one names two or
     // three, and says so.
-    kernel!(gemm_xwt_tensor_scaled "gemm::act_x_wt_tensor_scaled"),
-    kernel!(gemm_xwt_channel_scaled "gemm::act_x_wt_channel_scaled"),
-    kernel!(gemm_xwt_grouped_scaled "gemm::act_x_wt_grouped_scaled"),
+    kernel!(gemm_xwt_tensor_scaled "gemm::act_x_wt_tensor_scaled",
+        operands = operands![
+            handle: CublasHandle,
+            act: Buf,
+            w: Buf,
+            w_dtype: Dtype,
+            w_nbytes: Usize,
+            scale: Buf,
+            scale_dtype: Dtype,
+            scale_numel: Usize,
+            zero_point: Buf,
+            y: BufMut,
+            m: I32,
+            n: I32,
+            k: I32,
+            beta: F32,
+        ]),
+    kernel!(gemm_xwt_channel_scaled "gemm::act_x_wt_channel_scaled",
+        operands = operands![
+            handle: CublasHandle,
+            act: Buf,
+            w: Buf,
+            w_dtype: Dtype,
+            w_nbytes: Usize,
+            scale: Buf,
+            scale_dtype: Dtype,
+            scale_numel: Usize,
+            zero_point: Buf,
+            channel_axis: I32,
+            y: BufMut,
+            m: I32,
+            n: I32,
+            k: I32,
+            beta: F32,
+        ]),
+    kernel!(gemm_xwt_grouped_scaled "gemm::act_x_wt_grouped_scaled",
+        operands = operands![
+            handle: CublasHandle,
+            act: Buf,
+            w: Buf,
+            w_dtype: Dtype,
+            w_nbytes: Usize,
+            scale: Buf,
+            scale_dtype: Dtype,
+            scale_numel: Usize,
+            zero_point: Buf,
+            group_size: I32,
+            y: BufMut,
+            m: I32,
+            n: I32,
+            k: I32,
+            beta: F32,
+        ]),
     // MXFP4 with E8M0 block scales — gpt-oss's expert banks. Its scales
     // are not a layout question, so it is its own row rather than a
     // `Scaled` variant.
-    kernel!(gemm_xwt_mxfp4_marlin "gemm::act_x_wt_mxfp4_marlin"),
+    kernel!(gemm_xwt_mxfp4_marlin "gemm::act_x_wt_mxfp4_marlin",
+        operands = operands![
+            handle: CublasHandle,
+            act: Buf,
+            w: Buf,
+            w_nbytes: Usize,
+            scale: Buf,
+            scale_numel: Usize,
+            y: BufMut,
+            m: I32,
+            n: I32,
+            k: I32,
+            beta: F32,
+        ]),
     // Its batched twin: one GEMM per pointer-array entry. `whole` for the
     // same reason `gemm_grouped` is -- the batch is addressed through
     // device pointer arrays built for the WHOLE fire, so a row window
@@ -125,6 +188,13 @@ pub static KERNELS: &[KernelSig] = &[
             k: I32,
             beta: F32,
         ]),
+    // UNSTATED, and the reason is a gap in the TABLE rather than in this
+    // row: `gemv3_bf16` returns `bool` -- "did the fused triple run" --
+    // and `KernelSig` has no vocabulary for a return type, so the shim
+    // emits a `void` forward and the compiler refuses it. Three rows are
+    // in this shape (`rmsnorm_bf16_tuned`, `lm_head_argmax_chunked`),
+    // which is the size of the work: one field on the row, one line in
+    // the emitter.
     kernel!(gemv3 "gemm::gemv3_bf16"),
     // The sink rescale, and the fp32 LSE it eats. The LSE has no row of
     // its own: it is a second OUTPUT of the decode dispatch, requested

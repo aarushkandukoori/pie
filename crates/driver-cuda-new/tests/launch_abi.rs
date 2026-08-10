@@ -195,6 +195,14 @@ fn every_mlp_row_states_its_launcher_exactly() {
 /// `quant`'s and `moe`'s rows, and the STATED half of `layout`'s and
 /// `gemm`'s.
 ///
+/// `gemm`'s scaled entry points are here because 1b made them
+/// spellable: the storage a weight is in used to reach the dispatcher
+/// inside a `WeightView`, a descriptor the driver BUILT from a
+/// per-layer struct no statement mentioned. Assembling it inside the
+/// launcher and taking its fields flat is what let a row describe the
+/// call at all -- a struct is not something the operand vocabulary can
+/// state, and giving it a kind would have stated nothing.
+///
 /// Not a whole-family assertion like `norm`'s and `mlp`'s, because two
 /// of these families carry rows the shim cannot reach yet and saying so
 /// is better than a count that quietly excludes them:
@@ -226,6 +234,7 @@ fn the_stated_quant_layout_gemm_and_moe_rows_describe_their_launchers() {
         "layout/split_gate_up.hpp",
         "layout/deinterleave.hpp",
         "gemm/gemm.hpp",
+        "gemm/gemv.hpp",
         "moe/dsv4_routing.hpp",
         "moe/moe_dispatch.hpp",
         "moe/topk_sigmoid.hpp",
