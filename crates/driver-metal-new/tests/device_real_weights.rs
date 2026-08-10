@@ -300,7 +300,11 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
     let pool = Pool::allocate(&context, shape).expect("a pool");
     let pages = |layer: u16, values: bool| {
         pool.layer(u32::from(layer)).map(|l| Slice {
-            address: if values { l.v.gpu_address() } else { l.k.gpu_address() },
+            address: if values {
+                l.v.gpu_address()
+            } else {
+                l.k.gpu_address()
+            },
             bytes: shape.layer_bytes(),
         })
     };
@@ -380,9 +384,7 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
             r.chunks_exact(2)
                 .take(6)
                 .map(|c| {
-                    let x = f32::from_bits(
-                        u32::from(u16::from_le_bytes([c[0], c[1]])) << 16,
-                    );
+                    let x = f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16);
                     format!("{x:.6}")
                 })
                 .collect::<Vec<_>>()
@@ -737,7 +739,8 @@ fn bisect(class: FireClass) {
         driver_metal_new::batch::geometry_from_facts(&model_facts).expect("a decodable geometry");
     let (facts, _metal) =
         driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
-    let (_, metal) = driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
+    let (_, metal) =
+        driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
 
     // A decode posts four independent lanes; a prefill posts one sequence.
     let decode = class == FireClass::Decode;
@@ -772,7 +775,11 @@ fn bisect(class: FireClass) {
     let pool = Pool::allocate(&context, shape).expect("a pool");
     let pages = |layer: u16, values: bool| {
         pool.layer(u32::from(layer)).map(|l| Slice {
-            address: if values { l.v.gpu_address() } else { l.k.gpu_address() },
+            address: if values {
+                l.v.gpu_address()
+            } else {
+                l.k.gpu_address()
+            },
             bytes: shape.layer_bytes(),
         })
     };
@@ -957,8 +964,7 @@ fn bisect(class: FireClass) {
             r.chunks_exact(2)
                 .take(6)
                 .map(|c| {
-                    let x =
-                        f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16);
+                    let x = f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16);
                     format!("{x:.6}")
                 })
                 .collect::<Vec<_>>()
@@ -1070,7 +1076,11 @@ fn one_token_at_position_zero_agrees_with_mlx() {
     let pool = Pool::allocate(&context, shape).expect("a pool");
     let pages = |layer: u16, values: bool| {
         pool.layer(u32::from(layer)).map(|l| Slice {
-            address: if values { l.v.gpu_address() } else { l.k.gpu_address() },
+            address: if values {
+                l.v.gpu_address()
+            } else {
+                l.k.gpu_address()
+            },
             bytes: shape.layer_bytes(),
         })
     };
@@ -1123,17 +1133,15 @@ fn one_token_at_position_zero_agrees_with_mlx() {
 
     // The readout: the widest region the text states, because a vocabulary is
     // wider than anything else in a decode.
-    let (at, width, element) = lowered
-        .args
-        .iter()
-        .filter_map(|a| match a {
-            model_compiler::lower::Arg::Arena { at, width, bytes } => {
-                Some((*at, *width as usize, *bytes as usize))
-            }
-            _ => None,
-        })
-        .max_by_key(|(_, width, bytes)| width * bytes)
-        .expect("the text states a readout");
+    // The text's OWN statement of where its answer is, not a guess at it.
+    // This used to take the widest arena region, which was right by
+    // luck: the gemma text holds TWO vocabulary-wide buffers, because
+    // the logit softcap is out of place, and the tie-break picked the
+    // capped one.
+    let (at, width, element) = {
+        let r = lowered.readout.expect("the text states an exit seam");
+        (r.at, r.vocab as usize, r.bytes as usize)
+    };
     let vocab = width;
     let logits: Vec<f32> = read[at..at + vocab * element]
         .chunks_exact(element)
@@ -1270,7 +1278,11 @@ fn a_two_token_prefill_agrees_with_mlx() {
     let pool = Pool::allocate(&context, shape).expect("a pool");
     let pages = |layer: u16, values: bool| {
         pool.layer(u32::from(layer)).map(|l| Slice {
-            address: if values { l.v.gpu_address() } else { l.k.gpu_address() },
+            address: if values {
+                l.v.gpu_address()
+            } else {
+                l.k.gpu_address()
+            },
             bytes: shape.layer_bytes(),
         })
     };
@@ -1325,17 +1337,15 @@ fn a_two_token_prefill_agrees_with_mlx() {
         read.copy_from_slice(raw);
     }
 
-    let (at, width, element) = lowered
-        .args
-        .iter()
-        .filter_map(|a| match a {
-            model_compiler::lower::Arg::Arena { at, width, bytes } => {
-                Some((*at, *width as usize, *bytes as usize))
-            }
-            _ => None,
-        })
-        .max_by_key(|(_, width, bytes)| width * bytes)
-        .expect("the text states a readout");
+    // The text's OWN statement of where its answer is, not a guess at it.
+    // This used to take the widest arena region, which was right by
+    // luck: the gemma text holds TWO vocabulary-wide buffers, because
+    // the logit softcap is out of place, and the tie-break picked the
+    // capped one.
+    let (at, width, element) = {
+        let r = lowered.readout.expect("the text states an exit seam");
+        (r.at, r.vocab as usize, r.bytes as usize)
+    };
     let logits: Vec<f32> = read[at..at + width * element]
         .chunks_exact(element)
         .map(|c| {
@@ -1468,7 +1478,11 @@ fn a_generation_agrees_with_mlx_token_for_token() {
     let pool = Pool::allocate(&context, shape).expect("a pool");
     let pages = |layer: u16, values: bool| {
         pool.layer(u32::from(layer)).map(|l| Slice {
-            address: if values { l.v.gpu_address() } else { l.k.gpu_address() },
+            address: if values {
+                l.v.gpu_address()
+            } else {
+                l.k.gpu_address()
+            },
             bytes: shape.layer_bytes(),
         })
     };
@@ -1567,17 +1581,14 @@ fn a_generation_agrees_with_mlx_token_for_token() {
             read.copy_from_slice(raw);
         }
 
-        let (at, width, element) = lowered
-            .args
-            .iter()
-            .filter_map(|a| match a {
-                model_compiler::lower::Arg::Arena { at, width, bytes } => {
-                    Some((*at, *width as usize, *bytes as usize))
-                }
-                _ => None,
-            })
-            .max_by_key(|(_, width, bytes)| width * bytes)
-            .expect("the text states a readout");
+        let (at, width, element) = {
+            // The text's OWN statement of where its answer is, not a guess at it.
+            // This used to take the widest arena region, which was right by luck:
+            // the gemma text holds TWO vocabulary-wide buffers, because the logit
+            // softcap is out of place, and the tie-break picked the capped one.
+            let r = lowered.readout.expect("the text states an exit seam");
+            (r.at, r.vocab as usize, r.bytes as usize)
+        };
         let logits: Vec<f32> = read[at..at + width * element]
             .chunks_exact(element)
             .map(|c| {

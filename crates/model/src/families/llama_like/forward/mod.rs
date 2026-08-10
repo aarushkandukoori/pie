@@ -758,9 +758,26 @@ fn llama_like_metal_text(
         // The readout's softcap, for a deployment that has one. Named or not
         // named -- a cap large enough to do nothing is still a kernel run per
         // fire to compute the identity.
-        if metal.logit_softcap > 0.0 {
-            dsl::metal::softcap(&logits, f.vocab, metal.logit_softcap);
-        }
+        //
+        // OUT OF PLACE: `logit_softcap` takes distinct in and out buffers, so
+        // the fire's answer is this value and not the one handed to it. The
+        // exit seam below therefore names the CAPPED value -- stating the
+        // uncapped one put the driver's read-out one buffer behind the
+        // arithmetic, which is a distribution that is right except for the
+        // last thing done to it.
+        let logits = if metal.logit_softcap > 0.0 {
+            dsl::metal::softcap(&logits, f.vocab, metal.logit_softcap)
+        } else {
+            logits
+        };
+        // The exit boundary. Without it the read-out had no name, and the two
+        // places that needed one guessed the same guess in two dialects: the
+        // reference gate took the widest arena region, and the engine seam
+        // took nothing at all -- it ran the fire and dropped what the fire
+        // computed. A text that states its exit lets `Lowered::readout` answer
+        // both, and the guess is now held against the answer
+        // (`text_conformance::every_text_says_where_its_answer_lands...`).
+        dsl::seam(m.trace(), &dsl::seam::OUT, &[&logits], None);
     })
 }
 

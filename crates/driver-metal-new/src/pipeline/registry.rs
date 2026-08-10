@@ -660,6 +660,44 @@ impl Registry {
         self.instances.get_mut(&id)
     }
 
+    /// Run one instance's channel-plane pass over a fire's read-out.
+    ///
+    /// The registry's job, because the two halves live here and nowhere else:
+    /// [`step`] needs an instance's interpreter state AND its program's plan,
+    /// and a caller holding only `&mut Registry` cannot borrow both — the
+    /// instance mutably and the program immutably — through the accessors.
+    /// Splitting the borrow across two FIELDS is legal inside the type and
+    /// impossible outside it, so putting the fire anywhere else costs a clone
+    /// of the plan per instance per fire.
+    ///
+    /// The fire counter advances on a COMMIT only. A blocked pass changed
+    /// nothing and did not happen; a faulted one poisoned the instance and the
+    /// count of passes it completed is still the count it completed.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Program`] if no such instance is bound, or if its program has
+    /// gone — which is a registry that let a program close under an instance.
+    pub fn fire(&mut self, id: u64, inputs: &super::PassInputs) -> Result<super::StepOutcome> {
+        let instance = self.instances.get_mut(&id).ok_or_else(|| Error::Program {
+            message: format!("no instance {id}"),
+        })?;
+        let program = self
+            .programs
+            .get(&instance.program_id)
+            .ok_or_else(|| Error::Program {
+                message: format!(
+                    "instance {id} names program {} which is gone",
+                    instance.program_id
+                ),
+            })?;
+        let outcome = super::step(&mut instance.interp, &program.plan, inputs);
+        if outcome == super::StepOutcome::Committed {
+            instance.fire_seq += 1;
+        }
+        Ok(outcome)
+    }
+
     /// Detach an instance, freeing its channels for the pass that follows.
     ///
     /// # Errors
@@ -918,6 +956,48 @@ mod tests {
             "a cell of zero lanes gives the ring a stride of zero, so every push \
              writes over the last one and the ring reports success"
         );
+    }
+
+    /// The fire the seam calls, which is what makes `step` reachable at all.
+    ///
+    /// Before `Registry::fire` existed, `pipeline::step` had no production
+    /// caller: the engine seam ran every launch of a frame, waited, and
+    /// dropped the arena — so the interpreter was exercised only by tests that
+    /// built their own inputs, and the channel plane was dead code in a
+    /// running deployment.
+    ///
+    /// Two claims, and the second is the one worth having: a fire that commits
+    /// ADVANCES the instance, and a fire against an instance that is not bound
+    /// refuses by name rather than firing something else.
+    #[test]
+    fn a_fire_advances_the_instance_it_committed_and_refuses_one_that_is_gone() {
+        let decl = channel_decl(0, 0, -1);
+        let mut registry = Registry::new();
+        let program = registry
+            .register_program(1, package(vec![decl.clone()]), vec![])
+            .expect("program");
+        register_matching(&mut registry, 10, &decl);
+        let instance = registry
+            .bind_instance(program, None, Geometry::Host, &[10], &[])
+            .expect("instance");
+
+        assert_eq!(registry.instance(instance).expect("bound").fire_seq, 0);
+        let outcome = registry
+            .fire(instance, &super::super::PassInputs::none())
+            .expect("a bound instance fires");
+        assert_eq!(outcome, super::super::StepOutcome::Committed);
+        assert_eq!(
+            registry.instance(instance).expect("bound").fire_seq,
+            1,
+            "a committed pass has to advance the instance, or a program that \
+             counts its own fires counts none of them"
+        );
+
+        // An id nobody bound. The seam derives this from a roster row, so a
+        // frame built against a registry that has moved on must refuse rather
+        // than fire whatever else is in the map.
+        let missing = registry.fire(instance + 999, &super::super::PassInputs::none());
+        assert!(missing.is_err(), "an unbound instance cannot fire");
     }
 
     #[test]
