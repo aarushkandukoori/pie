@@ -407,18 +407,17 @@ fn a_row_that_states_its_operands_agrees_with_its_shader() {
                     ));
                 }
                 if let Some(writes) = first_writable(&root, file, sig.symbol) {
-                    // A writable buffer is a RESULT or a STATE STORE. The KV
-                    // writes have no result at all — their whole effect is on
-                    // the cache — so a check that only knew `Out` called them
-                    // wrong, and it was the check that was wrong.
-                    let row_writes = sig.operands.iter().position(|o| {
-                        matches!(
-                            o.source,
-                            kernels::Source::Out(_)
-                                | kernels::Source::KvKeys
-                                | kernels::Source::KvValues
-                        )
-                    });
+                    // A writable buffer is one the row declares `BufMut`, and
+                    // the `Ty` is the precise signal where the `Source` is
+                    // not: the KV writes have NO result — their whole effect
+                    // is on the cache, so `KvKeys` is writable there — while
+                    // attention READS the same store, so `KvKeys` is
+                    // read-only there. Two passes over this got it wrong in
+                    // both directions before asking the type.
+                    let row_writes = sig
+                        .operands
+                        .iter()
+                        .position(|o| matches!(o.ty, kernels::Ty::BufMut));
                     if row_writes != Some(writes) {
                         disagrees.push(format!(
                             "  {symbol}: shader writes buffer {writes}, row puts its \
@@ -446,34 +445,33 @@ fn a_row_that_states_its_operands_agrees_with_its_shader() {
         unstated.len(),
         unstated.join("\n")
     );
-    // SIX, measured 2026-08-10, down from fourteen. Nine rows state their
-    // operands now — the norm, the activation, the QKV split, the four
-    // projections and both KV writes. The projections were the loud case: `affine_qmv_fast`
-    // declares its weights FIRST and the trace states them last, so every
-    // projection of every layer bound its activation where the packed weight
-    // belongs.
+    // ZERO, from fourteen. **Every symbol `llama_like` names states its
+    // operands**, so no launch is bound positionally any more and the
+    // trace-order/kernel-order mismatch is closed.
     //
-    // **Every remaining entry is a launch whose operands are at the wrong
-    // buffers**, and this may only shrink. What each still needs, so the next
-    // reader has a map rather than a count:
+    // It may not grow: a new symbol arrives with no row operands, and this is
+    // what says so before it reaches a GPU that will not.
     //
-    // | symbol | what is missing |
-    // |---|---|
-    // | `embed_gather_4bit`, `..._mb_4bit` | the token IDS. A fire value the text does not state; `Arg::Named` is the channel |
-    // | `neox_decode`, `neox_mb` | the POSITIONS. `Source::Positions` already exists for exactly this |
-    // | `sdpa_vector_decode`, `sdpa_paged_decode` | the K/V pages (`Source::KvKeys`/`KvValues` now exist), six strides, a scale and a window |
+    // What ZERO does NOT mean, and the distinction is the whole remaining
+    // gap: a row states where a value goes, and the TEXT still has to state
+    // the value. Three holes are visible in the rows themselves, written
+    // there as `Unbound` because a positional row cannot omit a slot:
     //
-    // So the backlog is ONE piece of work and not six: **teach the text to
-    // state what its statements carry**. The vocabulary is complete —
-    // `Source::Positions` for the ropes and the KV writes, `Arg::Named` for
-    // the gathers' token ids, `Source::KvKeys`/`KvValues` for the cache — and
-    // what is missing is statements that state their scalars and their fire
-    // values, which is `dsl::metal`'s side of the seam rather than the
-    // table's.
+    // * the gathers want the token IDS — a fire value `Source` has no name
+    //   for, and `Arg::Named` is the channel the text would state it on;
+    // * the paged attention wants six of the fire's TABLES — which request
+    //   owns each token, the page CSR, the mask and its stride;
+    // * `dsl::metal::rope` states ONE launch carrying q and k, and the kernel
+    //   rotates ONE buffer in place. The statement should be two, and until it
+    //   is, the second tensor is not rotated at all.
+    //
+    // The first two are the text stating what it carries. The third is a
+    // defect the rows made visible: nothing before this could see that a
+    // statement's shape disagreed with its kernel's.
     assert!(
-        unstated.len() <= 6,
-        "the backlog GREW to {}. A row with no operands is bound positionally, \
-         and the trace's order is not the kernel's.\n{}",
+        unstated.is_empty(),
+        "{} row(s) state no operands and are bound POSITIONALLY, and the \
+         trace's order is not the kernel's:\n{}",
         unstated.len(),
         unstated.join("\n")
     );

@@ -70,8 +70,15 @@ fn the_split_puts_every_channel_where_its_width_says() {
             bound(v.gpu_address()),
         ],
         params: &params,
-        // The row places its params at buffer 4, after the four operands.
-        param_slots: vec![(4, 0)],
+        // The row places its params at buffer 4, after the four operands, and
+        // as one packed struct — two `u32`s, so four bytes at offset zero.
+        param_slots: vec![driver_metal_new::model::dispatch::ParamSlot {
+            slot: 4,
+            at: 0,
+            bytes: 4,
+            packed: true,
+            value: Some(0),
+        }],
         layers: 0..1,
         op: 0,
     };

@@ -89,18 +89,20 @@ pub struct Dispatch<'a> {
     /// got before and is wrong for most of them. That is why
     /// `tests/text_conformance.rs` counts them.
     pub args: Vec<BoundArg>,
-    /// Where each scalar binds: `(buffer slot, which scalar)`.
+    /// Where each scalar binds, and how wide it is there.
     ///
-    /// Two spellings exist in the shader tree and the row is what tells them
-    /// apart. `moe/route.metal` takes `constant RouterParams&` — one buffer
-    /// holding every field — while `quant/qmv.metal` takes
-    /// `const constant int& in_vec_size` and `out_vec_size` as two.
+    /// Three facts, because three are needed and the row states all of them.
     ///
-    /// One rule serves both: scalar `i` binds at `base + i * 4`, because a
-    /// params struct is a run of `u32` with no padding and its address is the
-    /// address of its first field. A row stating one `Param(0)` therefore
-    /// describes the packed form and the separate form at once.
-    pub param_slots: Vec<(usize, u8)>,
+    /// * **Which buffer.** Two spellings exist in the tree: `moe/route.metal`
+    ///   takes `constant RouterParams&`, one buffer holding every field, and
+    ///   `quant/qmv.metal` takes its two extents as separate buffers.
+    /// * **Which scalar**, as a byte offset into this dispatch's staged run.
+    /// * **How wide.** `attn/sdpa_vector.metal` declares its strides
+    ///   `const constant size_t&` — **eight bytes** — while the trace's params
+    ///   are `u32`. A driver that handed a four-byte slot to an eight-byte
+    ///   read would give the kernel four bytes of the next scalar as the high
+    ///   half of this one. The row's `Ty` says which, so the stage widens.
+    pub param_slots: Vec<ParamSlot>,
     /// The scalar arguments the statement states, in its stated order.
     ///
     /// A kernel takes numbers no operand shape gives — a QKV split's two
@@ -113,6 +115,29 @@ pub struct Dispatch<'a> {
     pub layers: Range<u16>,
     /// Which traced op produced it — where a refusal points.
     pub op: u32,
+}
+
+/// One scalar's placement: which buffer, where in the staged run, how wide.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParamSlot {
+    /// The argument-table index this binds at.
+    pub slot: usize,
+    /// Byte offset into this dispatch's staged scalars.
+    pub at: u32,
+    /// Bytes the kernel reads there — four or eight for a scalar.
+    pub bytes: u32,
+    /// This slot is a POINTER to a struct holding every remaining scalar,
+    /// rather than one scalar.
+    ///
+    /// Both spellings are in the tree and the row's `Ty` tells them apart: a
+    /// `Buf` param is `constant RouterParams&` — one buffer, every field —
+    /// while an `I32` param is `const constant int&`, one buffer per number.
+    /// A packed slot's run is as long as the statement's scalars; a scalar
+    /// slot's is its own width.
+    pub packed: bool,
+    /// Which of the statement's scalars this is, or `None` for a slot the row
+    /// names past what the statement states.
+    pub value: Option<u8>,
 }
 
 /// Why a launch could not become a dispatch.
@@ -281,21 +306,7 @@ pub fn plan_one<'a, S: Resolver>(
         why,
     })?;
     let args = reorder(sig, &bound.args, lowered, launch, resolver);
-    // Where the row puts its scalars. A row that states no operands has them
-    // appended as one packed struct after the operands, which is the only
-    // convention available when nothing said otherwise.
-    let param_slots: Vec<(usize, u8)> = if sig.operands.is_empty() {
-        vec![(args.len(), 0)]
-    } else {
-        sig.operands
-            .iter()
-            .enumerate()
-            .filter_map(|(slot, o)| match o.source {
-                kernels::Source::Param(i) => Some((slot, i)),
-                _ => None,
-            })
-            .collect()
-    };
+    let param_slots = param_layout(sig, args.len());
     Ok(Dispatch {
         symbol: bound.kernel,
         params: &lowered.params[launch.params.start as usize..launch.params.end as usize],
@@ -430,6 +441,51 @@ fn reorder<S: Resolver>(
             _ => nothing,
         })
         .collect()
+}
+
+/// Where each of a statement's scalars binds, and how wide.
+///
+/// A row that states no operands has them appended as one packed struct after
+/// the operands — the only convention available when nothing said otherwise,
+/// and right for the `RouterParams` shape.
+///
+/// A row that states them places each itself, and its `Ty` gives the width.
+/// The staged run is laid out in the row's order with each scalar naturally
+/// aligned, so an eight-byte stride starts on an eight-byte boundary rather
+/// than wherever the previous four-byte extent happened to end.
+fn param_layout(sig: &'static KernelSig, operands: usize) -> Vec<ParamSlot> {
+    if sig.operands.is_empty() {
+        return vec![ParamSlot {
+            slot: operands,
+            at: 0,
+            bytes: 4,
+            packed: true,
+            value: Some(0),
+        }];
+    }
+    let mut at = 0u32;
+    let mut out = Vec::new();
+    for (slot, operand) in sig.operands.iter().enumerate() {
+        let (which, bytes, packed) = match operand.source {
+            kernels::Source::Param(i) | kernels::Source::ParamF32(i) => match operand.ty {
+                kernels::Ty::Usize => (Some(i), 8, false),
+                // A pointer where a scalar could be is the packed struct.
+                kernels::Ty::Buf | kernels::Ty::BufMut => (Some(i), 4, true),
+                _ => (Some(i), 4, false),
+            },
+            _ => continue,
+        };
+        at = at.next_multiple_of(bytes);
+        out.push(ParamSlot {
+            slot,
+            at,
+            bytes,
+            packed,
+            value: which,
+        });
+        at += bytes;
+    }
+    out
 }
 
 /// The bound operand at `at`, or one that addresses nothing.
@@ -642,7 +698,13 @@ mod tests {
             grid: [1, 1, 1],
             threadgroup: [1, 1, 1],
             args: Vec::new(),
-            param_slots: vec![(0, 0)],
+            param_slots: vec![ParamSlot {
+                slot: 0,
+                at: 0,
+                bytes: 4,
+                packed: true,
+                value: Some(0),
+            }],
             params: &[],
             layers: 0..1,
             op: 0,

@@ -55,7 +55,7 @@ pub fn table_width(dispatches: &[Dispatch<'_>]) -> usize {
             let params = if d.params.is_empty() {
                 0
             } else {
-                d.param_slots.iter().map(|(s, _)| s + 1).max().unwrap_or(0)
+                d.param_slots.iter().map(|p| p.slot + 1).max().unwrap_or(0)
             };
             d.args.len().max(params)
         })

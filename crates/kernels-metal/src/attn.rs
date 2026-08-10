@@ -83,8 +83,34 @@ pub static KERNELS: &[KernelSig] = &[
     // substitution path, so an `attn.q` tap with a PageMaskSink is unservable
     // here, and no capture variant exists so neither can publish scores. The
     // declaration says so instead of a C++ throw discovering it.
+    // Seventeen buffers, and the row is the only place they are written down.
+    // Six of them are the FIRE's tables — the positions, which request owns
+    // each token, the page CSR, the mask and its stride — and the vocabulary
+    // has a name for one of those (`Positions`) and none for the rest. They
+    // are stated as `Unbound` rather than omitted: a row is positional, so a
+    // missing entry shifts everything after it, and an honest gap is a gap
+    // whoever teaches the text to state its tables can fill in place.
     kernel!(sdpa_paged_decode "sdpa_paged_decode", file = Some("attn/sdpa_paged.metal"),
     launch = kernels::LaunchRule::SdpaVector,
+    operands = kernels::operands![
+        queries: Buf <- kernels::Source::In(0),
+        k_pages: Buf <- kernels::Source::KvKeys,
+        v_pages: Buf <- kernels::Source::KvValues,
+        out: BufMut <- kernels::Source::Out(0),
+        gqa_factor: I32 <- kernels::Source::Param(0),
+        position_ids: I32s <- kernels::Source::Positions,
+        req_of_token: I32s,
+        kv_page_indices: U32s,
+        kv_page_indptr: U32s,
+        page_size: I32 <- kernels::Source::Param(1),
+        n_kv_heads: I32 <- kernels::Source::Param(2),
+        scale: F32 <- kernels::Source::ParamF32(3),
+        attention_mask: U8s,
+        attention_mask_stride: U32,
+        attention_mask_enabled: U8s,
+        window: I32 <- kernels::Source::Param(4),
+        sinks: Buf,
+    ],
     lacks = &[Cap::Scores, Cap::PageMaskSink],
     axes = &[Axis {
         what: "head dim and page shape",
@@ -111,7 +137,25 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(sdpa_paged_tiled_strided "sdpa_paged_tiled_strided",
         axes = &[BF16, Axis { what: "head dim", points: &["_d_256"] }]),
     // 3 in sdpa_vector.metal
+    // Dense 0..10, and the row is where the WIDTHS live: the four strides are
+    // `const constant size_t&` — eight bytes — while the params channel is
+    // `u32`. A driver handing a four-byte slot to an eight-byte read gives the
+    // kernel the next scalar as this one's high half, so the row's `Usize`
+    // says widen and the stage does.
     kernel!(sdpa_vector_decode "sdpa_vector_decode", file = Some("attn/sdpa_vector.metal"), launch = kernels::LaunchRule::SdpaVector,
+        operands = kernels::operands![
+            queries: Buf <- kernels::Source::In(0),
+            keys: Buf <- kernels::Source::KvKeys,
+            values: Buf <- kernels::Source::KvValues,
+            out: BufMut <- kernels::Source::Out(0),
+            gqa_factor: I32 <- kernels::Source::Param(0),
+            n: I32 <- kernels::Source::Param(1),
+            k_head_stride: Usize <- kernels::Source::Param(2),
+            k_seq_stride: Usize <- kernels::Source::Param(3),
+            v_head_stride: Usize <- kernels::Source::Param(4),
+            v_seq_stride: Usize <- kernels::Source::Param(5),
+            scale: F32 <- kernels::Source::ParamF32(6),
+        ],
         lacks = &[Cap::Scores, Cap::PageMaskSink],
         axes = &[BF16, Axis { what: "head dim", points: &["_d_64", "_d_128", "_d_256"] }]),
     // 1 in sdpa_sliding.metal

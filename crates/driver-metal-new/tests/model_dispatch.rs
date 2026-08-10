@@ -199,11 +199,12 @@ fn a_statement_that_states_scalars_carries_them_to_its_dispatch() {
     // own scalars is the difference between binding positionally and binding
     // where the kernel reads.
     assert_eq!(split.args.len(), 5, "packed in, q/k/v out, and the params");
+    assert_eq!(split.param_slots.len(), 1, "one packed struct");
     assert_eq!(
-        split.param_slots,
-        vec![(4, 0)],
+        split.param_slots[0].slot, 4,
         "the row placed the scalars at buffer 4"
     );
+    assert_eq!(split.param_slots[0].at, 0);
 
     // And every other statement states none, so the channel is not a general
     // escape hatch that grew.
