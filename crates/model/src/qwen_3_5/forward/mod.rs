@@ -179,26 +179,46 @@ fn moe_mlp_body_aligned_cuda(
         facts.top_k,
     );
     let aligned_in = dsl::cuda::gather_moe_aligned_inputs(&m, &sorted, aligned, facts.hidden);
-    dsl::cuda::build_moe_ptrs_aligned(
+    // The pointer build DECLARES the aligned staging, because it bakes
+    // those buffers' base addresses into the device pointer arrays the
+    // batched-cuBLAS fallback dereferences. Everything below fills a
+    // buffer it named -- each takes its destination as an operand and
+    // writes it in place -- which is what the executor was standing in
+    // for with `mw.aligned_gate_up` / `_act` / `_out`.
+    let (gu_stage, act_stage, out_stage) = dsl::cuda::build_moe_ptrs_aligned(
         &expert_ids,
         &aligned_in,
         l,
         &w.expert_gate_up.name,
         &w.expert_down.name,
+        aligned,
+        facts.hidden,
+        facts.moe_intermediate,
     );
 
     // Both projections are the SAME statement -- a grouped GEMM over the
     // block-major operand -- which is why the selector matmul lowers to one
-    // kernel rather than to a per-expert loop.
+    // kernel rather than to a per-expert loop. The second operand is
+    // `expert_ids`, which is what the kernel indexes the bank by; it used
+    // to be `sorted`, which the kernel never reads.
     let gate_up = dsl::cuda::moe_grouped_gemm(
         &aligned_in,
-        &sorted,
+        &expert_ids,
+        &gu_stage,
         aligned,
         2 * facts.moe_intermediate,
         &w.expert_gate_up.name,
     );
-    let act = dsl::cuda::swiglu(&gate_up, facts.moe_intermediate, true);
-    let down = dsl::cuda::moe_grouped_gemm(&act, &sorted, aligned, facts.hidden, &w.expert_down.name);
+    let act =
+        dsl::cuda::swiglu_aligned(&gate_up, &act_stage, aligned, facts.moe_intermediate);
+    let down = dsl::cuda::moe_grouped_gemm(
+        &act,
+        &expert_ids,
+        &out_stage,
+        aligned,
+        facts.hidden,
+        &w.expert_down.name,
+    );
 
     let route_out =
         dsl::cuda::reorder_moe_aligned_output(&down, &sorted, facts.top_k, facts.hidden);

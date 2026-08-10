@@ -475,6 +475,30 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
                 guard.push_str(&format!(" && {span}.size >= {n}"));
             }
         }
+        // WHAT `Source::Rows` ASSUMES, made part of the match.
+        //
+        // `Rows` binds the RECTANGLE's row count, which is the fire's
+        // token count. That is the right answer only for a statement
+        // whose rows ARE tokens, and not every statement's are: the
+        // aligned MoE leg's values are `Dim::MoeAlignedRoutes`, a padded
+        // block-major extent, and a branch handing that kernel `N`
+        // activates the first N of the padded rows and leaves the rest
+        // holding whatever the GEMM wrote.
+        //
+        // qwen3.5's routed swiglu is exactly that statement, and it
+        // reached this generated branch before its family's arm — which
+        // computes the padded count — could see it. So the branch tests
+        // the assumption it is making, and a statement that does not
+        // meet it falls through to the arm that knows the other extent.
+        if k.operands.iter().any(|o| o.source == Source::Rows) {
+            let probe = if need_out > 0 { "outs[0]" } else { "ins[0]" };
+            if need_out > 0 || need_in > 0 {
+                guard.push_str(&format!(
+                    " && c.arm.plan.value({probe}).dims[0].kind == \
+                     pie_forward::PieForwardDimKind::Tokens"
+                ));
+            }
+        }
         // KEYED BY NAME, not by an enumerator. The registry's enum
         // exists so a HAND-written switch can have cases; a generated
         // one needs no such handle, and taking the symbol directly

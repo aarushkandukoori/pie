@@ -2001,12 +2001,17 @@ case PieForwardOpKind::Launch: {
                 // not a counter, and not the intermediate width, which the
                 // routed and shared banks can and do share.
                 const auto ins = plan.inputs(op);
+                // An operand-less spelling used to fall into the routed
+                // arm and take its buffers by convention. With the
+                // buffers coming off the statement there is nothing for
+                // it to bind, so it refuses instead of picking one of
+                // three legs by elimination.
+                need(ins, 1, "swiglu inputs");
                 const bool aligned_rows_in =
-                    ins.size > 0 &&
                     plan.value(ins[0]).dims[0].kind ==
-                        pie_forward::PieForwardDimKind::MoeAlignedRoutes;
+                    pie_forward::PieForwardDimKind::MoeAlignedRoutes;
                 if constexpr (!kIsDense) {
-                    if (aligned_rows_in || !ins.size) {
+                    if (aligned_rows_in) {
                         if (moe_ws == nullptr) {
                             throw_drift("the MoE leg needs its workspace");
                         }
@@ -2018,22 +2023,31 @@ case PieForwardOpKind::Launch: {
                         const int aligned_rows =
                             ((routes + cap * (block - 1) + block - 1) / block) *
                             block;
+                        // ISLAND (value arena). The ROW COUNT is still
+                        // the formula's -- `MoeAlignedRoutes` is a padded
+                        // extent the lowering sizes but does not report
+                        // back per fire -- and the BUFFERS are the
+                        // statement's, which is what told the routed leg
+                        // apart from the shared one to begin with.
+                        const auto souts = plan.outputs(op);
+                        need(souts, 1, "routed swiglu outputs");
                         kernels::mlp::chunked_swiglu_bf16(
-                            mw.aligned_gate_up.data(), mw.aligned_act.data(),
+                            values.slot(ins[0]), values.slot(souts[0]),
                             aligned_rows, Im, stream);
                         break;
                     }
-                    if (moe_ws != nullptr) {
-                        kernels::mlp::chunked_swiglu_bf16(
-                            moe_ws->shared_gate_up.data(),
-                            moe_ws->shared_act.data(),
-                            N, cfg.shared_expert_intermediate_size, stream);
-                        break;
-                    }
                 }
-                // ISLAND (value arena). The dense caller; the routed
-                // and shared-expert callers of the same kernel are
-                // above, on the MoE workspace.
+                // ISLAND (value arena). TWO callers land here, and they
+                // are one arm: the dense MLP's and the shared expert's.
+                // Both run over token rows, so the row count is the
+                // fire's and the width is the value's -- what
+                // distinguished them was only which buffers they named,
+                // and the shared leg's were a SPLIT island besides
+                // (`mw.shared_gate_up` while the projection above wrote
+                // the arena). What still tells the routed leg apart is
+                // its operand's own extent, above, which is the one
+                // question a width could never answer: the routed and
+                // shared banks can and do share an intermediate.
                 const auto outs = plan.outputs(op);
                 need(outs, 1, "swiglu outputs");
                 kernels::mlp::chunked_swiglu_bf16(
@@ -2088,14 +2102,28 @@ case PieForwardOpKind::Launch: {
                                 values.slot(plan.outputs(op)[1])),
                             N, E, Ktop, stream);
                         break;
-                    case declared::Kernel::MoeAlignDecode:
+                    case declared::Kernel::MoeAlignDecode: {
+                        // ISLAND (value arena). `moe_align(topk_idx)`
+                        // states one operand and three results -- the
+                        // sorted route order, the per-block expert id,
+                        // and the inverse map. The third is the one this
+                        // leg does not fire (the reorder below undoes
+                        // the permutation instead), and a null says so
+                        // rather than the arm quietly not having it.
+                        const auto ains = plan.inputs(op);
+                        const auto aouts = plan.outputs(op);
+                        need(ains, 1, "align inputs");
+                        need(aouts, 3, "align outputs");
                         kernels::moe::moe_align_decode(
-                            mw.topk_idx.data(), mw.aligned_route_ids.data(),
-                            mw.aligned_expert_ids.data(),
+                            static_cast<const std::int32_t*>(
+                                values.slot(ains[0])),
+                            static_cast<std::int32_t*>(values.slot(aouts[0])),
+                            static_cast<std::int32_t*>(values.slot(aouts[1])),
                             /*route_to_aligned_row=*/nullptr,
                             routes, E, block, max_blocks,
                             /*num_tokens_past_padded=*/nullptr, stream);
                         break;
+                    }
                     case declared::Kernel::MoeGatherAligned:
                         // ISLAND (value arena).
                         // `gather_moe_aligned_inputs(x, sorted_route_ids)`
@@ -2115,14 +2143,33 @@ case PieForwardOpKind::Launch: {
                                         std::to_string(aux.size) +
                                         " banks, wants 2");
                         }
+                        // ISLAND (value arena). Two operands, three
+                        // results: the build DECLARES the aligned
+                        // staging, because it bakes those buffers' base
+                        // addresses into the pointer arrays and so has to
+                        // know where they are before anything writes
+                        // them. Everything downstream takes its
+                        // destination from here.
+                        //
+                        // The six POINTER ARRAYS are what is left. An
+                        // array of device addresses has no dtype in the
+                        // trace's vocabulary, so they stay the MoE
+                        // workspace's -- reachable only from the two
+                        // GEMMs this same call serves, which is what
+                        // bounds the gap.
+                        const auto bins = plan.inputs(op);
+                        const auto bouts = plan.outputs(op);
+                        need(bins, 2, "ptr build inputs");
+                        need(bouts, 3, "ptr build outputs");
                         kernels::moe::build_moe_ptrs_aligned_bf16(
-                            mw.aligned_expert_ids.data(),
+                            static_cast<const std::int32_t*>(
+                                values.slot(bins[0])),
                             wb.require(plan.name(aux[0])).data(),
                             wb.require(plan.name(aux[1])).data(),
-                            mw.aligned_expert_in.data(),
-                            mw.aligned_gate_up.data(),
-                            mw.aligned_act.data(),
-                            mw.aligned_out.data(),
+                            values.slot(bins[1]),
+                            values.slot(bouts[0]),
+                            values.slot(bouts[1]),
+                            values.slot(bouts[2]),
                             reinterpret_cast<const void**>(mw.a_gu_ptrs.data()),
                             reinterpret_cast<const void**>(mw.b_gu_ptrs.data()),
                             reinterpret_cast<void**>(mw.c_gu_ptrs.data()),
@@ -2148,19 +2195,36 @@ case PieForwardOpKind::Launch: {
                         const std::string_view bank = plan.name(aux[0]);
                         const bool is_gate_up =
                             bank.find("gate_up") != std::string_view::npos;
+                        // ISLAND (value arena). Every buffer is the
+                        // statement's now: the block-major source is
+                        // `inputs[0]`, the per-block expert id the kernel
+                        // indexes the bank by is `inputs[1]`, and the
+                        // destination is `inputs[2]` -- the staging the
+                        // pointer build named, which the result aliases.
+                        // The fork on the bank name picks WIDTHS and
+                        // nothing else.
+                        //
+                        // `inputs[1]` used to be the sorted route order,
+                        // which this kernel never reads: the statement
+                        // named one array and the arm bound another
+                        // (`mw.aligned_expert_ids`), so there was nothing
+                        // the declaration could be checked against.
+                        const auto gins = plan.inputs(op);
+                        const auto gouts = plan.outputs(op);
+                        need(gins, 3, "grouped gemm inputs");
+                        need(gouts, 1, "grouped gemm outputs");
                         const int out_w = is_gate_up ? 2 * Im : H;
                         const int in_w = is_gate_up ? H : Im;
-                        const std::uint16_t* src =
-                            is_gate_up ? mw.aligned_expert_in.data()
-                                       : mw.aligned_act.data();
-                        std::uint16_t* dst =
-                            is_gate_up ? mw.aligned_gate_up.data()
-                                       : mw.aligned_out.data();
+                        const auto* src = static_cast<const std::uint16_t*>(
+                            values.slot(gins[0]));
+                        const auto* expert_ids = static_cast<const std::int32_t*>(
+                            values.slot(gins[1]));
+                        auto* dst =
+                            static_cast<std::uint16_t*>(values.slot(gouts[0]));
                         if (kernels::moe::moe_grouped_gemm_bf16_supported(
                                 block, out_w, in_w)) {
                             kernels::moe::moe_grouped_gemm_bf16(
-                                src, wb.require(bank).data(), dst,
-                                mw.aligned_expert_ids.data(),
+                                src, wb.require(bank).data(), dst, expert_ids,
                                 max_blocks, block, out_w, in_w, stream);
                         } else {
                             // The batched-cuBLAS fallback the hand path
@@ -2180,13 +2244,23 @@ case PieForwardOpKind::Launch: {
                         }
                         break;
                     }
-                    case declared::Kernel::MoeReorderAligned:
+                    case declared::Kernel::MoeReorderAligned: {
+                        // ISLAND (value arena).
+                        // `reorder_moe_aligned_output(down, sorted)` --
+                        // both operands and the result are stated.
+                        const auto rins = plan.inputs(op);
+                        const auto routs = plan.outputs(op);
+                        need(rins, 2, "reorder inputs");
+                        need(routs, 1, "reorder outputs");
                         kernels::moe::reorder_moe_aligned_output_bf16(
-                            mw.aligned_out.data(), mw.aligned_route_ids.data(),
-                            mw.expert_out.data(), routes, aligned_rows, H,
+                            values.slot(rins[0]),
+                            static_cast<const std::int32_t*>(
+                                values.slot(rins[1])),
+                            values.slot(routs[0]), routes, aligned_rows, H,
                             shared_row_begin, N,
                             /*shared_out=*/nullptr, stream);
                         break;
+                    }
                     case declared::Kernel::MoeWeightedSum:
                         // The reorder above already put the rows back in
                         // ROUTE order, so this is the plain token-batched

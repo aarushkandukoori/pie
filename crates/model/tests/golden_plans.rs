@@ -356,6 +356,30 @@ fn qwen3_5_moe_mlp_35b_a3b_cuda() {
     );
 }
 
+/// The ALIGNED leg of the same block — the one every fire outside the
+/// fused CUTLASS bound actually takes, and the one the golden above does
+/// not reach: `qwen3_5_0_8b_synthetic` sizes a CUTLASS workspace, so it
+/// states the fused form and the aligned statements appeared in no
+/// golden at all.
+///
+/// That mattered more than a coverage count. The aligned leg is where
+/// `Dim::MoeAlignedRoutes` lives — a padded block-major extent that is
+/// neither `Tokens` nor a `Const` — and it is the ONE place a statement's
+/// rows are not the fire's. Every arm and every generated branch that
+/// binds a row count assumes they are.
+///
+/// A deployment with no CUTLASS workspace has no fused leg, which is the
+/// cheapest way to say "take the other one".
+#[test]
+fn qwen3_5_moe_mlp_35b_a3b_cuda_aligned() {
+    let mut cuda = Qwen35CudaFacts::qwen3_5_0_8b_synthetic();
+    cuda.moe_cutlass_max_rows = 0;
+    check_plan(
+        "qwen3_5_moe_mlp_35b_a3b_cuda_aligned",
+        &qwen3_5_moe_mlp_block_cuda(&Qwen35MoeMlpFacts::qwen3_5_35b_a3b(), &cuda),
+    );
+}
+
 /// The second fragment golden: one qwen3_5 GDN linear-attention block
 /// (Qwen3.5-0.8B dims, the default unfused in-proj binding) — attn_norm →
 /// four in-projections → causal conv → gdn prep → gated-delta recurrence →

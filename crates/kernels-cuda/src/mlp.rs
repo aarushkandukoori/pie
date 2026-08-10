@@ -13,7 +13,13 @@ pub static KERNELS: &[KernelSig] = &[
     // Two spellings of one arithmetic, and the BINDING picks: a packed
     // gate‖up bank feeds the chunked form, two narrow buffers the pair
     // form. A load-time fact, so the declaration states it.
+    // The ALIGNED leg's spelling states a second operand — the staging
+    // the pointer build named — and writes its result over it. The dense
+    // and shared-expert spellings state one operand, and a pair outside
+    // a statement's arity is not an error (`lower::Buffers`), so one row
+    // serves all three.
     kernel!(chunked_swiglu "mlp::chunked_swiglu_bf16",
+        in_place = &[(0, 1)],
         operands = operands![
             packed: Buf <- Source::In(0),
             y: BufMut <- Source::Out(0),
