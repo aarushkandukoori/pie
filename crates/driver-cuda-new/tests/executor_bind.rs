@@ -1188,16 +1188,31 @@ fn every_lowered_symbol_has_an_arm() {
         // grouped launch.
         //
         // THE OTHER THREE state operand names and types but no `Source`,
-        // so nothing says where the values come from. Those ARE the
-        // annotate-first case — except `build_moe_ptrs_aligned_bf16`,
-        // which takes twenty operands including six pointer ARRAYS it
-        // fills, against `Dim::MoeAlignedRoutes`: the one extent in the
-        // tree that is neither the fire's rows nor a load-time number.
-        // That is the "derived arithmetic" case D1 reserves for a hand
-        // arm.
+        // and the reason none is simply an annotation is ONE NUMBER:
+        // `num_routes`, the fire's tokens times `top_k`.
         //
-        //   gather_moe_aligned_inputs_bf16         annotate
-        //   reorder_moe_aligned_output_bf16        annotate
+        // Everything else in the gather and the reorder is already
+        // reachable. `aligned_rows` is `sorted_route_ids`' own leading
+        // extent (`moe_align` declares it `[max_blocks * block_size]`);
+        // `hidden` is the result's width; `num_tokens` is `Rows`; and
+        // `shared_row_begin` is `-1` at EVERY call site in the C++ tree,
+        // which `Source::Lit(Lit::I32(-1))` states exactly. But `top_k`
+        // is not an operand dim of either statement and neither passes it
+        // as a param, so `num_routes` has nowhere to come from.
+        //
+        // So the fix is a change to the STATEMENT, not to the row:
+        // `gather_moe_aligned_inputs` and `reorder_moe_aligned_output`
+        // want `top_k` on the param channel, the way `moe_align` already
+        // carries its three load-time numbers. Worth doing — it is just
+        // not the one-line annotation it looks like from here.
+        //
+        // `build_moe_ptrs_aligned_bf16` is a hand arm regardless: twenty
+        // operands including six pointer ARRAYS it fills, against
+        // `Dim::MoeAlignedRoutes` — the one extent in the tree that is
+        // neither the fire's rows nor a load-time number.
+        //
+        //   gather_moe_aligned_inputs_bf16         statement + annotate
+        //   reorder_moe_aligned_output_bf16        statement + annotate
         //   build_moe_ptrs_aligned_bf16            hand arm
         //
         // Note this is the path the LIVE L40S facts take for BOTH
