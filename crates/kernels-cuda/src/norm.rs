@@ -261,21 +261,25 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     kernel!(compute_rms "norm::compute_rms_bf16",
         operands = operands![
-            ref: Buf,
-            target_rms_out: F32sMut,
-            t: I32,
-            h: I32,
-            eps: F32,
-            stream: Stream,
+            ref: Buf <- Source::In(0),
+            target_rms_out: F32sMut <- Source::Out(0),
+            t: I32 <- Source::Rows,
+            h: I32 <- Source::InWidth(0),
+            eps: F32 <- Source::Ctx("eps"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
+    // In place on the tensor it holds to a magnitude: the row states one
+    // operand and one result and they are the same bytes, which is what
+    // lets `x` bind from `Out(0)` and the width come off the value.
     kernel!(magnitude_rescale "norm::magnitude_rescale_bf16",
+        in_place = &[(0, 0)],
         operands = operands![
-            x: BufMut,
-            target_rms: F32s,
-            t: I32,
-            h: I32,
-            eps: F32,
-            stream: Stream,
+            x: BufMut <- Source::Out(0),
+            target_rms: F32s <- Source::In(1),
+            t: I32 <- Source::Rows,
+            h: I32 <- Source::OutWidth(0),
+            eps: F32 <- Source::Ctx("eps"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // Weightless per-head norm (the V-norm) — no gamma, so no variant.
     kernel!(rmsnorm_no_scale "norm::rmsnorm_no_scale_bf16", in_place = &[(0, 0)],
@@ -333,20 +337,26 @@ pub static KERNELS: &[KernelSig] = &[
             n: Usize <- Source::OutElements(0),
             stream: Stream <- Source::Ctx("arm.stream"),
         ]),
-    kernel!(tanh "norm::tanh_bf16",
+    kernel!(tanh "norm::tanh_bf16", in_place = &[(0, 0)],
         operands = operands![
-            x: BufMut,
-            numel: I32,
-            stream: Stream,
+            x: BufMut <- Source::Out(0),
+            numel: I32 <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
+    // The head GEOMETRY off the value, not off the context: this
+    // statement's result is rank-3 `[Tokens, heads, head_dim]`, so the
+    // two counts are its own dims. That is the difference between a
+    // fully-stated row and one that needs a context field it would then
+    // share with every other family's idea of "the head count".
     kernel!(attn_sink_correction "norm::attn_sink_correction_bf16",
+        in_place = &[(0, 0)],
         operands = operands![
-            attn_out: BufMut,
-            lse: F32s,
-            sink: F32s,
-            n: I32,
-            num_heads: I32,
-            head_dim: I32,
-            stream: Stream,
+            attn_out: BufMut <- Source::Out(0),
+            lse: F32s <- Source::In(1),
+            sink: F32s <- Source::Weight(0),
+            n: I32 <- Source::Rows,
+            num_heads: I32 <- Source::OutDim(0, 1),
+            head_dim: I32 <- Source::OutDim(0, 2),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
 ];

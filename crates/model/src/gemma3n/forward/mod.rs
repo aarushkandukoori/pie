@@ -124,7 +124,7 @@ fn altup_coefs(x: &Val, norm: &NormW, router: &MatW, coefs: &MatW, scale: &str) 
     let n = dsl::cuda::rmsnorm(x, norm);
     let n = dsl::cuda::scalar_mul(&n, scale);
     let modality = matmul(&n, router);
-    let modality = dsl::cuda::tanh(&modality, router.width);
+    let modality = dsl::cuda::tanh(&modality);
     matmul(&modality, coefs)
 }
 

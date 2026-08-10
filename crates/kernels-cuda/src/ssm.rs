@@ -6,6 +6,7 @@
 
 use kernels::kernel;
 use kernels::operands;
+use kernels::Source;
 use kernels::KernelSig;
 
 #[rustfmt::skip]
@@ -514,19 +515,22 @@ pub static KERNELS: &[KernelSig] = &[
             eps: F32,
             stream: Stream,
         ]),
+    // The two casts, and the first rows whose every argument the
+    // statement already carries: one operand, one result, and an element
+    // count that is the result's own extent.
     kernel!(bf16_to_f32 "ssm::bf16_to_fp32",
         operands = operands![
-            x: Buf,
-            y: F32sMut,
-            n: Usize,
-            stream: Stream,
+            x: Buf <- Source::In(0),
+            y: F32sMut <- Source::Out(0),
+            n: Usize <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(f32_to_bf16 "ssm::fp32_to_bf16",
         operands = operands![
-            x: F32s,
-            y: BufMut,
-            n: Usize,
-            stream: Stream,
+            x: F32s <- Source::In(0),
+            y: BufMut <- Source::Out(0),
+            n: Usize <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(zamba_rmsnorm_gated "ssm::zamba_rmsnorm_gated_bf16",
         operands = operands![
