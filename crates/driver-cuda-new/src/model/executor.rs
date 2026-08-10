@@ -1709,6 +1709,63 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
+        // ── The MIXTURE's landing pair, both in-place ───────────────
+        // Neither can generate: `emit_rust_dispatch` skips every
+        // `in_place` row because a generated branch binds `Out(0)` and
+        // calls, with nowhere to stage the copy the aliasing needs. The
+        // rows already state their sources; staging is the whole
+        // difference, and it is `stage_d2d` in both.
+
+        // args: [src, weights, residual, out] — the routed combine that
+        // ACCUMULATES. `out += sum_k(src[t, k] * w[t, k])`, so the
+        // residual is staged into `out` first and the kernel adds onto
+        // it. The plain `token_batched_weighted_sum_bf16` writes instead,
+        // which is why only this spelling is in-place.
+        "moe::token_batched_weighted_sum_add_bf16" => {
+            need(4)?;
+            let (src, weights, resid, out) =
+                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
+            stage_d2d(ctx, &bound.rows, out, resid);
+            // `src` is `[Tokens, top_k, hidden]` and `out` is
+            // `[Tokens, hidden]`, so the route count is the ratio of
+            // their row widths. Derived from what the two args SAY
+            // rather than from a config the arm would have to be told.
+            let hidden = i32::try_from(out.width).expect("dim");
+            let top_k = i32::try_from(src.width / out.width.max(1)).unwrap_or(1).max(1);
+            unsafe {
+                ffi::pie_k_moe_token_batched_weighted_sum_add_bf16(
+                    out.ptr,
+                    src.ptr,
+                    weights.ptr.cast::<f32>(),
+                    rows,
+                    top_k,
+                    hidden,
+                    ctx.stream,
+                );
+            }
+        }
+        // args: [x, y, out] — the SHARED expert's landing, and the
+        // operand order is the trap the row's own comment names: `y` is
+        // the ADDEND, not the accumulator. `out = out + sigmoid(x·gate) *
+        // y`, so the routed block's output stages into `out` and the
+        // shared expert's contribution is gated onto it.
+        "mlp::sigmoid_dot_scalar_gate_add_bf16" => {
+            need(3)?;
+            let (x, y, out) = (bound.args[0], bound.args[1], bound.args[2]);
+            let w = weight(resolver)?;
+            stage_d2d(ctx, &bound.rows, out, y);
+            unsafe {
+                ffi::pie_k_mlp_sigmoid_dot_scalar_gate_add_bf16(
+                    x.ptr,
+                    w,
+                    out.ptr,
+                    y.ptr,
+                    rows,
+                    i32::try_from(out.width).expect("dim"),
+                    ctx.stream,
+                );
+            }
+        }
         // args: [a, b, out] — out = a + b. The kernel is the in-place
         // `y += x` over flat elements, so: stage a→out, add b.
         "norm::residual_add_bf16" => {

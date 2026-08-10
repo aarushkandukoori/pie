@@ -1058,6 +1058,14 @@ fn every_lowered_symbol_has_an_arm() {
         hooked_lowered(4),
         every_mark_lowered(4),
         union_lowered(4),
+        // THE MIXTURE. `n_experts > 0` selects a different block between
+        // the same two norms — the routed FFN — and until the hybrid's
+        // derivation read it off the config, no lowering in this corpus
+        // contained one. So the routed symbols were outside "every" for
+        // the same reason the masked and hooked arms were: the set was
+        // closed over the FACTS the corpus states, not just its families.
+        the_mixture::moe_lowered(FireClass::Decode, 4),
+        the_mixture::moe_lowered(FireClass::Prefill, 7),
     ] {
         every.extend(l.kernels.iter().cloned());
     }
@@ -1157,6 +1165,49 @@ fn every_lowered_symbol_has_an_arm() {
         "ssm::kda_o_norm_gated_bf16",
         "ssm::kda_recurrent_step_batched",
         "ssm::l2norm_scale_bf16_to_fp32",
+        // ── The MIXTURE's aligned path: 6 symbols, one subsystem ─────
+        // These joined the moment the hybrid's derivation started
+        // reading `num_experts` off the config, which is exactly what a
+        // closed set is for — they lowered with nothing to execute them
+        // and this line is where that is recorded, not a GPU.
+        //
+        // All six are ROWED and all six BIND (`the_mixture` holds them
+        // to both claims), and they split two ways for two different
+        // reasons — which is worth knowing before anyone starts, because
+        // only one half is the plan's cheap "annotate rows first".
+        //
+        // THREE WERE IN-PLACE, and an in-place row never generates: the
+        // generated branch binds `Out(0)` and calls, so it has nowhere to
+        // stage the copy the aliasing needs (`emit_rust_dispatch` skips
+        // them deliberately — the qwen3_5 A/B caught what happens when it
+        // does not). Their sources are already stated, so staging was the
+        // whole difference, and TWO OF THE THREE HAVE LEFT THIS LIST:
+        // the routed combine and the shared expert's gated landing are
+        // armed. `moe_grouped_gemm_bf16` remains, because it is the one
+        // whose staging is not a `stage_d2d` — it accumulates across a
+        // grouped launch.
+        //
+        // THE OTHER THREE state operand names and types but no `Source`,
+        // so nothing says where the values come from. Those ARE the
+        // annotate-first case — except `build_moe_ptrs_aligned_bf16`,
+        // which takes twenty operands including six pointer ARRAYS it
+        // fills, against `Dim::MoeAlignedRoutes`: the one extent in the
+        // tree that is neither the fire's rows nor a load-time number.
+        // That is the "derived arithmetic" case D1 reserves for a hand
+        // arm.
+        //
+        //   gather_moe_aligned_inputs_bf16         annotate
+        //   reorder_moe_aligned_output_bf16        annotate
+        //   build_moe_ptrs_aligned_bf16            hand arm
+        //
+        // Note this is the path the LIVE L40S facts take for BOTH
+        // classes: `moe_cutlass_max_rows = 0` sends decode down the
+        // aligned body too, so arming these opens the mixture outright
+        // rather than opening prefill only.
+        "moe::build_moe_ptrs_aligned_bf16",
+        "moe::gather_moe_aligned_inputs_bf16",
+        "moe::moe_grouped_gemm_bf16",
+        "moe::reorder_moe_aligned_output_bf16",
     ];
 
     // Compared as SETS: the list above is grouped by subsystem because
@@ -1268,4 +1319,70 @@ fn every_pair_form_activation_recovers_its_up_projection() {
         }
     }
     assert!(seen_any, "no family stated a pair-form activation — the claim is vacuous");
+}
+
+/// THE MIXTURE, held to the same claim as every other lowering.
+///
+/// `qwen3_5_moe` and `qwen3_5_moe_text` have been in `FACTS_ROWS` since
+/// the registry landed, and the hybrid's text has branched on
+/// `Qwen35MlpKind` for as long — but the derivation built `Dense`
+/// unconditionally, so no fire ever reached the routed block and nothing
+/// held its symbols to the bridge. Qwen3.5-35B-A3B is the deployment: 256
+/// routed experts, top-k 8, `moe_intermediate` 512 beside a shared expert
+/// of the same width.
+///
+/// This asks the two questions the dense corpus asks. Every launch binds,
+/// and every kernel the mixture names has a row — which is how the
+/// aligned path's symbols get counted rather than assumed.
+mod the_mixture {
+    use super::*;
+
+    pub fn moe_lowered(class: FireClass, rows: usize) -> Lowered {
+        use model::qwen_3_5::forward::facts::{Qwen35MlpKind, Qwen35MoeMlpFacts};
+        let mut facts = Qwen35HybridFacts::qwen3_5_0_8b();
+        // The A3B mixture on the 0.8B geometry: the routed block's own
+        // numbers are the deployment's, `hidden` has to be the hybrid's
+        // (its sub-facts are cross-checked at trace start).
+        facts.mlp = Qwen35MlpKind::Moe(Qwen35MoeMlpFacts {
+            hidden: facts.hidden(),
+            ..Qwen35MoeMlpFacts::qwen3_5_35b_a3b()
+        });
+        let plan = qwen3_5_hybrid_cuda(&facts, &qwen35_live_cuda(), class);
+        let r: Vec<Row> = vec![Row { samples: true, ..Row::default() }; rows];
+        lower(&plan, &r, Fire { captures_across_splits: false })
+            .expect("the mixture lowers")
+    }
+
+    #[test]
+    fn every_launch_of_the_mixture_binds() {
+        for (class, rows) in [(FireClass::Decode, 4), (FireClass::Prefill, 7)] {
+            let l = moe_lowered(class, rows);
+            assert!(!l.launches.is_empty(), "{class:?} lowered to nothing");
+            let frame = Frame { arena: 0x10000 as *mut c_void, arena_bytes: l.arena_bytes };
+            let mut resolver = Sentinels::default();
+            for launch in &l.launches {
+                let bound = bind(&l, launch, frame, &mut resolver)
+                    .unwrap_or_else(|r| panic!("mixture {class:?}: launch refused: {r:?}"));
+                assert_eq!(
+                    bound.args.len(),
+                    (launch.args.end - launch.args.start) as usize,
+                    "every stated operand binds"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_lowered_kernel_of_the_mixture_has_a_bridge_row() {
+        let bridged = bridged_symbols();
+        let mut unreachable = BTreeSet::new();
+        for (class, rows) in [(FireClass::Decode, 4), (FireClass::Prefill, 7)] {
+            for symbol in &moe_lowered(class, rows).kernels {
+                if !bridged.contains(symbol.as_str()) {
+                    unreachable.insert(symbol.clone());
+                }
+            }
+        }
+        assert!(unreachable.is_empty(), "mixture kernels with no bridge row: {unreachable:?}");
+    }
 }

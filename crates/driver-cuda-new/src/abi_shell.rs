@@ -1465,6 +1465,7 @@ fn gemma4_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i
 fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
     use model::qwen_3_5::forward::facts::{
         Qwen35CudaFacts, Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MlpKind,
+        Qwen35MoeMlpFacts,
     };
     use model_compiler::trace::NormVariant;
     let hf = &model.hf;
@@ -1513,7 +1514,32 @@ fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i
             fused_in_proj: false,
             norm_variant: NormVariant::Gemma,
         },
-        mlp: Qwen35MlpKind::Dense { intermediate: to_u32(hf.intermediate_size) },
+        // THE MLP KIND, off the config rather than assumed dense.
+        //
+        // `n_experts > 0` IS the mixture — the same reading
+        // `LlamaLikeFacts::n_experts` documents, and the reason a routed
+        // FFN is a fact and not a family: the attention is unchanged and
+        // only the block between the two norms differs. The hybrid's own
+        // text already branches on `Qwen35MlpKind`, so this derivation
+        // was the only thing making every qwen3_5 deployment dense.
+        //
+        // Qwen3.5-35B-A3B is what it opens: 256 routed experts, top-k 8,
+        // `moe_intermediate` 512 beside a shared expert of the same
+        // width. Those numbers were PINNED as a fixture from the C++
+        // driver's measured notes because no config was committed; the
+        // checkpoint's own config agrees with the fixture on every one.
+        mlp: if to_u32(hf.num_experts) > 0 {
+            Qwen35MlpKind::Moe(Qwen35MoeMlpFacts {
+                hidden: to_u32(hf.hidden_size),
+                num_experts: to_u32(hf.num_experts),
+                top_k: to_u32(hf.num_experts_per_tok),
+                moe_intermediate: to_u32(hf.moe_intermediate_size),
+                shared_expert_intermediate: to_u32(hf.shared_expert_intermediate_size),
+                norm_variant: NormVariant::Gemma,
+            })
+        } else {
+            Qwen35MlpKind::Dense { intermediate: to_u32(hf.intermediate_size) }
+        },
     };
     // The LIVE L40S cuda set (`emissions.rs`): warp-tiled and the cached
     // prefill env-gated off, bf16 recurrent state, prefill-decode on.
