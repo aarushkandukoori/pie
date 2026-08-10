@@ -131,10 +131,20 @@ pub fn emit_c_shim(
             .collect::<Vec<_>>()
             .join(", ");
 
+        // A launcher that ANSWERS something keeps its answer: the shim
+        // declares the forwarding pointer with the callee's real return
+        // type, so a row that said `void` about a `bool` launcher is a
+        // conversion C++ refuses rather than a value quietly dropped.
+        let ret = if k.returns.is_empty() { "void" } else { k.returns };
+        let forward = if k.returns.is_empty() {
+            format!("    fwd({args});")
+        } else {
+            format!("    return fwd({args});")
+        };
         out.push_str(&format!(
-            "extern \"C\" void {entry}(\n{params}) {{\n    \
-             static void (*const fwd)({types}) = &{};\n    \
-             fwd({args});\n}}\n\n",
+            "extern \"C\" {ret} {entry}(\n{params}) {{\n    \
+             static {ret} (*const fwd)({types}) = &{};\n\
+             {forward}\n}}\n\n",
             cpp_path(k.symbol),
         ));
     }
@@ -162,7 +172,20 @@ pub fn emit_rust_bindings(tables: &[&'static [KernelSig]]) -> String {
             let note = if o.nullable { "  // may be null" } else { "" };
             out.push_str(&format!("        {}: {},{note}\n", o.name, o.ty.rust()));
         }
-        out.push_str("    );\n");
+        // The Rust side keeps the answer too. `bool` is the only
+        // non-void return in the table and it is one byte on both
+        // sides, which the layout suite already pins for `Ty::Bool`.
+        if k.returns.is_empty() {
+            out.push_str("    );\n");
+        } else {
+            let rust_ret = match k.returns {
+                "bool" => "bool",
+                other => panic!(
+                    "abi: no Rust spelling for the return type `{other}`"
+                ),
+            };
+            out.push_str(&format!("    ) -> {rust_ret};\n"));
+        }
     }
     out.push_str("}\n");
     out

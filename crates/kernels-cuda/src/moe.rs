@@ -10,7 +10,18 @@ use kernels::KernelSig;
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
-    kernel!(moe_grouped_gemm "moe::moe_grouped_gemm_bf16"),
+    kernel!(moe_grouped_gemm "moe::moe_grouped_gemm_bf16",
+        operands = operands![
+            a: Buf,
+            weight_base: Buf,
+            c: BufMut,
+            expert_ids: I32s,
+            max_blocks: I32,
+            m: I32,
+            n: I32,
+            k: I32,
+            stream: Stream,
+        ]),
     // `topk_idx` here is `[N, K]` in TOKEN order, not the route-major order
     // the aligned path sorts into, so a row window keeps each token's routing
     // intact and these are not `whole`.
@@ -172,7 +183,30 @@ pub static KERNELS: &[KernelSig] = &[
             num_tokens: I32,
             stream: Stream,
         ]),
-    kernel!(build_moe_ptrs_aligned "moe::build_moe_ptrs_aligned_bf16", whole = true),
+    kernel!(build_moe_ptrs_aligned "moe::build_moe_ptrs_aligned_bf16", whole = true,
+        operands = operands![
+            expert_ids: I32s,
+            gate_up_base: Buf,
+            down_base: Buf,
+            aligned_in: Buf,
+            aligned_gate_up: BufMut,
+            aligned_act: BufMut,
+            aligned_out: BufMut,
+            a_gu_ptrs: BufArrayOut,
+            b_gu_ptrs: BufArrayOut,
+            c_gu_ptrs: BufArrayOutMut,
+            a_dn_ptrs: BufArrayOut,
+            b_dn_ptrs: BufArrayOut,
+            c_dn_ptrs: BufArrayOutMut,
+            max_blocks: I32,
+            block_size: I32,
+            h: I32,
+            i_moe: I32,
+            routed_blocks: I32,
+            shared_gate_up_base: Buf,
+            shared_down_base: Buf,
+            stream: Stream,
+        ]),
     kernel!(reorder_moe_aligned_output "moe::reorder_moe_aligned_output_bf16", whole = true,
         operands = operands![
             aligned_out: Buf,
@@ -291,7 +325,25 @@ pub static KERNELS: &[KernelSig] = &[
     // rides INSIDE the value, so each is one rectangle over `N * k`
     // routes; unlike it, the weight slot names a per-expert POINTER
     // BANK, which is a binding question and not a shape one.
-    kernel!(mxfp4_moe_gate_up "quant::mxfp4_moe_gate_up_decode_bf16"),
+    kernel!(mxfp4_moe_gate_up "quant::mxfp4_moe_gate_up_decode_bf16",
+        operands = operands![
+            act_fp16: Buf,
+            topk_idx: I32s,
+            gate_up_packed: U8Array,
+            gate_up_scales: U8Array,
+            gate_bias: BufArray,
+            up_bias: BufArray,
+            gate_out_bf16: BufMut,
+            up_out_bf16: BufMut,
+            num_tokens: I32,
+            top_k: I32,
+            hidden: I32,
+            intermediate: I32,
+            stream: Stream,
+            act_out_fp16: BufMut,
+            glu_limit: F32,
+            glu_alpha: F32,
+        ]),
     kernel!(mxfp4_moe_down "quant::mxfp4_moe_down_decode_bf16",
         operands = operands![
             act_fp16: Buf,
