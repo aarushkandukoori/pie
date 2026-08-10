@@ -126,6 +126,72 @@ fn attn_shim(table: &'static [KernelSig]) -> String {
     kernels_cuda::abi::emit_c_shim(&[table], &refs).expect("no entry-point collisions")
 }
 
+/// The headers `norm`'s rows are declared in — every `norm/*.hpp`.
+fn norm_headers() -> Vec<String> {
+    let mut hs: Vec<String> = std::fs::read_dir(csrc().join("norm"))
+        .expect("norm/")
+        .filter_map(|e| {
+            let n = e.ok()?.file_name().into_string().ok()?;
+            n.ends_with(".hpp").then(|| format!("norm/{n}"))
+        })
+        .collect();
+    hs.sort();
+    hs
+}
+
+/// `norm`'s rows, proven the same way `rope`'s and `attn`'s are.
+///
+/// Twenty-eight launchers across seven headers, and the family every
+/// other one leans on: a wrong row here is a wrong argument in an arm
+/// that four executors reach.
+#[test]
+fn every_norm_row_states_its_launcher_exactly() {
+    let table = kernels_cuda::norm::KERNELS;
+    let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
+    assert_eq!(
+        stated,
+        table.len(),
+        "{} of {} norm rows are unstated, so the shim silently skips them",
+        table.len() - stated,
+        table.len()
+    );
+    let hs = norm_headers();
+    let refs: Vec<&str> = hs.iter().map(String::as_str).collect();
+    let shim = kernels_cuda::abi::emit_c_shim(&[table], &refs)
+        .expect("no entry-point collisions");
+    if let Err(err) = compile(&shim) {
+        panic!(
+            "the generated shim does not compile, so a row misstates its \
+             launcher:\n{err}"
+        );
+    }
+}
+
+/// `mlp`'s rows. Sixteen activations across two headers, and the family
+/// whose default arguments make a hand-written binding easiest to get
+/// wrong -- `gpt_oss_glu_bf16` alone carries three.
+#[test]
+fn every_mlp_row_states_its_launcher_exactly() {
+    let table = kernels_cuda::mlp::KERNELS;
+    let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
+    assert_eq!(
+        stated,
+        table.len(),
+        "{} of {} mlp rows are unstated, so the shim silently skips them",
+        table.len() - stated,
+        table.len()
+    );
+    let shim =
+        kernels_cuda::abi::emit_c_shim(&[table], &["mlp/swiglu.hpp", "mlp/gaussian_topk.hpp"])
+            .expect("no entry-point collisions");
+    if let Err(err) = compile(&shim) {
+        panic!(
+            "the generated shim does not compile, so a row misstates its \
+             launcher:\n{err}"
+        );
+    }
+}
+
 /// The pilot itself: every stated `rope` row describes its launcher exactly.
 #[test]
 fn every_rope_row_states_its_launcher_exactly() {
