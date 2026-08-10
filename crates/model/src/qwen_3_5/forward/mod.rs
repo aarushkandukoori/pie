@@ -690,11 +690,29 @@ fn gdn_attn_body_cuda(
                         );
                     }
                     ctx.arm(dsl::Region::Fire(GuardPred::TokensLE(c.cached_max)), || {
+                        // The repeats declare their results now, so the
+                        // recurrence in this arm takes THEM — which is
+                        // what the arm always meant and could not say
+                        // while the repeat was output-less.
                         if gqa {
-                            cuda::repeat_interleave_heads(&q);
-                            cuda::repeat_interleave_heads(&k);
+                            let qr = cuda::repeat_interleave_heads(
+                                &q,
+                                facts.value_heads,
+                                facts.key_head_dim,
+                            );
+                            let kr = cuda::repeat_interleave_heads(
+                                &k,
+                                facts.value_heads,
+                                facts.key_head_dim,
+                            );
+                            cuda::gdn_prefill_cached(
+                                &qr, &kr, &v, &g, &beta, &w.rs, c.state_bf16,
+                            );
+                        } else {
+                            cuda::gdn_prefill_cached(
+                                &q, &k, &v, &g, &beta, &w.rs, c.state_bf16,
+                            );
                         }
-                        cuda::gdn_prefill_cached(&q, &k, &v, &g, &beta, &w.rs, c.state_bf16);
                     });
                 },
                 || {
@@ -2218,10 +2236,27 @@ mod tests {
             ]
         );
         // Region launches are output-less lowerings of the guard's value,
-        // and that value is the core the gated norm consumes.
+        // and that value is the core the gated norm consumes. The
+        // REPEATS are not region launches: they are ordinary dataflow
+        // that happens to live inside an arm, so they declare results of
+        // their own and the cached recurrence takes them as operands —
+        // which is what lets the driver stop deciding by launch order
+        // which of two workspace buffers a repeat meant.
         for op in &plan.ops[idx + 1..idx + 6] {
+            let OpKind::Launch { kernel, .. } = &op.kind else {
+                unreachable!()
+            };
+            if kernel == "ssm::repeat_interleave_heads_fp32" {
+                assert_eq!(op.outputs.len(), 1, "a repeat states its result: {op:?}");
+                continue;
+            }
             assert!(op.outputs.is_empty(), "region launch grew outputs: {op:?}");
         }
+        // The cached arm's recurrence reads the REPEATED pair, not the
+        // prep's compact q/k — the whole point of stating the repeats.
+        let cached = &plan.ops[idx + 4];
+        assert_eq!(cached.inputs[0], plan.ops[idx + 2].outputs[0]);
+        assert_eq!(cached.inputs[1], plan.ops[idx + 3].outputs[0]);
         let core = plan.ops[idx].outputs[0];
         let gated = plan
             .ops
