@@ -130,12 +130,6 @@ mod bridge {
             );
         }
 
-        // The hand-written extras ride in the same object library: the
-        // few entries the generated shim cannot express (plan-cache
-        // lifecycle — see csrc/launch_extras.cpp).
-        let extras = Path::new(env!("CARGO_MANIFEST_DIR")).join("csrc/launch_extras.cpp");
-        println!("cargo:rerun-if-changed=csrc/launch_extras.cpp");
-
         // The shim's own directive (`-lpie_launch_shim`) is emitted by `cc`
         // here, ahead of everything below.
         cc::Build::new()
@@ -144,7 +138,6 @@ mod bridge {
             .include(csrc_src())
             .include(&cuda_include)
             .file(&shim_path)
-            .file(&extras)
             .compile("pie_launch_shim");
 
         // The supergraph's set-cond kernel, which is the ONE thing in this
