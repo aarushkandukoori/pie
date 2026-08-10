@@ -44,6 +44,10 @@ tensor-ir = { path = "../tensor-ir" }
 # no chat aspect, so no tokenizer or image decoders ride along), and
 # `model-loader` owns the plan compiler and the checkpoint readers. Both are
 # host-portable.
+# The lowering the executor runs: `model_compiler::lower` states a fire as a
+# flat list of launches naming kernel symbols. Host-portable — reading a
+# lowered trace builds no shader.
+model-compiler = { path = "../model-compiler" }
 model = { path = "../model", default-features = false, features = ["contract"] }
 model-loader = { path = "../model-loader" }
 
@@ -150,8 +154,17 @@ tempfile = "3"
 # name no shader instantiates fails in CI on any host. Table only, no Metal.
 kernels-metal = { path = "../kernels-metal", default-features = false }
 
+# `sig_in`: the table's own symbol lookup, so a test does not re-implement how an
+# instantiated point resolves to its row.
+kernels = { path = "../kernels" }
+
 # Tests only. The driver deliberately does not depend on the compiler at build
 # time -- see the `identity::Versions` comment -- but `pipeline::status` mirrors
 # the compiler's fault-code table, and a hand-copied table that nothing checks
 # drifts. The dev-dependency makes the mirror a test rather than a promise.
 tensor-compiler = { path = "../tensor-compiler" }
+
+# Tests only. The binder is proved against a REAL lowering, and the texts live
+# behind `model`'s `forward` feature -- which the driver itself does not need,
+# so it is enabled here rather than in the dependency table above.
+model = { path = "../model", default-features = false, features = ["contract", "forward"] }
