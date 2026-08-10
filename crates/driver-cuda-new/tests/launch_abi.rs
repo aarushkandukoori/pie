@@ -333,6 +333,42 @@ fn the_dispatch_generates_from_rows_that_state_their_sources() {
     );
 }
 
+/// The committed dispatch is what the generator emits today.
+///
+/// `.inc` discipline, one layer down: the file is C++ a reader opens,
+/// so it is committed and the diff is the review — and a table edit
+/// that changes what it emits has to be regenerated rather than
+/// silently diverge from the arms it replaced.
+#[test]
+fn the_committed_dispatch_is_regeneration_clean() {
+    let path = format!(
+        "{}/../driver-cuda/csrc/src/model/declared/generated_dispatch.inc",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let committed = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    let fresh = kernels_cuda::abi::emit_dispatch(
+        &[
+            kernels_cuda::attn::KERNELS,
+            kernels_cuda::gemm::KERNELS,
+            kernels_cuda::layout::KERNELS,
+            kernels_cuda::mlp::KERNELS,
+            kernels_cuda::moe::KERNELS,
+            kernels_cuda::norm::KERNELS,
+            kernels_cuda::quant::KERNELS,
+            kernels_cuda::rope::KERNELS,
+            kernels_cuda::sample::KERNELS,
+            kernels_cuda::ssm::KERNELS,
+        ],
+        "c",
+    );
+    assert_eq!(
+        committed, fresh,
+        "the committed dispatch is stale; regenerate with \
+         `cargo run -p kernels-cuda --bin emit-dispatch`"
+    );
+}
+
 /// The pilot itself: every stated `rope` row describes its launcher exactly.
 #[test]
 fn every_rope_row_states_its_launcher_exactly() {
