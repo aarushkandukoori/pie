@@ -190,6 +190,7 @@ impl Resolver for Live<'_> {
             FireTable::KvWritePage => 5,
             FireTable::KvWriteOffset => 6,
             FireTable::RopeFrequencies => 7,
+            FireTable::SamplingIndices => 8,
             // No custom mask on this path, and no pool number is an address.
             _ => return None,
         };
@@ -268,6 +269,8 @@ fn stage_tables(
     // The rotary frequencies ride the same region: f32 bits in a u32 channel,
     // which is what the channel is for. A rescaled ladder is not a base and
     // the shader reads it as a buffer.
+    // Which rows the readout samples, one per request.
+    let sampled: Vec<u32> = step.sampling_indices.to_vec();
     let inv_freq: Vec<u32> = freqs.iter().map(|f| f.to_bits()).collect();
 
     let mut blob: Vec<u32> = Vec::new();
@@ -281,6 +284,7 @@ fn stage_tables(
         &w_page,
         &w_off,
         &inv_freq,
+        &sampled,
     ] {
         spans.push((blob.len(), table.len()));
         blob.extend_from_slice(table);
@@ -1255,27 +1259,23 @@ fn one_token_at_position_zero_agrees_with_mlx() {
 /// a sampler wants. MLX's answer for `[128000, 9906]` at position 1 is argmax
 /// **0** with the distribution spanning [-5.42, 18.56].
 ///
-/// # Ignored, and the gap is now one statement
+/// **It agrees.** Same argmax, same top five in order, span [-5.41, 18.63]
+/// against MLX's [-5.42, 18.56]. So the M>1 lane is held to a reference too,
+/// and between them the two gates cover both halves of the kernel table.
 ///
-/// It runs, and it agrees — with position ZERO. `sampling_indices: &[1]` asks
-/// for the last token's distribution and the readout answers 16309 at 6.40625,
-/// which is MLX's answer for position 0 to the last bf16 place.
+/// Three things had to land for it, and each was invisible to the other gate:
 ///
-/// So every stage before it is right. What is missing is a ROW GATHER: the
-/// readout is `[Requests, vocab]` and reads row 0 of a `[Tokens, hidden]`
-/// residual stream, so a prefill's sampled row never reaches it. The retiring
-/// driver had one — `Kernel::G4RowGather` — and `device_text_fire`'s own
-/// header records it as "deliberately absent at M=1", which is true and stops
-/// being enough the moment M is not 1.
-///
-/// That is a statement the TEXT owes, not a driver gap: which rows a fire
-/// samples is `Step::sampling_indices`, a fire table, and gathering by it is
-/// a launch like any other. `layout/` already has the kernels.
-///
-/// The MLX constants below are position 1 of `[128000, 9906]`: argmax 0
-/// spanning [-5.42, 18.56].
+///   * the projection GUARD, because `qmm_t.metal` needs `M % BM == 0` and two
+///     rows tile nothing — which took `region_out` on the arms and
+///     `Lowering::region_outs` under them;
+///   * the ROW GATHER, because a prefill's stream is one row per TOKEN and its
+///     readout one per REQUEST. Without it the readout read row 0 and answered
+///     the FIRST token's distribution — exactly right, for a question nobody
+///     asked;
+///   * `Source::RequestCount` as `Ty::InPacked`, because how many rows to
+///     gather is the fire's number and it is a FIELD of a packed struct rather
+///     than an operand.
 #[test]
-#[ignore = "the text states no row gather, so a prefill's readout reads row 0"]
 fn a_two_token_prefill_agrees_with_mlx() {
     let Some(snapshot) = snapshot() else {
         eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT to an MLX snapshot");
@@ -1461,6 +1461,8 @@ fn stage_prefill(
     let kv_page_indptr: Vec<u32> = vec![0, 1];
     let w_page: Vec<u32> = vec![0; n as usize];
     let w_off: Vec<u32> = positions.iter().map(|p| p % page_size.max(1)).collect();
+    // Which rows the readout samples, one per request.
+    let sampled: Vec<u32> = step.sampling_indices.to_vec();
     let inv_freq: Vec<u32> = freqs.iter().map(|f| f.to_bits()).collect();
 
     let mut blob: Vec<u32> = Vec::new();
@@ -1474,6 +1476,7 @@ fn stage_prefill(
         &w_page,
         &w_off,
         &inv_freq,
+        &sampled,
     ] {
         spans.push((blob.len(), table.len()));
         blob.extend_from_slice(table);

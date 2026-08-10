@@ -510,6 +510,16 @@ fn param_layout<S: Resolver>(
         // statement never carried. That is the whole reason it is a `Source`
         // — a stride is the pool's shape, and a text that guessed one would be
         // right for a deployment and silently wrong for the next.
+        // A field of the PRECEDING packed struct: append the value and bind
+        // nothing. The packed slot's run covers every scalar after it, so the
+        // field lands where the struct expects it.
+        if operand.ty == kernels::Ty::InPacked {
+            params.push(match operand.source {
+                kernels::Source::RequestCount => lowered.n_requests,
+                _ => 0,
+            });
+            continue;
+        }
         let pooled = match operand.source {
             kernels::Source::KvHeadStride => Some(FireTable::KvHeadStride),
             kernels::Source::KvSeqStride => Some(FireTable::KvSeqStride),

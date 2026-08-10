@@ -2266,17 +2266,12 @@ pub mod metal {
             "row_gather_bfloat16",
             vec![],
             None,
-            // `RowGatherParams`, packed: width then count.
-            //
-            // The count is ZERO and that is a GAP, not a value: how many rows
-            // to gather is the REQUEST count, a number of the fire's that no
-            // text can state, and the launch's own rows are TOKENS. The kernel
-            // reads `i >= p.count` and returns, so a zero gathers nothing.
-            //
-            // It wants a `Source` the way the KV pool's strides did -- the
-            // driver knows it and the text does not -- and until it has one
-            // this statement is written and uncalled.
-            vec![width, 0],
+            // `RowGatherParams`, packed: width then count. WIDTH only here --
+            // how many rows to gather is the REQUEST count, a number of the
+            // fire's that no text can state, and the row names it
+            // (`Source::RequestCount`, `Ty::InPacked`) so the driver appends
+            // it as the struct's second field.
+            vec![width],
             vec![x.id],
             Some((Shape(vec![Dim::Requests, Dim::Const(width)]), DType::BF16)),
         )

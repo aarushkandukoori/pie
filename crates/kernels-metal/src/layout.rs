@@ -54,16 +54,14 @@ pub static KERNELS: &[KernelSig] = &[
             out: BufMut <- kernels::Source::Out(0),
             rows: U32s <- kernels::Source::SamplingIndices,
             // `RowGatherParams` — width then count, PACKED into buffer 3.
-            // There is no buffer 4, so the count cannot be its own operand:
-            // it has to land in the struct's second field.
+            // There is no buffer 4, so the count is not an operand: it is the
+            // struct's second FIELD, which `Ty::InPacked` is how a row says.
             //
-            // Which it can, and cheaply: `dispatch::param_layout` APPENDS a
-            // driver-answered scalar to the statement's own, so a statement
-            // stating `vec![width]` and a source appending the count produce
-            // `[width, count]` — exactly the struct. What is missing is the
-            // packed slot naming a source for the field rather than for the
-            // whole struct, which `Source::Param(i)` cannot say.
+            // The statement states `[width]` and the driver appends the count,
+            // giving `[width, count]` — exactly the struct — because a packed
+            // slot's run already covers every scalar after it.
             params: Buf <- kernels::Source::Param(0),
+            count: InPacked <- kernels::Source::RequestCount,
         ],
         axes = &[BF16]),
 ];

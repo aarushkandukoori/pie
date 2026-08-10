@@ -570,24 +570,17 @@ fn llama_like_metal_text(
         }
 
         let normed = dsl::metal::rms_norm(&y, &m.final_norm(), f.hidden, metal.rms_eps);
-        // NOT YET the sampled rows, and the missing piece is named.
+        // The SAMPLED rows, before the readout. A fire's stream is one row
+        // per TOKEN and its readout is one distribution per REQUEST, so
+        // something has to pick, and it is `Step::sampling_indices`.
         //
-        // A fire's stream is one row per TOKEN and its readout is one
-        // distribution per REQUEST, so something has to pick, and it is
-        // `Step::sampling_indices`. Absent, the readout reads row 0 and a
-        // two-token prefill answers the FIRST token's distribution -- exactly
-        // right, for a question nobody asked. A decode of one token per
-        // request is unaffected, which is why the decode gate agrees with MLX
-        // over it.
-        //
-        // `dsl::metal::sample_rows` and `row_gather`'s row are written and
-        // wired (`Source::SamplingIndices`). What blocks the call is
-        // `RowGatherParams::count`: how many rows to gather is the REQUEST
-        // count, a number of the fire's that no text can state, and the
-        // launch's own rows are TOKENS. It wants a `Source` the way the KV
-        // pool's strides did -- the driver knows it, the text does not.
+        // Absent, the readout read row 0 and a two-token prefill answered the
+        // FIRST token's distribution -- exactly right, for a question nobody
+        // asked. A decode of one token per request is unaffected, which is why
+        // the decode gate agreed with MLX over it for as long as it did.
+        let sampled = dsl::metal::sample_rows(&normed, f.hidden);
         let head = if f.tied_embeddings { "embed" } else { "lm_head" };
-        dsl::metal::lm_head(&normed, head, f.vocab, metal.proj_repr, &point);
+        dsl::metal::lm_head(&sampled, head, f.vocab, metal.proj_repr, &point);
     })
 }
 

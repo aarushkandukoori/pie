@@ -429,12 +429,22 @@ fn a_row_that_states_its_operands_agrees_with_its_shader() {
                     unstated.push(format!("  {symbol}"));
                     continue;
                 }
+                // `Ty::InPacked` operands are FIELDS of a preceding packed
+                // struct, not buffers of their own, so they are named by the
+                // row and absent from the shader's parameter list. Counting
+                // them here would make a row that spells a struct's contents
+                // look like a row that miscounted its kernel.
+                let slots = sig
+                    .operands
+                    .iter()
+                    .filter(|o| o.ty != kernels::Ty::InPacked)
+                    .count();
                 if let Some(buffers) = declared_buffers(&root, file, sig.symbol)
-                    && buffers != sig.operands.len()
+                    && buffers != slots
                 {
                     disagrees.push(format!(
-                        "  {symbol}: row states {} operands, shader declares {buffers} buffers",
-                        sig.operands.len()
+                        "  {symbol}: row states {slots} buffer operands, shader \
+                         declares {buffers}"
                     ));
                 }
                 if let Some(writes) = first_writable(&root, file, sig.symbol) {

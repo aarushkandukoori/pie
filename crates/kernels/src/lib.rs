@@ -310,6 +310,15 @@ pub enum Ty {
     /// A host byte count, spelled `std::size_t`. Its width is the platform's,
     /// which is why it is not [`Ty::U32`] widened by hand.
     Usize,
+    /// A scalar that rides the PRECEDING packed struct rather than a buffer of
+    /// its own.
+    ///
+    /// `RowGatherParams` packs width and count into one buffer and there is no
+    /// second: the count is the struct's second FIELD. A row lists it so the
+    /// driver knows to supply the value, and this says "append it to the
+    /// scalars, bind nothing" — a packed slot's run already covers every
+    /// scalar after it, so the field lands where the struct expects it.
+    InPacked,
     /// A host scalar.
     F32,
     /// A host flag. Spelled `bool` in C++, so it is ONE byte and not `i32`;
@@ -383,6 +392,9 @@ impl Ty {
     /// text a reader finds in the header it is checked against.
     pub const fn cpp(self) -> &'static str {
         match self {
+            // No C spelling: it is a FIELD of the preceding struct, so the
+            // header already names it there.
+            Ty::InPacked => "::std::uint32_t",
             Ty::BufMut => "void*",
             Ty::Buf => "const void*",
             Ty::I32s => "const ::std::int32_t*",
@@ -435,6 +447,7 @@ impl Ty {
     /// and this crate does not have to name either API to say so.
     pub const fn rust(self) -> &'static str {
         match self {
+            Ty::InPacked => "u32",
             Ty::BufMut => "*mut ::core::ffi::c_void",
             Ty::Buf => "*const ::core::ffi::c_void",
             Ty::I32s => "*const i32",
