@@ -146,6 +146,25 @@ call**, not an ABI crossing, because the driver on the other side is Rust. That
 is task 9 arriving from the other end — nothing here adds a C boundary for it
 to remove.
 
+**Thirteen of its fourteen verbs are served.** `encode` refuses because Metal
+media encode is unsupported on this backend and on CUDA both. `resize_pool`
+and `copy_state` refuse by name: a resize means reallocating a pool that is a
+fixed allocation today, and `copy_state` wants recurrent-state slots no
+`llama_like` deployment has. Neither blocks serving a dense model.
+
+Two of those verbs were left refusing on reasons that did not survive looking,
+and both are worth recording because the rule that found them is the crate's
+own — *before starting anything a ledger calls missing, look for it*:
+
+* the **registry three** were said to need the ring's device addresses.
+  `ChannelState` holds `RefCell<Vec<u8>>` and four `AtomicU64`s: the channel
+  plane is host memory here exactly as it is on the dummy driver, and the
+  binding is those two addresses. They gate everything — without them no
+  instance is bound, so no `FrameSubmission` is built;
+* **`copy_kv`** was said to need an encoder. The pool is `StorageModeShared`,
+  so a move is a `memmove` — and `Region::copy`'s memmove semantics are the
+  point, because a compaction slides rows and the spans overlap.
+
 ### Metal is not behind on kernel resolution — it is ahead
 
 Worth stating because it is easy to assume otherwise. Both kernel crates are
