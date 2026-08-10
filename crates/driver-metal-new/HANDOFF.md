@@ -227,7 +227,7 @@ attribution. `BatchStepInputs` is its marshaling container.
 | what | where it is ledgered |
 |---|---|
 | the M=1 ring engine surface | `PARITY-BATCH.md` — diagnostics; `golden_tap.cpp` and the taps landed as `batch/golden.rs` |
-| `compose.cpp` rest (`LaunchMember`, `LaunchJobData`, tickets, ~90) | `PARITY-BATCH.md` — with the worker port |
+| `compose.cpp`'s job container (`LaunchJobData`, per-member launch state, the completion broker) | `PARITY-BATCH.md` — with the worker port; the tickets themselves have landed |
 | `KvPagePool` (SlotHandles + counters), and the control ops' moving half | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
 | ~~the oracle harness~~ | **done** — `tests/oracle_interp.rs` (CPU, pins `pipeline::step` bit-for-bit against `tensor_compiler::eval::interp`) and `tests/device_oracle.rs` (device, real emitted MSL). Gate item 4's tolerance is now measured: one ulp, spent only on transcendentals (`PARITY-INTERP.md`) |
 | the ring registry for `register_channel`/`close_channel`, and `store/`+`model/` glue (~375) | `CUTOVER.md` prerequisites. The registry itself and the control ops' deciding half have landed (`PARITY-REGISTRY.md`, `PARITY-STORE.md`) |

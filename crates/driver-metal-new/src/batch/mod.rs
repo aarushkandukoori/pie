@@ -43,6 +43,7 @@ mod psos_llama;
 mod psos_mb;
 mod schedule;
 mod sizing;
+mod tickets;
 mod timing;
 mod worker;
 
@@ -137,6 +138,7 @@ pub use sizing::{
     RoutedProjection, RowAxis, ValueExtent, moe_sorted_rows, pool_colour_elems, scratch_slot_elems,
     scratch_widest_elems, sorted_rows,
 };
+pub use tickets::{ChannelTicket, MemberChannels, TicketRefused, compose_tickets};
 pub use timing::{
     Ablation, BoundaryMismatch, DispatchAttribution, DispatchInfo, StepAttribution, attribute_step,
 };

@@ -397,7 +397,11 @@ insertion upstream of one fails loudly instead of renumbering silently.
 
 | C++ | lines | |
 |---|---|---|
-| `compose.cpp` rest: `LaunchMember`, `LaunchJobData`, tickets | ~90 | missing — the job container, with the worker port |
+| `ChannelTicket` + `kNoChannelTicket` | `batch::ChannelTicket` + `pipeline::NO_TICKET` | ported |
+| the ticket composition loop (`context.cpp` 1061-1092) | `batch::compose_tickets` | ported; the pin rules (a take pins its head, a put pins its tail) refused at composition, where the member and dense index are still in hand |
+| `LaunchMember::{instance_id, needs_forward, requires_m2, mtp_draft_row, fwd_slot, build_err}` | — | missing: per-member launch state, with the forward port |
+| `LaunchMember::terminal_cell` / `LaunchJobData::{completion, lease_id}` | — | missing: the completion broker, with the engine seam |
+| `LaunchJobData` | — | missing: the async job container — `worker_.post`, the owned deep copy, the settle/publish walk — with the worker port |
 | `scratch.hpp` / `scratch.cpp`: `build_scratch_schedule`, `bind_scratch`, the footprint helpers | `batch::schedule_scratch` + `metal::bind_scratch` + `batch::sizing` | ported — see the scratch row below |
 | — | — | — (`decode_timing` ported below) |
 
