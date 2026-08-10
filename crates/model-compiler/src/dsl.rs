@@ -2278,6 +2278,150 @@ pub mod metal {
         .expect("the activation produces its value")
     }
 
+    // ── gemma's per-layer embeddings. ──
+    //
+    // A SIDE NETWORK, and the only thing in this module that is: a second
+    // embedding table gathered once per step, projected, normed and joined,
+    // producing `[n_layers, ple_dim]` that each layer then reads its own slice
+    // of. Nothing llama-like has a counterpart, which is what makes gemma4 a
+    // family where qwen3-moe and gpt-oss were facts.
+    //
+    // Four statements before the stack and four inside it, and every symbol is
+    // one this backend already had — `psos_gemma4.rs` maps six of the nine
+    // `G4Ple*` roles onto kernels other families name. What is new is the
+    // WALK.
+
+    /// `layout/embed_gather.metal::embed_gather_scaled_4bit` — the embedding,
+    /// with gemma's `sqrt(hidden)` scale folded into the gather.
+    ///
+    /// The scale is the STATEMENT's, not the kernel's: a kernel that knew it
+    /// would be a kernel that knew the model.
+    pub fn embed_gather_scaled(
+        t: &Trace,
+        weight: &str,
+        width: u32,
+        multi_batch: bool,
+        repr: WeightRepr,
+        point: &str,
+        scale: f32,
+    ) -> Val {
+        let stem = if multi_batch {
+            "embed_gather_scaled_mb_4bit"
+        } else {
+            "embed_gather_scaled_4bit"
+        };
+        with_params(
+            t,
+            None,
+            &format!("{stem}{point}"),
+            quant_table(weight, repr),
+            None,
+            vec![width, scale.to_bits()],
+            vec![],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the gather produces its rows")
+    }
+
+    /// `layout/ple_combine.metal::ple_combine` — `(proj + token) * inv_sqrt2`.
+    ///
+    /// The scale is the JOIN's rather than a deployment's: two streams
+    /// averaged in the root-mean-square sense, which is what `1/sqrt(2)` is.
+    pub fn ple_combine(proj: &Val, token: &Val, width: u32) -> Val {
+        with_params(
+            &proj.t,
+            None,
+            "ple_combine_bfloat16",
+            vec![],
+            None,
+            // `PleCombineParams`: inv_sqrt2 then n.
+            vec![std::f32::consts::FRAC_1_SQRT_2.to_bits(), width],
+            vec![proj.id, token.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the join produces its value")
+    }
+
+    /// `norm/vector.metal::vnorm_single_row` — a norm with NO gain.
+    ///
+    /// The row divided by its own RMS and nothing else. The absence of a
+    /// weight is the whole difference from [`rms_norm`], and it is why this is
+    /// its own symbol rather than a norm handed a vector of ones — which would
+    /// be a multiply per element to compute the identity.
+    pub fn vnorm(x: &Val, row: u32, eps: f32) -> Val {
+        with_params(
+            &x.t,
+            x.layer,
+            "vnorm_single_row_bfloat16",
+            vec![],
+            None,
+            // `VNormParams`: eps then axis_size.
+            vec![eps.to_bits(), row],
+            vec![x.id],
+            Some(same_shape(x)),
+        )
+        .expect("the norm produces its value")
+    }
+
+    /// `norm/layer_scalar.metal::layer_scalar_mul` — one number per layer.
+    ///
+    /// Read from a BUFFER rather than stated, because which layer is running
+    /// is the fire's and not the text's.
+    pub fn layer_scalar(x: &Val, scalar: &str, width: u32) -> Val {
+        with_params(
+            &x.t,
+            x.layer,
+            "layer_scalar_mul_bfloat16",
+            vec![scalar.to_string()],
+            None,
+            // `LayerScalarParams`: the hidden width.
+            vec![width],
+            vec![x.id],
+            Some(same_shape(x)),
+        )
+        .expect("the scale produces its value")
+    }
+
+    /// `norm/rms.metal::rms_residual` — a norm with the block residual folded
+    /// into its epilogue, and `rms_residual_scaled` with a per-layer gain
+    /// beside it.
+    pub fn rms_norm_residual(
+        x: &Val,
+        w: &NormW,
+        residual: &Val,
+        scale: Option<&Val>,
+        row: u32,
+        eps: f32,
+    ) -> Val {
+        let mut ins = vec![x.id, residual.id];
+        let kernel = match scale {
+            Some(s) => {
+                ins.push(s.id);
+                "rms_residual_scaled_bfloat16"
+            }
+            None => "rms_residual_bfloat16",
+        };
+        with_params(
+            &x.t,
+            w.layer,
+            kernel,
+            vec![w.name.clone()],
+            None,
+            // `RmsParams`, field for field — `w_stride` is ONE, the distance
+            // between consecutive CHANNELS of the gain vector. See `rms_norm`.
+            vec![
+                eps.to_bits(),
+                row,
+                1,
+                u32::from(w.variant == crate::trace::NormVariant::Gemma),
+                1.0f32.to_bits(),
+            ],
+            ins,
+            Some(same_shape(x)),
+        )
+        .expect("a norm produces its value")
+    }
+
     /// `attn/logit_softcap.metal::logit_softcap` — `cap * tanh(x / cap)`.
     ///
     /// gemma's, applied to the readout so no logit runs away. A STATEMENT and
