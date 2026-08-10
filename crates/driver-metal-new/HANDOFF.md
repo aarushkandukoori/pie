@@ -226,16 +226,13 @@ attribution. `BatchStepInputs` is its marshaling container.
 
 | what | where it is ledgered |
 |---|---|
-| `scratch.{hpp,cpp}` + `scratch_color.hpp`, `build_scratch_schedule`, `bind_scratch` | `PARITY-BATCH.md` — coupled to `DecodeGeometry`/`Dispatch` |
-| `fire`'s segment loop / `run_segments` | `PARITY-BATCH.md` — lands with the `src/metal/` paging glue |
 | the ~30 `bind::` layouts | `PARITY-BATCH.md` — each is one kernel's ABI, beside its encoder |
-| `golden_tap.cpp` (238), taps, the M=1 ring engine surface | `PARITY-BATCH.md` — diagnostics |
+| the M=1 ring engine surface | `PARITY-BATCH.md` — diagnostics; `golden_tap.cpp` and the taps landed as `batch/golden.rs` |
 | `compose.cpp` rest (`LaunchMember`, `LaunchJobData`, tickets, ~90) | `PARITY-BATCH.md` — with the worker port |
 | `expert_paging.hpp` (195) | `PARITY-BATCH.md` — `fire` needs `ExpertSlab` |
-| `load_multibatch_psos` / `MultiBatchPsos` | `PARITY-BATCH.md` — qmm tile grammar + tuning constants |
 | `KvPagePool` (SlotHandles + counters), and the control ops' moving half | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
 | ~~the oracle harness~~ | **done** — `tests/oracle_interp.rs` (CPU, pins `pipeline::step` bit-for-bit against `tensor_compiler::eval::interp`) and `tests/device_oracle.rs` (device, real emitted MSL). Gate item 4's tolerance is now measured: one ulp, spent only on transcendentals (`PARITY-INTERP.md`) |
-| registry (`registry.cpp` 452 + `descriptor_resolve.hpp` 400), ring registry, `copy_kv`/`copy_state`/`resize_pool`, `store/`+`model/` glue (~375) | `CUTOVER.md` prerequisites |
+| the ring registry for `register_channel`/`close_channel`, and `store/`+`model/` glue (~375) | `CUTOVER.md` prerequisites. The registry itself and the control ops' deciding half have landed (`PARITY-REGISTRY.md`, `PARITY-STORE.md`) |
 
 Deferred on purpose, each with its reason in the ledger: split-K; FP16
 staging (`bind_mb_fp16_qmm`, `bind_gptoss_fp16_qmm`, precast — `mb_pso` is

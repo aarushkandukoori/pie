@@ -7,6 +7,25 @@ timing. Same rules as the other ledgers: every entry is **ported**,
 **dropped** (with the reason the C++ needed it and the Rust does not), or
 **missing** (with what blocks it). The portable half goes first.
 
+> **A `missing` row is only true on the day it is written.**
+>
+> A `ported` row is written by the commit that ports the thing, so it cannot
+> drift. A `missing` row is written by a *different* commit — the one that
+> found the gap — and nothing brings the author back when the gap closes. On
+> 2026-08-09 an audit found **five of thirteen** `missing` rows here describing
+> work that was already done: the whole of `scratch.{hpp,cpp}` and
+> `scratch_color.hpp` (twice, in two rows), `golden_tap.cpp`, `run_segments`,
+> and `load_multibatch_psos`. Each had landed under a name the row did not
+> predict — `schedule_scratch`, `batch/golden.rs`, `Stepper::run_segments`,
+> `psos_mb.rs` — so no text search would have caught it either.
+>
+> This is the same defect as `HANDOFF.md`'s stale "What is left", in the file
+> that document tells readers to trust instead. The rule that follows:
+> **when a slice lands, re-read the `missing` rows that named it as their
+> blocker** — a row saying "with the family port" is a note addressed to
+> whoever finishes the family port, and it is their job to answer it. The
+> `PARITY-M1.md` struct-zoo rows were the same shape and got the same fix.
+
 ## The batch shape — `src/batch/schedule.rs`
 
 From `batch_schedule.hpp` (220 lines), the one file of `batch/` the C++
@@ -336,7 +355,7 @@ The portable half of `batch/expert_paging.hpp` (195), now that
 | `ExpertPaging::plan` | `plan_paging(cuts, dag_size, SlabShape, …)` | ported; five refusals become four named `PagingRefused` variants |
 | ids-not-host-readable refusal | — | stays with the device half: a `SlotHandle`'s readability is a Metal fact |
 | the in-place id rewrite inside `fire` | `renumber_routing` | ported; takes the slab's `ensure_resident` as a closure, so the rewrite is tested without a device |
-| `fire`'s segment loop / `run_segments` | — | missing: drives a command queue; lands with the `src/metal/` paging glue. The pins-back-FIRST rule is stated in this module's docs because it is a budget fact, not a queue fact |
+| `fire`'s segment loop / `run_segments` | `metal::Stepper::run_segments` | ported; the pins-back-FIRST rule is stated in the budget module's docs because it is a budget fact, not a queue fact |
 | `PIE_METAL_PAGING_TRACE` stderr dump | — | dropped: the crate denies `print_stderr`; a caller that wants the trace logs the buffer it owns |
 | `[pie-metal] … experts paged through …` banner | `PagingPlan::worst_case_experts` + slab accessors | dropped as a print; the numbers it printed are readable off the plan and the slab |
 
@@ -379,7 +398,7 @@ insertion upstream of one fails loudly instead of renumbering silently.
 | C++ | lines | |
 |---|---|---|
 | `compose.cpp` rest: `LaunchMember`, `LaunchJobData`, tickets | ~90 | missing — the job container, with the worker port |
-| `scratch.hpp` / `scratch.cpp`: `build_scratch_schedule`, `bind_scratch`, the footprint helpers | ~540 | missing — coupled to `DecodeGeometry`/`Dispatch`, with the family port |
+| `scratch.hpp` / `scratch.cpp`: `build_scratch_schedule`, `bind_scratch`, the footprint helpers | `batch::schedule_scratch` + `metal::bind_scratch` + `batch::sizing` | ported — see the scratch row below |
 | — | — | — (`decode_timing` ported below) |
 
 ## The attribution — `src/batch/timing.rs`
@@ -417,7 +436,7 @@ stdout/stderr by policy.
 Five timing tests plus the abi name test; the monotonic guard (a clock
 wrap attributes zero, not a negative share) is kept and tested.
 | `expert_paging.hpp` | 195 | missing — `fire` needs `ExpertSlab` (loader) |
-| `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` | 650 | missing |
+| `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` (650) | `batch/color.rs` + `batch/sizing.rs` + `metal/bind.rs` | ported: `Use`/`Coloring`/`color_live_ranges` and `build_scratch_schedule` → `schedule_scratch`; `scratch_widest_elems`/`scratch_slot_elems` → `batch::sizing`; `bind_scratch` → `metal::bind`. `ScratchDispatch` is dropped — the C++'s per-dispatch struct is one row of `ScratchSchedule::per_dispatch`, and a struct holding one vector is a name for a row |
 | `batch_schedule.hpp` (done above) | — | — |
 | — | — | — (`decode_psos`'s M=1 half ported below) |
 
@@ -434,7 +453,7 @@ configuration compiles and which kinds each serves. The metal half is
 | the format-dependent `entrypoint()` names | `EntryNames`, table-checked | ported |
 | `DecodeStepPsos` fan-out | `DecodePsoPlan::source_of` | ported |
 | `load_decode_psos` (the compile loop) | `Compiler::compile_batch` + `source_of` | dropped |
-| `load_multibatch_psos` / `MultiBatchPsos` | — | missing: the qmm tile grammar and tuning constants land with the family port |
+| `load_multibatch_psos` / `MultiBatchPsos` | `batch::plan_multibatch_psos` + `MbRequest` / `MbFeatures` (`psos_mb.rs`) | ported |
 
 The C++ `entrypoint()` refuses a name no shader instantiates, so an
 uninstantiated format fails at load naming the formats that exist instead
@@ -451,7 +470,7 @@ still clears the world down to the two second-format projections.
 Five portable tests: the 25-kind base surface, the full feature set with
 single-claim disjointness, the override ordering, `routing_only`, and the
 signature-table validation.
-| `golden_tap.cpp` | 238 | missing |
+| `golden_tap.cpp` (238) | `batch/golden.rs` | ported function for function: `tap_for`, `golden_tap_dir` → `dir_from_env`, `golden_taps_recycle` → `taps_recycle`, `write_npy`, `dump_golden_bf16*` → `dump_bf16*`, `dump_golden_tokens` → `dump_tokens`. Same file names and shapes as the MLX reference, so the two trees diff tap by tap |
 | — | — | — (`worker.hpp` ported below) |
 
 ## The executor worker — `src/batch/worker.rs`
@@ -493,7 +512,7 @@ panic resume + survival, contained post panics, drop-as-barrier.
 | the gpt-oss engine | `metal/gptoss_engine.rs` | ported; the llama assembly plus the family's one load-time difference — the trio is SOLVED off the staged heap before a single pipeline is planned, inside `new()`, because the plan's entry names depend on the answer. `the_gptoss_engine_decodes_across_fires` cross-validates the PAGED KV path against the ring: the same eight-token greedy chain the M=1 smoke produced through the contiguous ring, reproduced through pages |
 | the gemma4 MB path + engine | `dispatch_gemma4.rs::build_gemma4_dag_mb` + `psos_gemma4.rs::gemma4_mb_plan` + `metal/gemma4_step.rs::Gemma4MbStep` + `metal/gemma4_engine.rs` | ported and verified: the decide-once MB DAG at per-layer widths, ONE `SdpaPaged` kind whose instantiation the step resolves from the layer (d256 sliding / d512 full — missing refuses: the d256 pipeline over 512-wide heads strides past every head), the strided PLE geglu claimed by kind, the alt-quant probe inside `new()`. `the_gemma4_engine_decodes_across_fires` lands the ring's exact chain through pages, first run — all four families now have engines, three with ring↔page cross-validation |
 | the multi-request fleet contract | `tests/device_smoke.rs::the_llama_engine_isolates_two_requests` | verified: two conversations share every fire — disjoint physical pages (request 1 at page 64 under logical positions 0..17, so the indirection itself is under test), per-request page walks, a 2-row decode fleet — and each continues ITS chain token-exact, same first token and different second, so contamination would show immediately |
-| taps; the M=1 ring engine surface; split-K/fp16/tiled rungs; forward.cpp's remaining runtime (elastic KV, EOS device loop, copy_state, PTIR hooks, timing) | — | missing/deferred |
+| the M=1 ring engine surface; split-K/fp16/tiled rungs; forward.cpp's remaining runtime (elastic KV, EOS device loop, PTIR hooks, timing) | — | missing/deferred. `copy_state`'s deciding half has since landed in `store/control.rs` (`PARITY-STORE.md`); taps landed as `batch/golden.rs` |
 | `forward.cpp` / `forward.hpp` | 5393 | missing — the executor; last, over everything above |
 
 ## The gpt-oss family — `csrc/src/model/gptoss/`
