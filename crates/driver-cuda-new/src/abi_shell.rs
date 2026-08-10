@@ -566,6 +566,13 @@ fn fuse_llama_like(
             n("mlp.gate_proj.weight"),
             n("mlp.up_proj.weight"),
         ])?;
+        // Some checkpoints ship the fused projections ALREADY (phi3's
+        // `qkv_proj` and `gate_up_proj`), in the same concatenation order
+        // the fuse above builds. Those want an alias, not a copy -- and
+        // `alias` is a no-op when the name is absent, so this costs the
+        // deployments that split nothing.
+        alias(model, format!("layer.{i}.qkv"), n("self_attn.qkv_proj.weight"));
+        alias(model, format!("layer.{i}.gate_up"), n("mlp.gate_up_proj.weight"));
         // The norm placement decides the mapping, and `input_layernorm`'s
         // presence IS the placement: pre-norm has it (attn_norm=input,
         // mlp_norm=post_attention); post-norm (olmo2) lacks it
@@ -1291,7 +1298,11 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
     // `fuse_llama_like` concatenates q/k/v when all three are present and
     // leaves them alone when they are not. So the honest source is
     // whether the fused name exists, which is what the trace will state.
-    let fused_qkv = model.weights.contains_key("layer.0.qkv");
+    // Either spelling counts: `fuse` writes a concatenated buffer under
+    // the trace name, while a checkpoint that already ships the fused
+    // projection gets an alias to it instead.
+    let fused_qkv = model.weights.contains_key("layer.0.qkv")
+        || model.aliases.contains_key("layer.0.qkv");
 
     let to_u32 = |v: i32| u32::try_from(v).unwrap_or(0);
     let facts = LlamaLikeFacts {

@@ -1507,6 +1507,64 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
+        // args: [packed, padded] / [padded, packed]. What
+        // `head_dim_padded` COSTS, for a deployment whose logical head
+        // width is not one this build instantiated — phi3's 96 rounding
+        // up to 128.
+        //
+        // A hand arm rather than a stated row, and it is the third of
+        // §4's classes: the head COUNT is derived arithmetic. The op sits
+        // on either the q side or the kv side, so a fixed
+        // `Ctx("num_q_heads")` would be right half the time; and the
+        // padded width is the other operand's extent, which no `Source`
+        // names. Both fall out of the two widths and the logical head dim
+        // the ctx carries, which is what this computes.
+        "attn::pad_head_dim_bf16" | "attn::strip_head_dim_bf16" => {
+            need(2)?;
+            let (src, dst) = (bound.args[0], bound.args[1]);
+            let pad = bound.kernel == "attn::pad_head_dim_bf16";
+            // The PACKED side is whichever end is `head_dim` wide.
+            let packed = if pad { src } else { dst };
+            let padded = if pad { dst } else { src };
+            let hd = ctx.head_dim;
+            if hd <= 0 {
+                return Err(DispatchRefusal::NoArm(format!(
+                    "{}: the ctx states no head_dim",
+                    bound.kernel
+                )));
+            }
+            let heads = i32::try_from(packed.width).unwrap_or(0) / hd;
+            if heads <= 0 {
+                return Err(DispatchRefusal::NoArm(format!(
+                    "{}: a packed row of {} is not a multiple of head_dim {hd}",
+                    bound.kernel, packed.width
+                )));
+            }
+            let hd_padded = i32::try_from(padded.width).unwrap_or(0) / heads;
+            unsafe {
+                if pad {
+                    ffi::pie_k_attn_pad_head_dim_bf16(
+                        src.ptr.cast_const(),
+                        dst.ptr,
+                        rows,
+                        heads,
+                        hd,
+                        hd_padded,
+                        ctx.stream,
+                    );
+                } else {
+                    ffi::pie_k_attn_strip_head_dim_bf16(
+                        src.ptr.cast_const(),
+                        dst.ptr,
+                        rows,
+                        heads,
+                        hd,
+                        hd_padded,
+                        ctx.stream,
+                    );
+                }
+            }
+        }
         // ── The qwen3_5 hybrid's arms ────────────────────────────────
         // args: [x, y]. Whole-row for the block/final norms; the
         // per-head q/k norms are the same symbol over `tokens * heads`
