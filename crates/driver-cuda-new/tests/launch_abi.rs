@@ -239,6 +239,9 @@ fn the_stated_quant_layout_gemm_and_moe_rows_describe_their_launchers() {
         "moe/dsv4_routing.hpp",
         "moe/moe_dispatch.hpp",
         "moe/moe_grouped_gemm.hpp",
+        "moe/flashinfer_moe.hpp",
+        "sample/argmax.hpp",
+        "../third_party/marlin_moe/marlin_moe_wrapper.hpp",
         "moe/topk_sigmoid.hpp",
         "moe/topk_softmax.hpp",
     ];
@@ -260,14 +263,11 @@ fn the_stated_quant_layout_gemm_and_moe_rows_describe_their_launchers() {
 /// binding goes wrong quietly: `state_base` is `float*` in six of them
 /// and `void*` in four, and the two are the same pointer at a call site.
 #[test]
-fn the_stated_ssm_rows_describe_their_launchers() {
+fn every_ssm_row_states_its_launcher_exactly() {
     let table = kernels_cuda::ssm::KERNELS;
     // THREE rows stay unstated, and naming them is the point of pinning
     // the count rather than asserting it away:
     //
-    // ONE row stays unstated: `flashinfer_mamba_ssu_bf16` is declared
-    // behind the vendored FlashInfer headers rather than in `ssm/`, so
-    // the shim has nothing local to include.
     //
     // The two `build_nemotron_moe_ptrs_*` builders came IN with the
     // pointer-array kinds -- they take `const void* const*` for the
@@ -278,9 +278,10 @@ fn the_stated_ssm_rows_describe_their_launchers() {
     let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
     assert_eq!(
         stated,
-        table.len() - 1,
-        "the unstated ssm rows changed; a row that arrived here needs a \
-         signature, and one that left needs this count lowered"
+        table.len(),
+        "{} of {} ssm rows are unstated, so the shim silently skips them",
+        table.len() - stated,
+        table.len()
     );
     let shim = kernels_cuda::abi::emit_c_shim(
         &[table],
