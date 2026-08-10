@@ -45,6 +45,13 @@
 //!      four rows, every grid covered them, and every other kernel read the
 //!      row where the grid put it.
 //!
+//! **What is still open**, and the bisection names it: `sdpa_paged_decode`
+//! writes nothing. Every other statement in the first layer writes both rows;
+//! attention writes neither. Its output region survives the census only
+//! because the residual carries the stream past it, which is exactly the shape
+//! of thing that would pass every magnitude check forever. It is the next
+//! thing to look at and the instrument to look with is already here.
+//!
 //! Three measurements track what is left, each pinned so it can only improve:
 //! declared outputs nothing fills (**0**, was 5), readout lanes that hold
 //! anything (**4** of 4, was 1), and the arena's non-zero share (**99%**, was
@@ -657,6 +664,13 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
 /// gather that emitted one row and of a projection that did, and four
 /// launches downstream they look identical -- so the only thing that
 /// distinguishes them is running fewer launches.
+///
+/// It found the single-row gather at statement 0 and, once that was fixed,
+/// `sdpa_paged_decode` writing NEITHER row while every statement around it
+/// writes both. That second finding is still open.
+///
+/// A report, not an assertion: what it prints is a map, and a map that fails
+/// the build is a map nobody reads.
 #[test]
 fn the_second_lane_stops_somewhere_and_this_says_where() {
     let Some(snapshot) = snapshot() else {

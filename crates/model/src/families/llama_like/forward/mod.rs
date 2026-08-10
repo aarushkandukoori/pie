@@ -336,7 +336,23 @@ fn llama_like_metal_text(
                 dsl::metal::residual_add(&gemm(x, w), residual)
             }
         };
-        let paged = multi_batch && metal.paged_multi_batch;
+        // ALWAYS paged, and the class is not the question -- the POOL's
+        // layout is. `model::kv::Pool` allocates `[page, token, head, dim]`
+        // for every fire this driver runs, so a decode that names the
+        // contiguous `kv_append`/`sdpa_vector_decode` walks a paged pool with
+        // a contiguous kernel's arithmetic: it reads real memory at every step
+        // and attends to the wrong tokens.
+        //
+        // The two also disagree about what the scalars MEAN. The paged row
+        // reads `Param(1)` as `n_kv_heads` and the contiguous row reads it as
+        // `n`, the key count, so one statement cannot supply both correctly.
+        // Naming one variant everywhere is what makes the statement's scalars
+        // answerable at all.
+        //
+        // Same shape as the gather it sits beside: `multi_batch` is a fact
+        // about the FIRE and this is a fact about the DRIVER's allocation.
+        let _ = metal.paged_multi_batch;
+        let paged = true;
         // The gated MLP. `silu_mul` takes gate and up as TWO buffers, so a
         // deployment whose loader did not join them states two projections —
         // which on this backend is every deployment, because
@@ -1606,8 +1622,24 @@ mod metal_tests {
         assert_eq!(facts.head_dim, 128, "the fixture this expectation reads");
         let paged = format!("sdpa_paged_decode_bfloat16_d_{}", facts.head_dim);
         let vector = format!("sdpa_vector_decode_bfloat16_d_{}", facts.head_dim);
+        // BOTH lanes take the paged symbol, because the POOL is paged. This
+        // expected the contiguous one at M=1 and the lane was never the
+        // question: `model::kv::Pool` allocates `[page, token, head, dim]` for
+        // every fire, so a decode naming `sdpa_vector_decode` walks a paged
+        // pool with a contiguous kernel's arithmetic -- real memory, wrong
+        // tokens, no bounds check anywhere.
+        //
+        // The two also disagree about their scalars: the paged row reads
+        // `Param(1)` as `n_kv_heads` and the contiguous row reads it as `n`,
+        // the key count. One statement cannot supply both, which is a second
+        // reason the choice cannot be per-lane.
         assert!(count(&mb, &paged) > 0, "the M>1 lane must take {paged}");
-        assert!(count(&fold, &vector) > 0, "the M=1 lane must take {vector}");
+        assert!(count(&fold, &paged) > 0, "the M=1 lane must take {paged} too");
+        assert_eq!(
+            count(&fold, &vector),
+            0,
+            "no contiguous attention over a paged pool"
+        );
         assert_eq!(
             count(&mb, "sdpa_paged_decode_bfloat16_d_256"),
             0,

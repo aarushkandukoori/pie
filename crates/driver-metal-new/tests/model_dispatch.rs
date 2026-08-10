@@ -612,6 +612,11 @@ mod state {
         .expect("it still plans");
         assert_eq!(d.args[2].slice.address, 0);
         assert_eq!(d.args[2].slice.bytes, 0);
-        assert_eq!(d.args.len(), 8, "and every other slot is still in place");
+        // SIXTEEN, which is `kv_append_paged`'s width. The text names the
+        // paged variant for every fire now -- the POOL is paged, so a decode
+        // that named the contiguous one would walk it with contiguous
+        // arithmetic -- and the paged row is positional over a shared ring ABI
+        // it does not read, which is where most of the sixteen go.
+        assert_eq!(d.args.len(), 16, "and every other slot is still in place");
     }
 }
