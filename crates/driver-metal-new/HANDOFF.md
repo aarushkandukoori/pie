@@ -93,7 +93,8 @@ argument for each design decision lives.
 
 ## What has been done
 
-Forty-five commits on `origin/rewrite`, in three phases plus a crash fix.
+133 commits on `origin/rewrite` as of `9a2b5f363`, in four phases plus a
+crash fix.
 
 ### Phase 1 — the shell (`mtl4_context.hpp`, 27 commits)
 
@@ -154,9 +155,9 @@ about a specific defect rather than a description of the change. In order:
 `8b71cb608` onward. The GPU half of `m1_runtime.cpp`, on the same method,
 tested against the real device (32 device tests, including end-to-end fires
 on all three launch paths). **`m1_runtime.cpp` is now fully ported** —
-`PARITY-M1.md`'s "Closed out" section is the statement; the only `missing`
-entries left are field copies out of `batch::MemberForwardDesc`, which
-belong to the `batch/` port.
+`PARITY-M1.md`'s "Closed out" section is the statement; the one `missing`
+entry left, `m1_singleton_fallback_inputs`, is a field copy out of
+`batch::MemberForwardDesc` and belongs to the `batch/` port.
 
 | commit | module | the defect it argues |
 |---|---|---|
@@ -165,31 +166,80 @@ belong to the `batch/` port.
 | `cc5c9f53a` | `metal/program.rs`, `metal/runtime.rs` | `compile_program` at a third of the C++ line count. `PsoCompileTransaction` dropped: build-then-install makes rollback the default. Per-region archives become one archive per program. The bool+reason+vec triples become `Result<Vec<_>, String>`. |
 | `b60f9459e` | `metal/ring.rs` | `create_standalone_buffer` hands back a handle **with no owner**; the release call exists only because of that, and forgetting it leaked every K/V buffer. `Ring` owns its buffers; `readiness::check_words` lets the device ring and the interpreter share one readiness check. |
 | `7bb0cf891` | `metal/fire.rs` | `execute`'s nine failure exits share a `goto cleanup_failure` label — `Transient`'s `Drop` is that label. `release()`/`resource_accounted` die with it. Four device tests run a whole fire end to end. |
-
-| commit | module | the defect it argues |
-|---|---|---|
-| `8b71cb608` | `metal/handle.rs` | `subhandle` minted views it should have refused. |
-| `862ae69fc` | `pipeline/lane.rs` | `M3GroupLayout::reserved[3]` is load-bearing on both sides of the ABI; the struct zoo dissolves. |
-| `cc5c9f53a` | `metal/program.rs`, `metal/runtime.rs` | `compile_program`; `PsoCompileTransaction` dropped — build-then-install makes rollback the default. |
-| `b60f9459e` | `metal/ring.rs` | A release call exists only because the handle has no owner; the standalone-buffer hole closes. |
-| `7bb0cf891` | `metal/fire.rs` | `execute`'s `goto cleanup_failure` is `Transient::drop`; four device tests run a whole fire. |
 | `64dc047d8` | `metal/fused.rs` | The M2 `target` pointer dropped; the never-encoded zero fill reported as such (the M3 lesson, applied to M2). |
-| (this commit) | `metal/grouped.rs` | The 220-line `release_group` lambda is ownership; `kM3RegionThreads` drift-checked; two lanes provably become one dispatch. |
+| `6157d27f5` | `metal/grouped.rs` | The 220-line `release_group` lambda is ownership; `kM3RegionThreads` drift-checked; two lanes provably become one dispatch. |
+
+### Phase 4 — `batch/`, `loader/`, `store/` and the families
+
+`4af4892ab` onward, and far too many commits to table here — which is the
+point of the ledgers. `PARITY-BATCH.md`, `PARITY-LOADER.md` and
+`PARITY-STORE.md` carry the per-entity record, and the commit bodies carry
+the arguments.
+
+What the phase established, in order: the portable batch surface and the
+dataflow/colouring walk; the DAG builders at M=1 and multibatch; the PSO
+plans and bind tables; storage staging and the step/runner; then one family
+at a time — qwen3.5, gpt-oss, llama, gemma4 — each with a geometry, a DAG, a
+consts walk and a device smoke against mlx_lm. Each family got an engine, and
+the paged path was cross-validated against the contiguous ring rather than
+merely run.
+
+The phase's shape of finding is different from phases 1–3. There the defects
+were lifetime and arithmetic; here they are **claims the C++ made that its
+own data contradicts** — a shared builder asserted to serve two families
+whose walks differ, an attention width recorded as a literal that strode past
+its heads, a router read at the wrong quantisation while every feeding tensor
+agreed, a declared binding no walk ever wrote. Verification found them, and
+each is one commit.
 
 ## What is left
 
-This table has been refreshed as slices landed; the ledgers
-(`PARITY-BATCH.md`, `PARITY-LOADER.md`) are the authoritative
-per-entity state.
+**This section goes stale between refreshes and the ledgers do not.** Every
+slice updates its `PARITY-*.md` row in the same commit, so the ledgers are
+never more than one commit behind; this table is refreshed by hand and has
+twice been read as current when it was a day old. Trust
+`PARITY.md`, `PARITY-M1.md`, `PARITY-BATCH.md`, `PARITY-LOADER.md` and
+`PARITY-STORE.md` over anything written here. Last refreshed **2026-08-09,
+after `9a2b5f363`**.
 
 | subsystem | state |
 |---|---|
-| `pipeline/` | done |
-| `batch/` | done through the multibatch layer: independent surface, DAG builders (M=1 and MB), dataflow walk, PSO plans, binds tables, golden taps |
+| `pipeline/` | done. `PARITY-M1.md` is closed out; the one `missing` entry, `m1_singleton_fallback_inputs`, is a `batch/` field copy |
+| `batch/` | done through the multibatch layer and all four families: independent surface, DAG builders (M=1 and MB), dataflow walk, PSO plans, binds tables, golden taps |
 | `loader/` portable | done; `transcode.hpp` dropped with receipts |
-| `metal/` step + runner | done in first form: storage staging (arena mode), the four bind passes, MB binds, PSO loaders, DecodeStep/MbStep, and `decoder.rs` (prefill streams, fleet fires, per-slot conv orientation) |
-| device verification | Qwen3.6-27B answers token-exact on the M=1 ring, the paged prefills, the equal fleet and the mixed-length fleet (`tests/device_smoke.rs`); staging is byte-exact; the golden-tap bisect exonerated every stage function |
-| remaining | `simple_family` (gemma4/gptoss/llama, 2.2k — the qwen pattern repeated), forward.cpp's engine-facing surface (elastic resize, EOS loop, copy_state ABI, logits views), FP16 staging, zero-copy mapping/streaming, expert-slab staging arm, and the engine backend wiring `CUTOVER.md` describes |
+| `metal/` step + runner | done: storage staging (arena mode), the four bind passes, MB binds, PSO loaders, DecodeStep/MbStep, `decoder.rs`, and a per-family engine — `llama_engine.rs`, `gptoss_engine.rs`, `gemma4_engine.rs` beside the qwen path |
+| device verification | Qwen3.6-27B token-exact on the M=1 ring, paged prefills, per-row streams and fleets (equal and mixed length); llama, gpt-oss and gemma4 token-exact against mlx_lm, three of them ring↔page cross-validated; cross-fire KV continuity on three engines; **multi-request fleet isolation** — two conversations in one fire on disjoint pages, each continuing its own chain; 1000 greedy tokens at a flat 18.6 tok/s with no fault, NaN or rate creep |
+
+### Remaining, largest first
+
+`forward.cpp`/`forward.hpp` (5393) is the executor and goes **last, over
+everything below it**. Its runtime is ledgered as separate entries because
+they land with the cutover wiring, not with it: elastic KV resize, the EOS
+device loop, `copy_state`/reset ABI arms, logits views, PTIR hooks, timing
+attribution. `BatchStepInputs` is its marshaling container.
+
+| what | where it is ledgered |
+|---|---|
+| `scratch.{hpp,cpp}` + `scratch_color.hpp`, `build_scratch_schedule`, `bind_scratch` | `PARITY-BATCH.md` — coupled to `DecodeGeometry`/`Dispatch` |
+| `fire`'s segment loop / `run_segments` | `PARITY-BATCH.md` — lands with the `src/metal/` paging glue |
+| the ~30 `bind::` layouts | `PARITY-BATCH.md` — each is one kernel's ABI, beside its encoder |
+| `golden_tap.cpp` (238), taps, the M=1 ring engine surface | `PARITY-BATCH.md` — diagnostics |
+| `compose.cpp` rest (`LaunchMember`, `LaunchJobData`, tickets, ~90) | `PARITY-BATCH.md` — with the worker port |
+| `expert_paging.hpp` (195) | `PARITY-BATCH.md` — `fire` needs `ExpertSlab` |
+| `load_multibatch_psos` / `MultiBatchPsos` | `PARITY-BATCH.md` — qmm tile grammar + tuning constants |
+| `KvPagePool` (SlotHandles + counters) | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
+| the CPU reference interpreter (`interp.hpp`, 1.7k) | `CUTOVER.md` — **gate item 4; port before the flip** |
+| registry (`registry.cpp` 452 + `descriptor_resolve.hpp` 400), ring registry, `copy_kv`/`copy_state`/`resize_pool`, `store/`+`model/` glue (~375) | `CUTOVER.md` prerequisites |
+
+Deferred on purpose, each with its reason in the ledger: split-K; FP16
+staging (`bind_mb_fp16_qmm`, `bind_gptoss_fp16_qmm`, precast — `mb_pso` is
+told FP16 is unavailable until the pair lands); tiled/MMA paged sinks; tiled
+paged sdpa; the `_sg8` rung; elastic `initial_commit` sizing; zero-copy
+mapping and stream pack; the `ExpertSlabRequest` staging arm.
+
+One item is blocked on data rather than code: the routed llama arm's device
+smoke needs a `qwen3_moe` checkpoint (Qwen3.6-35B-A3B turned out to be
+`qwen3_5_moe`, the GDN-hybrid family).
 
 ### Also outstanding
 
@@ -208,6 +258,10 @@ per-entity state.
   `engine/src/driver/backend/`), not behind the twelve `pie_metal_*` C
   symbols; a six-point gate (A/B seam equality, token-exact decode, the
   interpreter oracle, soak, the panic regressions) authorises the flip.
+  Of the six, item 1 (suite green on device) holds and item 3 (token-exact
+  decode) has run its N ≥ 1000 horizon; its one open leg is the bit-identical
+  comparison against the OLD driver, which shares these kernels. Items 2, 4,
+  5 and 6 are untouched, and item 4 needs the interpreter ported first.
 
 ## How to work on this
 
@@ -315,3 +369,18 @@ the port from nothing. Session state did not.
 Note that `pie-project/pie` has no GitHub wiki, so a document that lives only in
 a local `.wiki` is a document that exists on exactly one machine. That is why
 this one is here.
+
+It has now happened three times. The third (2026-08-09, a kernel panic mid-port)
+sharpened the lesson in two ways worth writing down:
+
+**A restarted session starts blank.** The harness clones a fresh worktree from
+`~/.patissier/cache` and mints a new workspace id, so the transcript of the
+session that did the work is not on the machine that continues it. Do not plan
+to read it back. Anything a successor needs must be in a commit.
+
+**This document was itself the stale thing.** After the panic it was read as
+current when its "What is left" table was a day and twenty commits behind,
+still listing finished work as remaining. Prose refreshed by hand rots faster
+than rows updated by the commit that changes them, so the recovery order is
+**ledgers first, this document second, session state last** — and when you
+finish a slice, the ledger row is not optional.

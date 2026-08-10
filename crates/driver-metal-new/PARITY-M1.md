@@ -334,11 +334,19 @@ with its builder, where its invariants are established.
 | `M1ProgramExecutable::grouped_reason` | — | dropped |
 | `M1StageExecutable::cache_identity` | — | dropped |
 | `M1StageExecutable::stage_identity` | `Stages`'s entry | dropped |
-| `M1RegionExecutable`, `M2FusedRegionExecutable`, `M3GroupedRegionExecutable` | — | missing: `compile_program` |
-| `M1StageExecutable`, `M1ProgramStage`, `M1ProgramExecutable` | — | missing: `compile_program` |
-| `M1PreparedFire` | — | missing: `prepare`/`execute` |
-| `M2EncodedRegion`, `M2CommandPlan` | — | missing: the M2 slice |
-| `M3EncodedRegion`, `M3StageCommand`, `M3GroupCommand` | — | missing: the M3 slice |
+| `M1RegionExecutable`, `M2FusedRegionExecutable`, `M3GroupedRegionExecutable` | `metal::program::{RegionExecutable, FusedExecutable, GroupedExecutable}` | ported: `compile_program` |
+| `M1StageExecutable`, `M1ProgramStage`, `M1ProgramExecutable` | `metal::program::{StageExecutable, ProgramStage, ProgramExecutable}` | ported: `compile_program` |
+| `M1PreparedFire` | `metal::fire::PreparedFire` | ported: `prepare`/`execute` |
+| `M2EncodedRegion`, `M2CommandPlan` | `metal::fused::{EncodedRegion, M2Command}` | ported: the M2 slice |
+| `M3EncodedRegion`, `M3StageCommand`, `M3GroupCommand` | `metal::grouped::M3Group` + its private commands | ported: the M3 slice |
+
+Those last five rows are **forward references, not separate entries**. When
+this slice landed, each named the slice that would port it and read `missing`;
+all four of those slices have since landed, and the rows that own these types
+— with the argument for each — are in the `compile_program`, `prepare`/
+`execute`, M2 and M3 sections below. They are listed here only because the C++
+declares them in this block, and a reader who starts at line 388 of the C++
+should be told where they went.
 
 The find of the slice: **`M3GroupLayout::reserved[3]` is load-bearing, on both
 sides of the ABI.** The C++ fills the three words through a field literally
@@ -604,11 +612,16 @@ refused as the ordering hazard they are.
 Every line of `csrc/src/pipeline/m1_runtime.cpp` (3411 lines, plus its
 202-line header and the `region_support.hpp` walkers) is now accounted for
 in this ledger: ported with an argued difference, or dropped with the reason
-the C++ needed it and the Rust does not. The two entries that remain
-`missing` — `m1_extents_from_forward_desc` and `m3_extents_from_forward_desc`
-in the extents section, and `m1_singleton_fallback_inputs` in the fire
-section — are field copies out of `batch::MemberForwardDesc`, and belong to
-the `batch/` port that owns that type.
+the C++ needed it and the Rust does not. The one entry that remains `missing`
+— `m1_singleton_fallback_inputs` in the fire section — is a field copy out of
+`batch::MemberForwardDesc`, and belongs to the `batch/` port that owns that
+type.
+
+The two entries that used to sit beside it, `m1_extents_from_forward_desc` and
+`m3_extents_from_forward_desc`, have since landed there as
+`batch::ForwardDesc::extents` and `ForwardDesc::extents_from_readout` — as
+methods on the type that owns the fields, which is why they could not be
+written here. See `PARITY-BATCH.md`'s `member.rs` section.
 
 ## Where this stands
 
