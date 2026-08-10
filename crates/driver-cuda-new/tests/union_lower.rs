@@ -24,6 +24,7 @@ use std::collections::BTreeSet;
 use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeFacts};
 use model::families::llama_like::forward::llama_like_cuda;
 use model_compiler::lower::{CondRegion, Fire, GuardMode, Launch, Lowered, Row, lower_with};
+use driver_cuda_new::model::supergraph::predicate_of;
 use model_compiler::trace::FireClass;
 
 fn lowered(class: FireClass, rows: usize, guards: GuardMode) -> Lowered {
@@ -154,6 +155,69 @@ fn the_union_is_a_superset_of_the_resolved_form() {
     // And the arena has to hold all of them at once, which is the union's
     // stated cost.
     assert!(union.arena_bytes >= resolved.arena_bytes);
+}
+
+#[test]
+fn the_union_filtered_by_its_predicates_is_the_resolved_form() {
+    // THE test of the whole design, and it needs no GPU.
+    //
+    // The eager leg answers a guard at lowering time (`select`). The
+    // captured leg answers it by reading a byte the host computed
+    // (`predicate_of`) out of device memory. If those two ever disagree,
+    // the replay runs a different program from the one the A/Bs proved —
+    // silently, because both are valid launch lists.
+    //
+    // So: take the union, decide every region with the predicate word,
+    // keep the launches whose whole path was taken, and require the
+    // result to be exactly what `Resolve` emitted.
+    for lora in [false, true] {
+        for hooked in [false, true] {
+            let plan = llama_like_cuda(
+                &LlamaLikeFacts::qwen3_0_6b(),
+                &LlamaLikeCudaFacts::qwen3_0_6b_l40s(),
+                FireClass::Decode,
+            );
+            let fire = Fire { captures_across_splits: false };
+            let rows: Vec<Row> =
+                vec![Row { samples: true, lora, hooked, ..Row::default() }; 4];
+
+            let resolved = lower_with(&plan, &rows, fire, GuardMode::Resolve).expect("lowers");
+            let union = lower_with(&plan, &rows, fire, GuardMode::Union).expect("lowers");
+
+            let live = |cond: u32| -> bool {
+                path(&union.conds, cond).into_iter().all(|n| {
+                    let r = union.conds[n as usize];
+                    predicate_of(r.slot, r.param, &rows).is_none_or(|v| v == r.on_true)
+                })
+            };
+
+            let taken: Vec<_> = union
+                .launches
+                .iter()
+                .filter(|x| live(x.cond))
+                .map(|x| {
+                    (union.kernels[x.kernel as usize].as_str(), x.rows.clone(), x.layers.clone())
+                })
+                .collect();
+            let want: Vec<_> = resolved
+                .launches
+                .iter()
+                .map(|x| {
+                    (
+                        resolved.kernels[x.kernel as usize].as_str(),
+                        x.rows.clone(),
+                        x.layers.clone(),
+                    )
+                })
+                .collect();
+
+            assert_eq!(
+                taken, want,
+                "lora={lora} hooked={hooked}: the union decided by its own \
+                 predicates is not the program the eager leg runs"
+            );
+        }
+    }
 }
 
 #[test]

@@ -29,8 +29,80 @@
 
 use std::collections::HashMap;
 
-use crate::cuda::{GraphExec, StreamRef};
-use crate::error::Result;
+use model_compiler::lower::{CondRegion, Row};
+
+use crate::cuda::{
+    GraphExec, PredicateWord, SLOT_HAS_CUSTOM_MASK, SLOT_HAS_LORA, SLOT_HAS_STAGE_HOOKS,
+    SLOT_HAS_WRITE_DESC, SLOT_TOKENS_GT, SLOT_TOKENS_LE, SLOT_WANTS_ATTN_SCORE, StreamRef,
+};
+use crate::error::{Error, Result};
+
+/// Evaluate one predicate slot against a fire's rows.
+///
+/// This is `lower::select`'s body, and it MUST stay that — the resolved
+/// lowering answers a guard by calling `select`, and the captured one
+/// answers the same guard by reading this byte out of device memory. If
+/// the two ever disagree, the eager leg and the replay leg run different
+/// programs and nothing type-checks the difference.
+///
+/// `None` for a slot with no row-level meaning (the Peel endpoint bits,
+/// which are a property of the row SPLIT rather than of the rows).
+///
+/// Public, and deliberately free of any device object: the equivalence
+/// between the eager leg and the captured leg is a HOST fact, so it must
+/// be provable without a GPU.
+#[must_use]
+pub fn predicate_of(slot: u32, param: u32, rows: &[Row]) -> Option<bool> {
+    Some(match slot {
+        SLOT_HAS_WRITE_DESC => rows.iter().any(|r| r.write_desc),
+        SLOT_TOKENS_LE => rows.len() as u32 <= param,
+        SLOT_TOKENS_GT => rows.len() as u32 > param,
+        SLOT_WANTS_ATTN_SCORE => rows.iter().any(|r| r.wants_scores),
+        SLOT_HAS_CUSTOM_MASK => rows.iter().any(|r| r.custom_mask),
+        SLOT_HAS_STAGE_HOOKS => rows.iter().any(|r| r.hooked),
+        SLOT_HAS_LORA => rows.iter().any(|r| r.lora),
+        _ => return None,
+    })
+}
+
+/// Fill `preds` with a fire's variant bits, ready to upload.
+///
+/// Every conditional in `conds` is evaluated against `rows`, and the
+/// result written to that conditional's slot.
+///
+/// # The collision this refuses
+///
+/// The device word has one slot per PREDICATE KIND, not one per
+/// conditional — twenty-eight layers stating the same lora guard share
+/// slot 6, which is exactly what makes the word small. But
+/// `TokensLE(k)` carries a threshold, and two guards in one plan with
+/// different thresholds would want the same slot to hold two different
+/// answers. That is a silent wrong-branch rather than an error, so it is
+/// refused here: the word would have to grow a slot per conditional, and
+/// that is a decision to make deliberately rather than to discover from a
+/// wrong logit.
+///
+/// # Errors
+///
+/// If two conditionals need one slot to hold different values.
+pub fn fire_predicates(rows: &[Row], conds: &[CondRegion], preds: &mut PredicateWord) -> Result<()> {
+    preds.clear();
+    let mut written: HashMap<u32, bool> = HashMap::new();
+    for c in conds {
+        let Some(value) = predicate_of(c.slot, c.param, rows) else { continue };
+        if let Some(&prior) = written.get(&c.slot)
+            && prior != value
+        {
+            return Err(Error::invalid(
+                "supergraph",
+                "two conditionals need one predicate slot to hold different values",
+            ));
+        }
+        written.insert(c.slot, value);
+        preds.set(c.slot, value)?;
+    }
+    Ok(())
+}
 
 /// What a capture may NOT vary over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -135,7 +207,6 @@ impl SupergraphCache {
 mod tests {
     use super::*;
     use model_compiler::trace::FireClass;
-
     #[test]
     fn variant_bits_are_not_in_the_key() {
         // There is no field for them to occupy. This test is a shape
