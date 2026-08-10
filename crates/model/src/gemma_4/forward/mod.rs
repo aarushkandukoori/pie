@@ -330,7 +330,19 @@ pub fn gemma4_cuda(
             // stream, then land it — and, for every layer but the last,
             // produce the NEXT layer's input norm in the same launch.
             let gate = matmul(&y, &w.ple_gate);
-            let gated = dsl::cuda::geglu_tanh_pair(&gate, &ple_table, facts.ple_dim);
+            // THIS LAYER's slice of the relay, as a `select` rather than
+            // as an offset the executor computes. The relay is `[L,
+            // Tokens, ple_dim]` -- the layer axis leads, which is the
+            // whole reason the transpose above exists -- so a select at
+            // `l` IS the slice, and `Buffers::assign` places it at
+            // `offset(relay) + l * N * ple_dim` without being told.
+            //
+            // The arm used to add that offset itself, and to tell this
+            // site from the MLP's by comparing the result's WIDTH
+            // against `ple_dim`. Both go: the two sites now differ only
+            // in which values they name.
+            let slice = dsl::select(&ple_table, l);
+            let gated = dsl::cuda::geglu_tanh_pair(&gate, &slice, facts.ple_dim);
             let ple_out = matmul(&gated, &w.ple_proj);
             if l + 1 < facts.layers {
                 let next = Gemma4LayerW::new(l + 1, facts);

@@ -128,11 +128,16 @@ pub static KERNELS: &[KernelSig] = &[
     // PLE gate is the same call with the relay slice as `up`.
     kernel!(geglu_tanh "mlp::geglu_tanh_bf16", in_place = &[(0, 0)],
         operands = operands![
-            gate: Buf,
-            up: Buf,
-            y: BufMut,
-            num_elements: I32,
-            stream: Stream,
+            gate: Buf <- Source::In(0),
+            // gemma-4's PLE gate states a `select` of the per-layer
+            // relay here, so the layer offset the arm used to add is a
+            // placement the host makes. That is what let this row be
+            // stated at all: with the whole table as operand 1 there was
+            // no expression for "plus l · N · ple_dim".
+            up: Buf <- Source::In(1),
+            y: BufMut <- Source::Out(0),
+            num_elements: I32 <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(chunked_geglu_tanh "mlp::chunked_geglu_tanh_bf16",
         operands = operands![

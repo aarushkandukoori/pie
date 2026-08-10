@@ -735,47 +735,13 @@ bool gemma4_forward_declared(
             // The chunked geglu GENERATES: its row states one operand,
             // one result, the fire's rows and the result's width, which
             // is the whole call.
-            case declared::Kernel::GegluTanh: {
-                // TWO sites for one kernel, told apart by the WIDTH the
-                // op declares — not by a counter. The PLE gate is
-                // `ple_dim` wide and its "up" operand is this layer's
-                // slice of the relay; the unfused MLP is `cur_inter`
-                // wide and its operands are the two projections.
-                const auto out = plan.outputs(op);
-                const auto& val = plan.value(out[0]);
-                const std::uint32_t width =
-                    val.dims[val.rank - 1].value;
-                if (static_cast<int>(width) == ple_dim) {
-                    // The SIGNAL is this layer's slice of the relay. The
-                    // declaration passes the WHOLE table as the second
-                    // operand and the layer offset is the arm's, so the
-                    // base has to come from the arena like everything
-                    // else: reading `per_layer_token` here while the
-                    // transpose that fills it writes to a host-assigned
-                    // buffer is a producer and a consumer in different
-                    // places, which is the one rule this migration has.
-                    //
-                    // The offset is `layer * N * ple_dim` because the
-                    // transpose lands the relay `[L, N, ple_dim]` -- the
-                    // layer axis leads, which is the whole reason that
-                    // statement exists.
-                    const auto ins = plan.inputs(op);
-                    need(ins, 2, "ple geglu inputs");
-                    const auto* signal =
-                        static_cast<const std::uint16_t*>(values.slot(ins[1])) +
-                        static_cast<std::size_t>(cur_layer) * N * ple_dim;
-                    kernels::mlp::geglu_tanh_bf16(
-                        values.slot(ins[0]), signal,
-                        values.slot(out[0]), N * ple_dim, stream);
-                } else {
-                    const auto ins = plan.inputs(op);
-                    need(ins, 2, "geglu pair inputs");
-                    kernels::mlp::geglu_tanh_bf16(
-                        values.slot(ins[0]), values.slot(ins[1]),
-                        values.slot(out[0]), N * row_width(out[0]), stream);
-                }
-                break;
-            }
+            // The GEGLU PAIR generates, both of its sites. They were
+            // told apart by comparing the result's WIDTH against
+            // `ple_dim`, because the PLE gate's second operand was the
+            // WHOLE relay and the layer offset was this arm's to add.
+            // The text states a `select` of the relay now, so the offset
+            // is a placement the host makes and the two sites differ
+            // only in which values they name.
             case declared::Kernel::NormResidualScaleNorm: {
                 const std::string_view first = aux(0);
                 const ParsedName nm = parse_name(first);
