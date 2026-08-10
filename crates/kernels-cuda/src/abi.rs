@@ -384,6 +384,12 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
         }
         Source::Param(i) => format!("static_cast<int>(ps[{i}])"),
         Source::Rows => format!("{ctx}.arm.rows"),
+        Source::OutRows(i) => format!(
+            "value_rows({ctx}.arm.plan, outs[{i}], {ctx}.arm.rows, {ctx}.num_requests)"
+        ),
+        Source::InRows(i) => format!(
+            "value_rows({ctx}.arm.plan, ins[{i}], {ctx}.arm.rows, {ctx}.num_requests)"
+        ),
         Source::OutWidth(i) => format!("row_width({ctx}.arm.plan, outs[{i}])"),
         Source::InWidth(i) => format!("row_width({ctx}.arm.plan, ins[{i}])"),
         Source::OutElements(i) => format!(
@@ -452,10 +458,12 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
         let mut need_ps = 0u8;
         for o in k.operands {
             match o.source {
-                Source::In(i) | Source::InWidth(i) | Source::InDim(i, _) => {
-                    need_in = need_in.max(i + 1)
-                }
+                Source::In(i)
+                | Source::InRows(i)
+                | Source::InWidth(i)
+                | Source::InDim(i, _) => need_in = need_in.max(i + 1),
                 Source::Out(i)
+                | Source::OutRows(i)
                 | Source::OutWidth(i)
                 | Source::OutDim(i, _)
                 | Source::OutElements(i) => need_out = need_out.max(i + 1),
