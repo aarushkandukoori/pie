@@ -246,9 +246,15 @@ pub fn llama_like_cuda(
 ///   So the driver carries rungs nothing turns on; the text states the lane
 ///   that fires. What remains untested is the `kQmmMinBatch` gate, which the
 ///   text takes as the load-time fact `qmm_multi_batch` rather than deciding.
-/// * `sdpa_*_d_256` pins head_dim 256. The driver compiles other widths
-///   (`d_512` for gemma4); which one a deployment needs is a fact this
-///   text does not yet take.
+/// * ~~`sdpa_*_d_256` pins head_dim 256~~ — **fixed 2026-08-10, and it was a
+///   real defect rather than a simplification.** `dsl::metal::sdpa` spelled
+///   the width as a literal, so this family — whose heads are 128 wide —
+///   named a 256-wide attention kernel. That does not fault: it reads past
+///   the end of every head and answers with whatever is there, which is the
+///   same defect `PARITY-BATCH.md` records in the C++ llama walk, where
+///   `_d128` was a literal that strode 64-wide heads past their end. The
+///   symbol now takes `head_dim`; a width no kernel instantiates simply does
+///   not resolve, and the driver's row check reports it by name.
 /// * no seams. The adapter, the two observation taps and the boundaries
 ///   are stated by the CUDA text and absent here, because none of the
 ///   machinery behind them exists on this backend yet.
@@ -325,7 +331,7 @@ fn llama_like_metal_text(
             // `Kind::Rope` states it.
             let (q, k) = dsl::metal::rope(&q, &k, multi_batch);
             dsl::metal::kv_append(&k, &v, &w.kv, paged);
-            let a = dsl::metal::sdpa(&q, &w.kv, q_w, paged)
+            let a = dsl::metal::sdpa(&q, &w.kv, q_w, f.head_dim, paged)
                 .expect("a plain attention statement produces its value");
 
             if post_norm {
@@ -1425,7 +1431,22 @@ mod metal_tests {
         );
         assert_eq!(count(&mb, "affine_qmv_fast"), 1, "the readout only");
         assert!(count(&mb, "affine_qmm_t_residual") > 0);
-        assert!(count(&mb, "sdpa_paged_decode_bfloat16_d_256") > 0);
-        assert!(count(&fold, "sdpa_vector_decode_bfloat16_d_256") > 0);
+        // The attention width is the DEPLOYMENT's, not a literal. It was
+        // `_d_256` unconditionally, and `qwen3_0_6b`'s heads are 128 wide — a
+        // 256-wide kernel over them reads past the end of every head and
+        // answers with whatever is there, which is the same defect
+        // `PARITY-BATCH.md` records in the C++ llama walk. Spelling the
+        // expectation from `facts.head_dim` is what stops it coming back: a
+        // literal here would fail the moment a checkpoint's heads differ.
+        assert_eq!(facts.head_dim, 128, "the fixture this expectation reads");
+        let paged = format!("sdpa_paged_decode_bfloat16_d_{}", facts.head_dim);
+        let vector = format!("sdpa_vector_decode_bfloat16_d_{}", facts.head_dim);
+        assert!(count(&mb, &paged) > 0, "the M>1 lane must take {paged}");
+        assert!(count(&fold, &vector) > 0, "the M=1 lane must take {vector}");
+        assert_eq!(
+            count(&mb, "sdpa_paged_decode_bfloat16_d_256"),
+            0,
+            "no 256-wide attention over 128-wide heads"
+        );
     }
 }

@@ -1816,14 +1816,28 @@ pub mod metal {
         );
     }
 
-    /// `sdpa_vector.metal::sdpa_vector_decode_bfloat16_d_256` (M=1) /
-    /// `sdpa_paged.metal::sdpa_paged_decode_bfloat16_d_256` (M>1).
-    pub fn sdpa(q: &Val, kv: &Kv, q_width: u32, paged: bool) -> Option<Val> {
+    /// `sdpa_vector.metal::sdpa_vector_decode_bfloat16_d_<head_dim>` (M=1) /
+    /// `sdpa_paged.metal::sdpa_paged_decode_bfloat16_d_<head_dim>` (M>1).
+    ///
+    /// The width is the deployment's, not a literal. It used to be `_d_256`
+    /// unconditionally, which is wrong for every checkpoint whose heads are
+    /// narrower — `qwen3_0_6b`'s are 128 — and wrong in the way that does not
+    /// fault: a 256-wide kernel over 128-wide heads reads past the end of
+    /// every head and answers with whatever is there. `PARITY-BATCH.md`
+    /// records the same defect in the C++ llama walk, where `_d128` was a
+    /// literal that strode 64-wide heads past their end.
+    ///
+    /// Both kernels instantiate `_d_64`, `_d_128` and `_d_256`; the paged one
+    /// also `_d_512`. A width neither carries has no kernel, and the symbol
+    /// this returns will simply not resolve — which the driver's
+    /// `every_symbol_the_lowering_names_has_a_row` check reports by name.
+    pub fn sdpa(q: &Val, kv: &Kv, q_width: u32, head_dim: u32, paged: bool) -> Option<Val> {
         let kernel = if paged {
-            "sdpa_paged_decode_bfloat16_d_256"
+            format!("sdpa_paged_decode_bfloat16_d_{head_dim}")
         } else {
-            "sdpa_vector_decode_bfloat16_d_256"
+            format!("sdpa_vector_decode_bfloat16_d_{head_dim}")
         };
+        let kernel = kernel.as_str();
         record(
             &q.t,
             Some(kv.l),

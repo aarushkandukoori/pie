@@ -63,8 +63,10 @@ What exists: `crates/model/src/families/llama_like/forward/mod.rs`'s
   `llama_like` does not model. The driver carries rungs nothing turns on; the
   text states the lane that fires. Only the `kQmmMinBatch` gate is untested,
   and the text takes it as a load-time fact rather than deciding it;
-* `sdpa_*_d_256` **pins head_dim 256**, where the driver compiles other widths
-  (`d_512` for gemma4);
+* ~~`sdpa_*_d_256` pins head_dim 256~~ — **fixed 2026-08-10**, and it was a
+  defect, not a simplification: `qwen3_0_6b`'s heads are 128 wide and the text
+  named a 256-wide kernel, which reads past the end of every head without
+  faulting. `dsl::metal::sdpa` takes `head_dim` now;
 * **no seams** — the adapter, the two observation taps and the boundaries the
   CUDA text states are absent, "because none of the machinery behind them
   exists on this backend yet";
