@@ -119,6 +119,26 @@ pub fn full_attn_at(interval: u32, l: u32) -> bool {
     interval > 0 && (l + 1) % interval == 0
 }
 
+/// Whether layer `l` is past the DENSE PREFIX — the second schedule
+/// shape, and the one four families spell identically.
+///
+/// deepseek-v4, glm5, kimi-k2 and kimi-k3 each write
+/// `l >= self.dense_layers` under the name `is_moe_layer`. Unlike
+/// [`full_attn_at`] the four agree exactly, so this extraction changes
+/// no behaviour at all; what it adds is a NAME for the shape. "A dense
+/// prefix, then the mixture" is a schedule, and a fifth family that
+/// wants it should find it stated rather than write the comparison a
+/// fifth time.
+///
+/// The predicate is deliberately about the PREFIX and not about
+/// mixtures: gemma3n's `is_sparse` is `l < self.sparsity_layers`, the
+/// same schedule read from the other end, and naming this one
+/// `is_moe_layer` here would have made that relationship invisible.
+#[must_use]
+pub fn after_dense_prefix(dense_layers: u32, l: u32) -> bool {
+    l >= dense_layers
+}
+
 #[cfg(test)]
 mod schedule {
     use super::full_attn_at;
@@ -141,6 +161,19 @@ mod schedule {
     #[test]
     fn an_interval_of_one_is_every_layer() {
         assert!((0..8).all(|l| full_attn_at(1, l)));
+    }
+
+    /// The other shape: a dense prefix, then the mixture. Four families
+    /// spell this identically, so unlike [`super::full_attn_at`] there was
+    /// no edge to settle — what the extraction adds is the NAME.
+    #[test]
+    fn the_dense_prefix_runs_out_and_the_mixture_starts() {
+        use super::after_dense_prefix;
+        let moe: Vec<u32> = (0..8).filter(|&l| after_dense_prefix(3, l)).collect();
+        assert_eq!(moe, vec![3, 4, 5, 6, 7]);
+        // No prefix at all is a mixture from layer zero, which is what
+        // every fully-sparse deployment states.
+        assert!((0..8).all(|l| after_dense_prefix(0, l)));
     }
 
     /// THE EDGE THE THREE DISAGREED ABOUT. gemma-4 and qwen3.5 wrote
