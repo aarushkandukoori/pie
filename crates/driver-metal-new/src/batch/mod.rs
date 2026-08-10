@@ -20,7 +20,6 @@ mod dataflow;
 mod dispatch;
 mod dispatch_gemma4;
 mod dispatch_gptoss;
-mod dispatch_llama;
 mod dispatch_mb;
 mod fire_csr;
 mod fit;
@@ -33,7 +32,6 @@ mod gptoss;
 mod gptoss_consts;
 mod gptoss_solve;
 mod heap_budget;
-mod llama;
 mod logits;
 mod marshal;
 mod mask;
@@ -43,7 +41,6 @@ mod paging;
 mod psos;
 mod psos_gemma4;
 mod psos_gptoss;
-mod psos_llama;
 mod psos_mb;
 mod schedule;
 mod sequence;
@@ -83,12 +80,6 @@ pub use dispatch_gptoss::{
     gptoss_qmm_min_batch, gptoss_qmm_pool_rows, gptoss_qmm_rows, gptoss_scratch_elems_mb,
     gptoss_value_extent,
 };
-pub use dispatch_llama::{
-    LlamaDagStats, build_llama_dag, build_llama_dag_mb, llama_dag_stats, llama_dense_qmm_bm,
-    llama_fp16_format, llama_is_dense_proj, llama_moe_qmm_bn, llama_moe_sorted_rows,
-    llama_pool_elems, llama_qmm_bn, llama_qmm_min_batch, llama_qmm_pool_rows, llama_qmm_rows,
-    llama_value_extent,
-};
 pub use dispatch_mb::{
     PREFILL_ORDINAL_BASE, PREFILL_ORDINAL_STRIDE, ROUTED_DECODE_BATCHED, SDPA_QUERY_TILE,
     build_decode_dag_mb, build_decode_prefill_dags, elementwise_mb, fp16_format, mb_geometry,
@@ -118,11 +109,10 @@ pub use gptoss_consts::{RowGatherParams, SwiGluParams, gptoss_qmv_kn, yarn_inv_f
 pub use gptoss_solve::{StagedQuant, bits_from_extents, solve_quant_into, solve_staged_quant};
 pub use heap_budget::{
     MAX_RS_SLOTS, PAGED_MAX_FORWARD_TOKENS, PAGED_MIN_FORWARD_TOKENS, RS_SLOT_BUDGET_FLOOR,
-    gemma4_extra_heap_bytes, gptoss_extra_heap_bytes, llama_extra_heap_bytes,
+    gemma4_extra_heap_bytes, gptoss_extra_heap_bytes,
     max_forward_tokens_for_budget, rs_slot_budget_bytes, rs_slot_bytes, rs_slots_for_budget,
     stream_predicate,
 };
-pub use llama::{LlamaGeometry, llama_decode_geometry, llama_geometry_from_facts, llama_qmv_kn};
 pub use logits::{LengthMismatch, bf16_to_f32, widen, widen_into};
 pub use marshal::{
     Admission, Fleet, MemberRejected, MemberRows, PoolFacts, RequestPlan, StepInputs, concat_fleet,
@@ -143,7 +133,6 @@ pub use psos_gptoss::{
     GptOssPsoRequest, GptOssSlot, SDPA_MMA_HEAD_DIM, gptoss_kinds, gptoss_mb_kinds, gptoss_mb_plan,
     gptoss_step_plan, plan_gptoss_psos,
 };
-pub use psos_llama::{llama_entry_names, llama_mb_plan, llama_step_plan, llama3_inv_freq};
 pub use psos_mb::{
     MOE_TILE_WIDTHS, MbFeatures, MbRequest, MbSlot, QMM_BMS, QMM_SPLIT_BN, plan_multibatch_psos,
 };
