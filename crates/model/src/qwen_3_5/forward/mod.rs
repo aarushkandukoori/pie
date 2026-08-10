@@ -177,6 +177,7 @@ fn moe_mlp_body_aligned_cuda(
         MOE_MAX_BLOCKS,
         MOE_ALIGNED_BLOCK,
         facts.top_k,
+        facts.num_experts,
     );
     let aligned_in = dsl::cuda::gather_moe_aligned_inputs(&m, &sorted, aligned, facts.hidden);
     // The pointer build DECLARES the aligned staging, because it bakes

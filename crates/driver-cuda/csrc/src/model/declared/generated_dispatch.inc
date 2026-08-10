@@ -99,6 +99,20 @@ if (sym == "mlp::sigmoid_dot_scalar_gate_add_bf16" && ins.size >= 3 && outs.size
         c.arm.stream);
     return true;
 }
+if (sym == "moe::moe_align_decode" && ins.size >= 1 && outs.size >= 3 && ps.size >= 3) {
+    ::pie_cuda_driver::kernels::moe::moe_align_decode(
+        static_cast<const ::std::int32_t*>(c.arm.values.slot(ins[0])),
+        static_cast<::std::int32_t*>(c.arm.values.slot(outs[0])),
+        static_cast<::std::int32_t*>(c.arm.values.slot(outs[1])),
+        static_cast<::std::int32_t*>(c.arm.values.slot(outs[2])),
+        static_cast<::std::size_t>(c.arm.rows) * static_cast<::std::size_t>(row_width(c.arm.plan, ins[0])),
+        static_cast<int>(ps[0]),
+        static_cast<int>(ps[1]),
+        static_cast<int>(ps[2]),
+        static_cast<::std::int32_t*>(nullptr),
+        c.arm.stream);
+    return true;
+}
 if (sym == "moe::topk_softmax_bf16" && ins.size >= 1 && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::moe::topk_softmax_bf16(
         c.arm.values.slot(ins[0]),
@@ -241,7 +255,7 @@ if (sym == "quant::bf16_to_fp16" && ins.size >= 1 && outs.size >= 1) {
 }
 if (sym == "rope::rope_standard_table" && outs.size >= 1 && c.rope_theta != 0 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::rope::rope_standard_table(
-        c.positions,
+        static_cast<const ::std::int32_t*>(c.positions),
         static_cast<float*>(c.arm.values.slot(outs[0])),
         c.arm.rows,
         c.head_dim,
@@ -253,7 +267,7 @@ if (sym == "rope::rope_bf16" && outs.size >= 2 && c.rope_theta != 0 && c.arm.pla
     ::pie_cuda_driver::kernels::rope::rope_bf16(
         c.arm.values.slot(outs[0]),
         c.arm.values.slot(outs[1]),
-        c.positions,
+        static_cast<const ::std::int32_t*>(c.positions),
         c.arm.rows,
         c.num_q_heads,
         c.num_kv_heads,
@@ -267,7 +281,7 @@ if (sym == "rope::rope_partial_bf16" && outs.size >= 2 && ps.size >= 1 && c.rope
     ::pie_cuda_driver::kernels::rope::rope_partial_bf16(
         c.arm.values.slot(outs[0]),
         c.arm.values.slot(outs[1]),
-        c.positions,
+        static_cast<const ::std::int32_t*>(c.positions),
         c.arm.rows,
         c.num_q_heads,
         c.num_kv_heads,

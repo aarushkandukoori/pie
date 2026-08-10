@@ -397,6 +397,10 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
             "static_cast<::std::size_t>({ctx}.arm.rows) * \
              static_cast<::std::size_t>(row_width({ctx}.arm.plan, outs[{i}]))"
         ),
+        Source::InElements(i) => format!(
+            "static_cast<::std::size_t>({ctx}.arm.rows) * \
+             static_cast<::std::size_t>(row_width({ctx}.arm.plan, ins[{i}]))"
+        ),
         Source::InDim(i, d) => format!(
             "static_cast<int>({ctx}.arm.plan.value(ins[{i}]).dims[{d}].value)"
         ),
@@ -412,6 +416,17 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
     Some(match op.ty {
         kernels::Ty::Buf | kernels::Ty::BufMut => e,
         kernels::Ty::I32sMut => format!("static_cast<::std::int32_t*>({e})"),
+        // The read-only element-typed arrays. A slot hands back `void*`
+        // and the callee takes `const int32_t*`; without the cast the
+        // generated call does not compile, which is the table's own
+        // point — the DECLARED width is what makes a substitution an
+        // error rather than a stride bug.
+        kernels::Ty::I32s => format!("static_cast<const ::std::int32_t*>({e})"),
+        kernels::Ty::U32s => format!("static_cast<const ::std::uint32_t*>({e})"),
+        kernels::Ty::U8s => format!("static_cast<const ::std::uint8_t*>({e})"),
+        kernels::Ty::I64s => format!("static_cast<const ::std::int64_t*>({e})"),
+        kernels::Ty::U32sMut => format!("static_cast<::std::uint32_t*>({e})"),
+        kernels::Ty::U8sMut => format!("static_cast<::std::uint8_t*>({e})"),
         kernels::Ty::F32sMut => format!("static_cast<float*>({e})"),
         kernels::Ty::F32s => format!("static_cast<const float*>({e})"),
         _ => e,
@@ -461,6 +476,7 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
             match o.source {
                 Source::In(i)
                 | Source::InRows(i)
+                | Source::InElements(i)
                 | Source::InWidth(i)
                 | Source::InDim(i, _) => need_in = need_in.max(i + 1),
                 Source::Out(i)
