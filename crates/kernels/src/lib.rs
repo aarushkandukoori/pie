@@ -474,6 +474,25 @@ pub enum Source {
     /// handle, `eps`, the head geometry. The name is the C++ member,
     /// and a context that does not have it does not compile.
     Ctx(&'static str),
+    /// [`Source::Ctx`], plus a GUARD: the generated branch fires only
+    /// when the field is non-zero, and a family that leaves it zero
+    /// keeps its own arm.
+    ///
+    /// This exists because of one number. gemma-4 alternates its rope
+    /// theta per layer, so the single `rope_theta` a context can carry
+    /// is the wrong one for half that model, and the family says so by
+    /// leaving the field zero — a convention the hand-written shared
+    /// rope arm already had (`if (c.rope_theta == 0.f) return false;`).
+    /// When the rope rows started generating, the generated branch ran
+    /// FIRST and had no such refusal: it would have rotated half of
+    /// gemma-4 by nothing, silently, past an arm written to prevent
+    /// exactly that.
+    ///
+    /// So the refusal belongs to the ROW rather than to whichever arm
+    /// happens to be reading the field. Zero means "not this family's",
+    /// which is a claim about the context field and not about any one
+    /// call site.
+    CtxNonZero(&'static str),
     /// A literal, spelled as C++ spells it. For the arguments a
     /// launcher takes that no statement and no context carries — an
     /// `interleaved` flag a family never sets, a `beta` of zero.
