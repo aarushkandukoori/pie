@@ -95,6 +95,22 @@ impl Names {
             ("gate_proj", "mlp.gate_proj"),
             ("up_proj", "mlp.up_proj"),
             ("down", "mlp.down_proj"),
+            // The mixture. `mlp.gate` is MLX's name for the ROUTER -- an
+            // unfortunate collision with `mlp.gate_proj`, which is an
+            // expert's gate half, and worth spelling out here because the two
+            // are one character apart and mean entirely different tensors.
+            //
+            // The expert banks carry no expert index: `switch_mlp` stores all
+            // of them in one `[experts, out, in]` tensor and the routed kernel
+            // indexes it by the slot it read.
+            ("router", "mlp.gate"),
+            ("expert_gate", "mlp.switch_mlp.gate_proj"),
+            ("expert_up", "mlp.switch_mlp.up_proj"),
+            ("expert_down", "mlp.switch_mlp.down_proj"),
+            ("shared_gate", "mlp.shared_expert.gate_proj"),
+            ("shared_up", "mlp.shared_expert.up_proj"),
+            ("shared_down", "mlp.shared_expert.down_proj"),
+            ("shared_gate_proj", "mlp.shared_expert_gate"),
             // The norms.
             ("q_norm", "self_attn.q_norm"),
             ("k_norm", "self_attn.k_norm"),

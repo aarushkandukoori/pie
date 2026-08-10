@@ -190,6 +190,22 @@ pub fn facts_from(
         fused_qkv: has_tensor("layers.0.self_attn.qkv_proj.weight"),
         tied_embeddings: geometry.tied_embeddings,
         qkv_bias: has_tensor("layers.0.self_attn.q_proj.bias"),
+        // Asked of the TENSORS, like the other binding facts: a router weight
+        // in the checkpoint is a mixture and its absence is a dense FFN. The
+        // counts come from the geometry, which the fire already states.
+        n_experts: if has_tensor("layers.0.mlp.gate.weight") {
+            geometry.n_experts
+        } else {
+            0
+        },
+        experts_per_token: geometry.experts_per_token,
+        moe_intermediate: geometry.moe_intermediate,
+        // A shared expert is its own tensor, and qwen3-moe has none.
+        shared_intermediate: if has_tensor("layers.0.mlp.shared_expert.up_proj.weight") {
+            geometry.moe_intermediate
+        } else {
+            0
+        },
     };
     let metal = LlamaLikeMetalFacts {
         fuse_residual_gemv: true,

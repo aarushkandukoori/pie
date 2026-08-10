@@ -64,6 +64,32 @@ fn texts() -> Vec<Text> {
             n_experts: 0,
             experts_per_token: 0,
         },
+    },
+    // The SAME text at a different fact, which is what a second entry here is
+    // for. qwen3-moe is a llama-like attention with a routed FFN, so it joins
+    // by naming a fixture rather than by being a family -- and every check
+    // below then applies to the mixture's six statements without knowing they
+    // are a mixture.
+    Text {
+        name: "llama_like (qwen3-moe)",
+        plan: |class| {
+            use model::families::llama_like::forward::facts::{
+                LlamaLikeFacts, LlamaLikeMetalFacts,
+            };
+            model::families::llama_like::forward::llama_like_metal(
+                &LlamaLikeFacts::qwen3_30b_a3b(),
+                &LlamaLikeMetalFacts::synthetic(),
+                class,
+            )
+        },
+        geometry: Geometry {
+            q_heads: 32,
+            kv_heads: 4,
+            head_dim: 128,
+            rotary_dims: 128,
+            n_experts: 128,
+            experts_per_token: 8,
+        },
     }]
 }
 
@@ -244,14 +270,19 @@ fn the_harness_covers_every_family_that_has_a_text() {
     // be silence — which is the one failure mode a conformance suite cannot
     // afford.
     //
-    // Counted rather than named: the list of Metal texts is short and its
-    // growth is the whole remaining plan (`.wiki/new-driver/metal.md` task 5).
+    // Counted rather than named: the list is short and its growth is the whole
+    // remaining plan (`.wiki/new-driver/metal.md` task 5).
+    //
+    // TWO entries over ONE text, and the gap is the interesting part: the
+    // mixture joined by naming a fixture rather than by being a family, so a
+    // routed FFN reaches the device with no second text and no per-family
+    // branch anywhere in the executor.
     assert_eq!(
         texts().len(),
-        1,
-        "a Metal text landed or left. Add or remove its row in `texts()` — \
-         everything above is per-text and a family not listed is a family not \
-         checked."
+        2,
+        "a Metal text or fixture landed or left. Add or remove its row in \
+         `texts()` — everything above is per-text and a shape not listed is a \
+         shape not checked."
     );
 }
 
@@ -516,21 +547,25 @@ fn every_slot_a_row_names_is_a_slot_a_statement_fills() {
         holes.len(),
         holes.join("\n")
     );
-    // EIGHT, measured 2026-08-10, and every one is named:
+    // TEN, measured 2026-08-11, and every one is named:
     //
     //   kv_append_paged: SEVEN buffers of a shared ring ABI the kernel
     //     declares and does not read (4, 6-9, 11, 15). A row is positional so
     //     they are listed; nothing fills them because nothing should.
     //   sdpa_paged_decode: `sinks`, which gpt-oss reads and `llama_like` has
     //     none of. The slot waits for a text that has them.
+    //   affine_qmv_routed: `bias`, which `affine_qmv_routed_bias` is the
+    //     symbol for. Same shape as `sinks` — a slot the OTHER instantiation
+    //     of this kernel fills.
+    //   router_topk: `per_expert_scale`, likewise `router_topk_scaled`'s.
     //
     // So every remaining hole is DELIBERATE — a declared-but-unread ABI and a
     // feature this family lacks — rather than a value the text forgot. That is
     // a different thing from the fourteen this started at, and the number
     // should be read as "slots waiting on another family", not as debt.
     assert!(
-        holes.len() <= 8,
-        "{} slots no statement fills, which is more than the eight that are \
+        holes.len() <= 10,
+        "{} slots no statement fills, which is more than the ten that are \
          deliberate. A slot nobody fills is read anyway.\n{}",
         holes.len(),
         holes.join("\n")

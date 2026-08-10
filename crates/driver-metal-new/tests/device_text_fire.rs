@@ -132,6 +132,97 @@ fn geometry() -> Geometry {
     }
 }
 
+/// The MIXTURE reaches the device, through the same executor.
+///
+/// The point is what is NOT here. There is no mixture-aware code anywhere
+/// between this text and the GPU: the router, the sort, the gather, the routed
+/// matmuls and the combine walk `dispatch::plan_one` exactly as a projection
+/// does, and `LaunchRule::RouteRows`/`RoutedQmv` read the expert counts off
+/// the dims the same way `Qmv` reads `width`.
+///
+/// A routed FFN is the hardest thing to express portably -- its SHAPE depends
+/// on a value the fire computes -- so a mixture firing without a per-family
+/// branch is the strongest evidence the executor is general that this crate
+/// has.
+///
+/// Four layers rather than forty-eight: the walk is what is under test and a
+/// 48-layer mixture is the same six statements forty-eight times.
+#[test]
+fn a_mixture_fires_on_the_device_through_the_same_executor() {
+    let Ok(context) = Context::new() else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+    let compiler = Compiler::new(&context).expect("a compiler");
+    let mut pipelines = Pipelines::new(kernels_dir());
+
+    let step = Step {
+        token_ids: &[11, 22, 33, 44],
+        qo_indptr: &[0, 1, 2, 3, 4],
+        sampling_indices: &[0, 1, 2, 3],
+        ..Step::default()
+    };
+    let facts = LlamaLikeFacts {
+        layers: 4,
+        ..LlamaLikeFacts::qwen3_30b_a3b()
+    };
+    let plan = llama_like_metal(&facts, &LlamaLikeMetalFacts::synthetic(), FireClass::Decode);
+    let lowered = lower_step(&plan, &step).expect("the step lowers");
+
+    let routed = lowered
+        .kernels
+        .iter()
+        .filter(|k| k.contains("routed") || k.starts_with("route_") || k.contains("router"))
+        .count();
+    assert!(
+        routed >= 4,
+        "a mixture states a router, a sort, a gather and three routed \
+         matmuls; found {routed} in {:?}",
+        lowered.kernels
+    );
+
+    let backing = allocate(&context, 256 << 20, "sentinel weights").expect("a backing region");
+    let zeros = zeroed(&context);
+    let mut store = Sentinels {
+        slice: Slice {
+            address: backing.gpu_address(),
+            bytes: 256 << 20,
+        },
+        tables: Slice {
+            address: zeros.gpu_address(),
+            bytes: 1 << 20,
+        },
+        asked: HashMap::new(),
+    };
+
+    let timing = run(
+        &context,
+        &compiler,
+        &mut pipelines,
+        &lowered,
+        Geometry {
+            q_heads: 32,
+            kv_heads: 4,
+            head_dim: 128,
+            rotary_dims: 128,
+            n_experts: 128,
+            experts_per_token: 8,
+        },
+        &mut store,
+    )
+    .expect("the mixture fires");
+
+    assert!(
+        timing.encode > std::time::Duration::ZERO,
+        "the stepper reported no encode time, so nothing was encoded"
+    );
+    assert!(
+        store.asked.keys().any(|n| n.contains("expert")),
+        "the fire bound no expert bank, so it cannot have been the mixture: {:?}",
+        store.asked.keys().collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn the_whole_metal_text_fires_on_the_device() {
     let Ok(context) = Context::new() else {

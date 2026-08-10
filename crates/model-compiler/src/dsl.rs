@@ -273,6 +273,26 @@ pub struct Layer {
     pub gate_proj: MatW,
     pub up_proj: MatW,
     pub down: MatW,
+    /// The router: hidden -> one logit per expert.
+    ///
+    /// A MIXTURE's handles, and they live on the same `Layer` as the dense
+    /// ones for the reason `ModelShape` gives about itself: a namespace is
+    /// shared and a text states the shape its facts describe. A dense
+    /// deployment simply never names these, exactly as a deployment whose
+    /// loader did not join gate and up never names `gate_up`.
+    pub router: MatW,
+    /// The expert banks. `MatW::name` carries no expert index -- the routed
+    /// kernel indexes the bank by the slot it read, which is what makes it
+    /// ONE weight rather than `n_experts` of them.
+    pub expert_gate: MatW,
+    pub expert_up: MatW,
+    pub expert_down: MatW,
+    /// The dense expert a mixture may also have, and the scalar gate that
+    /// blends it in (`shared_expert_combine`).
+    pub shared_gate: MatW,
+    pub shared_up: MatW,
+    pub shared_down: MatW,
+    pub shared_gate_proj: MatW,
     pub attn_norm: NormW,
     pub mlp_norm: NormW,
     pub q_norm: NormW,
@@ -300,6 +320,17 @@ pub struct ModelShape {
     pub hidden: u32,
     /// Width of the MLP's inner dimension. `gate_up` is twice this.
     pub intermediate: u32,
+    /// Experts in a mixture's bank, and 0 for a dense deployment.
+    ///
+    /// The three mixture numbers live on the shared shape rather than one
+    /// family's facts for the reason the rest of this struct does: a routed
+    /// FFN is true of many architectures (qwen3-moe, gemma-4, gpt-oss) and
+    /// nothing about how any of them ROUTES appears here.
+    pub n_experts: u32,
+    /// One expert's inner width.
+    pub moe_intermediate: u32,
+    /// The dense expert's inner width, and 0 for a mixture without one.
+    pub shared_intermediate: u32,
     /// Readout width.
     pub vocab: u32,
     /// One attention head's width — the per-head qk-norm's row length.
@@ -423,6 +454,15 @@ impl M {
             gate_proj: mat("gate_proj", f.intermediate),
             up_proj: mat("up_proj", f.intermediate),
             down: mat("down", f.hidden),
+            router: mat("router", f.n_experts),
+            expert_gate: mat("expert_gate", f.moe_intermediate),
+            expert_up: mat("expert_up", f.moe_intermediate),
+            expert_down: mat("expert_down", f.hidden),
+            shared_gate: mat("shared_gate", f.shared_intermediate),
+            shared_up: mat("shared_up", f.shared_intermediate),
+            shared_down: mat("shared_down", f.hidden),
+            // One number per row: how much of the shared expert to keep.
+            shared_gate_proj: mat("shared_gate_proj", 1),
             attn_norm: row_norm("attn_norm"),
             mlp_norm: row_norm("mlp_norm"),
             q_norm: qk_norm("q_norm"),
@@ -2120,6 +2160,185 @@ pub mod metal {
             Some((Shape(vec![Dim::Requests, Dim::Const(vocab)]), DType::F32)),
         )
         .expect("the readout produces the logits")
+    }
+
+    // ── The mixture. ──
+    //
+    // Six statements, and the reason they are six rather than one is the
+    // reason a mixture is interesting at all: a routed FFN's SHAPE depends on
+    // a value the fire computes. The router picks experts, the sort groups
+    // rows by the expert they picked, the gather materializes those groups
+    // contiguously, the matmuls run over the groups, and the combine puts the
+    // rows back where they started weighted by the router's confidence.
+    //
+    // Nothing here is a per-family branch. The executor walks these exactly as
+    // it walks a projection: symbol, row, file, rule, grid, operands. What is
+    // different is only that `LaunchRule::RouteRows` and `RoutedQmv` read
+    // `n_experts` and `experts_per_token` off the dims -- which is the same
+    // way `Qmv` reads `width`.
+
+    /// `moe/route.metal::router_topk` — which experts a row goes to, and how
+    /// much of each.
+    ///
+    /// Two outputs: the expert slots and their weights. Both are read by name
+    /// downstream, which is why this returns the pair rather than folding them.
+    pub fn router_topk(
+        logits: &Val,
+        n_experts: u32,
+        experts_per_token: u32,
+        scaled: bool,
+    ) -> (Val, Val) {
+        let sym = if scaled { "router_topk_scaled_bfloat16" } else { "router_topk_bfloat16" };
+        let slots = Dim::Const(experts_per_token);
+        let ids = logits.t.with(logits.layer, |b| {
+            b.launch_with_params(
+                sym,
+                vec![],
+                None,
+                // `RouterParams`, packed: the shader takes a struct pointer.
+                vec![n_experts, experts_per_token],
+                vec![logits.id],
+                vec![
+                    (Shape(vec![Dim::Tokens, slots]), DType::I32),
+                    (Shape(vec![Dim::Tokens, slots]), DType::BF16),
+                ],
+            )
+        });
+        let mk = |id| Val { t: logits.t.clone(), id, layer: logits.layer };
+        (mk(ids[0]), mk(ids[1]))
+    }
+
+    /// `moe/route.metal::route_sort` — group the rows by expert.
+    ///
+    /// FOUR outputs, and a text that named fewer would leave the combine
+    /// reading whatever was in the buffer: the permutation, the per-row
+    /// expert, the per-tile expert, and the inverse the combine reads back.
+    pub fn route_sort(
+        expert_ids: &Val,
+        n_experts: u32,
+        experts_per_token: u32,
+        tile_rows: u32,
+        padded: u32,
+        width: u32,
+    ) -> (Val, Val, Val, Val) {
+        let pad = Dim::Const(padded);
+        let ids = expert_ids.t.with(expert_ids.layer, |b| {
+            b.launch_with_params(
+                "route_sort",
+                vec![],
+                None,
+                // `MoeRouteParams`, packed and SHARED with the gather so the
+                // sort's padding and the gather's bounds cannot disagree.
+                vec![padded, n_experts, experts_per_token, tile_rows, padded, width, width],
+                vec![expert_ids.id],
+                vec![
+                    (Shape(vec![pad]), DType::I32),
+                    (Shape(vec![pad]), DType::I32),
+                    (Shape(vec![Dim::Const(padded.div_ceil(tile_rows.max(1)))]), DType::I32),
+                    (Shape(vec![pad]), DType::I32),
+                ],
+            )
+        });
+        let mk = |id| Val { t: expert_ids.t.clone(), id, layer: expert_ids.layer };
+        (mk(ids[0]), mk(ids[1]), mk(ids[2]), mk(ids[3]))
+    }
+
+    /// `moe/route.metal::route_gather` — the rows, in expert order.
+    #[allow(clippy::too_many_arguments)]
+    pub fn route_gather(
+        x: &Val,
+        perm: &Val,
+        n_experts: u32,
+        experts_per_token: u32,
+        tile_rows: u32,
+        padded: u32,
+        width: u32,
+    ) -> Val {
+        with_params(
+            &x.t,
+            x.layer,
+            "route_gather",
+            vec![],
+            None,
+            vec![padded, n_experts, experts_per_token, tile_rows, padded, width, width],
+            vec![x.id, perm.id],
+            Some((Shape(vec![Dim::Const(padded), Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the gather produces its rows")
+    }
+
+    /// `quant/qmv.metal::affine_qmv_routed` — the expert-selecting GEMV.
+    ///
+    /// `sel = row * slots_per_row + slot`, which is why the launch's row and
+    /// slot axes are not interchangeable and why `slots_per_row` is stated.
+    pub fn routed_qmv(
+        x: &Val,
+        expert_ids: &Val,
+        w: &MatW,
+        experts_per_token: u32,
+        biased: bool,
+    ) -> Val {
+        let sym = if biased {
+            "affine_qmv_routed_bias_bfloat16_gs_64_b_4"
+        } else {
+            "affine_qmv_routed_bfloat16_gs_64_b_4"
+        };
+        let in_w = in_width(x);
+        with_params(
+            &x.t,
+            w.layer,
+            sym,
+            quant_weights(w),
+            None,
+            vec![in_w, w.width, 0, in_w, experts_per_token],
+            vec![x.id, expert_ids.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
+        )
+        .expect("a routed projection produces its value")
+    }
+
+    /// `moe/route.metal::combine_sorted` — the rows back where they started,
+    /// weighted by the router.
+    pub fn combine_sorted(
+        y: &Val,
+        expert_weights: &Val,
+        inv: &Val,
+        experts_per_token: u32,
+        width: u32,
+    ) -> Val {
+        with_params(
+            &y.t,
+            y.layer,
+            "combine_sorted",
+            vec![],
+            None,
+            // `ExpertCombineParams`, packed.
+            vec![width, experts_per_token],
+            vec![y.id, expert_weights.id, inv.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the combine produces its rows")
+    }
+
+    /// `moe/route.metal::shared_expert_combine` — `routed + sigmoid(gate) *
+    /// shared`, the landing for a mixture that also has a dense expert.
+    pub fn shared_expert_combine(
+        routed: &Val,
+        shared: &Val,
+        gate: &Val,
+        width: u32,
+    ) -> Val {
+        with_params(
+            &routed.t,
+            routed.layer,
+            "shared_expert_combine",
+            vec![],
+            None,
+            vec![width],
+            vec![routed.id, shared.id, gate.id],
+            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the shared landing produces its rows")
     }
 }
 

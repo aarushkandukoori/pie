@@ -350,11 +350,79 @@ fn llama_like_metal_text(
              `Projections::InPlace` and the join declines under it -- so the \
              arm is refused at trace time rather than written untested."
         );
+        // The FFN, dense or routed, and the branch is a FACT rather than a
+        // family. A llama-like architecture with a mixture is still llama-like
+        // -- the attention above is untouched and only the block between the
+        // two norms differs -- which is the tart argument stated as code: one
+        // supergraph, more polymorphism, no second text.
+        //
+        // The mixture is six statements because a routed FFN's SHAPE depends
+        // on a value the fire computes. The router picks experts; the sort
+        // groups rows by the expert they picked; the gather materialises those
+        // groups contiguously; the matmuls run over the groups; the combine
+        // puts the rows back weighted by the router's confidence. The executor
+        // walks all six exactly as it walks a projection -- symbol, row, file,
+        // rule, grid, operands -- and `RouteRows`/`RoutedQmv` read the expert
+        // counts off the dims the same way `Qmv` reads `width`.
         let gated = |x: &Val, w: &dsl::Layer| {
-            dsl::metal::silu_mul(
-                &gemm(x, &w.gate_proj),
-                &gemm(x, &w.up_proj),
-                f.intermediate,
+            if f.n_experts == 0 {
+                return dsl::metal::silu_mul(
+                    &gemm(x, &w.gate_proj),
+                    &gemm(x, &w.up_proj),
+                    f.intermediate,
+                );
+            }
+            let k = f.experts_per_token.max(1);
+            // Rows after the sort pads each expert's group up to a tile. The
+            // gather writes this many and the matmuls read them, so the number
+            // is stated once and threaded rather than recomputed.
+            let padded = (f.n_experts * k).max(1);
+            let (ids, weights) =
+                dsl::metal::router_topk(&gemm(x, &w.router), f.n_experts, k, false);
+            let (perm, _row_expert, _tile_expert, inv) = dsl::metal::route_sort(
+                &ids,
+                f.n_experts,
+                k,
+                metal.qmm_tile.0,
+                padded,
+                f.hidden,
+            );
+            let rows = dsl::metal::route_gather(
+                x,
+                &perm,
+                f.n_experts,
+                k,
+                metal.qmm_tile.0,
+                padded,
+                f.hidden,
+            );
+            let h = dsl::metal::silu_mul(
+                &dsl::metal::routed_qmv(&rows, &ids, &w.expert_gate, k, false),
+                &dsl::metal::routed_qmv(&rows, &ids, &w.expert_up, k, false),
+                f.moe_intermediate,
+            );
+            let routed = dsl::metal::combine_sorted(
+                &dsl::metal::routed_qmv(&h, &ids, &w.expert_down, k, false),
+                &weights,
+                &inv,
+                k,
+                f.hidden,
+            );
+            if f.shared_intermediate == 0 {
+                return routed;
+            }
+            // The dense expert a mixture may also have, blended in by a
+            // per-row sigmoid gate.
+            let shared = dsl::metal::silu_mul(
+                &gemm(x, &w.shared_gate),
+                &gemm(x, &w.shared_up),
+                f.shared_intermediate,
+            );
+            dsl::metal::shared_expert_combine(
+                &routed,
+                &gemm(&shared, &w.shared_down),
+                &gemm(x, &w.shared_gate_proj),
+                f.hidden,
             )
         };
 

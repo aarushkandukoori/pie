@@ -23,6 +23,24 @@ pub struct LlamaLikeFacts {
     pub q_heads: u32,
     pub kv_heads: u32,
     pub head_dim: u32,
+    /// Experts in this deployment's mixture, and 0 for a dense one.
+    ///
+    /// A llama-like architecture with a ROUTED FFN is still llama-like: the
+    /// attention is unchanged and only the block between the two norms
+    /// differs. Stating it as a fact rather than a family is the whole tart
+    /// argument -- one supergraph, more polymorphism -- and it is what lets
+    /// qwen3-moe reach the device without a second text.
+    #[serde(default)]
+    pub n_experts: u32,
+    /// How many of them a row goes to.
+    #[serde(default)]
+    pub experts_per_token: u32,
+    /// One expert's inner width.
+    #[serde(default)]
+    pub moe_intermediate: u32,
+    /// The dense expert's inner width, 0 for a mixture without one.
+    #[serde(default)]
+    pub shared_intermediate: u32,
     pub intermediate: u32,
     pub vocab: u32,
     pub rope: RopeKind,
@@ -62,6 +80,9 @@ impl LlamaLikeFacts {
         model_compiler::dsl::ModelShape {
             hidden: self.hidden,
             intermediate: self.intermediate,
+            n_experts: self.n_experts,
+            moe_intermediate: self.moe_intermediate,
+            shared_intermediate: self.shared_intermediate,
             vocab: self.vocab,
             head_dim: self.head_dim,
             q_width: self.q_width(),
@@ -100,6 +121,13 @@ impl LlamaLikeFacts {
     /// tensors, added after the split — the hand-written order).
     pub fn qwen2_5_1_5b() -> Self {
         Self {
+            // DENSE: no mixture. Stated rather than defaulted because a
+            // fixture is a measurement of a real checkpoint, and "this one has
+            // no experts" is part of the measurement.
+            n_experts: 0,
+            experts_per_token: 0,
+            moe_intermediate: 0,
+            shared_intermediate: 0,
             hidden: 1536,
             layers: 28,
             q_heads: 12,
@@ -120,6 +148,13 @@ impl LlamaLikeFacts {
     /// Qwen3-0.6B, the workspace's parity model.
     pub fn qwen3_0_6b() -> Self {
         Self {
+            // DENSE: no mixture. Stated rather than defaulted because a
+            // fixture is a measurement of a real checkpoint, and "this one has
+            // no experts" is part of the measurement.
+            n_experts: 0,
+            experts_per_token: 0,
+            moe_intermediate: 0,
+            shared_intermediate: 0,
             hidden: 1024,
             layers: 28,
             q_heads: 16,
@@ -153,8 +188,52 @@ impl LlamaLikeFacts {
     /// projections and the trace writes three matmuls (verified against
     /// the live binding: the declared-forward trace reports the 387-op
     /// unfused form, 12 ops x 32 layers + 3).
+    /// Qwen3-30B-A3B: llama-like attention, ROUTED FFN.
+    ///
+    /// The fixture that makes the mixture reachable. Every attention number
+    /// here is a qwen3 number and every one of them is shared with
+    /// [`Self::qwen3_0_6b`]'s shape -- which is the point: the only thing this
+    /// deployment does differently is the block between the two norms.
+    ///
+    /// A SYNTHETIC fixture in the same sense as the rest: the numbers are the
+    /// published config's, not a measurement of a running checkpoint.
+    pub fn qwen3_30b_a3b() -> Self {
+        Self {
+            hidden: 2048,
+            layers: 48,
+            q_heads: 32,
+            kv_heads: 4,
+            head_dim: 128,
+            // The DENSE inner width, which a mixture has no use for. Stated as
+            // zero rather than left at the dense value so a text that reached
+            // for the wrong one computes nothing visible instead of something
+            // plausible.
+            intermediate: 0,
+            n_experts: 128,
+            experts_per_token: 8,
+            moe_intermediate: 768,
+            // No shared expert: qwen3-moe dropped the one qwen2-moe had.
+            shared_intermediate: 0,
+            vocab: 151_936,
+            rope: RopeKind::Standard,
+            norm_variant: NormVariant::Plain,
+            norm_placement: NormPlacement::Pre,
+            qk_norm: QkNorm::PerHead,
+            fused_qkv: false,
+            tied_embeddings: false,
+            qkv_bias: false,
+        }
+    }
+
     pub fn phi3_mini() -> Self {
         Self {
+            // DENSE: no mixture. Stated rather than defaulted because a
+            // fixture is a measurement of a real checkpoint, and "this one has
+            // no experts" is part of the measurement.
+            n_experts: 0,
+            experts_per_token: 0,
+            moe_intermediate: 0,
+            shared_intermediate: 0,
             hidden: 3072,
             layers: 32,
             q_heads: 32,
@@ -192,6 +271,13 @@ impl LlamaLikeFacts {
     /// trace reports the 355-op fused form, 11 ops x 32 layers + 3).
     pub fn mistral_7b_v03() -> Self {
         Self {
+            // DENSE: no mixture. Stated rather than defaulted because a
+            // fixture is a measurement of a real checkpoint, and "this one has
+            // no experts" is part of the measurement.
+            n_experts: 0,
+            experts_per_token: 0,
+            moe_intermediate: 0,
+            shared_intermediate: 0,
             hidden: 4096,
             layers: 32,
             q_heads: 32,
@@ -240,6 +326,13 @@ impl LlamaLikeFacts {
     /// single traced `gate_up` matmul, not a fact.)
     pub fn olmo2_1b() -> Self {
         Self {
+            // DENSE: no mixture. Stated rather than defaulted because a
+            // fixture is a measurement of a real checkpoint, and "this one has
+            // no experts" is part of the measurement.
+            n_experts: 0,
+            experts_per_token: 0,
+            moe_intermediate: 0,
+            shared_intermediate: 0,
             hidden: 2048,
             layers: 16,
             q_heads: 16,
