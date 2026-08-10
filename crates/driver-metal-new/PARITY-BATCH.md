@@ -230,7 +230,10 @@ first arm of `forward.cpp`'s orchestration exists as `metal/decoder.rs`.
 | `ensure_elastic_storage`'s sizing arithmetic | `batch::sizing::{kv_pool_target_bytes, ring_target_bytes, conv_state_target_bytes, recurrent_state_target_bytes, row_scaled_target_bytes}` + `Target` | ported; the clamp is a value, not a silent `min` |
 | `kv_pool_row_bytes`, and its inline second spelling in `ensure_elastic_storage` | `batch::sizing::kv_pool_row_bytes` | ported, one spelling |
 | `ensure_elastic_buffers_atomically` (the commit itself) | `metal::Elastic` | ported |
-| `forward.cpp`: the EOS/argmax loop, `copy_state`/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
+| `logits_convert.hpp` (30) | `batch/logits.rs` | ported; one spelling of the widening, which `batch/golden.rs` now calls instead of carrying its own |
+| the EOS substrate: `ArgmaxParams` (vocab + `n_eos` + 8 ids), the `eos_flag` buffer, `bind::Argmax::{Params, EosFlag}` | `batch::ArgmaxParams` (size-asserted at 40), `metal::storage`'s `eos_flag`, the family bind walks, `Decoder::greedy` | ported |
+| the "resident loop" the C++ comments describe | — | **there is nothing to port**: `heap_bind.cpp` sets `n_eos = 0` and says "executor/resident loop rewrites vocab+eos per gen", and `mtl4_context.hpp` calls it the shippable fix it does not have. It is an aspiration in comments, not code |
+| `forward.cpp`: `copy_state`/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
 
 Verified on device (Qwen3.6-27B, `tests/device_smoke.rs`): the M=1 ring
 decode, the paged sequential and per-row-stream prefills, the equal

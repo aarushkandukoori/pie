@@ -33,6 +33,7 @@ mod gptoss_consts;
 mod gptoss_solve;
 mod heap_budget;
 mod llama;
+mod logits;
 mod marshal;
 mod mask;
 mod member;
@@ -115,6 +116,7 @@ pub use heap_budget::{
     stream_predicate,
 };
 pub use llama::{LlamaGeometry, llama_decode_geometry, llama_geometry_from_facts, llama_qmv_kn};
+pub use logits::{LengthMismatch, bf16_to_f32, widen, widen_into};
 pub use marshal::{
     Admission, Fleet, MemberRejected, MemberRows, PoolFacts, RequestPlan, StepInputs, concat_fleet,
     marshal_fleet, plan_member,

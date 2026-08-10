@@ -27,6 +27,7 @@ use crate::tuning::Tuning;
 use super::abi::Kernel;
 use super::color::ScratchSchedule;
 use super::geometry::DecodeGeometry;
+use super::logits::bf16_to_f32;
 use super::sizing::{RoutedProjection, moe_sorted_rows};
 
 /// One kernel's tap: what the reference calls it, which scratch bind
@@ -201,10 +202,6 @@ pub fn write_npy(path: &Path, data: &[f32], rows: u32, width: u32) -> Result<(),
         out.write_all(&value.to_le_bytes())?;
     }
     Ok(())
-}
-
-const fn bf16_to_f32(bits: u16) -> f32 {
-    f32::from_bits((bits as u32) << 16)
 }
 
 /// One dispatch of the DAG, as much of it as tapping needs.
