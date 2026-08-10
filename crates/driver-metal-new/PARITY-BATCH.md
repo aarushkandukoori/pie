@@ -261,6 +261,9 @@ first arm of `forward.cpp`'s orchestration exists as `metal/decoder.rs`.
 | `rs_slot_bytes_for` | `batch::rs_slot_bytes` | ported; the conv stride counts twice because the state is a ping-pong pair |
 | `rs_slot_budget_bytes` | `batch::rs_slot_budget_bytes` + `RS_SLOT_BUDGET_FLOOR` | ported |
 | `rs_slots_for_budget` | `batch::rs_slots_for_budget` + `MAX_RS_SLOTS` | ported, with the shipped bug it records: `requested` was applied as `max(slots, requested)`, which made the budget decorative — 64 slots at 170 MiB each is 10.6 GiB, 5.2 GiB over the device, and the OOM arrived as a command buffer that never ran so every PTIR lane read its own zero fill back as a fault |
+| `fits_on_this_gpu`'s decision | `batch::fits` → `Fit` | ported; the two bounds stay two answers, and a device-bound footprint is reported as such even when the machine is also short |
+| its refusal prose, incl. the `ElasticBreakdown` advice | `batch::Refusal`'s `Display` | ported; the numbers are the answer and the sentence is a rendering of them, so a caller that only decides never formats |
+| `warn_once_if_the_gpu_leaked_memory_before_this_run` | — | dropped: a `std::call_once` warning printed from inside the fit check. The fit is a function of its inputs; a process-global latch is not one of them |
 | `forward.cpp`: `copy_state`/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
 
 Verified on device (Qwen3.6-27B, `tests/device_smoke.rs`): the M=1 ring

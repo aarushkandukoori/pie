@@ -23,6 +23,7 @@ mod dispatch_gptoss;
 mod dispatch_llama;
 mod dispatch_mb;
 mod fire_csr;
+mod fit;
 mod gemma4;
 mod gemma4_consts;
 mod geometry;
@@ -93,6 +94,7 @@ pub use dispatch_mb::{
     rms_mb, uses_alt_quant,
 };
 pub use fire_csr::{FireCsr, FireRefused};
+pub use fit::{Breakdown, COPY_WINDOW, Fit, Footprint, HOST_MARGIN, MachineFacts, Refusal, fits};
 pub use gemma4::{
     Gemma4Geometry, gemma4_decode_geometry, gemma4_geometry_from_facts, gemma4_qmv_kn,
 };
