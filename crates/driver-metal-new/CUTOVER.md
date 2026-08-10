@@ -41,7 +41,7 @@ the twelve entry points need beyond it, and where each lands:
 |---|---|---|
 | `launch` (the serving hot path) | scheduling, fires, tickets, forward composition | `batch/` (~11.6k lines, mostly portable — portable half first) |
 | `load_model` | weight loading and staging | `loader/` (~3.2k) |
-| `register_program` / `bind_instance` | program/instance registry | `pipeline/registry.cpp` (452) + `descriptor_resolve.hpp` (400) |
+| `register_program` / `bind_instance` | program/instance registry | **already ported** — `registry.cpp` is `pipeline/registry.rs` and `descriptor_resolve.hpp` is `pipeline/resolve.rs`, ledgered in `PARITY-REGISTRY.md`. One entry outstanding: `translate_kv_pages`, which is frame bookkeeping and belongs to `forward.cpp` |
 | `register_channel` / `close_channel` | ring registry over [`Ring`] | small; `Ring` exists, the registry is bookkeeping |
 | `copy_kv` / `copy_state` / `resize_pool` | K/V plumbing over `Elastic` | with `batch/` |
 | (verification, not serving) | the CPU reference interpreter | **already ported** — `interp.hpp` (1.7k) is `src/pipeline/`, ledgered in `PARITY-INTERP.md`. What is missing is the harness that diffs it against the device, not the interpreter |
@@ -62,6 +62,34 @@ The flip is authorised when all of the following hold, and not before:
    outcomes, launch outcomes, channel effects, status reports — is equal.
    Divergences are bugs in one side or unstated behaviour in the other;
    both get written down before the flip.
+
+   *Blocked (2026-08-09), and this was checked rather than assumed.* The
+   harness needs a second `DriverBackend` variant, so the new crate must
+   answer all fourteen dispatch methods in `engine/src/driver/backend.rs`.
+   Most it can:
+
+   | seam method | new crate today |
+   |---|---|
+   | `create` / `device_facts` | `Context::new` + `facts.rs` |
+   | `register_program`, `register_channel`, `bind_instance`, `close_instance`, `close_channel` | `pipeline::Registry` (`PARITY-REGISTRY.md`) |
+   | `encode` | both sides refuse; Metal media encode is unsupported |
+   | `load_model` | `loader/` (portable done; staging arms deferred) |
+   | `copy_kv` / `copy_state` / `resize_pool` | **missing** — ledgered with `batch/` |
+   | `launch` | **missing** — see below |
+
+   `launch` is the one that decides the item. It takes a `FrameSubmission`:
+   an instance roster, a frame-union KV page translation with its CSR
+   partition, a required-page high-water for admission, and an ordered list
+   of steps. The new crate's top entry is `Decoder::fire(&[Lane])` — a
+   model-level call over requests, slots and tokens. Everything between the
+   two is `forward.cpp`: instance-to-lane mapping, `translate_kv_pages`,
+   step sequencing, the `Exhausted`/`Impossible` admission outcomes, and the
+   completion broker. `forward.cpp` (5393) is ledgered `missing` and is
+   explicitly the last thing in the port, over everything above it.
+
+   So item 2 is not a harness someone forgot to write. It is downstream of
+   the largest remaining slice, and attempting it first produces a twin
+   backend that cannot serve the one call the A/B is mostly about.
 3. **Token-exact decode.** A real checkpoint (qwen3.5 is the one with
    in-tree semantic coverage), fixed seeds, N ≥ 1000 decoded tokens: the new
    backend's tokens are bit-identical to the old one's. The PTIR channel
@@ -125,6 +153,38 @@ The flip is authorised when all of the following hold, and not before:
 6. **The panic regressions.** The elastic drop-under-mapping and keepalive
    scenarios from 2026-08-08 rerun against the new path. The machine staying
    up is the assertion.
+
+### The gate is a chain, not a checklist
+
+The six items are numbered but not ordered, and reading them as a to-do list
+has now cost time twice — item 4 was attempted as a 1.7k-line port that did not
+exist to do, and item 2 as a harness that cannot be written yet. The actual
+dependency structure:
+
+```
+  forward.cpp  ──┬──▶  2. A/B at the seam  ──┬──▶  5. soak without growth
+                 │                            └──▶  6. panic regressions
+                 └──▶  3's open leg (vs the OLD driver)
+
+  1. suite green      ✅ independent, holds
+  4. interpreter      ✅ independent, holds
+```
+
+**Four of the six are behind `forward.cpp`.** Items 5 and 6 need a running
+backend to soak and to re-run the panic scenarios against, which needs item 2,
+which needs `launch`. Item 3's remaining leg — bit-identical against the *old*
+driver — needs both backends running the same frames, which is item 2 again.
+Item 3's own N ≥ 1000 horizon is already done through this crate's device
+smoke, which is why it reads as half-held rather than blocked.
+
+Items 1 and 4 are the two that never depended on it, and both hold.
+
+The consequence for planning: **there is one critical path, and it is
+`forward.cpp` plus the `copy_kv`/`copy_state`/`resize_pool` trio beside it.**
+Anything else picked up before those is either independent cleanup or work that
+will be redone once the frame path exists. Whoever picks this up next should
+start at `forward.cpp`'s prerequisites in `PARITY-BATCH.md` — the scratch
+schedule, the segment loop, the bind layouts — rather than at the gate.
 
 ## Mechanics
 

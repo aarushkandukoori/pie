@@ -77,6 +77,7 @@ crates/driver-metal-new/
   PARITY.md         ledger for csrc/src/mtl4_context.hpp  (the shell)
   PARITY-M1.md      ledger for csrc/src/pipeline/m1_runtime.cpp
   PARITY-INTERP.md  ledger for csrc/src/pipeline/interp.hpp
+  PARITY-REGISTRY.md ledger for registry.cpp + descriptor_resolve.hpp
   PARITY-BATCH.md   ledger for csrc/src/batch/ and the families
   PARITY-LOADER.md  ledger for csrc/src/loader/
   PARITY-STORE.md   ledger for csrc/src/store/
@@ -203,8 +204,8 @@ each is one commit.
 slice updates its `PARITY-*.md` row in the same commit, so the ledgers are
 never more than one commit behind; this table is refreshed by hand and has
 twice been read as current when it was a day old. Trust
-`PARITY.md`, `PARITY-M1.md`, `PARITY-INTERP.md`, `PARITY-BATCH.md`,
-`PARITY-LOADER.md` and `PARITY-STORE.md` over anything written here. Last
+`PARITY.md`, `PARITY-M1.md`, `PARITY-INTERP.md`, `PARITY-REGISTRY.md`,
+`PARITY-BATCH.md`, `PARITY-LOADER.md` and `PARITY-STORE.md` over anything written here. Last
 refreshed **2026-08-09, after `9a2b5f363`**.
 
 | subsystem | state |
@@ -264,12 +265,15 @@ smoke needs a `qwen3_moe` checkpoint (Qwen3.6-35B-A3B turned out to be
   symbols; a six-point gate (A/B seam equality, token-exact decode, the
   interpreter oracle, soak, the panic regressions) authorises the flip.
   Of the six, item 1 (suite green on device) holds and item 3 (token-exact
-  decode) has run its N ≥ 1000 horizon; its one open leg is the bit-identical
-  comparison against the OLD driver, which shares these kernels. **Item 4
-  holds** — the interpreter it was recorded as waiting on had been in
-  `src/pipeline/` all along, and both halves of its harness now exist; its
-  tolerance is measured at one ulp, spent only on transcendentals, and never
-  applied to an index. Items 2, 5 and 6 are untouched.
+  decode) has run its N ≥ 1000 horizon. **Item 4 holds** — the interpreter it
+  was recorded as waiting on had been in `src/pipeline/` all along, and both
+  halves of its harness now exist; its tolerance is measured at one ulp, spent
+  only on transcendentals, and never applied to an index.
+  **The other four are one blocker, not four.** `CUTOVER.md`'s "the gate is a
+  chain, not a checklist" has the analysis: item 2 needs `launch`, which needs
+  `forward.cpp`; items 5 and 6 need item 2; item 3's remaining leg (against the
+  OLD driver) needs item 2. Read the gate as a dependency graph before picking
+  from it.
 
 ## How to work on this
 
