@@ -2157,7 +2157,18 @@ pub mod metal {
             None,
             vec![in_width(x), vocab],
             vec![x.id],
-            Some((Shape(vec![Dim::Requests, Dim::Const(vocab)]), DType::F32)),
+            // BF16, because that is what the kernel WRITES. `affine_qmv_fast`
+            // is instantiated at bfloat and its output is `device T*`; the
+            // readout is not special-cased to widen.
+            //
+            // Stating F32 here sized the arena slot for four bytes an element
+            // and the kernel filled two, so the logits region came back
+            // EXACTLY half zero -- 64128 of 128256 -- with every surviving
+            // value a fraction of its real magnitude. A dtype the trace states
+            // and the kernel disagrees with is not a rounding difference; it
+            // is a stride, and every value after the first is at the wrong
+            // address.
+            Some((Shape(vec![Dim::Requests, Dim::Const(vocab)]), DType::BF16)),
         )
         .expect("the readout produces the logits")
     }

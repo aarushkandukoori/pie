@@ -297,7 +297,27 @@ pub fn encode_one(
 
 /// Encode a whole fire, in the order the lowering stated.
 ///
-/// **This is the executor.** Six lines, one loop, no branch on anything.
+/// **This is the executor.** One loop, a barrier, no branch on anything.
+///
+/// # The barrier
+///
+/// Metal does NOT order two dispatches in one compute encoder. Without a
+/// barrier they may overlap, so a statement reading what the previous one
+/// wrote reads whatever was there — and the failure is not a crash but a
+/// *number*, sometimes right.
+///
+/// Measured before this line existed: three runs of one fire over one
+/// checkpoint's weights gave widest activations of 11.7, 23.1 and 4.5e12.
+/// Two of the three looked entirely plausible. That is the whole argument for
+/// the barrier being unconditional here — a hazard that produces a believable
+/// answer two times in three is one no amount of eyeballing finds.
+///
+/// After EVERY dispatch, not between the ones that alias. `batch::bind` asks
+/// `barrier_after` because its DAG states which launches run concurrently;
+/// this walk has no such statement and inventing one would be the driver
+/// deciding something about a text. A text that wants concurrency can say so
+/// when there is something to say it with; until then the correct order is the
+/// stated one.
 ///
 /// # Errors
 ///
@@ -313,6 +333,7 @@ pub fn encode(
 ) -> Result<()> {
     for (index, dispatch) in dispatches.iter().enumerate() {
         encode_one(encoder, table, pipelines, params, index, dispatch)?;
+        encoder.barrier(crate::metal::Visibility::Device);
     }
     Ok(())
 }
