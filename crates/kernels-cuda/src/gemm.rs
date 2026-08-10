@@ -26,6 +26,24 @@ pub static KERNELS: &[KernelSig] = &[
     // And they are SYNCHRONISATION points. The graph-capture rules have
     // to know that, which is why they are stated rather than reached
     // for through `tp->` from inside a hand-written pass.
+    // THE THREE NCCL COLLECTIVES ARE UNSTATED, and not for want of a
+    // signature: they are METHODS on `NcclComm`, which lives in the
+    // DRIVER, and `kernels-cuda` neither includes `nccl.h` nor links
+    // NCCL. A free wrapper here would have to either take a driver type
+    // this crate cannot see, or reimplement the dispatch each method
+    // does -- the custom-all-reduce fast path, the watchdog count, the
+    // async NCCL error check -- which is a second implementation, not a
+    // wrapper.
+    //
+    // The fused landing below was the OTHER kind and went in: its method
+    // is on `kernels::comm::CustomAllReduce`, a kernels-side class, so a
+    // free form taking the instance needed nothing this crate lacks.
+    //
+    // What would close these is a layer decision rather than a
+    // signature: either `kernels-cuda` gains an NCCL dependency and the
+    // collectives move down, or the symbols admit they name DRIVER
+    // operations and the ABI grows a second namespace root. Both are
+    // real answers; neither is this file's to pick.
     kernel!(all_reduce "dist::all_reduce_bf16", whole = true,
         in_place = &[(0, 0)]),
     // The OUT-OF-PLACE sum. Same collective, a separate destination --
@@ -41,7 +59,18 @@ pub static KERNELS: &[KernelSig] = &[
     // single alias. Whether a fire takes this or the two-step form is a
     // GUARD in the text, not a driver test: see `all_reduce_residual_rmsnorm`.
     kernel!(all_reduce_residual_rmsnorm "comm::all_reduce_residual_rmsnorm_bf16",
-        whole = true, in_place = &[(0, 1)]),
+        whole = true, in_place = &[(0, 1)],
+        operands = operands![
+            car: CustomAllReduce,
+            input: Buf,
+            residual_inout: BufMut,
+            rms_gamma: Buf,
+            norm_out: BufMut,
+            tokens: I32,
+            hidden: I32,
+            eps: F32,
+            stream: Stream,
+        ]),
     kernel!(gemm_xwt "gemm::act_x_wt_bf16",
         operands = operands![
             handle: CublasHandle,

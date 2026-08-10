@@ -192,6 +192,15 @@ pub enum Ty {
     U16s,
     /// A device array of `u16` the launcher WRITES.
     U16sMut,
+    /// The NVLink P2P all-reduce instance a fused collective is issued
+    /// through — `kernels::comm::CustomAllReduce*`.
+    ///
+    /// A HANDLE, like [`Ty::Stream`] and [`Ty::CublasHandle`]: the arm is
+    /// given it and never asks for it. It exists because the fused
+    /// landing was a METHOD, and a method has no address the generated
+    /// ABI can forward to — the free form takes the instance first, and
+    /// the row can then describe the call.
+    CustomAllReduce,
     /// The element type a buffer is stored in — `DType`, a
     /// `std::uint8_t`-backed enum class.
     ///
@@ -287,6 +296,8 @@ impl Ty {
             Ty::BufArrayOut => "const void**",
             Ty::BufArrayOutMut => "void**",
             Ty::U8Array => "const ::std::uint8_t* const*",
+            Ty::CustomAllReduce =>
+                "::pie_cuda_driver::kernels::comm::CustomAllReduce*",
             Ty::U16s => "const ::std::uint16_t*",
             Ty::U16sMut => "::std::uint16_t*",
             Ty::Dtype => "::pie_cuda_driver::DType",
@@ -333,6 +344,7 @@ impl Ty {
             Ty::BufArrayOut => "*mut *const ::core::ffi::c_void",
             Ty::BufArrayOutMut => "*mut *mut ::core::ffi::c_void",
             Ty::U8Array => "*const *const u8",
+            Ty::CustomAllReduce => "*mut ::core::ffi::c_void",
             Ty::U16s => "*const u16",
             Ty::U16sMut => "*mut u16",
             Ty::Dtype => "u8",
