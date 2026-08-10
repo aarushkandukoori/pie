@@ -792,8 +792,7 @@ fn bisect(class: FireClass) {
         }
     } else {
         // SIXTEEN rows, because `Rule::Qmm` refuses a row count its tile does
-        // not divide and `QMM_BMS` starts there. The two-token prefill the
-        // reference test wants is exactly what a short-row arm would unlock.
+        // not divide and `QMM_BMS` starts there.
         Step {
             token_ids: &[
                 128_000, 9906, 1917, 11, 420, 374, 264, 1296, 315, 279, 1646,

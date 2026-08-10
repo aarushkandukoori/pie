@@ -1732,6 +1732,34 @@ pub mod metal {
         (v.t.inner.borrow().value_shape(v.id), DType::BF16)
     }
 
+    /// The result a statement records — `None` inside a value-producing
+    /// region, where the enclosing construct owns it.
+    ///
+    /// The same rule `seam::attn_at` follows and for the same reason: whether
+    /// a dispatch produces its own value is a property of the STATEMENT'S
+    /// POSITION, which the tape knows. A projection written plainly produces
+    /// its value; the same projection written as a guard's arm is a LOWERING
+    /// of the guard's.
+    ///
+    /// Getting this wrong is not a small error. A guard arm that records its
+    /// own value leaves the guard's unwritten, so every statement after reads
+    /// the slot one before it — measured, when the projection guard first went
+    /// in: the KV pool came back holding q in its K pages and k in its V.
+    fn region_out(t: &Trace, shape: (Shape, DType)) -> Option<(Shape, DType)> {
+        (!t.inner.borrow().inside_value_region()).then_some(shape)
+    }
+
+    /// The value a statement hands back.
+    ///
+    /// `Some` outside a region, where the statement produced it. Inside one,
+    /// `with_params` recorded no output and there is nothing to hand back —
+    /// the caller has the GUARD's value and ignores this one — so the input is
+    /// returned as a placeholder rather than panicking on a `None` that is
+    /// correct.
+    fn or_regions(v: Option<Val>, x: &Val) -> Val {
+        v.unwrap_or_else(|| x.clone())
+    }
+
     /// `embed_gather.metal::embed_gather_4bit` (M=1) /
     /// `embed_gather_mb_4bit` (M>1).
     pub fn embed_gather(
@@ -1891,7 +1919,7 @@ pub mod metal {
     /// `quantized_qmv.metal::affine_qmv_fast` — the projection GEMV,
     /// M=1. The driver fans every projection kind onto it.
     pub fn qmv(x: &Val, w: &MatW, point: &str) -> Val {
-        with_params(
+        let out = with_params(
             &x.t,
             w.layer,
             &format!("affine_qmv_fast{point}"),
@@ -1902,16 +1930,19 @@ pub mod metal {
             // reports success, which is why these are stated and not derived.
             vec![in_width(x), w.width],
             vec![x.id],
-            Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
-        )
-        .expect("a projection produces its value")
+            region_out(
+                &x.t,
+                (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16),
+            ),
+        );
+        or_regions(out, x)
     }
 
     /// `quantized_qmv.metal::affine_qmv_fast_residual` — the same GEMV
     /// with the block residual folded into its epilogue, which is what a
     /// `beta_one` matmul is on this backend.
     pub fn qmv_residual(x: &Val, w: &MatW, residual: &Val, point: &str) -> Val {
-        with_params(
+        let out = with_params(
             &x.t,
             w.layer,
             &format!("affine_qmv_fast_residual{point}"),
@@ -1919,15 +1950,18 @@ pub mod metal {
             None,
             vec![in_width(x), w.width],
             vec![x.id, residual.id],
-            Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
-        )
-        .expect("a folded projection produces its value")
+            region_out(
+                &x.t,
+                (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16),
+            ),
+        );
+        or_regions(out, x)
     }
 
     /// `quantized_qmm_t.metal::affine_qmm_t` — MLX's steel quantized
     /// GEMM, the M>1 projection.
     pub fn qmm(x: &Val, w: &MatW, point: &str) -> Val {
-        with_params(
+        let out = with_params(
             &x.t,
             w.layer,
             &format!("affine_qmm_t{point}"),
@@ -1938,14 +1972,17 @@ pub mod metal {
             // reports success, which is why these are stated and not derived.
             vec![in_width(x), w.width],
             vec![x.id],
-            Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
-        )
-        .expect("a projection produces its value")
+            region_out(
+                &x.t,
+                (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16),
+            ),
+        );
+        or_regions(out, x)
     }
 
     /// `quantized_qmm_t.metal::affine_qmm_t_residual`.
     pub fn qmm_residual(x: &Val, w: &MatW, residual: &Val, point: &str) -> Val {
-        with_params(
+        let out = with_params(
             &x.t,
             w.layer,
             &format!("affine_qmm_t_residual{point}"),
@@ -1953,26 +1990,29 @@ pub mod metal {
             None,
             vec![in_width(x), w.width],
             vec![x.id, residual.id],
-            Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
-        )
-        .expect("a folded projection produces its value")
+            region_out(
+                &x.t,
+                (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16),
+            ),
+        );
+        or_regions(out, x)
     }
 
     /// `residual_add.metal::residual_add_bfloat16` — the explicit
     /// landing, for the deployments and positions where no epilogue fold
     /// exists.
     pub fn residual_add(x: &Val, residual: &Val) -> Val {
-        let out = same_shape(x);
-        record(
+        let shape = same_shape(x);
+        let out = record(
             &x.t,
             x.layer,
             "residual_add_bfloat16",
             vec![],
             None,
             vec![x.id, residual.id],
-            Some(out),
-        )
-        .expect("the residual landing produces its value")
+            region_out(&x.t, shape),
+        );
+        or_regions(out, x)
     }
 
     /// `rope/rope.metal::neox_decode_bfloat16` (M=1) /

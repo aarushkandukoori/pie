@@ -332,23 +332,35 @@ fn llama_like_metal_text(
         // right answer for a driver and leaves the choice here -- where a
         // choice between two kernels belongs.
         //
-        // A RUST `if` for now, and the guard that belongs here is written up
-        // below because it was tried and does not work yet.
+        // A RUST `if`, and the guard that belongs here is blocked one level
+        // down. Written up because it has now been tried twice and the second
+        // attempt got further.
         //
-        // `dsl::guarded_value` hands back a value the ARMS are expected to
-        // write, which is right for the in-place arms `llama_like_cuda` uses
-        // (`all_reduce_p2p` mutates `x`). A projection does not mutate: it
-        // produces a NEW value, so both arms produced their own and dropped
-        // them, the guard's value was never written, and every statement after
-        // read the slot one before it. Measured: the pool came back holding q
-        // in its K pages and k in its V pages, and the two rotations landed on
-        // an empty slot and on q.
+        // `qmm_t.metal` has no `M` argument -- its header says the driver only
+        // selects it when `M % BM == 0` -- so a prefill under `qmm_tile.0`
+        // cannot take the GEMM, and `Rule::Qmm` refuses such a fire
+        // (`Ungeometric::PartialTile`). The answer is a text stating the pair
+        // with `GuardPred::TokensGT(tile - 1)`, which is what the DSL's guard
+        // vocabulary is for.
         //
-        // What the DSL is missing is a form for value-PRODUCING arms -- an
-        // `arm_value(pred, |‥| -> Val)` that binds the arm's result to the
-        // guard's. Until it exists, `Rule::Qmm` refuses a short prefill
-        // (`Ungeometric::PartialTile`) and a refusal is the right failure: it
-        // says what cannot be served instead of serving it wrongly.
+        // Attempt one had the arms record their own values, so the guard's was
+        // never written and every statement after read the slot one before it:
+        // the KV pool came back holding q in its K pages and k in its V.
+        //
+        // Attempt two fixed that half. `dsl::metal`'s projections ask
+        // `TraceBuilder::inside_value_region` now and record no output inside
+        // a region, exactly as `seam::attn_at` does -- that part is right and
+        // stays. But nothing then binds the GUARD's output to the arm's
+        // launch, so `dispatch::reorder` resolved `Out(0)` to the launch's
+        // only widthed operand, which is its INPUT, and every projection wrote
+        // zeros over the value it had just read.
+        //
+        // So the missing piece is in `model-compiler::lower`: an arm's launch
+        // has to inherit the enclosing guard's output as its result operand.
+        // `guarded_value`'s own doc already states the semantics -- "each
+        // region's launches are their lowerings, binding the same output
+        // buffer and recording no SSA outputs of their own" -- and the tape
+        // half of it exists. The lowering half does not.
         let gemm = |x: &Val, w: &MatW| {
             if multi_batch && metal.qmm_multi_batch {
                 dsl::metal::qmm(x, w, &gemm_point)
@@ -356,8 +368,6 @@ fn llama_like_metal_text(
                 dsl::metal::qmv(x, w, &point)
             }
         };
-        // A `beta_one` matmul: the epilogue fold when the deployment has
-        // it, the projection plus an explicit landing when it does not.
         // The residual-fused twin. Same story as `gemm` above.
         let gemm_add = |x: &Val, w: &MatW, residual: &Val| {
             if metal.fuse_residual_gemv {
