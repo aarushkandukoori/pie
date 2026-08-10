@@ -270,6 +270,22 @@ fn the_harness_covers_every_family_that_has_a_text() {
 /// indices. A kernel it cannot find contributes nothing, so this never invents
 /// a gap.
 fn declared_buffers(root: &std::path::Path, file: &str, stem: &str) -> Option<usize> {
+    let params = param_list(root, file, stem)?;
+    let mut seen = BTreeSet::new();
+    let mut rest = params.as_str();
+    while let Some(i) = rest.find("[[buffer(") {
+        rest = &rest[i + 9..];
+        if let Some(j) = rest.find(')')
+            && let Ok(n) = rest[..j].trim().parse::<usize>()
+        {
+            seen.insert(n);
+        }
+    }
+    (!seen.is_empty()).then_some(seen.len())
+}
+
+/// A shader entry's parameter list, by its template stem.
+fn param_list(root: &std::path::Path, file: &str, stem: &str) -> Option<String> {
     let src = std::fs::read_to_string(root.join(file)).ok()?;
     let at = src.find(&format!("void {stem}("))?;
     let open = src[at..].find('(')? + at;
@@ -291,18 +307,41 @@ fn declared_buffers(root: &std::path::Path, file: &str, stem: &str) -> Option<us
             _ => {}
         }
     }
-    let params = &src[open..close?];
-    let mut seen = BTreeSet::new();
-    let mut rest = params;
+    Some(src[open..close?].to_string())
+}
+
+/// Where a shader's first WRITABLE buffer sits, and where the trace's first
+/// output sits.
+///
+/// A `device T*` with no `const` is an output; `const device` is an input and
+/// `constant` is a scalar. So the index of the first writable buffer is the
+/// index the kernel expects its first output at — and the trace states inputs,
+/// then outputs, then weights, so its first output sits right after its
+/// inputs.
+///
+/// When those two disagree, **every operand of that launch is bound at the
+/// wrong slot**.
+fn first_writable(root: &std::path::Path, file: &str, stem: &str) -> Option<usize> {
+    let params = param_list(root, file, stem)?;
+    let mut best: Option<usize> = None;
+    let mut rest = params.as_str();
+    let mut cursor = 0usize;
     while let Some(i) = rest.find("[[buffer(") {
-        rest = &rest[i + 9..];
-        if let Some(j) = rest.find(')')
-            && let Ok(n) = rest[..j].trim().parse::<usize>()
-        {
-            seen.insert(n);
+        let decl = &rest[..i];
+        let after = &rest[i + 9..];
+        let j = after.find(')')?;
+        let index: usize = after[..j].trim().parse().ok()?;
+        // The declaration for THIS buffer is the text since the last comma.
+        let decl = decl.rsplit(',').next().unwrap_or(decl);
+        let writable = decl.contains("device") && !decl.contains("const");
+        if writable && best.is_none_or(|b| index < b) {
+            best = Some(index);
         }
+        cursor += i + 9 + j;
+        let _ = cursor;
+        rest = &after[j..];
     }
-    (!seen.is_empty()).then_some(seen.len())
+    best
 }
 
 /// The gap between what a text STATES and what its kernels TAKE.
@@ -388,5 +427,103 @@ fn the_distance_between_a_fire_that_runs_and_a_fire_that_is_right() {
          not report, it answers.\n{}",
         short.len(),
         short.join("\n")
+    );
+}
+
+/// **The operand ORDER, which is worse than the arity.**
+///
+/// `model::executor` binds "operands in the trace's stated order" — inputs,
+/// then outputs, then weights — at buffers `0..n`. That is the compiler's
+/// convention. It is not the kernels'.
+///
+/// `affine_qmv_fast` declares `w, scales, biases, x, y, in_vec, out_vec`:
+/// **weights first**. The trace states `x, y, w, scales, zeros`. So the
+/// activation binds where the packed weight belongs, and every operand after
+/// it is one slot further wrong.
+///
+/// This is detectable without a table because a `device T*` with no `const` is
+/// an output: the index of the first writable buffer is where the kernel wants
+/// its first output, and the trace's first output sits right after its inputs.
+/// When the two disagree, the launch is misbound whole.
+///
+/// # The fix, stated where it will be looked for
+///
+/// `KernelSig::operands` — the field the CUDA table fills and no Metal row
+/// does. A row that states its buffer order lets the executor bind BY that
+/// order instead of positionally, which is the same move `file` and `launch`
+/// already made: the contract lives on the row, and the driver reads it.
+///
+/// Until then this is a measurement, pinned so it can only shrink.
+#[test]
+fn the_trace_order_and_the_kernel_order_are_not_the_same_order() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates/")
+        .join("kernels-metal/kernels");
+
+    let mut misbound: Vec<String> = Vec::new();
+    for text in texts() {
+        for (_, low) in fires(&text) {
+            let mut seen = BTreeSet::new();
+            for launch in &low.launches {
+                let symbol = &low.kernels[launch.kernel as usize];
+                if !seen.insert(symbol.clone()) {
+                    continue;
+                }
+                let Some(sig) = kernels::sig_in(kernels_metal::KERNELS, symbol) else {
+                    continue;
+                };
+                let Some(file) = sig.file else { continue };
+                let Some(wants) = first_writable(&root, file, sig.symbol) else {
+                    continue;
+                };
+                // Where the trace puts its first output: after the inputs, and
+                // an input is any operand before the last widthed one. The
+                // binder's own sizing rule says the LAST widthed operand is
+                // the output, so everything widthed before it is an input.
+                let args = &low.args[launch.args.start as usize..launch.args.end as usize];
+                let widthed: Vec<usize> = args
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, a)| !matches!(a, Arg::Weight(_)))
+                    .map(|(i, _)| i)
+                    .collect();
+                let Some(&states) = widthed.last() else {
+                    continue;
+                };
+                if states != wants {
+                    misbound.push(format!(
+                        "  {symbol}: kernel writes buffer {wants}, trace puts its \
+                         output at {states}"
+                    ));
+                }
+            }
+        }
+    }
+    misbound.sort();
+    misbound.dedup();
+
+    eprintln!(
+        "{} statement(s) bind every operand at the wrong slot:\n{}",
+        misbound.len(),
+        misbound.join("\n")
+    );
+    // NINE, measured 2026-08-10 — which is EVERY statement whose shader could
+    // be found. Not a few awkward kernels: the two orders simply are not the
+    // same order, and nothing had ever compared them.
+    //
+    //   affine_qmv_fast   kernel writes buffer 4, trace states its output at 1
+    //   embed_gather_4bit kernel writes buffer 4, trace states its output at 0
+    //   rms_single_row    kernel writes buffer 2, trace states its output at 1
+    //
+    // So `device_text_fire.rs` fires 367 launches of which not one binds its
+    // operands where its kernel reads them. It completes because Metal does
+    // not validate a binding, and the answer is whatever the arena held.
+    assert!(
+        misbound.len() <= 9,
+        "the misbinding GREW to {}. Each is a launch whose every operand is at \
+         the wrong buffer, which no hardware reports.\n{}",
+        misbound.len(),
+        misbound.join("\n")
     );
 }

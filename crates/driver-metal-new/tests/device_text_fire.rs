@@ -11,11 +11,17 @@
 //! reasons, of which only the first is obvious:
 //!
 //! 1. the weights are sentinels, not a checkpoint;
-//! 2. **nine of this text's statements bind fewer buffers than their kernel
-//!    declares.** `sdpa_paged_decode` states two operands and takes
-//!    seventeen. The slots nobody bound are read anyway — on this backend
-//!    that is whatever the last dispatch left there — and the dispatch does
-//!    not fault, does not report, and completes.
+//! 2. **not one of the 367 launches binds its operands where its kernel reads
+//!    them.** Two measurements say so, and the second is the worse one:
+//!    nine statements bind FEWER buffers than their kernel declares
+//!    (`sdpa_paged_decode` states two and takes seventeen), and nine — every
+//!    statement whose shader could be found — bind them in the wrong ORDER.
+//!    `affine_qmv_fast` declares `w, scales, biases, x, y`; the trace states
+//!    `x, y, w, scales, zeros`. The activation goes where the packed weight
+//!    belongs.
+//!
+//!    It completes because Metal does not validate a binding. The answer is
+//!    whatever the arena held.
 //!
 //! `tests/text_conformance.rs` measures the second and pins the number so it
 //! can only shrink. That number is the honest distance between this file and
