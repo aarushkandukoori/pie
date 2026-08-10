@@ -39,6 +39,11 @@ serde_json = "1.0"
 driver-abi = { path = "../driver-abi" }
 tensor-ir = { path = "../tensor-ir" }
 
+# The kernel contract vocabulary: `LaunchRule` (which grid shape a row states)
+# and `sig_in` (how an instantiated point resolves to its row). Tables only --
+# no shader is built by reading one.
+kernels = { path = "../kernels" }
+
 # The load-plan path calls the loader in-process where the C++ went through
 # the C ABI: `model` owns the author registry (the `contract` feature alone --
 # no chat aspect, so no tokenizer or image decoders ride along), and
@@ -154,9 +159,6 @@ tempfile = "3"
 # name no shader instantiates fails in CI on any host. Table only, no Metal.
 kernels-metal = { path = "../kernels-metal", default-features = false }
 
-# `sig_in`: the table's own symbol lookup, so a test does not re-implement how an
-# instantiated point resolves to its row.
-kernels = { path = "../kernels" }
 
 # Tests only. The driver deliberately does not depend on the compiler at build
 # time -- see the `identity::Versions` comment -- but `pipeline::status` mirrors

@@ -45,6 +45,8 @@
 //!
 //! [`KernelSig`]: https://docs.rs/kernels
 
+pub use kernels::LaunchRule as Rule;
+
 use crate::batch::{self as dispatch, Launch};
 
 /// The fire-time quantities a launch rule may read.
@@ -74,46 +76,6 @@ pub struct Dims {
     pub experts_per_token: u32,
 }
 
-/// The launch rule a kernel declares.
-///
-/// One variant per *shape of launch*, not per kernel: `Rms` serves every
-/// row-wise norm, `Elementwise` every 256-wide pointwise pass. The names are
-/// the ones `batch::dispatch` already gave them, and each variant delegates to
-/// that function so the explanation and the arithmetic stay together.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Rule {
-    /// The row has not said. Nothing may be dispatched from it — the same
-    /// meaning `Source::Unbound` has for operands.
-    #[default]
-    Unstated,
-    /// Affine GEMV: four outputs per simdgroup, two simdgroups per
-    /// threadgroup, rounded up.
-    Qmv,
-    /// Row-wise norm: one threadgroup per row, four elements per thread,
-    /// capped at the widest threadgroup Metal allows.
-    Rms,
-    /// Rope: half the rotary channels per head.
-    Rope,
-    /// Pointwise over one row, 256-wide — residual adds, embeddings, silu-mul.
-    Elementwise,
-    /// One threadgroup per head, `head_dim` wide — the q/k/v split and the KV
-    /// append.
-    PerHead,
-    /// Single-pass decode attention: one 1024-thread threadgroup per query
-    /// head.
-    SdpaVector,
-    /// Pointwise over every head's channels, 256-wide.
-    PerHeadElementwise,
-    /// Gated norm over the GDN value heads.
-    GatedRms,
-    /// One threadgroup as wide as the expert count, rounded to a simd multiple.
-    RouterLane,
-    /// One threadgroup per row, as wide as the row, capped at 256.
-    RouteRows,
-    /// Routed GEMV: `Qmv` per row, per expert slot.
-    RoutedQmv,
-}
-
 /// Why a rule could not produce a launch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ungeometric {
@@ -121,16 +83,20 @@ pub enum Ungeometric {
     Unstated,
 }
 
-impl Rule {
-    /// The launch this rule produces for `dims`.
-    ///
-    /// # Errors
-    ///
-    /// [`Ungeometric::Unstated`] when the row has not named a rule. That is
-    /// drift, not a runtime condition: a symbol reached dispatch whose
-    /// contract does not say how to launch it.
-    pub fn eval(self, dims: Dims) -> Result<Launch, Ungeometric> {
-        Ok(match self {
+/// The launch a rule produces for `dims`.
+///
+/// A free function rather than an inherent method because [`Rule`] is
+/// `kernels`' — the table STATES the rule and this backend is what knows the
+/// arithmetic, which is the same split `Prepare` and `Source` already make.
+///
+/// # Errors
+///
+/// [`Ungeometric::Unstated`] when the row has not named a rule. That is drift,
+/// not a runtime condition: a symbol reached dispatch whose contract does not
+/// say how to launch it.
+pub fn eval(rule: Rule, dims: Dims) -> Result<Launch, Ungeometric> {
+    {
+        Ok(match rule {
             Rule::Unstated => return Err(Ungeometric::Unstated),
             Rule::Qmv => dispatch::qmv(dims.width),
             Rule::Rms => dispatch::rms(dims.width, dims.rows),
@@ -194,7 +160,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                rule.eval(d).expect("a stated rule evaluates"),
+                eval(rule, d).expect("a stated rule evaluates"),
                 expected,
                 "{rule:?} does not reproduce its function"
             );
@@ -207,7 +173,7 @@ mod tests {
         // launch; the C++ and the driver spell it three times. A kernel that
         // launches like an existing one should cost zero arms.
         let d = dims();
-        let ew = Rule::Elementwise.eval(d).expect("stated");
+        let ew = eval(Rule::Elementwise, d).expect("stated");
         assert_eq!(ew, dispatch::residual(d.width));
         assert_eq!(ew, dispatch::embed(d.width));
         assert_eq!(ew, dispatch::silu_mul(d.width));
@@ -215,7 +181,7 @@ mod tests {
         // The same for the per-head pair: the q/k/v split and the KV append
         // launch identically, over whichever head count they address.
         assert_eq!(
-            Rule::PerHead.eval(d).expect("stated"),
+            eval(Rule::PerHead, d).expect("stated"),
             dispatch::q_split(d.head_dim, d.kv_heads),
             "one rule, read with the head count the operand names"
         );
@@ -227,7 +193,7 @@ mod tests {
         // has reached dispatch by drift, and a guessed grid is a kernel that
         // runs over the wrong extent — which the hardware does not report.
         assert_eq!(
-            Rule::default().eval(dims()),
+            eval(Rule::default(), dims()),
             Err(Ungeometric::Unstated),
             "unstated must not fall back to anything"
         );
@@ -244,11 +210,11 @@ mod tests {
             experts_per_token: 3,
             ..d
         };
-        assert_eq!(Rule::Rms.eval(d), Rule::Rms.eval(wider));
-        assert_eq!(Rule::SdpaVector.eval(d), Rule::SdpaVector.eval(wider));
+        assert_eq!(eval(Rule::Rms, d), eval(Rule::Rms, wider));
+        assert_eq!(eval(Rule::SdpaVector, d), eval(Rule::SdpaVector, wider));
         assert_ne!(
-            Rule::RouterLane.eval(d),
-            Rule::RouterLane.eval(wider),
+            eval(Rule::RouterLane, d),
+            eval(Rule::RouterLane, wider),
             "and one that DOES name it must move"
         );
     }

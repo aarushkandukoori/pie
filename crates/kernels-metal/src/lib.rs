@@ -93,6 +93,8 @@ const N: usize = total();
 const EMPTY: KernelSig = KernelSig {
     name: "",
     symbol: "",
+    file: None,
+    launch: kernels::LaunchRule::Unstated,
     whole: false,
     needs: Prepare::None,
     lacks: &[],
@@ -108,6 +110,8 @@ const fn copy_sig(k: &KernelSig) -> KernelSig {
     KernelSig {
         name: k.name,
         symbol: k.symbol,
+        file: k.file,
+        launch: k.launch,
         whole: k.whole,
         needs: k.needs,
         lacks: k.lacks,

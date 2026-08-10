@@ -681,6 +681,8 @@ fn a_wrong_row_does_not_compile() {
             operands: leaked,
             returns: base.returns,
             axes: base.axes,
+            file: base.file,
+            launch: base.launch,
         }]);
         assert!(
             compile(&rope_shim(row)).is_err(),
@@ -724,6 +726,8 @@ fn renaming_an_operand_is_not_a_mistake() {
         operands: renamed,
         returns: base.returns,
         axes: base.axes,
+        file: base.file,
+        launch: base.launch,
     }]);
     if let Err(err) = compile(&rope_shim(row)) {
         panic!("the control failed to compile, so the mutations prove nothing:\n{err}");

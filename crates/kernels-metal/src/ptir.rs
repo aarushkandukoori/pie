@@ -4,5 +4,5 @@
 use kernels::{KernelSig, kernel};
 
 pub static KERNELS: &[KernelSig] = &[
-    kernel!(copy_logits_bf16 "copy_logits_bf16"),  // ptir_logits_copy.metal
+    kernel!(copy_logits_bf16 "copy_logits_bf16"), // ptir_logits_copy.metal
 ];

@@ -25,7 +25,7 @@ pub static KERNELS: &[KernelSig] = &[
     // 1 in rms_norm.metal
     kernel!(rms_residual_scaled "rms_residual_scaled", axes = &[BF16]),
     // 1 in rms_norm.metal
-    kernel!(rms_single_row "rms_single_row", axes = &[BF16]),
+    kernel!(rms_single_row "rms_single_row", file = Some("norm/vector.metal"), launch = kernels::LaunchRule::Rms, axes = &[BF16]),
     // 1 in rms_norm.metal
     kernel!(rms_strided_head_row "rms_strided_head_row", axes = &[BF16]),
     // 1 in rms_norm.metal

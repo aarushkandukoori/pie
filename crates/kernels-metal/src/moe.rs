@@ -18,9 +18,9 @@ use kernels::{KernelSig, kernel};
 use crate::axes::*;
 
 pub static KERNELS: &[KernelSig] = &[
-    kernel!(combine_sorted "combine_sorted"),  // moe_route.metal
-    kernel!(route_gather "route_gather"),  // moe_route.metal
-    kernel!(route_sort "route_sort"),  // moe_route.metal
+    kernel!(combine_sorted "combine_sorted"), // moe_route.metal
+    kernel!(route_gather "route_gather"),     // moe_route.metal
+    kernel!(route_sort "route_sort"),         // moe_route.metal
     // 9 in quantized_qmm_t.metal
     kernel!(mxfp4_qmm_t_routed_bias "mxfp4_qmm_t_routed_bias", axes = &[BF16, TILE_M, TILE_N]),
     // 1 in quantized_qmv.metal
@@ -44,6 +44,6 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(router_topk "router_topk", axes = &[BF16]),
     // 1 in moe_route.metal
     kernel!(router_topk_scaled "router_topk_scaled", axes = &[BF16]),
-    kernel!(shared_expert_combine "shared_expert_combine"),  // moe_route.metal
-    kernel!(shared_expert_combine_strided "shared_expert_combine_strided"),  // moe_route.metal
+    kernel!(shared_expert_combine "shared_expert_combine"), // moe_route.metal
+    kernel!(shared_expert_combine_strided "shared_expert_combine_strided"), // moe_route.metal
 ];

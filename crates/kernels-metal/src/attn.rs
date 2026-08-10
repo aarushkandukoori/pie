@@ -14,9 +14,9 @@ pub static KERNELS: &[KernelSig] = &[
     // 1 in attn_gate.metal
     kernel!(gate "gate", axes = &[BF16]),
     // 1 in kv_append.metal
-    kernel!(kv_append "kv_append", axes = &[BF16]),
+    kernel!(kv_append "kv_append", file = Some("attn/kv_write.metal"), launch = kernels::LaunchRule::PerHead, axes = &[BF16]),
     // 1 in kv_append_paged.metal
-    kernel!(kv_append_paged "kv_append_paged", axes = &[BF16]),
+    kernel!(kv_append_paged "kv_append_paged", file = Some("attn/kv_write.metal"), launch = kernels::LaunchRule::PerHead, axes = &[BF16]),
     // 1 in logit_softcap.metal
     kernel!(logit_softcap "logit_softcap", axes = &[BF16]),
     // 1 in attn_gate.metal
@@ -34,14 +34,14 @@ pub static KERNELS: &[KernelSig] = &[
     // substitution path, so an `attn.q` tap with a PageMaskSink is unservable
     // here, and no capture variant exists so neither can publish scores. The
     // declaration says so instead of a C++ throw discovering it.
-    kernel!(sdpa_paged_decode "sdpa_paged_decode",
-        lacks = &[Cap::Scores, Cap::PageMaskSink],
-        axes = &[Axis {
-            what: "head dim and page shape",
-            points: &["_bfloat16_d_64", "_bfloat16_d_128", "_bfloat16_d_256",
-                      "_bfloat16_d_512", "_bfloat16_d_64_p32",
-                      "_bfloat16_d_128_p32", "_bfloat16_d_64_p32_sg8"],
-        }]),
+    kernel!(sdpa_paged_decode "sdpa_paged_decode", file = Some("attn/sdpa_paged.metal"),
+    lacks = &[Cap::Scores, Cap::PageMaskSink],
+    axes = &[Axis {
+        what: "head dim and page shape",
+        points: &["_bfloat16_d_64", "_bfloat16_d_128", "_bfloat16_d_256",
+                  "_bfloat16_d_512", "_bfloat16_d_64_p32",
+                  "_bfloat16_d_128_p32", "_bfloat16_d_64_p32_sg8"],
+    }]),
     // 1 in sdpa_paged.metal
     kernel!(sdpa_paged_decode_sink "sdpa_paged_decode_sink",
         axes = &[BF16, Axis { what: "head dim", points: &["_d_64"] }]),
@@ -61,7 +61,7 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(sdpa_paged_tiled_strided "sdpa_paged_tiled_strided",
         axes = &[BF16, Axis { what: "head dim", points: &["_d_256"] }]),
     // 3 in sdpa_vector.metal
-    kernel!(sdpa_vector_decode "sdpa_vector_decode",
+    kernel!(sdpa_vector_decode "sdpa_vector_decode", file = Some("attn/sdpa_sliding.metal"), launch = kernels::LaunchRule::SdpaVector,
         lacks = &[Cap::Scores, Cap::PageMaskSink],
         axes = &[BF16, Axis { what: "head dim", points: &["_d_64", "_d_128", "_d_256"] }]),
     // 1 in sdpa_sliding.metal

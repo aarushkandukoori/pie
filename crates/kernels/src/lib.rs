@@ -51,6 +51,59 @@ pub enum Cap {
     PageMaskSink,
 }
 
+/// How a kernel turns a rectangle into a thread grid.
+///
+/// A variant is a **shape of launch, not a kernel**: `Elementwise` serves every
+/// 256-wide pointwise pass and `PerHead` both the q/k/v split and the KV
+/// append, so a new kernel that launches like an existing one costs nothing.
+///
+/// This is data. The arithmetic each variant names stays in the driver, beside
+/// the doc comment that explains it — the same split [`Prepare`] and
+/// [`Source`] already make between what a contract STATES and what a backend
+/// DOES about it.
+///
+/// The alternative was a `const` expression grammar on the row. Every rule in
+/// use is uniformly `source -> max -> min -> divide-rounding-up -> multiply`,
+/// so it fits; it was rejected because spelling a rule as
+/// `Term { floor: 1, cap: 1024, div_ceil: 32, mul: 32 }` loses the sentence
+/// that says why, and those sentences carry findings — one of them records
+/// that a round-up is the difference between computing every output and
+/// silently dropping the last few.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LaunchRule {
+    /// The row has not said. A backend must REFUSE rather than guess: a
+    /// guessed grid runs a kernel over the wrong extent, which no hardware
+    /// reports. Same meaning [`Source::Unbound`] has for an operand.
+    #[default]
+    Unstated,
+    /// Affine GEMV: four outputs per simdgroup, two simdgroups per
+    /// threadgroup, rounded up.
+    Qmv,
+    /// Row-wise norm: one threadgroup per row, four elements per thread,
+    /// capped at the widest threadgroup the backend allows.
+    Rms,
+    /// Rope: half the rotary channels, per head.
+    Rope,
+    /// Pointwise over one row, 256-wide — residual adds, embeddings, silu-mul.
+    Elementwise,
+    /// One threadgroup per head, `head_dim` wide — the q/k/v split, the KV
+    /// append.
+    PerHead,
+    /// Single-pass decode attention: one 1024-thread threadgroup per query
+    /// head.
+    SdpaVector,
+    /// Pointwise over every head's channels, 256-wide.
+    PerHeadElementwise,
+    /// Gated norm over the value heads.
+    GatedRms,
+    /// One threadgroup as wide as the expert count, rounded to a simd multiple.
+    RouterLane,
+    /// One threadgroup per row, as wide as the row, capped at 256.
+    RouteRows,
+    /// Routed GEMV: [`LaunchRule::Qmv`] per row, per expert slot.
+    RoutedQmv,
+}
+
 /// The host-side plan a kernel's contract obligates: stated so a reader of
 /// the model text can see which prepare a launch drags in, rather than
 /// reading the driver to find out.
@@ -322,14 +375,11 @@ impl Ty {
             Ty::BufArrayOut => "const void**",
             Ty::BufArrayOutMut => "void**",
             Ty::U8Array => "const ::std::uint8_t* const*",
-            Ty::CustomAllReduce =>
-                "::pie_cuda_driver::kernels::comm::CustomAllReduce*",
+            Ty::CustomAllReduce => "::pie_cuda_driver::kernels::comm::CustomAllReduce*",
             Ty::I8s => "const ::std::int8_t*",
             Ty::I32Array => "const ::std::int32_t* const*",
-            Ty::MoeActivation =>
-                "::pie_cuda_driver::kernels::moe::MoeActivation",
-            Ty::Mxfp4RowSelect =>
-                "::pie_cuda_driver::kernels::quant::Mxfp4RowSelect",
+            Ty::MoeActivation => "::pie_cuda_driver::kernels::moe::MoeActivation",
+            Ty::Mxfp4RowSelect => "::pie_cuda_driver::kernels::quant::Mxfp4RowSelect",
             Ty::U16s => "const ::std::uint16_t*",
             Ty::U16sMut => "::std::uint16_t*",
             Ty::Dtype => "::pie_cuda_driver::DType",
@@ -356,8 +406,7 @@ impl Ty {
             Ty::MlaPlanCache => "const ::pie_cuda_driver::kernels::attn::MlaPlanCache&",
             Ty::HopperPrefillPlan => "const ::pie_cuda_driver::kernels::attn::HopperPrefillPlan&",
             Ty::YarnOriginalParams => "const ::pie_cuda_driver::kernels::attn::YarnOriginalParams*",
-            Ty::StructuredMasks =>
-                "const ::pie_cuda_driver::kernels::attn::StructuredMaskParams*",
+            Ty::StructuredMasks => "const ::pie_cuda_driver::kernels::attn::StructuredMaskParams*",
         }
     }
 
@@ -629,6 +678,17 @@ pub struct KernelSig {
     pub name: &'static str,
     /// The C++ launcher symbol the trace records.
     pub symbol: &'static str,
+    /// The source file that defines the entry point, relative to the backend's
+    /// shader directory.
+    ///
+    /// Metal compiles at run time from `(path, entry name)`, so a symbol alone
+    /// cannot be built — and the only things that knew the file were the
+    /// hand-written per-family plans, which is one more fact a driver knew and
+    /// a statement did not. `None` means the row has not said; a backend that
+    /// links its kernels (CUDA) never needs it, because the linker knows.
+    pub file: Option<&'static str>,
+    /// How a rectangle becomes a thread grid. See [`LaunchRule`].
+    pub launch: LaunchRule,
     /// The kernel REFUSES a row split: it may not be stated inside a peel's
     /// regions, because its addressing (a fire-wide prepare, a padded staging
     /// buffer) is not row-offsettable. `model-compiler`'s `OpKind::Peel` is
@@ -805,7 +865,9 @@ impl KernelSig {
             out = out
                 .iter()
                 .flat_map(|stem| {
-                    axis.points.iter().map(move |point| format!("{stem}{point}"))
+                    axis.points
+                        .iter()
+                        .map(move |point| format!("{stem}{point}"))
                 })
                 .collect();
         }
@@ -836,6 +898,8 @@ macro_rules! kernel {
             ..$crate::KernelSig {
                 name: "",
                 symbol: "",
+                file: None,
+                launch: $crate::LaunchRule::Unstated,
                 whole: false,
                 needs: $crate::Prepare::None,
                 lacks: &[],
@@ -909,14 +973,23 @@ mod tests {
 
     const AFFINE: Axis = Axis {
         what: "affine group and width",
-        points: &["_gs_32_b_4", "_gs_64_b_4", "_gs_128_b_4",
-                  "_gs_32_b_8", "_gs_64_b_8", "_gs_128_b_8"],
+        points: &[
+            "_gs_32_b_4",
+            "_gs_64_b_4",
+            "_gs_128_b_4",
+            "_gs_32_b_8",
+            "_gs_64_b_8",
+            "_gs_128_b_8",
+        ],
     };
     const TILE: Axis = Axis {
         what: "routed GEMM tile",
         points: &["_bm_16_bn_16", "_bm_32_bn_32", "_bm_64_bn_64"],
     };
-    const DTYPE: Axis = Axis { what: "activation dtype", points: &["_bfloat16"] };
+    const DTYPE: Axis = Axis {
+        what: "activation dtype",
+        points: &["_bfloat16"],
+    };
 
     static TABLE: &[KernelSig] = &[
         kernel!(qmv "affine_qmv_fast", axes = &[DTYPE, AFFINE]),
@@ -987,7 +1060,10 @@ mod tests {
     /// body, three points, and the first contributes no text.
     #[test]
     fn an_axis_may_have_a_point_that_adds_no_text() {
-        const DIM: Axis = Axis { what: "head dim", points: &["_d_64", "_d_128"] };
+        const DIM: Axis = Axis {
+            what: "head dim",
+            points: &["_d_64", "_d_128"],
+        };
         // Longest first, empty last: both orderings are load-bearing.
         const PAGE: Axis = Axis {
             what: "page table width and simdgroup count",
