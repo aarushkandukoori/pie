@@ -1174,25 +1174,87 @@ fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
 /// its `linear_*` geometry + layer schedule, else the llama-like
 /// mapping. Only the qwen3-family pre-norm shape is claimed on the
 /// llama-like side; anything else refuses rather than mis-executes.
+/// What a row dispatches to: this family's facts, off the checkpoint.
+type FactsFrom = fn(&LoadedModel) -> Result<FamilyFacts, i32>;
+
+/// One row per `model_type` this shell can OPEN.
+///
+/// A table rather than the chain of weight-name sniffs this replaces, for
+/// exactly the reason `model::contract::HF_ROWS` is a table: the supported
+/// set becomes a VALUE something can iterate. The gap between what the
+/// loader can author and what this shell can open is then a test with a
+/// closed list (`tests/facts_registry.rs`) rather than a surprise at boot
+/// — which is what §3.3's "eight families dispatch but cannot load" was.
+///
+/// Dispatch is on the model type because that is what the descriptor
+/// SAYS. Sniffing a weight name infers the family from a consequence of
+/// it, which is how `gemma3` used to be answered by the llama-like
+/// derivation: it has `model.embed_tokens.weight` and a pre-norm, so the
+/// sniff accepted it and transcribed the wrong facts. A model type with
+/// no row now refuses by name, which is this plan's standing rule —
+/// refuse what cannot be derived rather than guess it.
+const FACTS_ROWS: &[(&str, FactsFrom)] = &[
+    // ── llama lineage: dense/GQA decoders the llama_like text serves.
+    ("qwen3", llama_like_facts_from_hf),
+    ("qwen2", llama_like_facts_from_hf),
+    ("llama", llama_like_facts_from_hf),
+    ("llama3", llama_like_facts_from_hf),
+    ("mistral", llama_like_facts_from_hf),
+    ("mistral3", llama_like_facts_from_hf),
+    ("ministral3", llama_like_facts_from_hf),
+    ("olmo2", llama_like_facts_from_hf),
+    ("olmo3", llama_like_facts_from_hf),
+    ("phi3", llama_like_facts_from_hf),
+    // Qwen3-VL binds the plain Qwen3 TEXT tower; the vision tower is a
+    // service behind `pie_cuda_encode`, not part of this decode plan.
+    ("qwen3_vl", llama_like_facts_from_hf),
+    ("qwen3_vl_text", llama_like_facts_from_hf),
+    // ── Gemma-4: nested decoder, PLE, two layer kinds.
+    ("gemma4", gemma4_facts_from_hf),
+    ("gemma4_text", gemma4_facts_from_hf),
+    // ── Qwen3.5 hybrids: GDN linear attention beside full attention.
+    ("qwen3_5", qwen35_facts_from_hf),
+    ("qwen3_5_text", qwen35_facts_from_hf),
+    ("qwen3_5_moe", qwen35_facts_from_hf),
+    ("qwen3_5_moe_text", qwen35_facts_from_hf),
+];
+
+/// Every `model_type` this shell can open, in table order.
+///
+/// Public so that `tests/facts_registry.rs` can hold it against the
+/// loader's own registry. The two lists answering "which model type is
+/// supported" from opposite sides of the load is exactly the pairing
+/// `model::contract`'s header describes, and the same failure it names
+/// applies here: a family whose forward is declared but whose facts were
+/// never written used to surface as a wrong answer rather than a refusal.
+#[must_use]
+pub fn openable_model_types() -> Vec<&'static str> {
+    FACTS_ROWS.iter().map(|(k, _)| *k).collect()
+}
+
+/// The facts for a loaded checkpoint, by the model type it declares.
 fn facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
+    let model_type = model.hf.model_type.as_str();
+    match FACTS_ROWS.iter().find(|(k, _)| *k == model_type) {
+        Some((_, derive)) => derive(model),
+        None => {
+            eprintln!(
+                "[driver-cuda-new] launch: no facts derivation for \
+                 model_type='{model_type}'; the family declares a forward \
+                 but nobody has written its facts"
+            );
+            Err(PIE_STATUS_UNSUPPORTED)
+        }
+    }
+}
+
+/// The llama lineage's facts, off the checkpoint's own config.
+fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
     use model::families::llama_like::forward::facts::{
         LlamaLikeCudaFacts, LlamaLikeFacts, NormPlacement, QkNorm,
     };
     use model_compiler::trace::{NormVariant, RopeKind};
     let hf = &model.hf;
-    if model
-        .weights
-        .contains_key("model.language_model.embed_tokens_per_layer.weight")
-    {
-        return gemma4_facts_from_hf(model);
-    }
-    if hf.linear_num_key_heads > 0
-        && model
-            .weights
-            .contains_key("model.language_model.embed_tokens.weight")
-    {
-        return qwen35_facts_from_hf(model);
-    }
     if !model.weights.contains_key("model.embed_tokens.weight") {
         eprintln!("[driver-cuda-new] launch: only HF llama-like checkpoints execute today");
         return Err(PIE_STATUS_UNSUPPORTED);
