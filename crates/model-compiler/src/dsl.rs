@@ -827,6 +827,51 @@ pub fn logits_epilogue(
     seam(t, &seam::OUT, &[&logits], None);
 }
 
+/// MLA's TWO LATENTS: the query's, normed and expanded, and the KV's.
+///
+/// Three families wrote the unfused form identically — glm5, kimi-k2's
+/// `else` arm and kimi-k3 — four statements that never varied. `hidden`
+/// appears nowhere in what they produce, which is what makes this MLA
+/// rather than a wide attention.
+///
+/// `fused` is the BINDING fact, and it is a different kernel rather than
+/// a buffer detail: a deployment whose load joined the two latents into
+/// one bank norms the query half IN PLACE with a pitch, and
+/// `rmsnorm_strided` reads a row stride the plain norm has no parameter
+/// for. So the fork is an `Option` on the fused bank — present means the
+/// join happened — rather than a bool beside a weight that may or may not
+/// exist.
+///
+/// Returns `(q_b, kv_a, q_a_n)`. The first two are what every MLA prepare
+/// takes next, fused or split; the third is the NORMED query latent,
+/// which glm5's DSA indexer scores its pages from — a second consumer of
+/// an intermediate, and the reason this returns it rather than keeping
+/// it private.
+pub fn mla_latents(
+    x: &Val,
+    fused: Option<&MatW>,
+    q_a_proj: &MatW,
+    q_a_norm: &NormW,
+    q_b_proj: &MatW,
+    kv_a_proj: &MatW,
+    q_lora_rank: u32,
+) -> (Val, Val, Val) {
+    let (q_a_n, kv_a) = match fused {
+        Some(bank) => {
+            let qkv_a = matmul(x, bank);
+            // The statement carries the NARROW extent it produces; the
+            // pitch is the buffer question the kernel owns.
+            let q_a_n = cuda::rmsnorm_strided(&qkv_a, &q_a_norm.name, q_lora_rank);
+            (q_a_n, qkv_a)
+        }
+        None => {
+            let q_a = matmul(x, q_a_proj);
+            (cuda::rmsnorm(&q_a, q_a_norm), matmul(x, kv_a_proj))
+        }
+    };
+    (matmul(&q_a_n, q_b_proj), kv_a, q_a_n)
+}
+
 /// The five widths an MLA layer is described by.
 ///
 /// Three families carry a field-identical struct for these — glm5's

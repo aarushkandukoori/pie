@@ -102,19 +102,15 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
             // query half in place with a pitch, which is a different
             // kernel and not a buffer detail — `kernels::norm::rmsnorm_strided_bf16`
             // reads a row stride the plain one has no parameter for.
-            let (q_a_n, kv_a) = if cuda.q_kv_a_fused {
-                let qkv_a = matmul(&x, &w.q_kv_a);
-                // The pitch is the fused width; the statement carries the
-                // NARROW extent it produces, and the stride is the buffer
-                // question  owns.
-                let q_a_n =
-                    dsl::cuda::rmsnorm_strided(&qkv_a, &w.q_a_norm.name, a.q_lora_rank);
-                (q_a_n, qkv_a)
-            } else {
-                let q_a = matmul(&x, &w.q_a_proj);
-                (dsl::cuda::rmsnorm(&q_a, &w.q_a_norm), matmul(&x, &w.kv_a_proj))
-            };
-            let q_b = matmul(&q_a_n, &w.q_b_proj);
+            let (q_b, kv_a, _q_a_n) = dsl::mla_latents(
+                &x,
+                cuda.q_kv_a_fused.then_some(&w.q_kv_a),
+                &w.q_a_proj,
+                &w.q_a_norm,
+                &w.q_b_proj,
+                &w.kv_a_proj,
+                a.q_lora_rank,
+            );
 
             let (_kv_c, _k_pe, q_nope, q_pe) = dsl::cuda::mla_prepare(
                 &kv_a,

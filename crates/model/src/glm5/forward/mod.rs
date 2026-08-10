@@ -111,10 +111,15 @@ pub fn glm5_cuda(facts: &Glm5Facts, class: FireClass) -> ForwardPlan {
             // The query's own latent, normed, then expanded. `hidden`
             // appears nowhere between here and `o_proj` — that is what
             // makes this MLA rather than a wide attention.
-            let q_a = matmul(&x, &w.q_a_proj);
-            let q_a_n = dsl::cuda::rmsnorm(&q_a, &w.q_a_norm);
-            let q_b = matmul(&q_a_n, &w.q_b_proj);
-            let kv_a = matmul(&x, &w.kv_a_proj);
+            let (q_b, kv_a, q_a_n) = dsl::mla_latents(
+                &x,
+                None,
+                &w.q_a_proj,
+                &w.q_a_norm,
+                &w.q_b_proj,
+                &w.kv_a_proj,
+                a.q_lora_rank,
+            );
 
             // ── DSA lightning indexer ────────────────────────────────
             // A second, smaller attention whose only product is a top-k

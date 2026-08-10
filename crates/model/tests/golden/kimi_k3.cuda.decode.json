@@ -896,7 +896,7 @@
       "shape": [
         "Tokens",
         {
-          "Const": 3072
+          "Const": 320
         }
       ],
       "dtype": "BF16"
@@ -905,7 +905,7 @@
       "shape": [
         "Tokens",
         {
-          "Const": 320
+          "Const": 3072
         }
       ],
       "dtype": "BF16"
@@ -2135,7 +2135,7 @@
       "shape": [
         "Tokens",
         {
-          "Const": 3072
+          "Const": 320
         }
       ],
       "dtype": "BF16"
@@ -2144,7 +2144,7 @@
       "shape": [
         "Tokens",
         {
-          "Const": 320
+          "Const": 3072
         }
       ],
       "dtype": "BF16"
@@ -3914,12 +3914,12 @@
     {
       "kind": {
         "Matmul": {
-          "weight": "layer.3.q_b_proj",
+          "weight": "layer.3.kv_a_proj_with_mqa",
           "beta_one": false
         }
       },
       "inputs": [
-        95
+        93
       ],
       "outputs": [
         96
@@ -3929,12 +3929,12 @@
     {
       "kind": {
         "Matmul": {
-          "weight": "layer.3.kv_a_proj_with_mqa",
+          "weight": "layer.3.q_b_proj",
           "beta_one": false
         }
       },
       "inputs": [
-        93
+        95
       ],
       "outputs": [
         97
@@ -3951,7 +3951,7 @@
         }
       },
       "inputs": [
-        97
+        96
       ],
       "outputs": [
         98,
@@ -3971,7 +3971,7 @@
         }
       },
       "inputs": [
-        96
+        97
       ],
       "outputs": [
         100,
@@ -5938,12 +5938,12 @@
     {
       "kind": {
         "Matmul": {
-          "weight": "layer.7.q_b_proj",
+          "weight": "layer.7.kv_a_proj_with_mqa",
           "beta_one": false
         }
       },
       "inputs": [
-        226
+        224
       ],
       "outputs": [
         227
@@ -5953,12 +5953,12 @@
     {
       "kind": {
         "Matmul": {
-          "weight": "layer.7.kv_a_proj_with_mqa",
+          "weight": "layer.7.q_b_proj",
           "beta_one": false
         }
       },
       "inputs": [
-        224
+        226
       ],
       "outputs": [
         228
@@ -5975,7 +5975,7 @@
         }
       },
       "inputs": [
-        228
+        227
       ],
       "outputs": [
         229,
@@ -5995,7 +5995,7 @@
         }
       },
       "inputs": [
-        227
+        228
       ],
       "outputs": [
         231,

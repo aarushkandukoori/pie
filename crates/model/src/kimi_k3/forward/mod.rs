@@ -137,10 +137,15 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
             let x = dsl::cuda::rmsnorm(&y, &w.attn_norm);
 
             if facts.is_full_attn(l) {
-                let q_a = matmul(&x, &w.q_a_proj);
-                let q_a_n = dsl::cuda::rmsnorm(&q_a, &w.q_a_norm);
-                let q_b = matmul(&q_a_n, &w.q_b_proj);
-                let kv_a = matmul(&x, &w.kv_a_proj);
+                let (q_b, kv_a, _q_a_n) = dsl::mla_latents(
+                    &x,
+                    None,
+                    &w.q_a_proj,
+                    &w.q_a_norm,
+                    &w.q_b_proj,
+                    &w.kv_a_proj,
+                    a.q_lora_rank,
+                );
                 // The split pair, NOT the fused prepare: this family's
                 // MLA carries no rope, and `kernels::attn::mla_prepare_bf16` does
                 // the rope as part of what it fuses.
