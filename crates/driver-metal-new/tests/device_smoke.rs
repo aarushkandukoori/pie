@@ -2775,3 +2775,155 @@ fn the_gemma4_engine_decodes_across_fires() {
         "the paged chain must match the ring's token-exact reference"
     );
 }
+
+/// Two requests share every fire and neither contaminates the other —
+/// the multi-request contract nothing had tested: per-request page
+/// walks, disjoint page lists, and a 2-row decode fleet whose rows
+/// belong to different conversations.
+#[test]
+fn the_llama_engine_isolates_two_requests() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_LLAMA_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_LLAMA_CHECKPOINT to a llama-family MLX snapshot");
+        return;
+    };
+    let snapshot = PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json"))
+        .expect("the snapshot has a config.json");
+    let root: serde_json::Value = serde_json::from_str(&config).expect("config.json parses");
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().expect("utf8 path"))
+        .expect("the config converts to a descriptor");
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json)
+        .expect("the driver's facts read the descriptor");
+    let mut geometry =
+        driver_metal_new::batch::llama_geometry_from_facts(&facts).expect("a llama shape");
+    // Request 0: "The capital of France is" — solo chain
+    // [12366, 627, 791, 6864]. Request 1: the fox prompt — solo chain
+    // [12366, 13, 4314, 527]. Same first token, DIFFERENT second: a
+    // cross-contaminated KV shows immediately.
+    let prompt_a: Vec<u32> = vec![128000, 791, 6864, 315, 9822, 374];
+    let prompt_b: Vec<u32> = vec![
+        128000, 791, 4062, 14198, 39935, 35308, 927, 279, 16053, 5679, 11, 323, 279, 6864, 315,
+        9822, 374,
+    ];
+    geometry.max_tokens = 64;
+    geometry.max_requests = 2;
+    geometry.paged_kv_enabled = true;
+    geometry.kv_page_size = 32;
+    geometry.total_pages = 128;
+    // Request 1's pages start at 64: physically disjoint from request
+    // 0's, and deliberately NOT arithmetically adjacent to its logical
+    // positions — the page indirection is what is under test.
+    const B_BASE: u32 = 64;
+
+    let target = metal_storage_target();
+    let (plan, _moe) = compile_load_plan(&snapshot, &target, &descriptor_json)
+        .expect("the plan compiles and its files exist");
+    let context = Context::new().expect("a Metal device answers");
+    let compiler = Compiler::new(&context).expect("the shader compiler starts");
+    let mut engine = driver_metal_new::metal::LlamaEngine::new(
+        &context,
+        &compiler,
+        &kernels_dir(),
+        &plan,
+        &snapshot,
+        geometry.clone(),
+        Tuning::default(),
+        4096,
+    )
+    .expect("the engine stages and compiles");
+    engine.reset().expect("a fresh pool");
+
+    let mut stepper = Stepper::new(&context).expect("a stepper");
+    let vocab = geometry.vocab as usize;
+    let argmax_row = |engine: &driver_metal_new::metal::LlamaEngine, row: usize| -> u32 {
+        let logits = engine.logits().expect("paged logits");
+        // SAFETY: the fire retired.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                logits.contents().cast::<u8>().as_ptr().add(row * vocab * 2),
+                vocab * 2,
+            )
+        };
+        let mut best = (0usize, f32::NEG_INFINITY);
+        for (i, pair) in bytes.chunks_exact(2).enumerate() {
+            let v = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+            if v.is_finite() && v > best.1 {
+                best = (i, v);
+            }
+        }
+        best.0 as u32
+    };
+
+    // Prefill request 0 on pages 0.. .
+    let pre_a = driver_metal_new::batch::FireCsr::prefill(prompt_a.clone(), 32, 1);
+    engine
+        .fire(&context, &mut stepper, &pre_a)
+        .expect("prefill A retires");
+    let mut next_a = argmax_row(&engine, 0);
+
+    // Prefill request 1 on pages 64.., hand-built: request 0's row
+    // arrays but every physical page shifted.
+    let nb = prompt_b.len() as u32;
+    let positions: Vec<u32> = (0..nb).collect();
+    let pre_b = driver_metal_new::batch::FireCsr {
+        token_ids: prompt_b.clone(),
+        position_ids: positions.clone(),
+        req_of_token: vec![0; prompt_b.len()],
+        w_page: positions.iter().map(|p| B_BASE + p / 32).collect(),
+        w_off: positions.iter().map(|p| p % 32).collect(),
+        qo_indptr: vec![0, nb],
+        kv_page_indices: vec![B_BASE],
+        kv_page_indptr: vec![0, 1],
+        kv_last_page_lens: vec![((nb - 1) % 32) + 1],
+        sample_rows: vec![nb - 1],
+        run_argmax: false,
+    };
+    engine
+        .fire(&context, &mut stepper, &pre_b)
+        .expect("prefill B retires");
+    let mut next_b = argmax_row(&engine, 0);
+    assert_eq!((next_a, next_b), (12366, 12366), "both prompts end alike");
+
+    // The fleet: one 2-row fire per step, each row a different
+    // conversation walking its own pages.
+    let mut chain_a = vec![next_a];
+    let mut chain_b = vec![next_b];
+    let mut pos_a = prompt_a.len() as u32;
+    let mut pos_b = prompt_b.len() as u32;
+    for _ in 0..3 {
+        let fleet = driver_metal_new::batch::FireCsr {
+            token_ids: vec![next_a, next_b],
+            position_ids: vec![pos_a, pos_b],
+            req_of_token: vec![0, 1],
+            w_page: vec![pos_a / 32, B_BASE + pos_b / 32],
+            w_off: vec![pos_a % 32, pos_b % 32],
+            qo_indptr: vec![0, 1, 2],
+            kv_page_indices: vec![0, B_BASE],
+            kv_page_indptr: vec![0, 1, 2],
+            kv_last_page_lens: vec![(pos_a % 32) + 1, (pos_b % 32) + 1],
+            sample_rows: vec![0, 1],
+            run_argmax: false,
+        };
+        engine
+            .fire(&context, &mut stepper, &fleet)
+            .expect("the fleet fire retires");
+        next_a = argmax_row(&engine, 0);
+        next_b = argmax_row(&engine, 1);
+        chain_a.push(next_a);
+        chain_b.push(next_b);
+        pos_a += 1;
+        pos_b += 1;
+    }
+    eprintln!("fleet chains a={chain_a:?} b={chain_b:?}");
+    assert_eq!(
+        chain_a,
+        vec![12366, 627, 791, 6864],
+        "request 0 must continue ITS conversation"
+    );
+    assert_eq!(
+        chain_b,
+        vec![12366, 13, 4314, 527],
+        "request 1 must continue ITS conversation"
+    );
+}
