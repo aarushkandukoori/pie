@@ -473,29 +473,30 @@ fn the_full_zero_weight_decode_walks_every_launch() {
 ///
 /// # Why this is `ignore`d, and what un-ignoring it needs
 ///
-/// It does not pass, and what it fails on is worth having written down.
-/// The devwin arm and the peel window word are enough for the SPLIT; the
-/// attention is not. A peel's tail region hands its attention launch a
-/// windowed rectangle (`rows.start == 2`), and every arm binds BASE
-/// pointers plus a row COUNT — so the tail's attention runs over rows
-/// 0..2 instead of 2..4, disagrees with the KV plan, and faults inside
-/// FlashInfer.
+/// It does not pass yet, and the reason moved once already, which is the
+/// useful part. Two layers came off:
 ///
-/// That is §4's fourth decline-rule, met head-on rather than declined
-/// around: the generated branches guard on `rows.start == 0` precisely
-/// because a base-bound launch writes the prefix's rows, and the hand
-/// arms have the same bug without the guard. Nothing noticed until now
-/// because nothing had ever run a peel.
+/// * the SPLIT — `attn::split_qkv_bf16_devwin` had no arm and no device
+///   word to read. `cuda::PeelWindowWord` and its arm fixed that.
+/// * the WINDOWED RECTANGLE — the tail's launches bound BASE pointers
+///   plus a row count, so they ran over the prefix's rows. `Arg::Arena`
+///   states its element width now and `resolve_arg_windowed` applies the
+///   window once, for the stated args and the op join's placements
+///   together. §4's fourth decline-rule is gone with it.
 ///
-/// So un-ignoring this needs the windowed rectangle solved, which
-/// `cuda.md` §4 records as needing a stride the operand vocabulary does
-/// not carry — `Arg::Arena { at, width }` gives elements per row and no
-/// dtype. Either `Arg` learns the operand's dtype (which the lowering
-/// knows and does not say) or the lowering emits already-windowed
-/// offsets. It is one of the four decline-rules and the only one whose
-/// removal has a fire waiting for it.
+/// What is left is the PLAN. `Launch::peel`'s own doc says a prepared
+/// plan "is found by the rectangle's ROW COUNT" — and this fire builds
+/// ONE `DecodePlan`, for all four rows, while the tail's attention serves
+/// two. FlashInfer reads a plan that does not describe the launch it was
+/// given and faults.
+///
+/// So un-ignoring needs a plan per row count, which is A4's plan-stability
+/// item arriving from the peel side rather than the capture side. The two
+/// want the same thing: an arm must be HANDED its plan rather than
+/// resolve one, because neither a peel region nor a captured replay can
+/// assume the fire's.
 #[test]
-#[ignore = "the peel's tail hands attention a windowed rectangle; see the doc comment"]
+#[ignore = "the peel tail's attention needs a plan for its own row count; see the doc comment"]
 fn a_hooked_fire_peels_and_still_lands_the_same_numbers() {
     zero_weight_decode(Leg::Hooked);
 }

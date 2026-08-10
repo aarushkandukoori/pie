@@ -596,8 +596,8 @@ mod tests {
         // row width. So the last widthed operand is the output, and that is
         // what every rule means by "width".
         let low = one("sized", 3, vec![
-            Arg::Arena { at: 0, width: 11 },
-            Arg::Arena { at: 64, width: 22 },
+            Arg::Arena { at: 0, width: 11, bytes: 2 },
+            Arg::Arena { at: 64, width: 22, bytes: 2 },
             Arg::Weight("w".into()),
         ]);
         assert_eq!(sizing_width(&low, &low.launches[0]), 22);
@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn a_launch_evaluates_its_rows_and_the_fires_geometry_together() {
-        let low = one("sized", 5, vec![Arg::Arena { at: 0, width: 64 }]);
+        let low = one("sized", 5, vec![Arg::Arena { at: 0, width: 64, bytes: 2 }]);
         let geometry = Geometry {
             q_heads: 16,
             kv_heads: 4,
@@ -637,7 +637,7 @@ mod tests {
     fn a_row_that_states_no_file_cannot_be_reached_on_this_backend() {
         // Metal compiles at run time from `(path, entry name)`. A row without
         // a file is not a kernel this driver can find.
-        let low = one("no_file", 1, vec![Arg::Arena { at: 0, width: 8 }]);
+        let low = one("no_file", 1, vec![Arg::Arena { at: 0, width: 8, bytes: 2 }]);
         assert!(matches!(
             plan(&low, TABLE, frame(), Geometry::default(), &mut Anything),
             Err(Undispatchable::NoFile { .. })
@@ -646,7 +646,7 @@ mod tests {
 
     #[test]
     fn a_row_that_states_no_rule_refuses_rather_than_launching_something_plausible() {
-        let low = one("no_rule", 1, vec![Arg::Arena { at: 0, width: 8 }]);
+        let low = one("no_rule", 1, vec![Arg::Arena { at: 0, width: 8, bytes: 2 }]);
         assert_eq!(
             plan(&low, TABLE, frame(), Geometry::default(), &mut Anything),
             Err(Undispatchable::Ungeometric {
@@ -661,7 +661,7 @@ mod tests {
     fn a_fire_that_cannot_be_dispatched_whole_returns_nothing_partial() {
         // A prefix of dispatches would leave the arena half-written, which is
         // indistinguishable from a model that answers nonsense.
-        let mut low = one("sized", 1, vec![Arg::Arena { at: 0, width: 8 }]);
+        let mut low = one("sized", 1, vec![Arg::Arena { at: 0, width: 8, bytes: 2 }]);
         low.kernels.push("no_rule".into());
         let second = Launch {
             kernel: 1,
@@ -678,7 +678,7 @@ mod tests {
         // step, so a union-lowered fire reaching this walk would encode every
         // arm of every guard unconditionally — a different answer, not a
         // slower one.
-        let mut low = one("sized", 1, vec![Arg::Arena { at: 0, width: 8 }]);
+        let mut low = one("sized", 1, vec![Arg::Arena { at: 0, width: 8, bytes: 2 }]);
         low.launches[0].cond = 3;
         assert_eq!(
             plan(&low, TABLE, frame(), Geometry::default(), &mut Anything),

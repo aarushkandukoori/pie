@@ -140,7 +140,19 @@ pub enum Arg {
     /// which is exactly what the flat list exists to avoid. The rows come
     /// from [`Launch::rows`]; together they are the rectangle the kernel
     /// addresses.
-    Arena { at: usize, width: u32 },
+    Arena {
+        at: usize,
+        width: u32,
+        /// Bytes per ELEMENT of this operand.
+        ///
+        /// Stated because a driver that windows a rectangle needs the row
+        /// STRIDE, and `width` alone is elements. Every hand windowing in
+        /// the CUDA executor used to multiply by two — true of activations
+        /// and an assumption rather than a fact the trace carried, which
+        /// is the shape of defect §4 of the retirement plan keeps finding.
+        /// The lowering knows the dtype; now it says it.
+        bytes: u32,
+    },
     /// A value the BACKEND binds by name — the values a seam exposes
     /// (the observed query, the logits). `Buffers::NAMED` says which.
     Named { value: ValueId, width: u32 },
@@ -773,12 +785,18 @@ impl Lowerer<'_> {
         (t, f)
     }
 
-    /// Where a value's bytes are, and how wide a row of it is.
+    /// Where a value's bytes are, how wide a row of it is, and how many
+    /// bytes one element takes.
     fn slot(&self, v: ValueId) -> Arg {
         let width = self.row_width(v);
+        let bytes = self
+            .plan
+            .values
+            .get(v as usize)
+            .map_or(2, |info| dtype_bytes(info.dtype));
         match self.buffers.offset.get(v as usize) {
             Some(&Buffers::NAMED) | None => Arg::Named { value: v, width },
-            Some(&at) => Arg::Arena { at, width },
+            Some(&at) => Arg::Arena { at, width, bytes },
         }
     }
 
@@ -1650,9 +1668,15 @@ pub fn value_bytes(plan: &ForwardPlan, v: ValueId, n_tokens: usize, n_requests: 
             } => Dim::moe_aligned_rows(n_tokens as u32, *top_k, *experts, *block) as usize,
         };
     }
-    elements
-        * match info.dtype {
-            DType::BF16 | DType::F16 => 2,
-            DType::F32 | DType::I32 => 4,
-        }
+    elements * dtype_bytes(info.dtype) as usize
+}
+
+/// Bytes per element. One place, because two answers to this question is
+/// how a row stride and a buffer size disagree.
+#[must_use]
+pub const fn dtype_bytes(d: DType) -> u32 {
+    match d {
+        DType::BF16 | DType::F16 => 2,
+        DType::F32 | DType::I32 => 4,
+    }
 }

@@ -209,7 +209,14 @@ impl DispatchPlan {
         };
         let out_arg = |v: ValueId| -> Arg {
             match lowered.value_offset.get(v as usize) {
-                Some(&at) if at != Buffers::NAMED => Arg::Arena { at, width: width_of(v) },
+                Some(&at) if at != Buffers::NAMED => Arg::Arena {
+                    at,
+                    width: width_of(v),
+                    bytes: plan
+                        .values
+                        .get(v as usize)
+                        .map_or(2, |i| model_compiler::lower::dtype_bytes(i.dtype)),
+                },
                 _ => Arg::Named { value: v, width: width_of(v) },
             }
         };
@@ -1056,12 +1063,15 @@ pub fn dispatch<R: Resolver>(
     let rows = i32::try_from(bound.rows.end - bound.rows.start).expect("row count fits i32");
     // The op join's output placements: what a guard-region launch binds
     // for the value the GUARD owns (the recurrence three-way's core out).
+    // The join's placements window with the args, or a launch reads its
+    // input at the window and writes its output at the base.
+    let win = if bound.kernel.ends_with("_devwin") { 0 } else { bound.rows.start };
     let out_slot = |i: usize, resolver: &mut R| -> Result<BoundArg, DispatchRefusal> {
         let arg = spec
             .outs
             .get(i)
             .ok_or_else(|| DispatchRefusal::Out(format!("{}: no output {i}", bound.kernel)))?;
-        resolve_arg(arg, frame, resolver)
+        resolve_arg_windowed(arg, frame, resolver, win)
             .map_err(|e| DispatchRefusal::Out(format!("{}: {e:?}", bound.kernel)))
     };
     // The spec's FOREIGN values (`LaunchSpec::aux`) — nemotron's mamba
@@ -1071,7 +1081,7 @@ pub fn dispatch<R: Resolver>(
             .aux
             .get(i)
             .ok_or_else(|| DispatchRefusal::Out(format!("{}: no aux {i}", bound.kernel)))?;
-        resolve_arg(arg, frame, resolver)
+        resolve_arg_windowed(arg, frame, resolver, win)
             .map_err(|e| DispatchRefusal::Out(format!("{}: {e:?}", bound.kernel)))
     };
     let need = |n: usize| -> Result<(), DispatchRefusal> {
@@ -3602,16 +3612,37 @@ pub fn resolve_arg<R: Resolver>(
     frame: Frame,
     resolver: &mut R,
 ) -> Result<BoundArg, BindRefusal> {
+    resolve_arg_windowed(arg, frame, resolver, 0)
+}
+
+/// [`resolve_arg`], addressing from row `row` of the operand rather than
+/// from its base.
+///
+/// `row` is in the LAUNCH's row space, and the stride is the operand's own
+/// — `width` elements of `bytes` each, which is why the lowering states
+/// the element width at all.
+///
+/// # Errors
+///
+/// See [`BindRefusal`].
+pub fn resolve_arg_windowed<R: Resolver>(
+    arg: &Arg,
+    frame: Frame,
+    resolver: &mut R,
+    row: u32,
+) -> Result<BoundArg, BindRefusal> {
     Ok(match arg {
-        Arg::Arena { at, width } => {
-            if *at >= frame.arena_bytes {
+        Arg::Arena { at, width, bytes } => {
+            let skip = row as usize * *width as usize * *bytes as usize;
+            let at = *at + skip;
+            if at >= frame.arena_bytes {
                 return Err(BindRefusal::ArenaOutOfBounds {
-                    at: *at,
+                    at,
                     arena_bytes: frame.arena_bytes,
                 });
             }
             BoundArg {
-                ptr: unsafe { frame.arena.cast::<u8>().add(*at) }.cast(),
+                ptr: unsafe { frame.arena.cast::<u8>().add(at) }.cast(),
                 width: *width,
             }
         }
@@ -3652,14 +3683,31 @@ pub fn bind<'a, R: Resolver>(
     frame: Frame,
     resolver: &mut R,
 ) -> Result<BoundLaunch<'a>, BindRefusal> {
+    let kernel = &lowered.kernels[launch.kernel as usize];
+    // THE WINDOW, applied once and here.
+    //
+    // A peel's tail region serves rows `[win_start, …)` of a full-N
+    // buffer, and every arm binds a pointer plus a row COUNT — so a
+    // base-bound launch runs over the prefix's rows instead. That was
+    // §4's fourth decline-rule (the generated branches guarded on
+    // `rows.start == 0` and fell through) and it was also a live bug in
+    // every hand arm, which had the same reading and no guard. Nothing
+    // noticed until a fire finally peeled.
+    //
+    // Applied in the binder rather than in the arms because the arms are
+    // not the only consumer: the op join's `outs` and `aux` resolve
+    // through the same `resolve_arg`, and windowing one without the other
+    // is how a launch reads its input at the window and writes its output
+    // at the base.
+    //
+    // The `_devwin` forms are the stated exception. Their contract is
+    // BASE pointers — the grid spans every lane and out-of-window rows
+    // early-out on a device word — which is what makes them replayable
+    // across splits, so windowing them would offset twice.
+    let row = if kernel.ends_with("_devwin") { 0 } else { launch.rows.start };
     let mut args = Vec::with_capacity(launch.args.len());
     for arg in &lowered.args[launch.args.start as usize..launch.args.end as usize] {
-        args.push(resolve_arg(arg, frame, resolver)?);
+        args.push(resolve_arg_windowed(arg, frame, resolver, row)?);
     }
-    Ok(BoundLaunch {
-        kernel: &lowered.kernels[launch.kernel as usize],
-        rows: launch.rows.clone(),
-        layers: launch.layers.clone(),
-        args,
-    })
+    Ok(BoundLaunch { kernel, rows: launch.rows.clone(), layers: launch.layers.clone(), args })
 }

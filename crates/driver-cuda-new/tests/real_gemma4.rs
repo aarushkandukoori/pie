@@ -541,7 +541,7 @@ fn gemma4_matches_transformers_on_real_weights() {
             });
             if let Some(a) = out {
                 let (host, width): (Vec<u8>, usize) = match a {
-                    Arg::Arena { at, width } => {
+                    Arg::Arena { at, width, .. } => {
                         let w = width as usize;
                         let rows = (launch.rows.end - launch.rows.start) as usize;
                         let mut whole = vec![0u8; l.arena_bytes];

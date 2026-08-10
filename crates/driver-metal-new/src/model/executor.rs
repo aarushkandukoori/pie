@@ -163,7 +163,7 @@ pub fn resolve_arg<S: Resolver>(
     resolver: &mut S,
 ) -> Result<BoundArg, BindRefusal> {
     Ok(match arg {
-        Arg::Arena { at, width } => {
+        Arg::Arena { at, width, .. } => {
             let at64 = *at as u64;
             let bytes = frame.arena.bytes;
             // The row is `width` elements from `at`; the arena must hold the
@@ -277,7 +277,7 @@ mod tests {
     fn an_arena_operand_addresses_its_offset_and_reports_what_is_left() {
         let frame = arena(4096);
         let mut store = Store::default();
-        let bound = resolve_arg(&Arg::Arena { at: 256, width: 64 }, frame, &mut store)
+        let bound = resolve_arg(&Arg::Arena { at: 256, width: 64, bytes: 2 }, frame, &mut store)
             .expect("inside the arena");
         assert_eq!(bound.slice.address, 0x1_0000 + 256);
         assert_eq!(bound.slice.bytes, 4096 - 256, "what it may still address");
@@ -292,7 +292,7 @@ mod tests {
         let frame = arena(1024);
         let mut store = Store::default();
         assert_eq!(
-            resolve_arg(&Arg::Arena { at: 4096, width: 8 }, frame, &mut store),
+            resolve_arg(&Arg::Arena { at: 4096, width: 8, bytes: 2 }, frame, &mut store),
             Err(BindRefusal::ArenaOutOfBounds {
                 at: 4096,
                 width: 8,
