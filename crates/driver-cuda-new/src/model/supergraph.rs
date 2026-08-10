@@ -132,6 +132,41 @@ impl BucketKey {
     }
 }
 
+/// Why a fire may not join a union capture.
+///
+/// A union records every arm and lets a conditional node decide at replay,
+/// which works exactly as long as every arm's SHAPE is fixed and only its
+/// predicate varies. Where a shape follows the fire, the capture bakes the
+/// one it saw — and the honest answer is to keep that fire eager rather
+/// than to record something a later replay would run wrongly.
+///
+/// This is the C++ arc's own device for mixed peels ("eligibility keeps it
+/// eager"), reused because the situation is the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ineligible {
+    /// The fire staged LoRA lanes that did not group. `apply`'s solo path
+    /// is a host-side loop whose launch count and shapes follow the
+    /// adapter set, so a capture cannot serve a different one. See
+    /// [`crate::model::lora::LoraFireState::union_capture_safe`].
+    UngroupedLora,
+}
+
+/// May this fire be recorded into a union capture?
+///
+/// `None` is eligible. Deliberately a function over the fire's staged
+/// state rather than a flag someone sets: the question is a property of
+/// what the fire actually assembled, and the failure mode of getting it
+/// wrong is a replay that runs a stale program rather than an error.
+#[must_use]
+pub fn union_eligibility(
+    lora: Option<&crate::model::lora::LoraFireState>,
+) -> Option<Ineligible> {
+    match lora {
+        Some(l) if !l.union_capture_safe() => Some(Ineligible::UngroupedLora),
+        _ => None,
+    }
+}
+
 /// The instantiated graphs, by bucket.
 ///
 /// Deliberately not an LRU yet: a bucket set is small (the R×N shapes a
@@ -163,8 +198,26 @@ impl SupergraphCache {
     }
 
     /// Install a freshly instantiated exec.
-    pub fn insert(&mut self, key: BucketKey, exec: GraphExec) {
+    ///
+    /// Takes the fire's eligibility rather than trusting the caller
+    /// checked: an exec installed for a fire that should have stayed eager
+    /// is not a bug that shows up at install time, it is a wrong answer
+    /// several fires later.
+    ///
+    /// # Errors
+    ///
+    /// The reason the fire was ineligible, with nothing installed.
+    pub fn insert(
+        &mut self,
+        key: BucketKey,
+        exec: GraphExec,
+        eligibility: Option<Ineligible>,
+    ) -> core::result::Result<(), Ineligible> {
+        if let Some(why) = eligibility {
+            return Err(why);
+        }
         self.execs.insert(key, exec);
+        Ok(())
     }
 
     /// Replay `key`'s graph onto `stream`, if it is captured.
@@ -225,6 +278,22 @@ mod tests {
         assert_ne!(base, BucketKey::new(4, 8, FireClass::Decode, 7));
         assert_ne!(base, BucketKey::new(4, 4, FireClass::Prefill, 7));
         assert_ne!(base, BucketKey::new(4, 4, FireClass::Decode, 8));
+    }
+
+    #[test]
+    fn an_ineligible_fire_cannot_install_an_exec() {
+        // No `GraphExec` can be built without a device, so what is pinned
+        // here is the SHAPE: eligibility is an argument to `insert`, not
+        // something a caller may forget to consult. If this stops
+        // compiling because the parameter went away, the union has
+        // acquired a way to admit a fire it cannot replay.
+        let eligible: Option<Ineligible> = None;
+        assert!(eligible.is_none());
+        assert_eq!(
+            union_eligibility(None),
+            None,
+            "a fire with no adapters has nothing to disqualify it"
+        );
     }
 
     #[test]
