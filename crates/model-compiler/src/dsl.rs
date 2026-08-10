@@ -2257,6 +2257,27 @@ pub mod metal {
         .expect("the activation produces its value")
     }
 
+    /// `attn/logit_softcap.metal::logit_softcap` — `cap * tanh(x / cap)`.
+    ///
+    /// gemma's, applied to the readout so no logit runs away. A STATEMENT and
+    /// not a mode: a deployment without one names nothing here, rather than
+    /// passing a cap so large it does nothing — which would be a kernel run
+    /// per fire to compute the identity.
+    pub fn softcap(x: &Val, width: u32, cap: f32) -> Val {
+        with_params(
+            &x.t,
+            x.layer,
+            "logit_softcap_bfloat16",
+            vec![],
+            None,
+            // `SoftcapParams`, field for field: cap then n.
+            vec![cap.to_bits(), width],
+            vec![x.id],
+            Some((Shape(vec![Dim::Requests, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the softcap produces its value")
+    }
+
     /// `mlp/gated.metal::geglu_tanh` — gemma's activation.
     ///
     /// `gelu_tanh(gate) * up`, and the gelu is the TANH approximation rather

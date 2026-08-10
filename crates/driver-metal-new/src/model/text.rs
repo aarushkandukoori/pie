@@ -239,6 +239,8 @@ pub fn facts_from(
         // Whether the ladder is RESCALED, in which case no base expresses it
         // and the driver hands over a table instead.
         rope_freq_table: geometry.rope_freq_factor > 0.0,
+        // gemma's readout cap. Zero is "none" and the text names nothing.
+        logit_softcap: geometry.final_logit_softcap,
         // Asked of the TENSORS: a sink is a weight, and a checkpoint that
         // ships one is a deployment that has them.
         attn_sinks: has_tensor("layers.0.self_attn.sinks"),

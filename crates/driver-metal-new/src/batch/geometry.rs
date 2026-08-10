@@ -88,6 +88,8 @@ pub struct DecodeGeometry {
     pub rotary_dims: u32,
     /// The rope base.
     pub rope_theta: f32,
+    /// gemma's readout SOFTCAP — `cap * tanh(x / cap)` — or zero for none.
+    pub final_logit_softcap: f32,
     /// gpt-oss's SwiGLU constants, or zero for a deployment that takes the
     /// plain gated activation.
     ///
@@ -190,6 +192,7 @@ impl Default for DecodeGeometry {
             alt_quant: AffineFormat { bits: 0, group: 0 },
             rotary_dims: 64,
             rope_theta: 1e7,
+            final_logit_softcap: 0.0,
             swiglu_limit: 0.0,
             swiglu_alpha: 0.0,
             rope_freq_factor: 0.0,

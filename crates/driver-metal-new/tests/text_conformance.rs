@@ -114,6 +114,32 @@ fn texts() -> Vec<Text> {
             n_experts: 32,
             experts_per_token: 4,
         },
+    },
+    // The three gemma facts that ARE facts. NOT gemma4 — its per-layer
+    // embeddings are a side network of nine kernels no fact makes appear —
+    // but the geglu, the readout softcap and the alternating window all reach
+    // the device through this executor, so a gemma4 text has only the PLE and
+    // the branch structure left to state.
+    Text {
+        name: "llama_like (gemma facts)",
+        plan: |class| {
+            use model::families::llama_like::forward::facts::{
+                LlamaLikeFacts, LlamaLikeMetalFacts,
+            };
+            model::families::llama_like::forward::llama_like_metal(
+                &LlamaLikeFacts::qwen3_0_6b(),
+                &LlamaLikeMetalFacts::gemma_like(),
+                class,
+            )
+        },
+        geometry: Geometry {
+            q_heads: 16,
+            kv_heads: 8,
+            head_dim: 128,
+            rotary_dims: 128,
+            n_experts: 0,
+            experts_per_token: 0,
+        },
     }]
 }
 
@@ -303,7 +329,7 @@ fn the_harness_covers_every_family_that_has_a_text() {
     // branch anywhere in the executor.
     assert_eq!(
         texts().len(),
-        3,
+        4,
         "a Metal text or fixture landed or left. Add or remove its row in \
          `texts()` — everything above is per-text and a shape not listed is a \
          shape not checked."

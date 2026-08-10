@@ -71,7 +71,18 @@ pub static KERNELS: &[KernelSig] = &[
         ],
         axes = &[BF16]),
     // 1 in logit_softcap.metal
-    kernel!(logit_softcap "logit_softcap", axes = &[BF16]),
+    // gemma's logit softcap: `cap * tanh(x / cap)`, applied to the readout so
+    // no logit runs away. A statement and not a mode -- a deployment without
+    // one names nothing here rather than passing an infinite cap.
+    kernel!(logit_softcap "logit_softcap", file = Some("attn/logit_softcap.metal"),
+        launch = kernels::LaunchRule::Elementwise,
+        operands = kernels::operands![
+            logits: Buf <- kernels::Source::In(0),
+            out: BufMut <- kernels::Source::Out(0),
+            // `SoftcapParams`: cap then n, packed.
+            params: Buf <- kernels::Source::Param(0),
+        ],
+        axes = &[BF16]),
     // 1 in attn_gate.metal
     kernel!(q_gate_split "q_gate_split", axes = &[BF16]),
     // 7 in sdpa_paged.metal.

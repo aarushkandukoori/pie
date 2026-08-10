@@ -677,6 +677,13 @@ pub struct LlamaLikeMetalFacts {
     /// layer until the activations saturate.
     #[serde(default)]
     pub rope_theta: f32,
+    /// The readout's SOFTCAP — `cap * tanh(x / cap)` — or zero for none.
+    ///
+    /// gemma's. Zero is "no softcap" and the text names nothing, rather than
+    /// passing a cap so large it does nothing: that would be a kernel run per
+    /// fire to compute the identity.
+    #[serde(default)]
+    pub logit_softcap: f32,
     /// Whether every layer carries an attention SINK.
     ///
     /// A per-head learned logit that joins the softmax without a value behind
@@ -747,6 +754,26 @@ impl LlamaLikeMetalFacts {
         }
     }
 
+    /// The three gemma facts that ARE facts, on an otherwise llama-like
+    /// deployment.
+    ///
+    /// NOT a gemma4 fixture: gemma4's per-layer embeddings are a side network
+    /// of nine kernels with no llama-like counterpart, and no set of facts
+    /// makes them appear. What this pins is that the three which are facts —
+    /// the geglu, the readout softcap, the alternating window — reach the
+    /// device through the same executor, so a gemma4 text when it lands has
+    /// only the PLE and the branch structure left to state.
+    #[must_use]
+    pub fn gemma_like() -> Self {
+        Self {
+            activation: Activation::Geglu,
+            logit_softcap: 30.0,
+            window_left: (0..24).map(|l| if l % 6 == 5 { -1 } else { 512 }).collect(),
+            rope_theta: 1_000_000.0,
+            ..Self::synthetic()
+        }
+    }
+
     /// This layer's window, `-1` for all of it. See [`Self::window_left`].
     pub fn window_left_at(&self, l: u32) -> i32 {
         model_compiler::facts::window_left_at(&self.window_left, l)
@@ -784,7 +811,9 @@ impl LlamaLikeMetalFacts {
             // statement hands it `log2(theta)`; handing theta rotates by a
             // frequency ladder that is wrong from the second channel on.
             rope_theta: 1_000_000.0,
-            // qwen3 has no attention sinks and the plain gated activation.
+            // qwen3 caps no logits, has no attention sinks, and takes the
+            // plain gated activation.
+            logit_softcap: 0.0,
             attn_sinks: false,
             activation: Activation::SiluMul,
             // qwen3's ladder is a plain geometric series in `rope_theta`.

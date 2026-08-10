@@ -192,6 +192,12 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
         hidden,
         vocab,
         eps: f.q35_rms_norm_eps,
+        // gemma's readout cap, when the config read as gemma.
+        final_logit_softcap: if f.g4_num_hidden_layers > 0 {
+            f.g4_final_softcap
+        } else {
+            0.0
+        },
         // gpt-oss's activation constants, when the config read as gpt-oss.
         // `go_num_hidden_layers` is the marker its own doc describes.
         swiglu_limit: if f.go_num_hidden_layers > 0 {

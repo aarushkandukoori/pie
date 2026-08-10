@@ -600,7 +600,13 @@ fn llama_like_metal_text(
         // the decode gate agreed with MLX over it for as long as it did.
         let sampled = dsl::metal::sample_rows(&normed, f.hidden);
         let head = if f.tied_embeddings { "embed" } else { "lm_head" };
-        dsl::metal::lm_head(&sampled, head, f.vocab, metal.proj_repr, &point);
+        let logits = dsl::metal::lm_head(&sampled, head, f.vocab, metal.proj_repr, &point);
+        // The readout's softcap, for a deployment that has one. Named or not
+        // named -- a cap large enough to do nothing is still a kernel run per
+        // fire to compute the identity.
+        if metal.logit_softcap > 0.0 {
+            dsl::metal::softcap(&logits, f.vocab, metal.logit_softcap);
+        }
     })
 }
 
