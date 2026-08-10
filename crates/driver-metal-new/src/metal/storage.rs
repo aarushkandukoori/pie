@@ -340,3 +340,53 @@ pub fn stage_decode_storage(
         scratch,
     })
 }
+
+/// Write one fire's CSR into the IO region — the pass every engine fire
+/// runs between validation and encode. The mask row is disabled per
+/// token and the mask stride zeroed: a fire that wants a wire mask
+/// writes it after this, and a fire that does not must still write the
+/// FLAGS, because the paged attention reads them per row and stale
+/// flags consume a stale mask.
+///
+/// # Errors
+///
+/// An IO slot the geometry did not allocate.
+///
+/// # Safety
+///
+/// The previous fire must have retired: this writes buffers the GPU
+/// reads.
+pub unsafe fn write_fire_io(storage: &DecodeStorage, csr: &crate::batch::FireCsr) -> Result<()> {
+    let io = |slot: IoSlot| -> Result<&Handle> {
+        storage.io[slot as usize].as_ref().ok_or(Error::Create {
+            what: "fire io slot",
+            message: format!("IO slot {slot:?} was not allocated (is paging on?)"),
+        })
+    };
+    let write_u32s = |slot: IoSlot, values: &[u32]| -> Result<()> {
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        // SAFETY: the caller holds this function's contract.
+        unsafe { io(slot)?.write(0, &bytes) }
+    };
+    write_u32s(IoSlot::TokenId, &csr.token_ids)?;
+    write_u32s(IoSlot::Position, &csr.position_ids)?;
+    // The ring attention's per-token KV extent; the paged kernels read
+    // positions instead, but the slot is cheap and a mixed bind set may
+    // read either.
+    let seq_lens: Vec<u32> = csr.position_ids.iter().map(|p| p + 1).collect();
+    write_u32s(IoSlot::SeqLen, &seq_lens)?;
+    write_u32s(IoSlot::ReqOfToken, &csr.req_of_token)?;
+    write_u32s(IoSlot::QoIndptr, &csr.qo_indptr)?;
+    write_u32s(IoSlot::KvPageIndices, &csr.kv_page_indices)?;
+    write_u32s(IoSlot::KvPageIndptr, &csr.kv_page_indptr)?;
+    write_u32s(IoSlot::KvLastPageLens, &csr.kv_last_page_lens)?;
+    write_u32s(IoSlot::WPage, &csr.w_page)?;
+    write_u32s(IoSlot::WOff, &csr.w_off)?;
+    write_u32s(IoSlot::SampleRows, &csr.sample_rows)?;
+    write_u32s(IoSlot::AttnMaskStride, &[0])?;
+    // SAFETY: as above; the flags are u8 rows.
+    unsafe {
+        io(IoSlot::AttnMaskEnabled)?.write(0, &vec![0u8; csr.token_ids.len()])?;
+    }
+    Ok(())
+}

@@ -1939,47 +1939,24 @@ fn the_gptoss_prefill_answers_in_one_paged_fire() {
         "the mixture must tile at 64 pairs"
     );
 
+    // The fire's wire form, validated against the same machinery the
+    // engine will use. The sampler reads ONE row: the last.
+    let csr = driver_metal_new::batch::FireCsr::prefill(
+        prompt.to_vec(),
+        geometry.kv_page_size,
+        geometry.total_pages,
+    );
+    csr.validate(
+        geometry.kv_page_size,
+        geometry.total_pages,
+        geometry.max_tokens,
+        geometry.max_requests,
+        1,
+    )
+    .expect("a coherent fire");
+    // SAFETY: nothing is encoded yet.
+    unsafe { driver_metal_new::metal::write_fire_io(&storage, &csr).expect("the io writes") };
     let io = |slot: IoSlot| storage.io[slot as usize].as_ref().expect("io slot");
-    let write_u32s = |slot: IoSlot, values: &[u32]| {
-        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
-        // SAFETY: host-owned; nothing is encoded yet.
-        unsafe { io(slot).write(0, &bytes).expect("io write") };
-    };
-    write_u32s(IoSlot::TokenId, &prompt);
-    let positions: Vec<u32> = (0..n).collect();
-    write_u32s(IoSlot::Position, &positions);
-    write_u32s(
-        IoSlot::SeqLen,
-        &positions.iter().map(|p| p + 1).collect::<Vec<_>>(),
-    );
-    write_u32s(IoSlot::ReqOfToken, &vec![0; prompt.len()]);
-    let pages: Vec<u32> = (0..geometry.total_pages).collect();
-    write_u32s(IoSlot::KvPageIndices, &pages);
-    write_u32s(IoSlot::KvPageIndptr, &[0, geometry.total_pages]);
-    write_u32s(
-        IoSlot::WPage,
-        &positions
-            .iter()
-            .map(|p| p / geometry.kv_page_size)
-            .collect::<Vec<_>>(),
-    );
-    write_u32s(
-        IoSlot::WOff,
-        &positions
-            .iter()
-            .map(|p| p % geometry.kv_page_size)
-            .collect::<Vec<_>>(),
-    );
-    // The sampler reads ONE row: the last. Everything after the gather
-    // is [1, *].
-    write_u32s(IoSlot::SampleRows, &[n - 1]);
-    write_u32s(IoSlot::AttnMaskStride, &[0]);
-    // SAFETY: host-owned; the mask-enabled flags are u8 rows.
-    unsafe {
-        io(IoSlot::AttnMaskEnabled)
-            .write(0, &vec![0u8; prompt.len()])
-            .expect("io write");
-    }
 
     let mut stepper = Stepper::new(&context).expect("a stepper");
     step.fire(&mut stepper).expect("the paged prefill retires");
@@ -2253,46 +2230,25 @@ fn the_llama_prefill_answers_in_one_paged_fire() {
         "the dense projections must tile at 17 rows"
     );
 
-    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().expect("io slot");
-    let write_u32s = |slot: IoSlot, values: &[u32]| {
-        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
-        // SAFETY: host-owned; nothing is encoded yet.
-        unsafe { io(slot).write(0, &bytes).expect("io write") };
-    };
-    write_u32s(IoSlot::TokenId, &prompt);
-    let positions: Vec<u32> = (0..n).collect();
-    write_u32s(IoSlot::Position, &positions);
-    write_u32s(
-        IoSlot::SeqLen,
-        &positions.iter().map(|p| p + 1).collect::<Vec<_>>(),
+    // The fire's wire form, validated against the same machinery the
+    // engine will use — the CSR the smokes used to hand-roll.
+    let csr = driver_metal_new::batch::FireCsr::prefill(
+        prompt.to_vec(),
+        geometry.kv_page_size,
+        geometry.total_pages,
     );
-    write_u32s(IoSlot::ReqOfToken, &vec![0; prompt.len()]);
-    let pages: Vec<u32> = (0..geometry.total_pages).collect();
-    write_u32s(IoSlot::KvPageIndices, &pages);
-    write_u32s(IoSlot::KvPageIndptr, &[0, geometry.total_pages]);
-    write_u32s(
-        IoSlot::WPage,
-        &positions
-            .iter()
-            .map(|p| p / geometry.kv_page_size)
-            .collect::<Vec<_>>(),
-    );
-    write_u32s(
-        IoSlot::WOff,
-        &positions
-            .iter()
-            .map(|p| p % geometry.kv_page_size)
-            .collect::<Vec<_>>(),
-    );
-    write_u32s(IoSlot::SampleRows, &[n - 1]);
-    write_u32s(IoSlot::AttnMaskStride, &[0]);
-    // SAFETY: host-owned; the mask-enabled flags are u8 rows.
-    unsafe {
-        io(IoSlot::AttnMaskEnabled)
-            .write(0, &vec![0u8; prompt.len()])
-            .expect("io write");
-    }
+    csr.validate(
+        geometry.kv_page_size,
+        geometry.total_pages,
+        geometry.max_tokens,
+        geometry.max_requests,
+        1,
+    )
+    .expect("a coherent fire");
+    // SAFETY: nothing is encoded yet.
+    unsafe { driver_metal_new::metal::write_fire_io(&storage, &csr).expect("the io writes") };
 
+    let io = |slot: IoSlot| storage.io[slot as usize].as_ref().expect("io slot");
     let mut stepper = Stepper::new(&context).expect("a stepper");
     step.fire(&mut stepper).expect("the paged prefill retires");
 

@@ -108,6 +108,7 @@ pub use step::{DecodeStep, load_step_psos};
 pub use step_mb::{MbPsos, MbStep, load_mb_psos, mb_pso};
 pub use storage::{
     DecodeStorage, GdnState, KvSlots, scratch_pool, stage_decode_storage, stage_plan_weights,
+    write_fire_io,
 };
 pub use tables::{MAX_BINDINGS, Tables};
 pub use timestamp::{Granularity, Timestamps};
