@@ -151,6 +151,7 @@ fn qwen2_5_1_5b_cuda_decode() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Decode,
         ),
@@ -176,6 +177,7 @@ fn qwen2_5_1_5b_cuda_prefill() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Prefill,
         ),
@@ -204,6 +206,10 @@ fn mistral_7b_v03_cuda_tp2_decode() {
                 tp_size: 2,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                // The P2P threshold, so the landing states BOTH arms and
+                // this golden pins the guard rather than a text that only
+                // ever reaches NCCL.
+                all_reduce_p2p_max_rows: 512,
                 ..LlamaLikeCudaFacts::qwen3_0_6b_l40s()
             },
             FireClass::Decode,
@@ -234,6 +240,7 @@ fn phi3_mini_cuda_decode() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Decode,
         ),
@@ -259,6 +266,7 @@ fn phi3_mini_cuda_prefill() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Prefill,
         ),
@@ -622,6 +630,7 @@ fn mistral_7b_v03_cuda_decode() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Decode,
         ),
@@ -647,6 +656,7 @@ fn mistral_7b_v03_cuda_prefill() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             FireClass::Prefill,
         ),

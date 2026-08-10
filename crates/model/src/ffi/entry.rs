@@ -162,6 +162,9 @@ pub struct PieForwardLlamaLikeCudaFacts {
     /// Ranks this deployment shards across (`tp_size`); 0 or 1 is a
     /// single GPU. See `LlamaLikeCudaFacts::tp_size`.
     pub tp_size: u32,
+    /// Rows below which an all-reduce takes the P2P kernel; 0 is
+    /// always-NCCL. See `LlamaLikeCudaFacts::all_reduce_p2p_max_rows`.
+    pub all_reduce_p2p_max_rows: u32,
     /// The per-layer sliding window (`-1` for none), as a pointer and a
     /// length. Null/0 is "no window". See `read_window_left`.
     pub window_left: *const i32,
@@ -242,6 +245,7 @@ fn read_cuda_facts(facts: &PieForwardLlamaLikeCudaFacts) -> LlamaLikeCudaFacts {
         proj_repr: read_weight_repr(facts.proj_repr, facts.proj_group,
                                     facts.proj_axis, facts.proj_zero_point),
         tp_size: facts.tp_size,
+        all_reduce_p2p_max_rows: facts.all_reduce_p2p_max_rows,
         window_left: unsafe {
             read_window_left(facts.window_left, facts.window_left_len)
         },

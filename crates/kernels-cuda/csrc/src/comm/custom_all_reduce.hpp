@@ -160,6 +160,24 @@ private:
 // `NcclComm` borrows it, and a null one is a deployment that configured
 // no custom all-reduce, which is a refusal rather than a fallback: the
 // fused landing IS this kernel, and there is no other way to spell it.
+// The plain P2P all-reduce, same free form and same reason. It is the
+// arm a declaration takes when the message fits the NVLink kernel;
+// `dist::all_reduce_bf16` -- NCCL -- is the other, and WHICH is a guard
+// in the text rather than an `if` inside a driver method.
+inline void all_reduce_bf16(
+    CustomAllReduce* car,
+    const void* input,
+    void* output,
+    std::size_t count,
+    cudaStream_t stream) {
+    if (car == nullptr) {
+        throw std::runtime_error(
+            "comm: the P2P all-reduce is stated but this deployment "
+            "configured no custom all-reduce");
+    }
+    car->all_reduce_bf16(input, output, count, stream);
+}
+
 //
 // `inline` in the header rather than a TU of its own: the class has two
 // implementations (the real `.cu` and a stub for builds without the

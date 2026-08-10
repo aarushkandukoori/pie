@@ -397,6 +397,27 @@ pub struct LlamaLikeCudaFacts {
     /// Serde-defaulted (append-only discipline).
     #[serde(default)]
     pub window_left: Vec<i32>,
+    /// Rows below which an all-reduce takes the NVLink P2P kernel
+    /// instead of NCCL, or 0 for a deployment that always takes NCCL.
+    ///
+    /// `NcclComm::all_reduce_bf16` asks `can_handle(bytes)` and routes
+    /// on the answer — a driver picking between two implementations,
+    /// which is what this replaces. The text states the pair as a guard
+    /// and this is its predicate's payload.
+    ///
+    /// It is a ROW count and the kernel's test is BYTES, which is the
+    /// same question once `hidden` is known: a row is `hidden` bf16
+    /// elements. Converting here rather than in the arm is the point —
+    /// a load-time fact becomes a trace-time constant.
+    ///
+    /// ZERO also covers the deployment that registered no P2P buffers.
+    /// The kernel reads only registered memory, which is a placement
+    /// fact rather than a size one, and a deployment that has none has
+    /// no threshold either.
+    ///
+    /// Serde-defaulted (append-only discipline).
+    #[serde(default)]
+    pub all_reduce_p2p_max_rows: u32,
 }
 
 /// The METAL backend's load-time facts — what the Metal deployment
@@ -490,6 +511,8 @@ impl LlamaLikeCudaFacts {
             tp_size: 1,
             // qwen3-0.6B attends over the whole prefix.
             window_left: Vec::new(),
+            // Single GPU: no collective, so no threshold.
+            all_reduce_p2p_max_rows: 0,
         }
     }
 }

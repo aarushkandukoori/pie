@@ -62,6 +62,7 @@ fn committed_incs_are_regeneration_clean() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             "olmo2_1b",
         ),
@@ -83,6 +84,7 @@ fn committed_incs_are_regeneration_clean() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             "qwen2_5_1_5b",
         ),
@@ -104,6 +106,7 @@ fn committed_incs_are_regeneration_clean() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             "mistral_7b_v03",
         ),
@@ -125,6 +128,7 @@ fn committed_incs_are_regeneration_clean() {
                 tp_size: 1,
                 // Every emission target attends the whole context.
                 window_left: Vec::new(),
+                all_reduce_p2p_max_rows: 0,
             },
             "phi3_mini",
         ),
