@@ -944,6 +944,23 @@ fn the_second_lane_stops_somewhere_and_this_says_where() {
 /// NaN, no infinity, 99% of the arena non-zero, and the logits were a
 /// plausible-looking near-uniform distribution over 128256 tokens. Only a
 /// reference could see it, which is the argument for having one.
+///
+/// # Why position zero and not position one
+///
+/// Not caution -- a KNOWN gap, and stating where it is beats pretending it is
+/// not there. llama-3.2's config carries
+/// `rope_scaling: {rope_type: llama3, factor: 32, low_freq_factor: 1,
+/// high_freq_factor: 4, original_max_position_embeddings: 8192}`, and the text
+/// passes `dsl::metal::rope` a bare theta. So the driver's rotation is the
+/// unscaled one and a comparison at any position but zero would be measuring
+/// that rather than the executor.
+///
+/// The shader for it already exists: `rope_neox_freqs_decode` takes
+/// `inv_freq` as a device buffer rather than deriving frequencies from a base,
+/// which is exactly the shape llama-3's rescaling wants. What is missing is
+/// the table -- a load-time derivation from the config, so a `Source` beside
+/// the fire tables rather than anything a text can state. That is the next
+/// thing this file should be pointed at.
 #[test]
 fn one_token_at_position_zero_agrees_with_mlx() {
     let Some(snapshot) = snapshot() else {
