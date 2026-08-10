@@ -64,6 +64,44 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
     // ladder this crate is retiring. The GDN and interval fields have no `ll_`
     // twin because a llama-like config has no linear attention -- zero there is
     // the honest answer and not a default.
+    // gemma4's block, projected the same way. Its own marker is
+    // `g4_num_hidden_layers`, and it is read BEFORE the llama-like one because
+    // a gemma4 config fills both.
+    let f = &if f.q35_num_hidden_layers > 0 || f.g4_num_hidden_layers == 0 {
+        f.clone()
+    } else {
+        ModelFacts {
+            q35_num_hidden_layers: f.g4_num_hidden_layers,
+            q35_hidden_size: f.g4_hidden_size,
+            // The descriptor's TOP-LEVEL vocab. gemma4's own block states
+            // none — the parser reads it once for every family — and
+            // `ll_vocab_size` is only filled inside the llama-like branch,
+            // which a gemma4 config does not take.
+            q35_vocab_size: i32::try_from(f.vocab_size).unwrap_or(i32::MAX),
+            q35_num_attention_heads: f.g4_num_attention_heads,
+            q35_num_key_value_heads: f.g4_num_key_value_heads,
+            q35_head_dim: f.g4_head_dim,
+            q35_intermediate_size: f.g4_intermediate_size,
+            q35_num_experts: f.g4_num_experts,
+            q35_num_experts_per_tok: f.g4_experts_per_token,
+            q35_moe_intermediate_size: f.g4_moe_intermediate,
+            // The eps and the tying are read by the llama-like reader, which
+            // a gemma4 config also fills.
+            // gemma4's block states neither, and `ModelFacts` has no
+            // family-free field for them. 1e-6 is gemma's published epsilon;
+            // the tying comes from the llama-like reader, which a gemma4
+            // config also fills at the top level.
+            q35_rms_norm_eps: 1e-6,
+            q35_tied_embeddings: f.ll_tied_embeddings,
+            // A gemma4 stack alternates sliding and full attention rather
+            // than interleaving linear layers, so it has no GDN block and
+            // every layer attends.
+            q35_full_attn_interval: 1,
+            q35_mlp_only_layer_count: 0,
+            q35_decoder_sparse_step: 1,
+            ..f.clone()
+        }
+    };
     let f = &if f.q35_num_hidden_layers > 0 {
         f.clone()
     } else {
@@ -192,6 +230,11 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
         hidden,
         vocab,
         eps: f.q35_rms_norm_eps,
+        // gemma4's attention shape: which layers slide, how often a full one
+        // appears, and whether those full ones take V from K.
+        attention_k_eq_v: f.g4_attention_k_eq_v,
+        full_attn_every: u32::try_from(f.g4_full_attn_interval.max(0)).unwrap_or(0),
+        sliding_window: u32::try_from(f.g4_sliding_window.max(0)).unwrap_or(0),
         // gemma's readout cap, when the config read as gemma.
         final_logit_softcap: if f.g4_num_hidden_layers > 0 {
             f.g4_final_softcap

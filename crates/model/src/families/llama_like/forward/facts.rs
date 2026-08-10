@@ -677,12 +677,20 @@ pub struct LlamaLikeMetalFacts {
     /// layer until the activations saturate.
     #[serde(default)]
     pub rope_theta: f32,
-    /// Whether V is taken from the K projection rather than projected.
+    /// Whether the FULL-attention layers take V from the K projection.
     ///
-    /// gemma4's k-eq-v layers ship no `v_proj` tensor at all, so a text that
-    /// stated one would name a tensor that is not there. It also reorders the
-    /// two norms: V reads the projection K's norm is about to overwrite, so V
-    /// goes first.
+    /// PER LAYER, and measured: `mlx-community/gemma-4-26b-a4b-it-4bit` ships
+    /// no `v_proj` for layers 5, 11, 17, 23 and 29 — every sixth, which is
+    /// exactly the layers `window_left` marks as full attention. A text that
+    /// stated a `v_proj` for one of them would name a tensor that is not
+    /// there.
+    ///
+    /// It also reorders the two norms on those layers: V reads the projection
+    /// K's norm is about to overwrite, so V goes first.
+    ///
+    /// A bool and not a list because the layers it applies to are already
+    /// stated — `window_left_at(l) < 0` is the full-attention test — and two
+    /// lists that must agree is one more thing to keep agreeing.
     #[serde(default)]
     pub v_from_k: bool,
     /// Whether the mixture sits BESIDE the dense MLP rather than replacing it.

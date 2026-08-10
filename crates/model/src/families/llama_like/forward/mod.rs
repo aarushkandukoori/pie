@@ -586,6 +586,11 @@ fn llama_like_metal_text(
             // gemma's, and the layers that share are the LAST `kv_shared`
             // of the stack.
             let shares_kv = l >= f.layers.saturating_sub(metal.kv_shared_layers);
+            // The window this layer attends over, `-1` for all of it. Bound
+            // here rather than at the attention because the PROJECTIONS need
+            // it: gemma4's full-attention layers are the ones that take V from
+            // K, and `window < 0` is that test.
+            let window = metal.window_left_at(l);
             let (q, k, v) = if f.fused_qkv {
                 dsl::metal::split_qkv(&gemm(&x, &w.qkv), q_w, kv_w)
             } else if shares_kv {
@@ -594,9 +599,12 @@ fn llama_like_metal_text(
                 // operands, so the values here are never consumed.
                 let q = gemm(&x, &w.q_proj);
                 (q.clone(), q.clone(), q)
-            } else if metal.v_from_k {
+            } else if metal.v_from_k && window < 0 {
                 // A K-EQ-V layer projects K and takes V FROM it, so it ships
-                // no `v_proj` tensor at all. The two norms then run in the
+                // no `v_proj` tensor at all. gemma4's FULL-attention layers
+                // are the ones that do — `window < 0` is that test, and it is
+                // the same list `window_left` already states rather than a
+                // second one that has to agree with it. The two norms then run in the
                 // other order: V reads the projection K's norm is about to
                 // overwrite, so V goes first.
                 let q = gemm(&x, &w.q_proj);
@@ -636,10 +644,6 @@ fn llama_like_metal_text(
             if !shares_kv {
                 dsl::metal::kv_append(&k, &v, &w.kv, paged, f.head_dim, f.kv_heads);
             }
-            // The window this layer attends over, `-1` for all of it. A
-            // load-time fact, and one the executor sites used to reach into
-            // `fwd_cfg.per_layer_window_left` for.
-            let window = metal.window_left_at(l);
             // The attention SINK this layer has, if any: a per-head learned
             // logit that joins the softmax without a value behind it.
             // gpt-oss's, and a deployment without them names none.

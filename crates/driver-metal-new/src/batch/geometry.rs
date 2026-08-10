@@ -88,6 +88,15 @@ pub struct DecodeGeometry {
     pub rotary_dims: u32,
     /// The rope base.
     pub rope_theta: f32,
+    /// Whether the FULL-attention layers take V from the K projection.
+    ///
+    /// gemma4's `attention_k_eq_v`. Measured: those layers ship no `v_proj`.
+    pub attention_k_eq_v: bool,
+    /// How often a FULL-attention layer appears in a stack that otherwise
+    /// slides, or zero for a stack that does not alternate.
+    pub full_attn_every: u32,
+    /// The window a sliding layer attends, or zero for none.
+    pub sliding_window: u32,
     /// gemma's readout SOFTCAP — `cap * tanh(x / cap)` — or zero for none.
     pub final_logit_softcap: f32,
     /// gpt-oss's SwiGLU constants, or zero for a deployment that takes the
@@ -192,6 +201,9 @@ impl Default for DecodeGeometry {
             alt_quant: AffineFormat { bits: 0, group: 0 },
             rotary_dims: 64,
             rope_theta: 1e7,
+            attention_k_eq_v: false,
+            full_attn_every: 0,
+            sliding_window: 0,
             final_logit_softcap: 0.0,
             swiglu_limit: 0.0,
             swiglu_alpha: 0.0,

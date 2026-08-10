@@ -244,9 +244,11 @@ pub fn facts_from(
         per_layer_emb_dim: 0,
         per_layer_scalar: false,
         dense_beside_moe: false,
-        // Asked of the TENSORS: a checkpoint with no `v_proj` takes V from K.
-        v_from_k: !has_tensor("layers.0.self_attn.v_proj.weight")
-            && has_tensor("layers.0.self_attn.k_proj.weight"),
+        // The CONFIG's, not a tensor's. Asking layer 0 was the first draft
+        // and it is a SLIDING layer, which ships its `v_proj` — only the full
+        // ones do not, and a fact derived from the wrong layer is false for
+        // exactly the deployment it describes.
+        v_from_k: geometry.attention_k_eq_v,
         kv_shared_layers: 0,
         // gemma's readout cap. Zero is "none" and the text names nothing.
         logit_softcap: geometry.final_logit_softcap,
@@ -270,7 +272,23 @@ pub fn facts_from(
         // that alternate (gemma4, gpt-oss) will need the geometry to state one
         // before their texts can, and stating it here from nothing would make
         // that a silent wrong answer instead of a missing one.
-        window_left: Vec::new(),
+        // Which layers slide. A gemma4 stack alternates: every
+        // `full_attn_every`-th layer attends everything and the rest attend a
+        // window. Empty for a deployment that does not alternate, which is
+        // every llama-like one.
+        window_left: if geometry.full_attn_every > 1 && geometry.sliding_window > 0 {
+            (0..geometry.n_layers)
+                .map(|l| {
+                    if (l + 1).is_multiple_of(geometry.full_attn_every) {
+                        -1
+                    } else {
+                        i32::try_from(geometry.sliding_window).unwrap_or(-1)
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        },
     };
     (facts, metal)
 }
