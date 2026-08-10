@@ -1888,6 +1888,8 @@ fn step_impl(
         q_out: q_pin
             .and_then(|v| named_bufs.get(&v).map(|b| b.as_ptr()))
             .unwrap_or(core::ptr::null_mut()),
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         o_out: o_off
             .map_or(core::ptr::null_mut(), |off| unsafe {
                 arena.as_ptr().cast::<u8>().add(off)

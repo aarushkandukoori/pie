@@ -809,6 +809,20 @@ pub struct AttnCtx {
     /// outputs of their own), so it is fire context until the join learns
     /// to walk back to the guard op.
     pub q_out: *mut c_void,
+    /// The folded attention SCORES a `WantsAttnScore` fire captures, and
+    /// the device CSR saying where each request's rows begin.
+    ///
+    /// Both must be ARENA-STABLE, which is not a detail: scores are a
+    /// FOLDED predicate (`SLOT_WANTS_ATTN_SCORE`), so one captured exec
+    /// serves a fire that wants them and a fire that does not, and an
+    /// address recorded now has to still mean something when the
+    /// predicate goes true. `attn_score::DecodeScoreCapturePlan` exists
+    /// to answer exactly that — "arena-stable folded-row base",
+    /// "arena-stable device CSR base" — and these are where its answer
+    /// reaches the arm.
+    pub score_out: *mut f32,
+    /// See [`Self::score_out`].
+    pub score_indptr_d: *const i32,
     /// The attention output slot the o_proj reads — guard-owned like
     /// `q_out`, and one arena slot reused by every layer (liveness).
     pub o_out: *mut c_void,
@@ -1279,6 +1293,65 @@ pub fn dispatch<R: Resolver>(
         }
         // args: [q (the pin)]; o is the op's arena output; the plan, the
         // workspace and the layer view are the fire's.
+        // args: as the plain decode dispatch, plus the SCORE outputs.
+        // `_capture` is capturing scores, not capturing a graph —
+        // `WantsAttnScore` is the guard that selects this spelling.
+        //
+        // The score buffers ride the ctx rather than the statement because
+        // they must be arena-STABLE: the predicate is folded, so one exec
+        // serves a fire that wants scores and one that does not, and an
+        // address recorded now has to still be right when it goes true.
+        "attn::dispatch_attention_flashinfer_decode_capture" => {
+            let a = attn
+                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
+            let layer = a
+                .layers
+                .get(bound.layers.start as usize)
+                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
+            if a.score_out.is_null() || a.score_indptr_d.is_null() {
+                return Err(DispatchRefusal::NoAttnCtx(format!(
+                    "{}: the fire published no score buffers",
+                    bound.kernel
+                )));
+            }
+            let (q, o, lse) = match bound.args.len() {
+                1 => (bound.args[0], a.o_out, a.lse_out_d),
+                2 => (bound.args[0], bound.args[1].ptr, a.lse_out_d),
+                3 => (bound.args[0], bound.args[1].ptr, bound.args[2].ptr.cast()),
+                got => {
+                    return Err(DispatchRefusal::ArgCount {
+                        kernel: bound.kernel.to_string(),
+                        expected: 1,
+                        got,
+                    });
+                }
+            };
+            let window = window_of(spec, a, u32::from(bound.layers.start));
+            let plan = if window == -1 && !a.decode_plan_full.is_null() {
+                a.decode_plan_full
+            } else {
+                a.decode_plan
+            };
+            unsafe {
+                ffi::pie_k_attn_dispatch_attention_flashinfer_decode_capture(
+                    plan.cast_const(),
+                    q.ptr,
+                    *layer,
+                    o,
+                    a.kv_page_indices_d,
+                    a.kv_page_indptr_d,
+                    a.kv_last_page_lens_d,
+                    a.workspace,
+                    ctx.stream,
+                    a.score_out,
+                    a.score_indptr_d,
+                    window,
+                    a.logits_soft_cap,
+                    a.sm_scale,
+                    lse,
+                );
+            }
+        }
         "attn::dispatch_attention_flashinfer_decode" => {
             let a = attn
                 .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;

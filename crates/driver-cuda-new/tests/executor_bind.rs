@@ -1089,14 +1089,17 @@ fn every_lowered_symbol_has_an_arm() {
         //    arrays, so that arm was twenty lines nobody had written
         //    because no fire in the corpus set the mark).
         //
-        //    This one is the last thing between here and a union capture
-        //    of llama_like's decode, and it is not just an arm. Scores are
-        //    a FOLDED predicate — slot 3 — so one exec has to serve a fire
-        //    that wants them and a fire that does not, which means the
-        //    score buffers must be fire-stable and real at capture time.
-        //    Recording nulls would fault the moment the predicate went
-        //    true. Same shape as the lora slab.
-        "attn::dispatch_attention_flashinfer_decode_capture",
+        //    Both LEFT on 2026-08-10. `write_kv_explicit` needed twenty
+        //    lines because `AttnCtx` already had its descriptor arrays;
+        //    the score dispatch needed two new ctx fields and the same
+        //    plan/window selection its plain sibling makes.
+        //
+        //    Armed is not served, though, and the difference matters here:
+        //    scores are a FOLDED predicate (slot 3), so the exec that
+        //    records this arm must also serve a fire that WANTS scores.
+        //    That needs the buffers real and arena-stable at capture time
+        //    — `attn_score::DecodeScoreCapturePlan`, ported and unwired.
+        //    See `bridge_smoke`'s ignored union gate.
         // ── kimi_k3: KDA, the per-key-channel delta rule ──────────────
         //
         // `ssm::bf16_to_fp32` left this list without an arm being

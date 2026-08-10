@@ -536,28 +536,33 @@ fn a_resolved_walk_captures_and_replays() {
 /// one fire in flight. This is the single-lane form, and it is the one
 /// that had to work first.
 ///
-/// # Why this is `ignore`d
+/// # Why this is `ignore`d, and what is left
 ///
-/// llama_like's union states
-/// `attn::dispatch_attention_flashinfer_decode_capture` — the
-/// SCORE-capturing decode dispatch, which `WantsAttnScore` selects — and
-/// nothing arms it. `AttnCtx` carries no `score_out` or `score_indptr_d`.
+/// The arm it was blocked on exists now:
+/// `attn::dispatch_attention_flashinfer_decode_capture` is armed, and
+/// `AttnCtx` carries `score_out` and `score_indptr_d` for it. The warm-up
+/// walks a RESOLVED lowering while the capture takes the union, which is
+/// what a warm-up is for — it makes the launchers allocate their
+/// workspaces, and walking a union eagerly would run both sides of every
+/// guard over the same rows.
 ///
-/// And an arm alone would not be enough, which is the part worth knowing
-/// before someone starts. Scores are a FOLDED predicate (slot 3), so one
-/// exec must serve a fire that wants them and a fire that does not;
-/// recording the arm with null score buffers would fault the instant the
-/// predicate went true. The buffers have to be real and fire-stable at
-/// capture time — the same conclusion the lora slab forced, for the same
-/// reason.
+/// What is left is the score BUFFERS, and the reason it is not a
+/// one-liner is worth writing down. `WantsAttnScore` is a FOLDED
+/// predicate (slot 3), so the exec that records this arm must also serve
+/// a fire that does want scores — a null recorded here faults the instant
+/// the predicate goes true. So the buffers have to be real and
+/// arena-stable at capture time, which is precisely what
+/// `attn_score::DecodeScoreCapturePlan` was built to provide ("arena-stable
+/// folded-row base", "arena-stable device CSR base"). That module is
+/// ported and unwired.
 ///
-/// The warm-up is also wrong for this leg as written: it walks the UNION
-/// eagerly, which runs both sides of every guard over the same rows. A
-/// warm-up exists only to make the launchers allocate their workspaces,
-/// so it should walk a RESOLVED lowering and the capture should take the
-/// union.
+/// Sizing them by guess does not work — the folded rows are a CSR over
+/// each request's captured window, not `rows * heads`, and a wrong extent
+/// is an illegal access rather than a wrong number. Wiring
+/// `prepare_decode_score_capture` is the job, and it is the last thing
+/// between here and A5 at one lane.
 #[test]
-#[ignore = "the union states the score-capturing decode dispatch; see the doc comment"]
+#[ignore = "the union's score arm needs DecodeScoreCapturePlan wired; see the doc comment"]
 fn the_union_captures_and_replays_the_same_decode() {
     zero_weight_decode(Leg::CapturedUnion);
 }
@@ -838,6 +843,7 @@ fn zero_weight_decode(leg: Leg) {
     );
     ws.end_plan_update(&mut sops, raw_stream);
 
+
     let attn = AttnCtx {
         decode_plan: dplan_cache.as_ptr(),
         decode_plan_full: core::ptr::null_mut(),
@@ -845,6 +851,8 @@ fn zero_weight_decode(leg: Leg) {
         workspace: ws.view(),
         layers,
         q_out: named_bufs[&q_pin_value].as_ptr(),
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         o_out: unsafe { arena.as_ptr().cast::<u8>().add(o_off) }.cast(),
         kv_page_indices_d: csr_indices.as_ptr().cast(),
         kv_page_indptr_d: csr_indptr.as_ptr().cast(),
@@ -875,6 +883,8 @@ fn zero_weight_decode(leg: Leg) {
         kv_last_page_lens_d: tail_lens.as_ptr().cast(),
         num_requests: tail_rows as i32,
         first_token: split as i32,
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         o_out: unsafe {
             arena.as_ptr().cast::<u8>().add(o_off + split * HIDDEN * 2)
         }
@@ -1262,6 +1272,8 @@ fn the_full_zero_weight_prefill_walks_every_launch() {
         workspace: ws.view(),
         layers,
         q_out: core::ptr::null_mut(),
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         o_out: unsafe { arena.as_ptr().cast::<u8>().add(o_off) }.cast(),
         kv_page_indices_d: csr_indices.as_ptr().cast(),
         kv_page_indptr_d: csr_indptr.as_ptr().cast(),
@@ -1723,6 +1735,8 @@ fn the_hybrid_zero_weight_decode_walks_every_launch() {
         prefill_plan: core::ptr::null_mut(),
         workspace: ws.view(),
         layers,
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         q_out: named_bufs[&q_pin_value].as_ptr(),
         o_out,
         kv_page_indices_d: csr_indices.as_ptr().cast(),
@@ -2178,6 +2192,8 @@ fn the_hybrid_zero_weight_prefill_walks_every_launch() {
         prefill_plan: pplan.as_ptr(),
         workspace: ws.view(),
         layers,
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         q_out: named_bufs[&q_pin_value].as_ptr(),
         o_out,
         kv_page_indices_d: csr_indices.as_ptr().cast(),
@@ -2569,6 +2585,8 @@ fn the_nemotron_zero_weight_decode_walks_every_launch() {
         prefill_plan: core::ptr::null_mut(),
         workspace: ws.view(),
         layers,
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         q_out,
         o_out,
         kv_page_indices_d: csr_indices.as_ptr().cast(),
@@ -3554,6 +3572,8 @@ fn the_gemma3n_zero_weight_decode_walks_every_launch() {
         workspace: ws.view(),
         layers,
         q_out: core::ptr::null_mut(),
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         o_out: core::ptr::null_mut(),
         kv_page_indices_d: csr_indices.as_ptr().cast(),
         kv_page_indptr_d: csr_indptr.as_ptr().cast(),
@@ -3892,6 +3912,8 @@ fn the_gpt_oss_zero_weight_decode_walks_every_launch() {
         workspace: ws.view(),
         layers,
         q_out: core::ptr::null_mut(),
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         o_out: core::ptr::null_mut(),
         kv_page_indices_d: csr_indices.as_ptr().cast(),
         kv_page_indptr_d: csr_indptr.as_ptr().cast(),

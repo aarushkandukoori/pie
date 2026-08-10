@@ -302,6 +302,8 @@ fn ab(spec: &Spec) {
         workspace: ws.view(),
         layers,
         q_out: core::ptr::null_mut(),
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         o_out: unsafe { arena.as_ptr().cast::<u8>().add(o_off) }.cast(),
         kv_page_indices_d: csr_indices.as_ptr().cast(),
         kv_page_indptr_d: csr_indptr.as_ptr().cast(),

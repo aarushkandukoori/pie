@@ -428,6 +428,8 @@ fn the_hybrid_matches_transformers_on_real_weights() {
         prefill_plan: pplan.as_ptr(),
         workspace: ws.view(),
         layers,
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         q_out: named_bufs[&q_pin_value].as_ptr(),
         o_out,
         kv_page_indices_d: csr_indices.as_ptr().cast(),

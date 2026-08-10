@@ -392,6 +392,8 @@ fn gemma4_matches_transformers_on_real_weights() {
         // No guard-owned pins in this walk: both attention arms take
         // [q, o] as stated values.
         q_out: core::ptr::null_mut(),
+        score_out: core::ptr::null_mut(),
+        score_indptr_d: core::ptr::null(),
         o_out: core::ptr::null_mut(),
         kv_page_indices_d: csr_indices.as_ptr().cast(),
         kv_page_indptr_d: csr_indptr.as_ptr().cast(),
