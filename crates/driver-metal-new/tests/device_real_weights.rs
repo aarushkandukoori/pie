@@ -415,10 +415,27 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
                 ),
             )
         };
+        // The first row of each, as numbers. A byte count says the pool was
+        // written; it cannot say WHICH tensor landed there, and "the attention
+        // answers with K" is exactly the question of which.
+        let head = |r: &[u8]| {
+            r.chunks_exact(2)
+                .take(6)
+                .map(|c| {
+                    let x = f32::from_bits(
+                        u32::from(u16::from_le_bytes([c[0], c[1]])) << 16,
+                    );
+                    format!("{x:.6}")
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         eprintln!(
-            "  kv layer {l}: {} of {n} K bytes non-zero, {} V",
+            "  kv layer {l}: {} of {n} K bytes non-zero, {} V\n    K[0..6] [{}]\n    V[0..6] [{}]",
             k.iter().filter(|&&b| b != 0).count(),
             v.iter().filter(|&&b| b != 0).count(),
+            head(k),
+            head(v),
         );
     }
 
@@ -774,10 +791,16 @@ fn bisect(class: FireClass) {
             ..Step::default()
         }
     } else {
+        // SIXTEEN rows, because `Rule::Qmm` refuses a row count its tile does
+        // not divide and `QMM_BMS` starts there. The two-token prefill the
+        // reference test wants is exactly what a short-row arm would unlock.
         Step {
-            token_ids: &[128_000, 9906],
-            qo_indptr: &[0, 2],
-            sampling_indices: &[0],
+            token_ids: &[
+                128_000, 9906, 1917, 11, 420, 374, 264, 1296, 315, 279, 1646,
+                596, 4741, 1522, 902, 1288,
+            ],
+            qo_indptr: &[0, 16],
+            sampling_indices: &[15],
             ..Step::default()
         }
     };
@@ -961,6 +984,38 @@ fn bisect(class: FireClass) {
         if r0 && !r1 && first_bad.is_none() {
             first_bad = Some((n - 1, symbol.clone()));
         }
+    }
+
+    // The pool, after the whole prefix: which tensor actually landed where.
+    {
+        let layer = pool.layer(0).expect("a layer");
+        let n = shape.layer_bytes() as usize;
+        // SAFETY: the command buffers retired.
+        let (k, v) = unsafe {
+            (
+                core::slice::from_raw_parts(
+                    layer.k.contents().as_ptr().cast_const().cast::<u8>(),
+                    n,
+                ),
+                core::slice::from_raw_parts(
+                    layer.v.contents().as_ptr().cast_const().cast::<u8>(),
+                    n,
+                ),
+            )
+        };
+        let head = |r: &[u8]| {
+            r.chunks_exact(2)
+                .take(6)
+                .map(|c| {
+                    let x =
+                        f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16);
+                    format!("{x:.6}")
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        eprintln!("  pool K[0..6] [{}]", head(k));
+        eprintln!("  pool V[0..6] [{}]", head(v));
     }
 
     match &first_bad {
@@ -1206,32 +1261,35 @@ fn one_token_at_position_zero_agrees_with_mlx() {
 ///
 /// # Ignored, and what it is waiting on
 ///
-/// It RUNS now. The text states the GEMM/GEMV pair as a guard
-/// (`GuardPred::TokensGT(tile - 1)`) rather than a Rust `if`, so a prefill
-/// below the tile takes the matvec — which is what `Rule::Qmm`'s refusal was
-/// asking for. `qmm_t.metal` has no `M` argument and requires `M % BM == 0`;
-/// the driver must not paper over that and now does not.
+/// Two rows do not tile. `qmm_t.metal` has no `M` argument -- its header says
+/// the driver only selects it when `M % BM == 0`, so the row count lives in
+/// the grid -- and `QMM_BMS` starts at sixteen, so `Rule::Qmm` refuses this
+/// fire with `Ungeometric::PartialTile { rows: 2, tile: 16 }`.
 ///
-/// The lane's numbers are still not MLX's. Through the projections it agrees
-/// exactly — q_proj 1.32031 against MLX's 1.320, value for value with the
-/// decode lane — so the arithmetic reaches attention intact.
+/// The answer to a refusal is a TEXT that states the pair, and it was tried:
+/// `dsl::guarded_value` + `GuardPred::TokensGT(tile - 1)` around the
+/// projection and its residual twin. It compiles, it fires, and it is WRONG,
+/// for a reason worth writing down — `guarded_value` hands back a value the
+/// ARMS are expected to write, which is right for the in-place arms
+/// `llama_like_cuda` uses (`all_reduce_p2p` mutates `x`) and wrong for a
+/// projection, which produces a NEW value. Both arms produced their own and
+/// dropped them; the guard's value was never written; every statement after
+/// read the slot one before it.
 ///
-/// **The lead**, from `the_prefill_lane_too`: the attention's output carries
-/// the values of **K**, not of V. At position zero one key is attended and the
-/// answer is exactly `v`, so `[0.023804, 0.151367, …]` where `v` holds
-/// `[0.007263, 0.016846, …]` is not an accumulation difference — it is the
-/// wrong tensor. Somewhere between `kv_append_paged`'s two inputs and
-/// `sdpa_paged_decode`'s two pool bindings, K is being read for V.
+/// The measurement that caught it is the one this file is for: the KV pool
+/// came back holding **q** in its K pages and **k** in its V pages, and the
+/// two rotations landed on an empty slot and on q. A byte count would have
+/// said the pool was written and stopped there.
 ///
-/// Worth suspecting first: the decode lane fires `kv_append_paged` and
-/// `sdpa_paged_decode` too and agrees exactly, so it is unlikely to be the
-/// rows themselves. What differs is the ROW COUNT, and both kernels take the
-/// pool's strides — which are per-token quantities.
+/// So what is missing is a DSL form for value-producing arms — an
+/// `arm_value(pred, |‥| -> Val)` binding the arm's result to the guard's.
+/// Until it exists a short prefill is refused, and a refusal is the right
+/// failure: it says what cannot be served instead of serving it wrongly.
 ///
 /// The MLX constants below are the target: `[128000, 9906]` at position 1 is
 /// argmax 0 spanning [-5.42, 18.56].
 #[test]
-#[ignore = "the prefill lane runs and agrees through the projections; past attention it does not yet"]
+#[ignore = "two rows do not tile; the guard that would fix it needs a value-producing arm the DSL lacks"]
 fn a_two_token_prefill_agrees_with_mlx() {
     let Some(snapshot) = snapshot() else {
         eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT to an MLX snapshot");

@@ -332,43 +332,43 @@ fn llama_like_metal_text(
         // right answer for a driver and leaves the choice here -- where a
         // choice between two kernels belongs.
         //
-        // `TokensGT(tile - 1)` rather than `TokensLE`: the arm that runs first
-        // is the one that wants to be read first.
-        let tile = metal.qmm_tile.0.max(1);
+        // A RUST `if` for now, and the guard that belongs here is written up
+        // below because it was tried and does not work yet.
+        //
+        // `dsl::guarded_value` hands back a value the ARMS are expected to
+        // write, which is right for the in-place arms `llama_like_cuda` uses
+        // (`all_reduce_p2p` mutates `x`). A projection does not mutate: it
+        // produces a NEW value, so both arms produced their own and dropped
+        // them, the guard's value was never written, and every statement after
+        // read the slot one before it. Measured: the pool came back holding q
+        // in its K pages and k in its V pages, and the two rotations landed on
+        // an empty slot and on q.
+        //
+        // What the DSL is missing is a form for value-PRODUCING arms -- an
+        // `arm_value(pred, |‥| -> Val)` that binds the arm's result to the
+        // guard's. Until it exists, `Rule::Qmm` refuses a short prefill
+        // (`Ungeometric::PartialTile`) and a refusal is the right failure: it
+        // says what cannot be served instead of serving it wrongly.
         let gemm = |x: &Val, w: &MatW| {
-            if !(multi_batch && metal.qmm_multi_batch) {
-                return dsl::metal::qmv(x, w, &point);
+            if multi_batch && metal.qmm_multi_batch {
+                dsl::metal::qmm(x, w, &gemm_point)
+            } else {
+                dsl::metal::qmv(x, w, &point)
             }
-            let shape = (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16);
-            let (g, v) = dsl::guarded_value(x.trace(), w.layer, shape);
-            g.arm(GuardPred::TokensGT(tile - 1), || {
-                dsl::metal::qmm(x, w, &gemm_point);
-            })
-            .otherwise(|| {
-                dsl::metal::qmv(x, w, &point);
-            });
-            v
         };
         // A `beta_one` matmul: the epilogue fold when the deployment has
         // it, the projection plus an explicit landing when it does not.
-        // The residual-fused twin, guarded the same way and for the same
-        // reason: `affine_qmm_t_residual` is the same tiling with an epilogue.
+        // The residual-fused twin. Same story as `gemm` above.
         let gemm_add = |x: &Val, w: &MatW, residual: &Val| {
-            if !metal.fuse_residual_gemv {
-                return dsl::metal::residual_add(&gemm(x, w), residual);
+            if metal.fuse_residual_gemv {
+                if multi_batch && metal.qmm_multi_batch {
+                    dsl::metal::qmm_residual(x, w, residual, &gemm_point)
+                } else {
+                    dsl::metal::qmv_residual(x, w, residual, &point)
+                }
+            } else {
+                dsl::metal::residual_add(&gemm(x, w), residual)
             }
-            if !(multi_batch && metal.qmm_multi_batch) {
-                return dsl::metal::qmv_residual(x, w, residual, &point);
-            }
-            let shape = (Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16);
-            let (g, v) = dsl::guarded_value(x.trace(), w.layer, shape);
-            g.arm(GuardPred::TokensGT(tile - 1), || {
-                dsl::metal::qmm_residual(x, w, residual, &gemm_point);
-            })
-            .otherwise(|| {
-                dsl::metal::qmv_residual(x, w, residual, &point);
-            });
-            v
         };
         // ALWAYS paged, and the class is not the question -- the POOL's
         // layout is. `model::kv::Pool` allocates `[page, token, head, dim]`
@@ -1660,18 +1660,14 @@ mod metal_tests {
             &LlamaLikeMetalFacts::synthetic(),
             FireClass::Prefill,
         );
-        // Both arms of the projection GUARD are in the text, which is the
-        // point of a guard: the GEMM's tile does not divide every row count
-        // (`qmm_t.metal` has no `M` argument and needs `M % BM == 0`), so the
-        // text states the pair with `TokensGT(tile - 1)` and the FIRE picks.
-        // A Rust `if` here would have resolved at trace time and left a
-        // prefill under the tile with nothing to run.
-        assert!(
-            count(&mb, "affine_qmv_fast") > 1,
-            "the M>1 text carries the GEMV arm as well as the readout"
+        // `affine_qmv_fast` prefixes `affine_qmv_fast_residual`'s point too,
+        // so the readout is the difference of the two counts.
+        assert_eq!(
+            count(&mb, "affine_qmv_fast") - count(&mb, "affine_qmv_fast_residual"),
+            1,
+            "the readout only"
         );
         assert!(count(&mb, "affine_qmm_t_residual") > 0);
-        assert!(count(&mb, "affine_qmv_fast_residual") > 0, "and its twin");
         // The attention width is the DEPLOYMENT's, not a literal. It was
         // `_d_256` unconditionally, and `qwen3_0_6b`'s heads are 128 wide — a
         // 256-wide kernel over them reads past the end of every head and
