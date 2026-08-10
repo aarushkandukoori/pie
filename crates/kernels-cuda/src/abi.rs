@@ -449,6 +449,17 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         // which is the same rule `Source::Unbound` gets, for the same
         // reason (a partial binding is not a binding).
         Source::InDim(..) | Source::OutDim(..) => return None,
+        // The fire's positions, which are TOKEN-ROWED like a value: a
+        // rectangle starting partway in would rotate its own rows against
+        // another rectangle's positions. Safe under the whole-fire guard
+        // below, same as `In`/`Out`.
+        Source::Positions => "ctx.positions".to_string(),
+        // The enclosing guard's value, when a REGION launch declares no
+        // result of its own. Which value that is depends on where the
+        // statement SITS, and the Rust join does not carry the guard's
+        // value yet — so these rows decline, like `InDim` does, and stay
+        // with the arm that knows.
+        Source::ResultOrRegion(..) => return None,
         Source::Ctx(f) | Source::CtxNonZero(f) => format!("ctx.{f}"),
         // A NULL is returned fully typed and skips the cast step below:
         // that step turns a slot into the row's pointee, and a null has
@@ -542,9 +553,26 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
                 _ => {}
             }
         }
-        let mut guard = String::new();
+        // THE RECTANGLE, made part of the match.
+        //
+        // `In`/`Out`/`Positions` bind a value's BASE, and that is the
+        // whole of the value only when the rectangle is the whole fire.
+        // A hook peel splits a layer body in two and the second starts at
+        // `win_start`, so a launch over it must address rows `[win_start,
+        // win_start + rows)`; at the base it writes the PREFIX region's
+        // rows with the tail region's positions, both regions write the
+        // same range, and the later one wins.
+        //
+        // The C++ twin answered this by putting the window in its context
+        // (`ArmCtx::row`). This side declines instead: a windowed
+        // rectangle falls through to the hand-written arm, which already
+        // windows by hand. That is the weaker answer and it is the honest
+        // one until the Rust binder carries the window — a generated
+        // branch must decline rather than guess, and guessing here is
+        // silent wrong rows rather than a refusal.
+        let mut guard = String::from(" if b.rows.start == 0");
         guard.push_str(&format!(
-            " if n_in >= {need_in} && n_out >= {need_out} \
+            " && n_in >= {need_in} && n_out >= {need_out} \
              && b.args.len() >= n_in + n_out + {need_w}"
         ));
         if need_ps > 0 {

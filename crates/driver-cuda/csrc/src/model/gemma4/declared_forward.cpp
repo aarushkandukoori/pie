@@ -636,7 +636,7 @@ bool gemma4_forward_declared(
                 // for. This family states no planned prefill, and every
                 // dispatch it states declares its own result.
                 decode_plan_for(), /*prefill_plan=*/nullptr,
-                /*attn_dst_fallback=*/nullptr,
+                /*region_dst=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {
@@ -655,23 +655,11 @@ bool gemma4_forward_declared(
                     "declared gemma4: lora correction reached, but gemma-4 "
                     "has no adapter support on either side (arc 2 should "
                     "have declined this fire)");
-            case declared::Kernel::TransposeNldToLnd:
-                {
-                    // The three EXTENTS stay config: this value's rows
-                    // are `[N, L, ple_dim]`, so `Tokens` is off the
-                    // leading axis and it has no row width at all --
-                    // one of the six such kernels named in
-                    // `model/tests/arena_soundness.rs`.
-                    const auto ins = plan.inputs(op);
-                    const auto outs = plan.outputs(op);
-                    need(ins, 1, "transpose inputs");
-                    need(outs, 1, "transpose outputs");
-                    kernels::layout::transpose_bf16_nld_to_lnd(
-                        static_cast<const std::uint16_t*>(values.slot(ins[0])),
-                        static_cast<std::uint16_t*>(values.slot(outs[0])),
-                        N, L, ple_dim, stream);
-                }
-                break;
+            // The RELAY TRANSPOSE generates. Its three extents were
+            // read from config on the reading that `Tokens` being off
+            // the result's leading axis left nothing to derive from --
+            // and the leading axis is exactly what carries two of them:
+            // the result is `[L, Tokens, ple_dim]`.
             case declared::Kernel::QkvPackedPost: {
                 auto kv_view = cache.layer_view(cur_layer);
                 kernels::attn::qkv_packed_qk_norm_rope_vnorm_write_kv_bf16(

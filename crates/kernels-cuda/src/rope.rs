@@ -12,7 +12,7 @@ use kernels::Source;
 pub static KERNELS: &[KernelSig] = &[
     kernel!(rope_standard_table "rope::rope_standard_table",
         operands = operands![
-            positions: I32s <- Source::Ctx("positions"),
+            positions: I32s <- Source::Positions,
             table: F32sMut <- Source::Out(0),
             num_tokens: I32 <- Source::Rows,
             head_dim: I32 <- Source::Ctx("head_dim"),
@@ -40,7 +40,7 @@ pub static KERNELS: &[KernelSig] = &[
         operands = operands![
             q: BufMut <- Source::Out(0),
             k: BufMut <- Source::Out(1),
-            positions: I32s <- Source::Ctx("positions"),
+            positions: I32s <- Source::Positions,
             num_tokens: I32 <- Source::Rows,
             num_q_heads: I32 <- Source::Ctx("num_q_heads"),
             num_kv_heads: I32 <- Source::Ctx("num_kv_heads"),
@@ -142,7 +142,7 @@ pub static KERNELS: &[KernelSig] = &[
             // q-only spelling stays a hand-written arm and this row
             // describes the two-operand one.
             k: BufMut <- Source::Out(1),
-            positions: I32s <- Source::Ctx("positions"),
+            positions: I32s <- Source::Positions,
             num_tokens: I32 <- Source::Rows,
             num_q_heads: I32 <- Source::Ctx("num_q_heads"),
             num_kv_heads: I32 <- Source::Ctx("num_kv_heads"),

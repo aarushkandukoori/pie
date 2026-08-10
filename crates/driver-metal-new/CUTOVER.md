@@ -1,5 +1,17 @@
 # Cutover: how `driver-metal-new` replaces `driver-metal`
 
+> **Largely obsolete, 2026-08-10.** `driver-metal` is retired: removed from the
+> workspace and from `engine`'s graph, source kept for reference only
+> (`crates/driver-metal/README.md`). There is no longer a backend to cut over
+> *from*, so this document's mechanics — the additive feature, the canary, the
+> per-process config key, the one-release overlap, the rollback — describe a
+> transition that will not happen. `DIRECTION.md` is the plan.
+>
+> What survives here and is still worth reading: the six-item gate (items 1 and
+> 4 hold), the dependency chain among those items, and the decision to replace
+> at the Rust boundary rather than behind the twelve `pie_metal_*` symbols —
+> which has now happened by deletion rather than by migration.
+
 Written 2026-08-09, at the point the `m1_runtime.cpp` port closed out. This
 is the plan the handoff said must exist before the port finishes: what
 "replace" concretely means, what must exist first, what test gate authorises

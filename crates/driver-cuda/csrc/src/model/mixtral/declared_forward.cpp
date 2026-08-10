@@ -618,7 +618,7 @@ bool gpt_oss_forward_declared(
                 // declares its own result, so there is no fallback to
                 // hand over.
                 decode_plan.get(), /*prefill_plan=*/nullptr,
-                /*attn_dst_fallback=*/nullptr,
+                /*region_dst=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {
@@ -653,23 +653,10 @@ bool gpt_oss_forward_declared(
             // case here was that the arm needed a plan, a cache view and
             // an LSE fallback handed to it, and all three are context
             // fields now.
-            case declared::Kernel::AttnSinkRescale: {
-                // ISLAND (value arena). Rescales the attention output
-                // in place -- now stated, so `outs[0]` and `ins[0]` are
-                // one buffer -- against the LSE, which is input 1 and
-                // traced: the dispatch that produced it states two
-                // outputs on a sink layer.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 2, "sink rescale inputs");
-                need(outs, 1, "sink rescale outputs");
-                kernels::attn::attention_sink_rescale_bf16(
-                    values.slot(outs[0]),
-                    static_cast<const float*>(values.slot(ins[1])),
-                    wb.require(aux(0)).data(), N, cfg.num_attention_heads, d,
-                    stream);
-                break;
-            }
+            // The SINK RESCALE generates. Its LSE is the dispatch's
+            // second RESULT -- only a sink layer declares one -- so it is
+            // operand 1 and traced, rather than a scratch this executor
+            // remembered handing the dispatch.
             case declared::Kernel::RopeYarnOriginal: {
                 // ISLAND (value arena). Argument for argument the hand
                 // pass's `apply_rope` arm; the yarn params come off the

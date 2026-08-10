@@ -94,16 +94,6 @@ inline void arm_swiglu(Workspace& ws,
 // arguments, one per arm, because making them a bag would hide which
 // arm needs which, and the whole point of the exercise is that the list
 // gets shorter as the trace states more.
-struct ArmCtx {
-    const pie_forward::ForwardPlan& plan;
-    ValueArena& values;
-    /// Rows of the rectangle this launch covers.
-    int rows;
-    /// Its first row, in the fire's row space. Zero for the plain form.
-    int win_start;
-    cudaStream_t stream;
-};
-
 inline void need(const pie_forward::ForwardPlan::IdSpan& span,
                  std::size_t n, const char* what) {
     if (span.size < n) {
@@ -126,6 +116,56 @@ inline int row_width(const pie_forward::ForwardPlan& plan,
     }
     return static_cast<int>(out);
 }
+
+struct ArmCtx {
+    const pie_forward::ForwardPlan& plan;
+    ValueArena& values;
+    /// Rows of the rectangle this launch covers.
+    int rows;
+    /// Its first row, in the fire's row space. Zero for the plain form.
+    int win_start;
+    cudaStream_t stream;
+
+    /// WHERE THIS RECTANGLE'S SLICE OF A VALUE BEGINS.
+    ///
+    /// `c.row(id)` is the value's BASE, which is the whole of it
+    /// only when the rectangle is the whole fire. A hook peel splits a
+    /// layer body into two rectangles and the second one starts at
+    /// `win_start`, so a launch over it writes rows `[win_start,
+    /// win_start + rows)` — at the base it would write the first `rows`
+    /// instead, which is the prefix region's rows, with the tail
+    /// region's positions and weights.
+    ///
+    /// llama_like's own arms did this with a family helper (`bf16_row`);
+    /// the shared ones did not, and neither did the generated branches,
+    /// which is what makes this a member rather than a helper anyone may
+    /// forget. `ArmCtx`'s own note predicted it: `win_start` "is the
+    /// same kind of fact as `rows`: both describe the RECTANGLE a launch
+    /// covers, and a driver that walked rectangles rather than ops would
+    /// hand the pair to every arm without asking which cares."
+    ///
+    /// Only a TOKEN-rowed value has rows to window. A `[Requests, ...]`
+    /// or block-major value is not sliced by a token range, and
+    /// offsetting one would be the same defect in the other direction.
+    void* row(std::uint32_t id) const {
+        void* const base = values.slot(id);
+        if (win_start == 0) return base;
+        const auto& val = plan.value(id);
+        if (val.rank == 0 ||
+            val.dims[0].kind != pie_forward::PieForwardDimKind::Tokens) {
+            return base;
+        }
+        const std::size_t width =
+            static_cast<std::size_t>(row_width(plan, id));
+        const std::size_t elem =
+            (val.dtype == pie_forward::PieForwardDType::F32 ||
+             val.dtype == pie_forward::PieForwardDType::I32)
+                ? 4u
+                : 2u;
+        return static_cast<std::uint8_t*>(base) +
+               static_cast<std::size_t>(win_start) * width * elem;
+    }
+};
 
 // A FLOAT out of the param channel.
 //
@@ -234,10 +274,10 @@ inline void arm_split_qkv(const ArmCtx& c,
                    static_cast<std::size_t>(width);
     };
     kernels::attn::split_qkv_bf16(
-        row(values.slot(ins[0]), row_width(plan, ins[0])),
-        row(values.slot(outs[0]), q_w),
-        row(values.slot(outs[1]), kv_w),
-        row(values.slot(outs[2]), kv_w),
+        row(c.row(ins[0]), row_width(plan, ins[0])),
+        row(c.row(outs[0]), q_w),
+        row(c.row(outs[1]), kv_w),
+        row(c.row(outs[2]), kv_w),
         rows, q_w, kv_w, stream);
 }
 
@@ -256,7 +296,7 @@ inline void arm_embed(const ArmCtx& c,
     const auto& plan = c.plan;
     const auto outs = plan.outputs(op);
     need(outs, 1, "embed outputs");
-    kernels::layout::embed_bf16(token_ids, table, c.values.slot(outs[0]),
+    kernels::layout::embed_bf16(token_ids, table, c.row(outs[0]),
                                 c.rows, row_width(plan, outs[0]), vocab,
                                 c.stream);
 }
@@ -274,7 +314,7 @@ inline void arm_residual_add(const ArmCtx& c,
     need(ins, 2, "residual add inputs");
     need(outs, 1, "residual add outputs");
     kernels::norm::residual_add_bf16(
-        values.slot(outs[0]), values.slot(ins[1]),
+        c.row(outs[0]), c.row(ins[1]),
         static_cast<std::size_t>(c.rows) *
             static_cast<std::size_t>(row_width(plan, outs[0])),
         c.stream);
@@ -312,12 +352,12 @@ inline void arm_rmsnorm(const ArmCtx& c,
     need(outs, 1, "rmsnorm outputs");
     const int width = row_width(plan, ins[0]);
     if (gemma_fold) {
-        kernels::norm::rmsnorm_gemma_bf16(values.slot(ins[0]), weight,
-                                          values.slot(outs[0]), rows, width,
+        kernels::norm::rmsnorm_gemma_bf16(c.row(ins[0]), weight,
+                                          c.row(outs[0]), rows, width,
                                           eps, stream);
     } else {
-        kernels::norm::rmsnorm_bf16(values.slot(ins[0]), weight,
-                                    values.slot(outs[0]), rows, width, eps,
+        kernels::norm::rmsnorm_bf16(c.row(ins[0]), weight,
+                                    c.row(outs[0]), rows, width, eps,
                                     stream);
     }
 }
@@ -366,8 +406,8 @@ inline void arm_scaled_matmul(const ArmCtx& c,
     const int M = c.rows;
     const int N = row_width(plan, outs[0]);
     const int K = row_width(plan, ins[0]);
-    const void* const act = values.slot(ins[0]);
-    void* const y = values.slot(outs[0]);
+    const void* const act = c.row(ins[0]);
+    void* const y = c.row(outs[0]);
     const void* const zp = zeros != nullptr ? zeros->data() : nullptr;
     switch (repr) {
     case ScaledRepr::PerTensor:
@@ -446,7 +486,7 @@ inline void arm_mla_absorb_q_to_latent(const ArmCtx& c,
             std::to_string(rv.rank) + ", wants [Tokens, heads, dim]");
     }
     kernels::gemm::mla_absorb_q_to_latent_bf16(
-        handle, c.values.slot(ins[0]), kv_b_proj, c.values.slot(outs[0]),
+        handle, c.row(ins[0]), kv_b_proj, c.row(outs[0]),
         c.rows, static_cast<int>(rv.dims[1].value), qk_nope_dim, v_head_dim,
         static_cast<int>(rv.dims[2].value));
 }
@@ -474,7 +514,7 @@ inline void arm_mla_absorb_latent_to_v(const ArmCtx& c,
             std::to_string(rv.rank) + ", wants [Tokens, heads, dim]");
     }
     kernels::gemm::mla_absorb_latent_to_v_bf16(
-        handle, c.values.slot(ins[0]), kv_b_proj, c.values.slot(outs[0]),
+        handle, c.row(ins[0]), kv_b_proj, c.row(outs[0]),
         c.rows, static_cast<int>(rv.dims[1].value), qk_nope_dim,
         static_cast<int>(rv.dims[2].value), kv_lora_rank);
 }
@@ -496,7 +536,7 @@ inline void arm_write_mla_to_pages(const ArmCtx& c,
     const auto ins = c.plan.inputs(op);
     need(ins, 2, "mla write inputs");
     kernels::attn::write_mla_to_pages(
-        layer, c.values.slot(ins[0]), c.values.slot(ins[1]),
+        layer, c.row(ins[0]), c.row(ins[1]),
         qo_indptr, kv_page_indices, kv_page_indptr, kv_last_page_lens,
         c.rows, num_requests, c.stream, row_valid);
 }
@@ -520,11 +560,11 @@ inline void arm_attention_mla(const ArmCtx& c,
     need(ins, 2, "mla attention inputs");
     need(outs, 1, "mla attention outputs");
     float* lse = outs.size >= 2
-                     ? static_cast<float*>(c.values.slot(outs[1]))
+                     ? static_cast<float*>(c.row(outs[1]))
                      : lse_fallback;
     kernels::attn::dispatch_attention_mla_bf16(
-        mla_plan, c.values.slot(ins[0]), c.values.slot(ins[1]), layer,
-        c.values.slot(outs[0]), kv_page_indices, attn_ws, c.stream, lse);
+        mla_plan, c.row(ins[0]), c.row(ins[1]), layer,
+        c.row(outs[0]), kv_page_indices, attn_ws, c.stream, lse);
 }
 
 // ── The routed decode GEMVs, and the router in front of them ────────
@@ -553,9 +593,9 @@ inline void arm_topk_sigmoid(const ArmCtx& c,
     need(ins, 1, "topk router inputs");
     need(outs, 2, "topk router outputs");
     kernels::moe::topk_sigmoid_bf16(
-        c.values.slot(ins[0]),
-        static_cast<std::int32_t*>(c.values.slot(outs[0])),
-        static_cast<float*>(c.values.slot(outs[1])),
+        c.row(ins[0]),
+        static_cast<std::int32_t*>(c.row(outs[0])),
+        static_cast<float*>(c.row(outs[1])),
         correction_bias, c.rows, num_experts,
         row_width(plan, outs[0]), renormalize, routed_scaling_factor,
         c.stream);
@@ -595,13 +635,13 @@ inline void arm_moe_routed_gemv(const ArmCtx& c,
     // measurement.
     if (gate_up) {
         kernels::moe::moe_gate_up_decode_gemv_bf16(
-            static_cast<const std::int32_t*>(c.values.slot(ins[0])),
-            c.values.slot(ins[1]), bank, c.values.slot(outs[0]),
+            static_cast<const std::int32_t*>(c.row(ins[0])),
+            c.row(ins[1]), bank, c.row(outs[0]),
             c.rows, top_k, in_w, out_w / 2, c.stream);
     } else {
         kernels::moe::moe_down_decode_gemv_bf16(
-            static_cast<const std::int32_t*>(c.values.slot(ins[0])),
-            c.values.slot(ins[1]), bank, c.values.slot(outs[0]),
+            static_cast<const std::int32_t*>(c.row(ins[0])),
+            c.row(ins[1]), bank, c.row(outs[0]),
             c.rows, top_k, out_w, in_w, c.stream);
     }
 }
@@ -647,9 +687,9 @@ inline void arm_mla_prepare(const ArmCtx& c,
             std::to_string(qn.rank) + ", wants [Tokens, heads, nope]");
     }
     kernels::attn::mla_prepare_bf16(
-        layer, c.values.slot(ins[0]), kv_a_norm_weight, c.values.slot(ins[1]),
-        c.values.slot(outs[0]), c.values.slot(outs[1]),
-        c.values.slot(outs[2]), c.values.slot(outs[3]),
+        layer, c.row(ins[0]), kv_a_norm_weight, c.row(ins[1]),
+        c.row(outs[0]), c.row(outs[1]),
+        c.row(outs[2]), c.row(outs[3]),
         positions, qo_indptr, kv_page_indices, kv_page_indptr,
         kv_last_page_lens, c.rows, num_requests,
         static_cast<int>(qn.dims[1].value),
@@ -693,16 +733,16 @@ inline void arm_attention_decode(const ArmCtx& c,
     // caller hands the destination in.
     void* const dst = dst_override != nullptr
                           ? dst_override
-                          : (outs.size > 0 ? c.values.slot(outs[0]) : nullptr);
+                          : (outs.size > 0 ? c.row(outs[0]) : nullptr);
     if (dst == nullptr) {
         throw std::runtime_error(
             "declared arm: a decode dispatch names no destination");
     }
     float* const lse = outs.size >= 2
-                           ? static_cast<float*>(c.values.slot(outs[1]))
+                           ? static_cast<float*>(c.row(outs[1]))
                            : lse_fallback;
     kernels::attn::dispatch_attention_flashinfer_decode(
-        plan_cache, c.values.slot(ins[0]), kv_view, dst, page_indices,
+        plan_cache, c.row(ins[0]), kv_view, dst, page_indices,
         page_indptr, last_page_lens, attn_ws, c.stream, window_left,
         /*logits_soft_cap=*/0.f, sm_scale, lse);
 }
@@ -733,7 +773,7 @@ inline const void* arm_epilogue_gather(const ArmCtx& c,
     const auto stream = c.stream;
     const auto ins = plan.inputs(op);
     need(ins, 1, "lm_head inputs");
-    const void* input = values.slot(ins[0]);
+    const void* input = c.row(ins[0]);
     if (logit_row_indices == nullptr || num_logit_rows <= 0 ||
         num_logit_rows >= *rows) {
         return input;

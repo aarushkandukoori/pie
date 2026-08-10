@@ -56,10 +56,12 @@
 
 #include "attention_workspace.hpp"
 #include "attn/attention_flashinfer.hpp"
+#include "attn/attn_sink.hpp"
 #include "attn/head_dim_pad.hpp"
 #include "attn/kv_paged.hpp"
 #include "gemm/gemm.hpp"
 #include "layout/deinterleave.hpp"
+#include "layout/gather_rows.hpp"
 #include "norm/residual_add.hpp"
 #include "norm/rmsnorm.hpp"
 // Headers the GENERATED half calls into. A row that states its sources
@@ -190,15 +192,38 @@ struct ExecCtx {
     const kernels::attn::DecodePlanCache* decode_plan = nullptr;
     const kernels::attn::PrefillPlanCache* prefill_plan = nullptr;
 
-    // Where a dispatch writes when the statement declares no result.
+    // Where a launch writes when the statement declares no result.
     //
-    // The GUARD-region spelling: a value-producing guard owns the
-    // output and its arms record none, so the destination is the
-    // guard's and only the family's walk knows which value that is.
-    // `lse_fallback`'s peer, and null is the honest default — an arm
-    // handed neither a result nor a fallback refuses rather than
-    // writing somewhere plausible.
-    void* attn_dst_fallback = nullptr;
+    // The GUARD-REGION spelling, and it is not the attention's alone: a
+    // value-producing guard owns the output and its arms record none,
+    // so the destination is the guard's and only the family's walk
+    // knows which value that is. qwen3.5's recurrence three-way is the
+    // same shape as gpt-oss's attention chain.
+    //
+    // `lse_fallback`'s peer, and null is the honest default — a launch
+    // handed neither a result nor a region destination refuses rather
+    // than writing somewhere plausible.
+    void* region_dst = nullptr;
+
+    // ── THE RECURRENT STATE, already resolved ──────────────────────
+    //
+    // `state_cache` above is the STORE; these are this launch's window
+    // into it, and resolving them is the family's the way `kv_layer` is.
+    // The slab is `recurrent_state_raw(layer, 0)` for the layer the
+    // statement marks, and null where the statement marks none — which
+    // is a drift if a recurrence is stated over it.
+    //
+    // `slot_ids` and `slot_stride` address a REQUEST's slab inside it;
+    // `write_state` is the frozen-verify pass suppressing its own
+    // writes; `commit_lens` is the spec-decode repair's per-request
+    // length, null on an ordinary fire. All four are the FIRE's, not
+    // the statement's, which is why they ride here and not in the param
+    // channel.
+    void* rs_slab = nullptr;
+    const std::int32_t* rs_slot_ids = nullptr;
+    long long rs_slot_stride = 0;
+    bool write_state = true;
+    const std::int32_t* commit_lens = nullptr;
 };
 
 // Run `op`'s arm if this file owns its symbol.
@@ -236,6 +261,21 @@ inline bool execute_shared(const ExecCtx& c,
     const auto ps = plan.aux_params(op);
     const std::string_view sym = plan.weight_name(op);
     (void)ps;
+    // WHERE A REGION LAUNCH WRITES. The statement's result where it
+    // declares one, the enclosing guard's value otherwise — see
+    // `Source::ResultOrRegion`. A launch that has neither is a drift,
+    // and refusing is the only safe answer: writing somewhere plausible
+    // is how a guard chain silently produces the wrong region's output.
+    const auto result_or_region = [&](const ExecCtx& cc,
+                                      const pie_forward::ForwardPlan::IdSpan& o,
+                                      std::size_t i) -> void* {
+        if (o.size > i) return cc.arm.row(o[i]);
+        if (cc.region_dst != nullptr) return cc.region_dst;
+        throw std::runtime_error(
+            "declared arm: a launch declares no result and sits in no "
+            "value-producing guard, so it has nowhere to write");
+    };
+    (void)result_or_region;
 #include "model/declared/generated_dispatch.inc"
 
     // One weight, required, by the name the statement gave.
@@ -265,8 +305,8 @@ inline bool execute_shared(const ExecCtx& c,
         if (c.rope_theta == 0.f) return false;
         need(outs, 1, "rope outputs");
         const bool q_only = outs.size < 2;
-        void* const rq = values.slot(outs[0]);
-        void* const rk = q_only ? rq : values.slot(outs[1]);
+        void* const rq = c.arm.row(outs[0]);
+        void* const rk = q_only ? rq : c.arm.row(outs[1]);
         const int kv_heads = q_only ? 0 : c.num_kv_heads;
         // `[rotary_dim]`, zero for the full rotation.
         //
@@ -309,11 +349,11 @@ inline bool execute_shared(const ExecCtx& c,
         const int heads = static_cast<int>(rv.dims[1].value);
         if (resolve_kernel(plan.weight_name(op)) == Kernel::PadHeadDim) {
             kernels::attn::pad_head_dim_bf16(
-                values.slot(ins[0]), values.slot(outs[0]), N, heads,
+                c.arm.row(ins[0]), c.arm.row(outs[0]), N, heads,
                 c.head_dim, c.head_dim_kernel, stream);
         } else {
             kernels::attn::strip_head_dim_bf16(
-                values.slot(ins[0]), values.slot(outs[0]), N, heads,
+                c.arm.row(ins[0]), c.arm.row(outs[0]), N, heads,
                 c.head_dim, c.head_dim_kernel, stream);
         }
         return true;
@@ -344,7 +384,7 @@ inline bool execute_shared(const ExecCtx& c,
         auto kv_view = c.cache.layer_view(c.kv_layer);
         if (c.peel_window_d != nullptr && c.peel_tail) {
             kernels::attn::write_kv_explicit_bf16_devwin(
-                kv_view, values.slot(ins[0]), values.slot(ins[1]),
+                kv_view, c.arm.row(ins[0]), c.arm.row(ins[1]),
                 c.w_page_d, c.w_off_d, c.peel_window_d, N, stream,
                 c.row_valid);
             return true;
@@ -352,9 +392,9 @@ inline bool execute_shared(const ExecCtx& c,
         const int lo = c.arm.win_start;
         kernels::attn::write_kv_explicit_bf16(
             kv_view,
-            static_cast<const std::uint16_t*>(values.slot(ins[0])) +
+            static_cast<const std::uint16_t*>(c.arm.row(ins[0])) +
                 static_cast<std::size_t>(lo) * row_width(plan, ins[0]),
-            static_cast<const std::uint16_t*>(values.slot(ins[1])) +
+            static_cast<const std::uint16_t*>(c.arm.row(ins[1])) +
                 static_cast<std::size_t>(lo) * row_width(plan, ins[1]),
             c.w_page_d + lo, c.w_off_d + lo, N, stream,
             c.row_valid != nullptr ? c.row_valid + lo : nullptr);
@@ -370,6 +410,12 @@ inline bool execute_shared(const ExecCtx& c,
         }
         auto kv_view = c.cache.layer_view(c.kv_layer);
         if (c.peel_window_d != nullptr && c.peel_tail) {
+            // THE BASE, not the window. A device-window form reads its
+            // split off `peel_window_d` and addresses the fire's rows
+            // itself, so advancing the pointer would apply the offset
+            // twice. That is the one place `row()` is the wrong answer,
+            // and it is a property of the CALL FORM — which is why these
+            // stay hand-written arms.
             kernels::attn::write_kv_to_pages_bf16_devwin(
                 kv_view, values.slot(ins[0]), values.slot(ins[1]),
                 c.qo_indptr, c.kv_page_indices, c.kv_page_indptr,
@@ -378,9 +424,39 @@ inline bool execute_shared(const ExecCtx& c,
             return true;
         }
         kernels::attn::write_kv_to_pages(
-            kv_view, values.slot(ins[0]), values.slot(ins[1]), c.qo_indptr,
+            kv_view, c.arm.row(ins[0]), c.arm.row(ins[1]), c.qo_indptr,
             c.kv_page_indices, c.kv_page_indptr, c.kv_last_page_lens, N,
             c.num_requests, stream, c.row_valid, /*first_token=*/0);
+        return true;
+    }
+
+    // ── the fused q/k norm + rotation ──────────────────────────────
+    //
+    // ONE stated symbol, two launchers, and the fork is the FIRE's: a
+    // hook peel's tail region carries a device word and the plain form
+    // does not. `WriteKvToPages` above is the same shape, and the reason
+    // this is shared rather than llama_like's is the same too — whether
+    // a fire has a peel is not a property of the model.
+    //
+    // A caller whose theta varies per layer keeps its own arm, by
+    // leaving `rope_theta` zero; see `Source::CtxNonZero`.
+    case Kernel::QkRmsnormRope: {
+        if (c.rope_theta == 0.f) return false;
+        need(outs, 2, "fused qk-norm+rope outputs");
+        need(aux, 2, "fused qk-norm+rope weights");
+        const void* const q_w = c.wb.require(plan.name(aux[0])).data();
+        const void* const k_w = c.wb.require(plan.name(aux[1])).data();
+        if (c.peel_window_d != nullptr && c.peel_tail) {
+            kernels::rope::qk_rmsnorm_rope_bf16_devwin(
+                values.slot(outs[0]), values.slot(outs[1]), q_w, k_w,
+                c.positions, c.peel_window_d, N, c.num_q_heads,
+                c.num_kv_heads, c.head_dim, c.rope_theta, c.eps, stream);
+            return true;
+        }
+        kernels::rope::qk_rmsnorm_rope_bf16(
+            c.arm.row(outs[0]), c.arm.row(outs[1]), q_w, k_w,
+            c.positions + c.arm.win_start, N, c.num_q_heads,
+            c.num_kv_heads, c.head_dim, c.rope_theta, c.eps, stream);
         return true;
     }
 
@@ -395,7 +471,7 @@ inline bool execute_shared(const ExecCtx& c,
         need(ins, 1, "all-reduce inputs");
         need(outs, 1, "all-reduce outputs");
         c.tp_comm->all_reduce_bf16_out(
-            values.slot(ins[0]), values.slot(outs[0]),
+            c.arm.row(ins[0]), c.arm.row(outs[0]),
             static_cast<std::size_t>(N) *
                 static_cast<std::size_t>(row_width(plan, outs[0])),
             ncclSum, stream);
@@ -454,13 +530,13 @@ inline bool execute_shared(const ExecCtx& c,
                 "with no cache slot");
         }
         kernels::attn::attention_flashinfer_prefill(
-            values.slot(ins[0]), c.cache.layer_view(c.kv_layer),
-            values.slot(outs[0]), c.qo_indptr, c.kv_page_indices,
+            c.arm.row(ins[0]), c.cache.layer_view(c.kv_layer),
+            c.arm.row(outs[0]), c.qo_indptr, c.kv_page_indices,
             c.kv_page_indptr, c.kv_last_page_lens, c.qo_indptr_h,
             c.kv_page_indptr_h, N, c.num_requests, c.num_q_heads,
             c.attn_ws.view(), stream, stated_window_left(plan, op),
             /*logits_soft_cap=*/0.f, c.sm_scale,
-            outs.size >= 2 ? static_cast<float*>(values.slot(outs[1]))
+            outs.size >= 2 ? static_cast<float*>(c.arm.row(outs[1]))
                            : c.lse_fallback);
         return true;
     }
@@ -488,7 +564,7 @@ inline bool execute_shared(const ExecCtx& c,
                              c.kv_page_indices, c.kv_page_indptr,
                              c.kv_last_page_lens, c.attn_ws.view(),
                              stated_window_left(plan, op), c.sm_scale,
-                             c.lse_fallback, c.attn_dst_fallback);
+                             c.lse_fallback, c.region_dst);
         return true;
     }
 
@@ -502,8 +578,8 @@ inline bool execute_shared(const ExecCtx& c,
         need(ins, 1, "prefill attention inputs");
         // The guard-region spelling again: the arms of a value-producing
         // guard record no result, so the destination is the guard's.
-        void* const dst = outs.size > 0 ? values.slot(outs[0])
-                                        : c.attn_dst_fallback;
+        void* const dst = outs.size > 0 ? c.arm.row(outs[0])
+                                        : c.region_dst;
         if (dst == nullptr) {
             throw std::runtime_error(
                 "declared arm: a prefill dispatch names no destination");
@@ -514,11 +590,11 @@ inline bool execute_shared(const ExecCtx& c,
         // the PLAN the prepare built, which is one more reason the plan
         // belongs to the family rather than to this call.
         kernels::attn::dispatch_attention_flashinfer_prefill_bf16(
-            *c.prefill_plan, values.slot(ins[0]), kv_view.k_bf16_pages,
+            *c.prefill_plan, c.arm.row(ins[0]), kv_view.k_bf16_pages,
             kv_view.v_bf16_pages, dst, c.qo_indptr, c.kv_page_indices,
             c.kv_page_indptr, c.kv_last_page_lens, c.attn_ws.view(), stream,
             /*logits_soft_cap=*/0.f, c.sm_scale,
-            outs.size >= 2 ? static_cast<float*>(values.slot(outs[1]))
+            outs.size >= 2 ? static_cast<float*>(c.arm.row(outs[1]))
                            : c.lse_fallback);
         return true;
     }

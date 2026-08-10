@@ -4,7 +4,7 @@
 //! [`KernelSig`], `whole`, `needs`, `lacks`, `sink` — are `kernels`'.
 
 use kernels::kernel;
-use kernels::{Cap, KernelSig, Prepare, operands};
+use kernels::{Cap, KernelSig, Prepare, Source, operands};
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
@@ -423,11 +423,19 @@ pub static KERNELS: &[KernelSig] = &[
     // Rescales the attention output IN PLACE against the per-head sink
     // logit; the LSE is read-only. gpt-oss's sink layers state it right
     // after the dispatch, so `attn.out` observes the RESCALED result.
+    // The LSE is the dispatch's second RESULT, which only a sink layer
+    // declares — so it is operand 1 here and traced, not a scratch the
+    // executor remembers handing the dispatch.
     kernel!(attention_sink_rescale "attn::attention_sink_rescale_bf16",
         in_place = &[(0, 0)],
         operands = operands![
-            o: BufMut, lse: F32s, sinks: Buf, N: I32, num_q_heads: I32,
-            head_dim: I32, stream: Stream,
+            o: BufMut <- Source::Out(0),
+            lse: F32s <- Source::In(1),
+            sinks: Buf <- Source::Weight(0),
+            N: I32 <- Source::Rows,
+            num_q_heads: I32 <- Source::Ctx("num_q_heads"),
+            head_dim: I32 <- Source::Ctx("head_dim"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(mtp_shift_hidden "attn::mtp_shift_hidden_bf16", whole = true,
         operands = operands![

@@ -47,6 +47,7 @@ pub mod bump;
 mod error;
 pub mod facts;
 pub mod loader;
+pub mod model;
 pub mod pipeline;
 pub mod region;
 pub mod shader;

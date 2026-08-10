@@ -1814,7 +1814,7 @@ void llama_like_forward_declared(
                 // it a plan here would silently take the ordinary case
                 // and leave the depth and mask forms unreachable.
                 /*decode_plan=*/nullptr, /*prefill_plan=*/nullptr,
-                /*attn_dst_fallback=*/nullptr,
+                /*region_dst=*/nullptr,
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(plan.weight_name(op))) {
@@ -1911,52 +1911,11 @@ void llama_like_forward_declared(
                     cfg.rope_theta, eps, stream);
                 break;
             }
-            case declared::Kernel::QkRmsnormRope: {
-                const auto aux = plan.aux_names(op);
-                if (aux.size != 2) {
-                    throw std::runtime_error(
-                        "declared forward: fused qk-norm+rope launch names "
-                        + std::to_string(aux.size) + " weights, wants 2");
-                }
-                const std::string_view q_name = plan.name(aux[0]);
-                const std::string_view k_name = plan.name(aux[1]);
-                const ParsedWeightName q_nm = parse_weight_name(q_name);
-                if (q_nm.field != "q_norm") throw_unknown_weight(q_name);
-                const auto& layer = layer_of(w, q_nm, q_name);
-                // ISLAND (value arena). Both buffers are the
-                // statement's, and the trace states the alias now -- the
-                // `kernel!` row's operands are `q: BufMut, k: BufMut`,
-                // which is the same fact said in the table.
-                void* const fq = values.slot(plan.outputs(op)[0],
-                                             plan.value(plan.outputs(op)[0]));
-                void* const fk = values.slot(plan.outputs(op)[1],
-                                             plan.value(plan.outputs(op)[1]));
-                // Windowed (A3): a Peel's tail region norms+ropes the
-                // hook-visible rows at their absolute offsets (the
-                // hand-written tail call); offset 0 + full length is
-                // the plain full-N form.
-                if (peel_window_d != nullptr &&
-                    win_region == WinRegion::Tail) {
-                    kernels::rope::qk_rmsnorm_rope_bf16_devwin(
-                        fq, fk,
-                        require(layer.q_norm, q_name)->data(),
-                        require(layer.k_norm, k_name)->data(),
-                        positions,
-                        peel_window_d, N,
-                        num_q_heads, num_kv_heads, d,
-                        cfg.rope_theta, eps, stream);
-                    break;
-                }
-                kernels::rope::qk_rmsnorm_rope_bf16(
-                    bf16_row(fq, win_start, out_w(0)),
-                    bf16_row(fk, win_start, out_w(1)),
-                    require(layer.q_norm, q_name)->data(),
-                    require(layer.k_norm, k_name)->data(),
-                    positions + win_start, win_len,
-                    num_q_heads, num_kv_heads, d,
-                    cfg.rope_theta, eps, stream);
-                break;
-            }
+            // The fused q/k norm + rotation is SHARED. One stated
+            // symbol, two launchers, and the fork is the FIRE's -- a
+            // peel's tail carries a device word and the plain form does
+            // not -- which is `WriteKvToPages`' shape exactly. The row
+            // window it applied by hand is `ArmCtx::row` now.
             case declared::Kernel::AttentionXqaDecodePrepared: {
                 resolve_masked_pages(/*takes_paged_decode=*/false);
                 auto kv_view = cache.layer_view(L);

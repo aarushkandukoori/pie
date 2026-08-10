@@ -479,7 +479,40 @@ pub enum Source {
     /// derived from dims the HOST knows, and the driver held a
     /// name-to-arithmetic table to get them back. The statement carries
     /// the number instead, in the bits the slot already has room for.
+    ///
+    /// WHAT IS STILL BLOCKED ON THIS, and it is one thing wearing three
+    /// hats. Every row below is fully derivable EXCEPT for a load-time
+    /// number the model-side FACTS do not carry:
+    ///
+    /// * gemma-4's per-layer rope theta (`rope_partial_bf16`,
+    ///   `qk_rmsnorm_rope_bf16_rounded`) — the driver reads it off the
+    ///   weights struct, which is loaded, not traced.
+    /// * gemma-4's per-layer PLE scalar
+    ///   (`rmsnorm_residual_add_scale_rmsnorm_bf16`) — the same.
+    /// * gpt-oss's five yarn constants (`rope_yarn_original_bf16`) — in
+    ///   the forward config, not in `GptOssFacts`.
+    ///
+    /// Each is one fixture field away, and the field is the work: a
+    /// declaration states what the deployment IS, so the number has to
+    /// be the deployment's real one. `dsl::cuda::rope_partial`'s note
+    /// says why inventing them is worse than a driver reading a config
+    /// value, and that judgment is what these rows are waiting on rather
+    /// than any missing vocabulary.
     ParamF32(u8),
+    /// The fire's POSITIONS, advanced to the rectangle's first row.
+    ///
+    /// `Ctx("positions")` would bind the fire's base, and a rectangle
+    /// that starts partway in would then rotate its own rows against
+    /// another rectangle's positions — the same defect `ArmCtx::row`
+    /// exists for, on the one fire input that is token-rowed. So it gets
+    /// the same treatment and its own source rather than a `Ctx` a
+    /// reader has to notice is special.
+    ///
+    /// The DEVICE-WINDOW call forms are the exception and they do not
+    /// use this: their kernel reads the split off a device word and
+    /// wants the fire's positions unadvanced. Those are hand-written
+    /// arms, which is where a per-call-form fact belongs.
+    Positions,
     /// The rectangle's row count.
     ///
     /// The fire's, and only right for a statement whose rows ARE the
@@ -487,6 +520,17 @@ pub enum Source {
     /// leading extent is the answer, [`Source::OutRows`] says so and
     /// covers this case too.
     Rows,
+    /// The `i`-th result if the statement declares one, and the
+    /// enclosing value-producing guard's value otherwise.
+    ///
+    /// A REGION LAUNCH declares no result: the guard owns the value and
+    /// its arms bind it, so which value that is depends on where the
+    /// statement sits rather than on what it says. qwen3.5's recurrence
+    /// three-way and gpt-oss's attention chain are the same shape, and
+    /// a row whose spellings appear both ways — the decode step states
+    /// its result, the prefill spellings do not — cannot say `Out` and
+    /// cannot say `Ctx`.
+    ResultOrRegion(u8),
     /// The `i`-th result's LEADING extent, resolved for this fire.
     ///
     /// `Rows` for a token-shaped value, a constant for a fixed one, and
