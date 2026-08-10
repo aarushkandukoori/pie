@@ -12,10 +12,12 @@ pub static KERNELS: &[KernelSig] = &[
             w: Buf <- kernels::Source::Weight(0),
             scales: Buf <- kernels::Source::Weight(1),
             biases: Buf <- kernels::Source::Weight(2),
-            // The token IDS: a fire value the text does not state and
-            // `Source` has no name for. Stated as a gap rather than omitted —
-            // a row is positional, so closing it would shift `out`.
-            id: I32s,
+            // The token IDS. A fire table the TEXT states — `dsl::metal`'s
+            // `fire_table` declares a value nothing produces, so the lowering
+            // hands it over as an `Arg::Named` and the driver's resolver
+            // answers it. The statement's first input, because that is where
+            // the statement puts it.
+            id: I32s <- kernels::Source::In(0),
             out: BufMut <- kernels::Source::Out(0),
             hidden: I32 <- kernels::Source::Param(0),
         ],
@@ -29,7 +31,7 @@ pub static KERNELS: &[KernelSig] = &[
             // The token IDS: a fire value the text does not state and
             // `Source` has no name for. Stated as a gap rather than omitted —
             // a row is positional, so closing it would shift `out`.
-            id: I32s,
+            id: I32s <- kernels::Source::In(0),
             out: BufMut <- kernels::Source::Out(0),
             hidden: I32 <- kernels::Source::Param(0),
         ],

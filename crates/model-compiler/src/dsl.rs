@@ -1676,13 +1676,16 @@ pub mod metal {
         } else {
             "embed_gather_4bit"
         };
+        // The IDS this gathers. A fire table, stated rather than left for the
+        // driver to know about: the row declares the slot and this fills it.
+        let ids = fire_table(t, Dim::Tokens, 1, DType::I32);
         record(
             t,
             None,
             &format!("{stem}{point}"),
             quant_table(weight, repr),
             None,
-            vec![],
+            vec![ids.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
         )
         .expect("embed produces the residual stream")
@@ -1703,6 +1706,31 @@ pub mod metal {
             Some(out),
         )
         .expect("a norm produces its value")
+    }
+
+    /// A table the FIRE supplies, not the trace.
+    ///
+    /// The token ids a gather reads, the positions a rope reads, the page CSR
+    /// an attention walks: values that exist per fire and that no statement
+    /// produces. A value nothing writes stays `Buffers::NAMED`, so the
+    /// lowering hands it over as an [`Arg::Named`] and the driver's resolver
+    /// answers it — which is what `Buffers::NAMED` has always been for.
+    ///
+    /// Stated by the TEXT rather than reached for by the driver. A kernel
+    /// wanting the positions and a driver that knew to bind them is the arm
+    /// this crate exists to remove; a statement that names them is the same
+    /// fact, in the one place a reader looks.
+    ///
+    /// [`Arg::Named`]: crate::lower::Arg::Named
+    pub fn fire_table(t: &Trace, rows: Dim, width: u32, dtype: DType) -> Val {
+        let id = t.with(None, |b| {
+            b.input(Shape(vec![rows, Dim::Const(width)]), dtype)
+        });
+        Val {
+            t: t.clone(),
+            id,
+            layer: None,
+        }
     }
 
     /// The tensors a quantized projection reads: the packed weight, then
@@ -1875,13 +1903,17 @@ pub mod metal {
         } else {
             "neox_decode_bfloat16"
         };
+        // The POSITIONS the rotation is about. A fire table, and the row names
+        // it `Source::Positions` — a vocabulary that has existed for exactly
+        // this and had nothing to bind.
+        let positions = fire_table(&x.t, Dim::Tokens, 1, DType::I32);
         record(
             &x.t,
             x.layer,
             kernel,
             vec![],
             None,
-            vec![x.id],
+            vec![x.id, positions.id],
             Some(same_shape(x)),
         )
         .expect("a rotation produces its value")
@@ -1968,13 +2000,43 @@ pub mod metal {
             format!("sdpa_vector_decode_bfloat16_d_{head_dim}")
         };
         let kernel = kernel.as_str();
+        // The paged form walks the FIRE's tables: which absolute position
+        // bounds each token's causality, which request owns it, the page CSR
+        // it reads through, and the mask with its stride and its enable.
+        //
+        // Six values no statement produces, and until they were stated the
+        // kernel read six slots nobody bound. The contiguous form needs none
+        // of them — its keys and values are one span — which is why the two
+        // states differ here rather than in the driver.
+        let mut inputs = vec![q.id];
+        if paged {
+            let t = &q.t;
+            // Every one is I32, and that is the trace's vocabulary rather
+            // than a claim about the buffers: `DType` has four members and
+            // none of them is `u32` or `u8`. What the row states is the
+            // kernel's reading (`U32s`, `U8s`); what the trace states is a
+            // four-byte index table, which is what sizes the value. The two
+            // disagree only for the mask, whose bytes the row reads narrower
+            // than the trace sizes them — safe in that direction, and worth
+            // knowing when `DType` grows.
+            for rows in [
+                Dim::Tokens,   // position_ids
+                Dim::Tokens,   // req_of_token
+                Dim::Tokens,   // kv_page_indices
+                Dim::Requests, // kv_page_indptr
+                Dim::Tokens,   // attention_mask
+                Dim::Tokens,   // attention_mask_enabled
+            ] {
+                inputs.push(fire_table(t, rows, 1, DType::I32).id);
+            }
+        }
         record(
             &q.t,
             Some(kv.l),
             kernel,
             vec![],
             kv_state(kv),
-            vec![q.id],
+            inputs,
             Some((Shape(vec![Dim::Tokens, Dim::Const(q_width)]), DType::BF16)),
         )
     }

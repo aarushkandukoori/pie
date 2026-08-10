@@ -84,12 +84,11 @@ pub static KERNELS: &[KernelSig] = &[
     // here, and no capture variant exists so neither can publish scores. The
     // declaration says so instead of a C++ throw discovering it.
     // Seventeen buffers, and the row is the only place they are written down.
-    // Six of them are the FIRE's tables — the positions, which request owns
-    // each token, the page CSR, the mask and its stride — and the vocabulary
-    // has a name for one of those (`Positions`) and none for the rest. They
-    // are stated as `Unbound` rather than omitted: a row is positional, so a
-    // missing entry shifts everything after it, and an honest gap is a gap
-    // whoever teaches the text to state its tables can fill in place.
+    // Six are the FIRE's tables — the positions, which request owns each
+    // token, the page CSR, the mask and its enable — and the text states them
+    // all now (`dsl::metal::sdpa`'s paged arm). `sinks` stays a gap: gpt-oss
+    // reads it and `llama_like` does not, so the row keeps the slot and no
+    // statement fills it until a text that has sinks does.
     kernel!(sdpa_paged_decode "sdpa_paged_decode", file = Some("attn/sdpa_paged.metal"),
     launch = kernels::LaunchRule::SdpaVector,
     operands = kernels::operands![
@@ -98,16 +97,16 @@ pub static KERNELS: &[KernelSig] = &[
         v_pages: Buf <- kernels::Source::KvValues,
         out: BufMut <- kernels::Source::Out(0),
         gqa_factor: I32 <- kernels::Source::Param(0),
-        position_ids: I32s <- kernels::Source::Positions,
-        req_of_token: I32s,
-        kv_page_indices: U32s,
-        kv_page_indptr: U32s,
+        position_ids: I32s <- kernels::Source::In(1),
+        req_of_token: I32s <- kernels::Source::In(2),
+        kv_page_indices: U32s <- kernels::Source::In(3),
+        kv_page_indptr: U32s <- kernels::Source::In(4),
         page_size: I32 <- kernels::Source::Param(1),
         n_kv_heads: I32 <- kernels::Source::Param(2),
         scale: F32 <- kernels::Source::ParamF32(3),
-        attention_mask: U8s,
-        attention_mask_stride: U32,
-        attention_mask_enabled: U8s,
+        attention_mask: U8s <- kernels::Source::In(5),
+        attention_mask_stride: U32 <- kernels::Source::Param(5),
+        attention_mask_enabled: U8s <- kernels::Source::In(6),
         window: I32 <- kernels::Source::Param(4),
         sinks: Buf,
     ],

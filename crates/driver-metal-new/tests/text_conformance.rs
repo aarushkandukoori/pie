@@ -476,3 +476,63 @@ fn a_row_that_states_its_operands_agrees_with_its_shader() {
         unstated.join("\n")
     );
 }
+
+/// **How many slots the statements actually fill.**
+///
+/// The rows say where every buffer goes; that is `a_row_that_states_its_
+/// operands_agrees_with_its_shader`, and it is at zero. This asks the other
+/// half: does the STATEMENT supply a value for each slot the row names?
+///
+/// A row's `Unbound` operand is a slot nobody fills, and a slot nobody fills
+/// is read anyway — on this backend, whatever the last dispatch left there. So
+/// this counts them, and the count is the last measurable distance between the
+/// executor and a fire worth checking against a checkpoint.
+#[test]
+fn every_slot_a_row_names_is_a_slot_a_statement_fills() {
+    let mut holes: Vec<String> = Vec::new();
+    for text in texts() {
+        for (_, low) in fires(&text) {
+            let mut seen = BTreeSet::new();
+            for symbol in &low.kernels {
+                if !seen.insert(symbol.clone()) {
+                    continue;
+                }
+                let Some(sig) = kernels::sig_in(kernels_metal::KERNELS, symbol) else {
+                    continue;
+                };
+                for (slot, o) in sig.operands.iter().enumerate() {
+                    if matches!(o.source, kernels::Source::Unbound) {
+                        holes.push(format!("  {symbol}: buffer {slot} (`{}`)", o.name));
+                    }
+                }
+            }
+        }
+    }
+    holes.sort();
+    holes.dedup();
+
+    eprintln!(
+        "{} slot(s) no statement fills:\n{}",
+        holes.len(),
+        holes.join("\n")
+    );
+    // EIGHT, measured 2026-08-10, and every one is named:
+    //
+    //   kv_append_paged: SEVEN buffers of a shared ring ABI the kernel
+    //     declares and does not read (4, 6-9, 11, 15). A row is positional so
+    //     they are listed; nothing fills them because nothing should.
+    //   sdpa_paged_decode: `sinks`, which gpt-oss reads and `llama_like` has
+    //     none of. The slot waits for a text that has them.
+    //
+    // So every remaining hole is DELIBERATE — a declared-but-unread ABI and a
+    // feature this family lacks — rather than a value the text forgot. That is
+    // a different thing from the fourteen this started at, and the number
+    // should be read as "slots waiting on another family", not as debt.
+    assert!(
+        holes.len() <= 8,
+        "{} slots no statement fills, which is more than the eight that are \
+         deliberate. A slot nobody fills is read anyway.\n{}",
+        holes.len(),
+        holes.join("\n")
+    );
+}
