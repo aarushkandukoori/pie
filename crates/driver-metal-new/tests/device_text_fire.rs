@@ -182,3 +182,54 @@ fn a_prefill_step_fires_too_so_both_lanes_reach_the_device() {
     )
     .expect("the batched lane fires too");
 }
+
+/// The paged KV pool, allocated at the fire's geometry.
+///
+/// `metal::stage_decode_storage` has allocated `KvSlots` since the port, but
+/// sized from `batch::DecodeGeometry` — a model definition inside the driver.
+/// This is the same allocation with its arguments taken from the frame.
+#[test]
+fn the_kv_pool_allocates_at_the_geometry_the_fire_states() {
+    use driver_metal_new::model::kv::{Pool, Shape, translate};
+
+    let Ok(context) = Context::new() else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+    let g = geometry();
+    let shape = Shape {
+        layers: 24,
+        kv_heads: g.kv_heads,
+        head_dim: g.head_dim,
+        page_size: 16,
+        pages: 64,
+        element_bytes: 2,
+    };
+    let pool = Pool::allocate(&context, shape).expect("the pool allocates");
+
+    assert_eq!(pool.pages(), 64);
+    assert_eq!(
+        pool.bytes(),
+        shape.layer_bytes() * 2 * 24,
+        "a K and a V region for every layer"
+    );
+    let layer = pool.layer(0).expect("layer 0 has pages");
+    assert_ne!(
+        layer.k.gpu_address(),
+        layer.v.gpu_address(),
+        "K and V must be distinct regions; one address would make the append \
+         to K overwrite V"
+    );
+    assert!(pool.layer(24).is_none(), "past the last layer there is none");
+
+    // And the frame's translation reads against it.
+    let table = [0u32, 1, 63];
+    assert_eq!(
+        translate(&pool, &table, &[0, 3], 0).expect("a lane's pages"),
+        &[0, 1, 63]
+    );
+    assert!(
+        translate(&pool, &[64], &[0, 1], 0).is_err(),
+        "a page past the pool addresses another layer's memory"
+    );
+}

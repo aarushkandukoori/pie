@@ -15,6 +15,8 @@
 //! * [`grid`] — the launch arithmetic itself, moved out of the retiring
 //!   `batch/dispatch.rs` because a kernel's thread-position contract is
 //!   backend knowledge that survives the DAG builder beside it.
+//! * [`kv`] — the paged KV pool, sized by the fire's geometry rather than by
+//!   a model. Apple-only.
 //! * [`load`] — the call that was missing between `loader/` and
 //!   `metal::stage_plan_weights`, producing what `resolve` reads. Apple-only.
 //! * [`resolve`] — the map from the names a text states to the tensors a
@@ -32,6 +34,8 @@ pub mod executor;
 pub mod frame;
 pub mod geometry;
 pub mod grid;
+#[cfg(target_vendor = "apple")]
+pub mod kv;
 #[cfg(target_vendor = "apple")]
 pub mod load;
 pub mod resolve;
