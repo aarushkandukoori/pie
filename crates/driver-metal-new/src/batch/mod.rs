@@ -12,40 +12,28 @@
 //! anything the kernel's own causal predicate does not already enforce.
 
 mod abi;
-mod admit;
-mod binds;
 mod color;
 mod consts;
-mod dataflow;
 mod dispatch;
 mod dispatch_mb;
 mod fire_csr;
-mod fit;
 mod geometry;
 mod geometry_facts;
-mod golden;
 mod heap_budget;
 mod logits;
-mod marshal;
-mod mask;
 mod member;
-mod paged_state;
 mod paging;
 mod psos;
 mod psos_mb;
 mod schedule;
 mod sequence;
 mod sizing;
-mod tickets;
 mod timing;
-mod worker;
 
 pub use abi::{
     ArgmaxParams, ForwardGraphKey, IO_SLOT_COUNT, IoSlot, Kernel, PAGE_BUCKET_GRAN, Region,
     SCRATCH_POOL,
 };
-pub use admit::{Refused, admit_recurrent};
-pub use binds::{WeightBind, layer_prefix, weight_binds};
 pub use color::{
     Coloring, ColoringError, ScheduleError, ScratchBind, ScratchSchedule, Use, color_live_ranges,
     schedule_scratch,
@@ -54,7 +42,6 @@ pub use consts::{
     ExpertCombineParams, GatedRmsParams, GdnCoreParams, KN, MoeRouteParams, RmsParams,
     RouterParams, gdn_core_params, is_qmv, is_routed, qmv_kn,
 };
-pub use dataflow::{build_scratch_schedule, build_scratch_uses};
 pub use dispatch::{
     DagOptions, Dispatch, Launch, attn_gate, barrier_after, build_decode_dag, concurrent_run_ends,
     embed, gated_rms, kv_append, q_split, qmv, residual, rms, rope, route_rows, route_sort,
@@ -66,15 +53,10 @@ pub use dispatch_mb::{
     mb_kind, qmm_bm, qmm_bm_slot, qmm_bn, qmm_bn_unsplit, qmm_mb_rows, qmm_t, qmv_mb, qmv_out_size,
     rms_mb, uses_alt_quant,
 };
-pub use fire_csr::{FireCsr, FireRefused};
-pub use fit::{Breakdown, COPY_WINDOW, Fit, Footprint, HOST_MARGIN, MachineFacts, Refusal, fits};
 pub use geometry::{AffineFormat, DecodeGeometry};
+pub use fire_csr::{FireCsr, FireRefused};
 pub use geometry_facts::{
     GeometryRefused, ROUTER_MAX_EXPERTS, ROUTER_MAX_TOP_K, geometry_from_facts,
-};
-pub use golden::{
-    Tap, TapSite, dir_from_env, dump_bf16, dump_bf16_sorted, dump_taps, dump_tokens,
-    sorted_dump_rows, tap_for, taps_recycle, write_npy,
 };
 pub use heap_budget::{
     MAX_RS_SLOTS, PAGED_MAX_FORWARD_TOKENS, PAGED_MIN_FORWARD_TOKENS, RS_SLOT_BUDGET_FLOOR,
@@ -83,15 +65,7 @@ pub use heap_budget::{
     stream_predicate,
 };
 pub use logits::{LengthMismatch, bf16_to_f32, widen, widen_into};
-pub use marshal::{
-    Admission, Fleet, MemberRejected, MemberRows, PoolFacts, RequestPlan, StepInputs, concat_fleet,
-    marshal_fleet, plan_member,
-};
-pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
-pub use paged_state::{
-    PagedRefused, RsBinding, commit_paged, rs_binding, validate_paged_continuation,
-};
 pub use paging::{
     Cut, IdsLayout, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging,
     renumber_routing,
@@ -114,8 +88,6 @@ pub use sizing::{
     ring_target_bytes, row_scaled_target_bytes, scratch_slot_elems, scratch_widest_elems,
     sorted_rows,
 };
-pub use tickets::{ChannelTicket, MemberChannels, TicketRefused, compose_tickets};
 pub use timing::{
     Ablation, BoundaryMismatch, DispatchAttribution, DispatchInfo, StepAttribution, attribute_step,
 };
-pub use worker::Worker;

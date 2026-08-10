@@ -29,10 +29,7 @@
 //! of a buffer sub-range that the launch path stores and binds.
 
 mod archive;
-mod bind;
-mod bind_mb;
 mod context;
-mod decoder;
 mod device;
 mod elastic;
 mod encoder;
@@ -51,23 +48,13 @@ mod pool;
 mod program;
 mod ring;
 mod runtime;
-mod step;
-mod step_mb;
 mod storage;
 mod tables;
 mod timestamp;
 mod timing;
 
 pub use archive::{Archives, CACHE_ENV, EXTENSION, MAX_AGE};
-pub use bind::{
-    ConstSlots, StepPsos, bind_decode_consts, bind_decode_dag, bind_scratch, bind_token_consts,
-    encode_decode_step,
-};
-pub use bind_mb::{
-    MbBindOffsets, bind_decode_dag_mb, bind_gdn_conv_parity, paged_attention_mask_pitch_bytes,
-};
 pub use context::{ALLOCATOR_COUNT, Context};
-pub use decoder::{Decoder, Lane};
 pub use device::DeviceInfo;
 pub use elastic::{
     Arena, Budget, CHUNK, Elastic, Need, PAGE, Pressure, TILE, create as create_elastic,
@@ -94,8 +81,6 @@ pub use ring::{Ring, allocate};
 pub use runtime::{
     MAX_FUSED_CHANNELS, MAX_REGIONS_PER_PROGRAM, MAX_REGIONS_PER_STAGE, ORDINAL_BASE, Runtime,
 };
-pub use step::{DecodeStep, load_step_psos};
-pub use step_mb::{MbPsos, MbStep, load_mb_psos, mb_pso};
 pub use storage::{
     DecodeStorage, GdnState, KvSlots, scratch_pool, stage_decode_storage, stage_plan_weights,
     write_fire_io,
