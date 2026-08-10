@@ -1195,18 +1195,31 @@ fn every_lowered_symbol_has_an_arm() {
         // tokens times k and no operand of either statement carries the
         // router's width. `Source::RoutesOfParam` reads that product.
         //
-        // What remains of the mixture is `build_moe_ptrs_aligned_bf16`,
-        // and it is a hand arm rather than a row's work: twenty operands
-        // including six pointer ARRAYS it fills, against
-        // `Dim::MoeAlignedRoutes` — the one extent in the tree that is
-        // neither the fire's rows nor a load-time number.
+        // `moe_grouped_gemm_bf16` has an arm now too, and writing it
+        // found the thing that reorders the rest of this work.
+        //
+        // The launcher opens `if (max_blocks <= 0 || !supported(M, N, K))
+        // return;` — it DECLINES by doing nothing. A3B's gate_up is
+        // exactly such a shape (`K = hidden = 2048`, and the kernel
+        // bounds `K <= 512` because past that cuBLAS wins), so an arm
+        // that merely called it would write nothing and the mixture would
+        // answer fluently out of an untouched buffer. The arm refuses
+        // with `ShapeDeclined` instead.
+        //
+        // Which means the two symbols were never independent. The C++
+        // path answers the same predicate with a batched cuBLAS over the
+        // pointer arrays `build_moe_ptrs_aligned_bf16` fills, so THAT is
+        // the keystone of the aligned path rather than its leftover, and
+        // it is what remains: twenty operands including six pointer
+        // ARRAYS it fills, against `Dim::MoeAlignedRoutes` — the one
+        // extent in the tree that is neither the fire's rows nor a
+        // load-time number.
         //
         // Note this is the path the LIVE L40S facts take for BOTH
         // classes: `moe_cutlass_max_rows = 0` sends decode down the
         // aligned body too, so arming these opens the mixture outright
         // rather than opening prefill only.
         "moe::build_moe_ptrs_aligned_bf16",
-        "moe::moe_grouped_gemm_bf16",
     ];
 
     // Compared as SETS: the list above is grouped by subsystem because

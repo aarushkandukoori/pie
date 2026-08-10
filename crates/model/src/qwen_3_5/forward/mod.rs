@@ -209,6 +209,8 @@ fn moe_mlp_body_aligned_cuda(
         aligned,
         2 * facts.moe_intermediate,
         &w.expert_gate_up.name,
+        MOE_ALIGNED_BLOCK,
+        MOE_MAX_BLOCKS,
     );
     let act =
         dsl::cuda::swiglu_aligned(&gate_up, &act_stage, aligned, facts.moe_intermediate);
@@ -219,6 +221,8 @@ fn moe_mlp_body_aligned_cuda(
         aligned,
         facts.hidden,
         &w.expert_down.name,
+        MOE_ALIGNED_BLOCK,
+        MOE_MAX_BLOCKS,
     );
 
     let route_out =

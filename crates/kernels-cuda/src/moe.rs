@@ -23,11 +23,15 @@ pub static KERNELS: &[KernelSig] = &[
             weight_base: Buf <- Source::Weight(0),
             c: BufMut <- Source::Out(0),
             expert_ids: I32s <- Source::In(1),
-            max_blocks: I32,
-            m: I32,
-            n: I32,
-            k: I32,
-            stream: Stream,
+            // The two block numbers come off the param channel because
+            // the operands carry only their PRODUCT — the aligned
+            // rectangle's leading extent. `n` and `k` need no help: they
+            // are the result's and the operand's own row widths.
+            max_blocks: I32 <- Source::Param(1),
+            m: I32 <- Source::Param(0),
+            n: I32 <- Source::OutWidth(0),
+            k: I32 <- Source::InWidth(0),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // `topk_idx` here is `[N, K]` in TOKEN order, not the route-major order
     // the aligned path sorts into, so a row window keeps each token's routing

@@ -348,6 +348,10 @@
           "kernel": "moe::moe_grouped_gemm_bf16",
           "weights": [
             "layer.0.expert.{e}.gate_up"
+          ],
+          "params": [
+            16,
+            1024
           ]
         }
       },
@@ -382,6 +386,10 @@
           "kernel": "moe::moe_grouped_gemm_bf16",
           "weights": [
             "layer.0.expert.{e}.down"
+          ],
+          "params": [
+            16,
+            1024
           ]
         }
       },

@@ -3208,6 +3208,13 @@ pub mod cuda {
     /// spells it with and the binding resolves to the whole bank. Without
     /// this the statement said "a grouped GEMM" and left which weights
     /// entirely to the executor -- readable, but not a declaration.
+    /// The two block numbers ride the PARAM channel, for the reason
+    /// [`gather_moe_aligned_inputs`]'s `top_k` does: the kernel takes
+    /// `max_blocks` and the per-block row count `m`, and the statement's
+    /// operands carry only their PRODUCT — the aligned rectangle's
+    /// leading extent. `n` and `k` are the result's and the operand's row
+    /// widths and need no help; these two do. Same numbers
+    /// [`moe_align`] already states, and it is the same permutation.
     pub fn moe_grouped_gemm(
         act: &Val,
         expert_ids: &Val,
@@ -3215,13 +3222,16 @@ pub mod cuda {
         aligned: Dim,
         width: u32,
         bank: &str,
+        block_size: u32,
+        max_blocks: u32,
     ) -> Val {
-        record(
+        record_with_params(
             &act.t,
             act.layer,
             "moe::moe_grouped_gemm_bf16",
             vec![bank.to_string()],
             None,
+            vec![block_size, max_blocks],
             // The second operand is the ALIGN's per-block expert id --
             // what the kernel indexes the bank by. It used to be the
             // sorted route order, which the kernel never reads: the
