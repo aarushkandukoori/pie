@@ -466,6 +466,14 @@ jobs:
       - name: cargo test (driver-metal-new)
         run: cargo test -p driver-metal-new
 
+      # The name gate needs no GPU and no weights — `compile_load_plan` reads
+      # a snapshot's metadata and publishes every tensor the load WILL stage.
+      # An index and a config are a few hundred kilobytes, so this is the one
+      # checkpoint-shaped check a runner can actually do. It states that it
+      # skipped when `PIE_METAL_NAMES_SNAPSHOT` is unset.
+      - name: cargo test (metal name gate)
+        run: cargo test -p driver-metal-new --test device_checkpoint_names
+
       - name: cargo build (driver-metal)
         run: cargo build -p worker --no-default-features --features driver-metal
 
