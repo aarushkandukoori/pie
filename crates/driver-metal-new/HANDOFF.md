@@ -233,7 +233,7 @@ attribution. `BatchStepInputs` is its marshaling container.
 | `compose.cpp` rest (`LaunchMember`, `LaunchJobData`, tickets, ~90) | `PARITY-BATCH.md` — with the worker port |
 | `expert_paging.hpp` (195) | `PARITY-BATCH.md` — `fire` needs `ExpertSlab` |
 | `load_multibatch_psos` / `MultiBatchPsos` | `PARITY-BATCH.md` — qmm tile grammar + tuning constants |
-| `KvPagePool` (SlotHandles + counters) | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
+| `KvPagePool` (SlotHandles + counters), and the control ops' moving half | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
 | ~~the oracle harness~~ | **done** — `tests/oracle_interp.rs` (CPU, pins `pipeline::step` bit-for-bit against `tensor_compiler::eval::interp`) and `tests/device_oracle.rs` (device, real emitted MSL). Gate item 4's tolerance is now measured: one ulp, spent only on transcendentals (`PARITY-INTERP.md`) |
 | registry (`registry.cpp` 452 + `descriptor_resolve.hpp` 400), ring registry, `copy_kv`/`copy_state`/`resize_pool`, `store/`+`model/` glue (~375) | `CUTOVER.md` prerequisites |
 

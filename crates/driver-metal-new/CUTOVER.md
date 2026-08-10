@@ -43,7 +43,7 @@ the twelve entry points need beyond it, and where each lands:
 | `load_model` | weight loading and staging | `loader/` (~3.2k) |
 | `register_program` / `bind_instance` | program/instance registry | **already ported** — `registry.cpp` is `pipeline/registry.rs` and `descriptor_resolve.hpp` is `pipeline/resolve.rs`, ledgered in `PARITY-REGISTRY.md`. One entry outstanding: `translate_kv_pages`, which is frame bookkeeping and belongs to `forward.cpp` |
 | `register_channel` / `close_channel` | ring registry over [`Ring`] | small; `Ring` exists, the registry is bookkeeping |
-| `copy_kv` / `copy_state` / `resize_pool` | K/V plumbing over `Elastic` | with `batch/` |
+| `copy_kv` / `copy_state` / `resize_pool` | K/V plumbing over `Elastic` | deciding half done (`src/store/control.rs`); the moving half with the Metal KV pool |
 | (verification, not serving) | the CPU reference interpreter | **already ported** — `interp.hpp` (1.7k) is `src/pipeline/`, ledgered in `PARITY-INTERP.md`. What is missing is the harness that diffs it against the device, not the interpreter |
 | `store/`, `model/` | small glue | ~375 |
 
@@ -74,7 +74,7 @@ The flip is authorised when all of the following hold, and not before:
    | `register_program`, `register_channel`, `bind_instance`, `close_instance`, `close_channel` | `pipeline::Registry` (`PARITY-REGISTRY.md`) |
    | `encode` | both sides refuse; Metal media encode is unsupported |
    | `load_model` | `loader/` (portable done; staging arms deferred) |
-   | `copy_kv` / `copy_state` / `resize_pool` | **missing** — ledgered with `batch/` |
+   | `copy_kv` / `copy_state` / `resize_pool` | deciding half **done** (`store::plan_kv_copy` etc., `PARITY-STORE.md`); the moving half needs the Metal KV pool |
    | `launch` | **missing** — see below |
 
    `launch` is the one that decides the item. It takes a `FrameSubmission`:
