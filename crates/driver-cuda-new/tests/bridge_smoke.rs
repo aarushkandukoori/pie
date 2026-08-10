@@ -1062,7 +1062,52 @@ fn zero_weight_decode(leg: Leg) {
             (ran, scope.end().expect("end capture"))
         };
         let exec = graph.instantiate().expect("instantiate");
-        exec.launch(stream.as_ref()).expect("replay");
+
+        // ── A5 AT WIDTH: one exec, two structurally distinct programs ──
+        //
+        // This is the claim the whole workstream exists to make. The same
+        // instantiated graph is launched twice; the ONLY thing that
+        // changes between them is one byte of the device predicate word,
+        // and that byte selects a different KV-write program — the
+        // explicit descriptor form on one launch and the CSR-derived form
+        // on the other. Different launches, different kernels, one exec.
+        //
+        // They must agree. Both write the same cells to the same pages, so
+        // the logits that come back are the test: if the conditional were
+        // not selecting, or were selecting the wrong body, or the union
+        // had folded two programs that are not equivalent, these two byte
+        // arrays would differ.
+        //
+        // The non-zero check is what keeps the equality from being
+        // vacuous — two empty buffers also match.
+        let lv = logits_value.expect("the last launch writes a named pin");
+        let mut lanes: Vec<Vec<u8>> = Vec::new();
+        for has_write_desc in [false, true] {
+            arena.memset(0, stream.as_ref()).expect("wipe between lanes");
+            preds
+                .set(driver_cuda_new::cuda::SLOT_HAS_WRITE_DESC, has_write_desc)
+                .expect("slot");
+            preds.upload(stream.as_ref()).expect("upload");
+            stream.as_ref().synchronize().expect("the word lands");
+            exec.launch(stream.as_ref()).expect("replay");
+            stream.as_ref().synchronize().expect("the replay retires");
+            let mut back = vec![0u8; named_bufs[&lv].len()];
+            named_bufs[&lv]
+                .copy_to_host(&mut back, stream.as_ref())
+                .expect("d2h logits");
+            stream.as_ref().synchronize().expect("sync");
+            lanes.push(back);
+        }
+        assert!(
+            lanes[0].iter().any(|&b| b != 0),
+            "the lanes agree only because both are empty"
+        );
+        assert_eq!(
+            lanes[0], lanes[1],
+            "ONE exec produced different logits for two structurally \
+             distinct programs — the union folded something it should not \
+             have, or the conditional is not selecting"
+        );
         ran
     } else {
         run(&l, &dplan, frame, &mut resolver, &ctx, regions, None)
