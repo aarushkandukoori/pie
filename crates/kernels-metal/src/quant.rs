@@ -70,9 +70,36 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(qmm_t_strided_residual "affine_qmm_t_strided_residual",
         axes = &[BF16, GROUP, BITS, TILE_M, TILE_N_32]),
     // 6 in quantized_qmv.metal
-    kernel!(qmv_fast "affine_qmv_fast", file = Some("quant/qmv.metal"), launch = kernels::LaunchRule::Qmv, axes = &[BF16, GROUP, BITS]),
+    // The loudest misbinding, and the reason the rows grew operands at all:
+    // this declares its WEIGHTS FIRST and the trace states them last, so
+    // positional binding put the activation where the packed weight belongs.
+    // Every projection of every layer.
+    kernel!(qmv_fast "affine_qmv_fast", file = Some("quant/qmv.metal"), launch = kernels::LaunchRule::Qmv,
+        operands = kernels::operands![
+            w: Buf <- kernels::Source::Weight(0),
+            scales: Buf <- kernels::Source::Weight(1),
+            biases: Buf <- kernels::Source::Weight(2),
+            x: Buf <- kernels::Source::In(0),
+            y: BufMut <- kernels::Source::Out(0),
+            in_vec_size: I32 <- kernels::Source::Param(0),
+            out_vec_size: I32 <- kernels::Source::Param(1),
+        ],
+        axes = &[BF16, GROUP, BITS]),
     // 6 in quantized_qmv.metal
-    kernel!(qmv_fast_residual "affine_qmv_fast_residual", file = Some("quant/qmv.metal"), launch = kernels::LaunchRule::Qmv, axes = &[BF16, GROUP, BITS]),
+    // The same, plus the block residual its epilogue folds — which the trace
+    // states as a second INPUT and the kernel takes at the very end.
+    kernel!(qmv_fast_residual "affine_qmv_fast_residual", file = Some("quant/qmv.metal"), launch = kernels::LaunchRule::Qmv,
+        operands = kernels::operands![
+            w: Buf <- kernels::Source::Weight(0),
+            scales: Buf <- kernels::Source::Weight(1),
+            biases: Buf <- kernels::Source::Weight(2),
+            x: Buf <- kernels::Source::In(0),
+            y: BufMut <- kernels::Source::Out(0),
+            in_vec_size: I32 <- kernels::Source::Param(0),
+            out_vec_size: I32 <- kernels::Source::Param(1),
+            residual: Buf <- kernels::Source::In(1),
+        ],
+        axes = &[BF16, GROUP, BITS]),
     // 2 in quantized_qmv.metal
     kernel!(qmv_tail "affine_qmv_tail", axes = &[BF16, GROUP_64, BITS]),
     // 2 in quantized_qmv.metal

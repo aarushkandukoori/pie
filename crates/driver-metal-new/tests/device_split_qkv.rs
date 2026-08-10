@@ -70,6 +70,8 @@ fn the_split_puts_every_channel_where_its_width_says() {
             bound(v.gpu_address()),
         ],
         params: &params,
+        // The row places its params at buffer 4, after the four operands.
+        param_slots: vec![(4, 0)],
         layers: 0..1,
         op: 0,
     };

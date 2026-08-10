@@ -51,7 +51,14 @@ pub fn table_width(dispatches: &[Dispatch<'_>]) -> usize {
         // One slot per operand, and ONE more for the packed params — the
         // scalars ride as a single struct, which is what every shader in the
         // tree takes (`constant RouterParams&` and its siblings).
-        .map(|d| d.args.len() + usize::from(!d.params.is_empty()))
+        .map(|d| {
+            let params = if d.params.is_empty() {
+                0
+            } else {
+                d.param_slots.iter().map(|(s, _)| s + 1).max().unwrap_or(0)
+            };
+            d.args.len().max(params)
+        })
         .max()
         .unwrap_or(1)
         .max(1)

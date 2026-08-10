@@ -212,8 +212,11 @@ pub fn encode_one(
     for (slot, arg) in dispatch.args.iter().enumerate() {
         table.bind_address(slot, arg.slice.address)?;
     }
-    // The scalars follow the operands, as ONE binding at the next slot,
-    // pointing at the run staged for this dispatch.
+    // The scalars, at the slots the ROW placed them. Scalar `i` binds at
+    // `base + i * 4`, which serves both spellings in the tree: a packed
+    // `constant RouterParams&` is the address of its first field, and a
+    // separate `const constant int&` is the address of that scalar. A row
+    // stating one `Param(0)` describes both at once.
     //
     // One slot and not one each, because that is what the shader tree already
     // does: `moe/route.metal` takes `constant RouterParams&`, `norm/rms.metal`
@@ -235,7 +238,9 @@ pub fn encode_one(
                 dispatch.params.len()
             ),
         })?;
-        table.bind_address(dispatch.args.len(), base)?;
+        for &(slot, which) in &dispatch.param_slots {
+            table.bind_address(slot, base + u64::from(which) * size_of::<u32>() as u64)?;
+        }
     }
     encoder.set_argument_table(table);
     encoder.dispatch(

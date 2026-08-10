@@ -344,34 +344,42 @@ fn first_writable(root: &std::path::Path, file: &str, stem: &str) -> Option<usiz
     best
 }
 
-/// The gap between what a text STATES and what its kernels TAKE.
+/// **The operand order, and the rows that have not stated one.**
 ///
-/// **This is a measurement, not a pass/fail**, and the number it prints is the
-/// distance between "the fire executes" and "the fire is right".
-/// `tests/device_text_fire.rs` proves the first: every launch compiles, every
-/// grid is legal, the command buffer completes. It cannot prove the second,
-/// and this says why in one number.
+/// `model::executor` used to bind "operands in the trace's stated order" —
+/// inputs, then outputs, then weights, at buffers `0..n`. That is the
+/// COMPILER's convention and it is not the kernels'. `affine_qmv_fast`
+/// declares `w, scales, biases, x, y`: weights first. So the activation bound
+/// where the packed weight belongs, and every operand after it was one slot
+/// further wrong — on all nine of `llama_like`'s statements, which is every
+/// one whose shader could be found.
 ///
-/// A kernel whose statement binds fewer buffers than it declares reads the
-/// slots nobody bound — which on this backend is whatever the last dispatch
-/// left there. It does not fault and it does not report. It answers.
+/// The fix is the field the CUDA table has always filled and no Metal row did:
+/// [`KernelSig::operands`], each carrying a [`Source`] that says where its
+/// value comes from. `dispatch::reorder` binds BY that when a row states it.
 ///
-/// The known gaps are listed rather than tolerated silently, exactly as the
-/// `split_qkv` row was before it closed. **Shrinking this list is the work
-/// between here and token-exactness.**
+/// So the number to shrink is **rows the text names that state no operands**.
+/// Each is a launch still bound positionally, which is right by accident or
+/// not at all.
+///
+/// And for the rows that DO state them, this checks the statement against the
+/// shader: same buffer count, and the writable buffer in the same place. A row
+/// that describes a kernel it does not match is worse than one that describes
+/// nothing, because the executor believes it.
 #[test]
-fn the_distance_between_a_fire_that_runs_and_a_fire_that_is_right() {
+fn a_row_that_states_its_operands_agrees_with_its_shader() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("crates/")
         .join("kernels-metal/kernels");
 
-    let mut short: Vec<String> = Vec::new();
+    let mut unstated: Vec<String> = Vec::new();
+    let mut disagrees: Vec<String> = Vec::new();
+
     for text in texts() {
         for (_, low) in fires(&text) {
             let mut seen = BTreeSet::new();
-            for launch in &low.launches {
-                let symbol = &low.kernels[launch.kernel as usize];
+            for symbol in &low.kernels {
                 if !seen.insert(symbol.clone()) {
                     continue;
                 }
@@ -379,151 +387,63 @@ fn the_distance_between_a_fire_that_runs_and_a_fire_that_is_right() {
                     continue;
                 };
                 let Some(file) = sig.file else { continue };
-                let Some(declared) = declared_buffers(&root, file, sig.symbol) else {
-                    continue;
-                };
-                let stated = (launch.args.end - launch.args.start) as usize
-                    + usize::from(launch.params.end > launch.params.start);
-                if stated < declared {
-                    short.push(format!("  {symbol}: states {stated}, takes {declared}"));
-                }
-            }
-        }
-    }
-    short.sort();
-    short.dedup();
-
-    // Pinned, so the number moves only when someone means it to. Every entry
-    // is a kernel reading buffers nobody bound.
-    eprintln!(
-        "{} statement(s) bind fewer buffers than their kernel declares:\n{}",
-        short.len(),
-        short.join("\n")
-    );
-    // NINE, measured 2026-08-10, and every one is a real hole:
-    //
-    //   sdpa_paged_decode   states  2, takes 17
-    //   sdpa_vector_decode  states  2, takes 11
-    //   kv_append_paged     states  2, takes 10
-    //   kv_append           states  2, takes  8
-    //   affine_qmv_fast     states  5, takes  7
-    //   ...
-    //
-    // The attention pair is the loud case and the shape of the problem: the
-    // statement gives the query and the output, and the kernel wants the keys,
-    // the values, six strides, a scale, a window and two row pitches. Those
-    // are the KV cache and the geometry — things the trace knows as `Kv` state
-    // and the fire's shape, and that `dsl::metal::sdpa` does not yet spell as
-    // operands.
-    //
-    // So this number is the honest distance between `device_text_fire.rs`
-    // (every launch compiles, every grid is legal, the command buffer
-    // completes) and a model that answers. **Shrinking it is the work between
-    // here and token-exactness**, and it may only shrink.
-    assert!(
-        short.len() <= 9,
-        "the gap GREW to {}. Every entry is a kernel reading whatever the last \
-         dispatch left in the slots nobody bound — it does not fault, it does \
-         not report, it answers.\n{}",
-        short.len(),
-        short.join("\n")
-    );
-}
-
-/// **The operand ORDER, which is worse than the arity.**
-///
-/// `model::executor` binds "operands in the trace's stated order" — inputs,
-/// then outputs, then weights — at buffers `0..n`. That is the compiler's
-/// convention. It is not the kernels'.
-///
-/// `affine_qmv_fast` declares `w, scales, biases, x, y, in_vec, out_vec`:
-/// **weights first**. The trace states `x, y, w, scales, zeros`. So the
-/// activation binds where the packed weight belongs, and every operand after
-/// it is one slot further wrong.
-///
-/// This is detectable without a table because a `device T*` with no `const` is
-/// an output: the index of the first writable buffer is where the kernel wants
-/// its first output, and the trace's first output sits right after its inputs.
-/// When the two disagree, the launch is misbound whole.
-///
-/// # The fix, stated where it will be looked for
-///
-/// `KernelSig::operands` — the field the CUDA table fills and no Metal row
-/// does. A row that states its buffer order lets the executor bind BY that
-/// order instead of positionally, which is the same move `file` and `launch`
-/// already made: the contract lives on the row, and the driver reads it.
-///
-/// Until then this is a measurement, pinned so it can only shrink.
-#[test]
-fn the_trace_order_and_the_kernel_order_are_not_the_same_order() {
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crates/")
-        .join("kernels-metal/kernels");
-
-    let mut misbound: Vec<String> = Vec::new();
-    for text in texts() {
-        for (_, low) in fires(&text) {
-            let mut seen = BTreeSet::new();
-            for launch in &low.launches {
-                let symbol = &low.kernels[launch.kernel as usize];
-                if !seen.insert(symbol.clone()) {
+                if sig.operands.is_empty() {
+                    unstated.push(format!("  {symbol}"));
                     continue;
                 }
-                let Some(sig) = kernels::sig_in(kernels_metal::KERNELS, symbol) else {
-                    continue;
-                };
-                let Some(file) = sig.file else { continue };
-                let Some(wants) = first_writable(&root, file, sig.symbol) else {
-                    continue;
-                };
-                // Where the trace puts its first output: after the inputs, and
-                // an input is any operand before the last widthed one. The
-                // binder's own sizing rule says the LAST widthed operand is
-                // the output, so everything widthed before it is an input.
-                let args = &low.args[launch.args.start as usize..launch.args.end as usize];
-                let widthed: Vec<usize> = args
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, a)| !matches!(a, Arg::Weight(_)))
-                    .map(|(i, _)| i)
-                    .collect();
-                let Some(&states) = widthed.last() else {
-                    continue;
-                };
-                if states != wants {
-                    misbound.push(format!(
-                        "  {symbol}: kernel writes buffer {wants}, trace puts its \
-                         output at {states}"
+                if let Some(buffers) = declared_buffers(&root, file, sig.symbol)
+                    && buffers != sig.operands.len()
+                {
+                    disagrees.push(format!(
+                        "  {symbol}: row states {} operands, shader declares {buffers} buffers",
+                        sig.operands.len()
                     ));
                 }
+                if let Some(writes) = first_writable(&root, file, sig.symbol) {
+                    let row_writes = sig
+                        .operands
+                        .iter()
+                        .position(|o| matches!(o.source, kernels::Source::Out(_)));
+                    if row_writes != Some(writes) {
+                        disagrees.push(format!(
+                            "  {symbol}: shader writes buffer {writes}, row puts its \
+                             output at {row_writes:?}"
+                        ));
+                    }
+                }
             }
         }
     }
-    misbound.sort();
-    misbound.dedup();
+    unstated.sort();
+    unstated.dedup();
+    disagrees.sort();
+    disagrees.dedup();
+
+    assert!(
+        disagrees.is_empty(),
+        "a row describes a kernel it does not match, and the executor believes \
+         it:\n{}",
+        disagrees.join("\n")
+    );
 
     eprintln!(
-        "{} statement(s) bind every operand at the wrong slot:\n{}",
-        misbound.len(),
-        misbound.join("\n")
+        "{} symbol(s) still bound positionally:\n{}",
+        unstated.len(),
+        unstated.join("\n")
     );
-    // NINE, measured 2026-08-10 — which is EVERY statement whose shader could
-    // be found. Not a few awkward kernels: the two orders simply are not the
-    // same order, and nothing had ever compared them.
+    // TEN, measured 2026-08-10, down from fourteen. Four rows state their
+    // operands now — `rms_single_row`, `silu_mul`, `split_qkv_bf16` and the
+    // two projections, which were the loud case: `affine_qmv_fast` declares
+    // its weights FIRST and the trace states them last, so every projection
+    // of every layer bound its activation where the packed weight belongs.
     //
-    //   affine_qmv_fast   kernel writes buffer 4, trace states its output at 1
-    //   embed_gather_4bit kernel writes buffer 4, trace states its output at 0
-    //   rms_single_row    kernel writes buffer 2, trace states its output at 1
-    //
-    // So `device_text_fire.rs` fires 367 launches of which not one binds its
-    // operands where its kernel reads them. It completes because Metal does
-    // not validate a binding, and the answer is whatever the arena held.
+    // **Every remaining entry is a launch whose operands are at the wrong
+    // buffers**, and this may only shrink.
     assert!(
-        misbound.len() <= 9,
-        "the misbinding GREW to {}. Each is a launch whose every operand is at \
-         the wrong buffer, which no hardware reports.\n{}",
-        misbound.len(),
-        misbound.join("\n")
+        unstated.len() <= 10,
+        "the backlog GREW to {}. A row with no operands is bound positionally, \
+         and the trace's order is not the kernel's.\n{}",
+        unstated.len(),
+        unstated.join("\n")
     );
 }
