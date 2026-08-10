@@ -41,7 +41,20 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(embed_gather_scaled_mb_4bit "embed_gather_scaled_mb_4bit",
         axes = &[BF16, GROUP, BITS]),
     // 1 in ple_combine.metal
-    kernel!(ple_combine "ple_combine", axes = &[BF16]),
+    // gemma's PLE join: `(proj + token) * inv_sqrt2`, over the whole
+    // `[n_layers, ple_dim]` block at once. The scale is `1/sqrt(2)` and it is
+    // the JOIN's, not a deployment's -- two streams averaged in the
+    // root-mean-square sense.
+    kernel!(ple_combine "ple_combine", file = Some("layout/ple_combine.metal"),
+        launch = kernels::LaunchRule::Elementwise,
+        operands = kernels::operands![
+            proj: Buf <- kernels::Source::In(0),
+            token: Buf <- kernels::Source::In(1),
+            out: BufMut <- kernels::Source::Out(0),
+            // `PleCombineParams`: inv_sqrt2 then n, packed.
+            params: Buf <- kernels::Source::Param(0),
+        ],
+        axes = &[BF16]),
     // 1 in row_gather.metal
     // The readout's gather. A prefill's stream is one row per TOKEN and its
     // readout is one distribution per REQUEST, so the sampled rows have to be
