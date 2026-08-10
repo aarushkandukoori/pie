@@ -69,6 +69,42 @@
 //! Gated on `PIE_METAL_SMOKE_CHECKPOINT`, the same variable the other
 //! checkpoint tests take. Run against
 //! `mlx-community/Llama-3.2-1B-Instruct-4bit`.
+//!
+//! # gpt-oss-20b: it loads now, and it NaNs
+//!
+//! Measured 2026-08-10 against `mlx-community/gpt-oss-20b-MXFP4-Q4`, which
+//! became runnable here the day `stage_plan_weights` stopped holding the
+//! model twice (12.1 GB peak; the old path wanted about twice that and this
+//! machine has 32 GB).
+//!
+//! `a_real_checkpoints_weights_produce_finite_varied_activations` **fails**
+//! on it: 909,207 NaNs. That is the first numeric result gpt-oss has ever
+//! produced here -- every prior gate was structural (names resolve, the fire
+//! encodes, the launches are legal grids), and all of those still pass.
+//!
+//! What the bisection says, which is where anyone picking this up should
+//! start: **layer 0 is entirely finite and plausible.** Twelve statements,
+//! every one writing both rows, magnitudes from 2.5 to 36, the KV pool
+//! holding real keys and values --
+//!
+//! ```text
+//! [ 8] sdpa_paged_decode_sink_bfloat16_d_64   max|v| 10.25
+//! [ 9] affine_qmv_fast_residual_...           max|v| 31.25
+//! [10] rms_single_row_bfloat16                max|v|  2.51
+//! [11] affine_qmv_fast_...  (the router)      max|v|  3.90
+//! ```
+//!
+//! So the attention half is right, the sink kernel runs, and the router is
+//! handed a sane activation. The NaN is downstream of statement 11 -- in the
+//! six-statement routed FFN (`route_sort`, `route_gather`, two
+//! `routed_qmv`, the clamped `swiglu`, `combine_sorted`) or in what a later
+//! layer does with its output.
+//!
+//! Two candidates worth checking first, in order: the SwiGLU's `limit` and
+//! `alpha` (gpt-oss clamps the gate above, clamps the linear branch both ways
+//! and adds one to it -- a wrong bound there is an overflow, not a rounding
+//! error), and the expert bank's row count after the sort pads each group up
+//! to a tile.
 
 #![cfg(target_vendor = "apple")]
 
