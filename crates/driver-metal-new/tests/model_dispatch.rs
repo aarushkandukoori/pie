@@ -165,7 +165,8 @@ fn the_only_symbol_the_walk_refuses_is_the_one_with_no_row() {
                 Undispatchable::NoRow { symbol, .. }
                 | Undispatchable::NoFile { symbol, .. }
                 | Undispatchable::Ungeometric { symbol, .. }
-                | Undispatchable::Unbound { symbol, .. } => symbol,
+                | Undispatchable::Unbound { symbol, .. }
+                | Undispatchable::Conditional { symbol, .. } => symbol,
             });
         }
     }

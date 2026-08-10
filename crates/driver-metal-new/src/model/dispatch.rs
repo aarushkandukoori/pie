@@ -128,6 +128,26 @@ pub enum Undispatchable {
         /// Which refusal the rule made.
         why: Ungeometric,
     },
+    /// The rectangle sits under a conditional region, so whether it runs is a
+    /// question this walk cannot answer.
+    ///
+    /// `GuardMode::Union` keeps every arm and tags it, for a backend that can
+    /// turn the tree back into conditional graph nodes. **Metal has no such
+    /// API**: `Stepper` re-encodes every step, so the merged rectangle list IS
+    /// the encode loop and `GuardMode::Resolve` is the mode that fits — the
+    /// guards are answered before a rectangle exists.
+    ///
+    /// Reaching here means a fire was lowered in `Union` mode and handed to
+    /// this walk, which would encode **every arm of every guard
+    /// unconditionally**. That is not a slower answer, it is a different one.
+    Conditional {
+        /// The symbol whose rectangle is conditional.
+        symbol: String,
+        /// The traced op that named it.
+        op: u32,
+        /// Which region of [`Lowered::conds`] it sits under.
+        cond: u32,
+    },
 }
 
 /// Elements per row of the operand that sizes this launch.
@@ -185,6 +205,15 @@ pub fn plan_one<'a, S: Resolver>(
     resolver: &mut S,
 ) -> Result<Dispatch<'a>, Undispatchable> {
     let symbol = &lowered.kernels[launch.kernel as usize];
+    // A conditional rectangle's guard was NOT answered by the lowering, and
+    // this walk has no way to answer it: encoding it would run every arm.
+    if launch.cond != Launch::NO_COND {
+        return Err(Undispatchable::Conditional {
+            symbol: symbol.clone(),
+            op: launch.op,
+            cond: launch.cond,
+        });
+    }
     let sig = kernels::sig_in(table, symbol).ok_or_else(|| Undispatchable::NoRow {
         symbol: symbol.clone(),
         op: launch.op,
@@ -299,6 +328,7 @@ mod tests {
                 rows: 0..rows,
                 layers: 0..1,
                 op: 7,
+                cond: Launch::NO_COND,
                 args: 0..args.len() as u32,
                 peel: None,
             }],
@@ -312,6 +342,7 @@ mod tests {
             args,
             structural: Vec::new(),
             residue: Vec::new(),
+            conds: Vec::new(),
         }
     }
 
@@ -403,6 +434,25 @@ mod tests {
         };
         low.launches.push(second);
         assert!(plan(&low, TABLE, frame(), Geometry::default(), &mut Anything).is_err());
+    }
+
+    #[test]
+    fn a_conditional_rectangle_refuses_because_metal_cannot_answer_a_guard() {
+        // `GuardMode::Union` keeps every arm for a backend that can build
+        // conditional graph nodes. Metal has no such API and re-encodes every
+        // step, so a union-lowered fire reaching this walk would encode every
+        // arm of every guard unconditionally — a different answer, not a
+        // slower one.
+        let mut low = one("sized", 1, vec![Arg::Arena { at: 0, width: 8 }]);
+        low.launches[0].cond = 3;
+        assert_eq!(
+            plan(&low, TABLE, frame(), Geometry::default(), &mut Anything),
+            Err(Undispatchable::Conditional {
+                symbol: "sized".into(),
+                op: 7,
+                cond: 3
+            })
+        );
     }
 
     #[test]
