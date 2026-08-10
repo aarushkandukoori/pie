@@ -706,22 +706,11 @@ bool gpt_oss_forward_declared(
                     N, top_k, H, I, stream);
                 break;
             }
-            case declared::Kernel::GptOssGlu: {
-                // ISLAND (value arena). `gate = glu(gate, up)`, which is
-                // why the pointer appeared twice; the alias is stated
-                // now, so `outs[0]` IS `ins[0]`.
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 2, "glu inputs");
-                need(outs, 1, "glu outputs");
-                kernels::mlp::gpt_oss_glu_bf16(
-                    values.slot(ins[0]), values.slot(ins[1]),
-                    values.slot(outs[0]),
-                    static_cast<int>(
-                        declared::value_elements(plan, outs[0], N, R)),
-                    stream, /*limit=*/cfg.swiglu_limit);
-                break;
-            }
+            // The clamped GLU GENERATES. `gate = glu(gate, up)` is why
+            // the pointer appeared twice and the alias is stated; the
+            // CLAMP was the last thing left, reached out of a config
+            // struct, and it is a number the host has — so it rides the
+            // param channel like every other load-time constant.
             case declared::Kernel::Mxfp4Down: {
                 // ISLAND (value arena).
                 const auto ins = plan.inputs(op);

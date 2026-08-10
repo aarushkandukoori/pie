@@ -5653,7 +5653,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -6010,7 +6013,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -6367,7 +6373,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -6724,7 +6733,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -7081,7 +7093,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -7438,7 +7453,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -7795,7 +7813,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -8152,7 +8173,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -8509,7 +8533,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -8866,7 +8893,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -9223,7 +9253,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -9580,7 +9613,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -9937,7 +9973,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -10294,7 +10333,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -10651,7 +10693,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -11008,7 +11053,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -11365,7 +11413,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -11722,7 +11773,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -12079,7 +12133,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -12436,7 +12493,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -12793,7 +12853,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -13150,7 +13213,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -13507,7 +13573,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [
@@ -13864,7 +13933,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "mlp::gpt_oss_glu_bf16"
+          "kernel": "mlp::gpt_oss_glu_bf16",
+          "params": [
+            1088421888
+          ]
         }
       },
       "inputs": [

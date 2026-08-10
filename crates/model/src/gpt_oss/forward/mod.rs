@@ -263,7 +263,13 @@ pub fn gpt_oss_cuda(
                 "gpt_oss without a swiglu limit states no activation yet"
             );
             let routed =
-                dsl::cuda::gpt_oss_glu(&gate, &up, facts.top_k, facts.intermediate);
+                dsl::cuda::gpt_oss_glu(
+                &gate,
+                &up,
+                facts.top_k,
+                facts.intermediate,
+                facts.swiglu_limit,
+            );
             let routed = dsl::cuda::bf16_to_fp16(&routed);
             let out = dsl::cuda::mxfp4_moe_down_decode(
                 &routed,
