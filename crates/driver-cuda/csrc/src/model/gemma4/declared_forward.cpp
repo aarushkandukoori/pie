@@ -640,31 +640,12 @@ bool gemma4_forward_declared(
             };
             if (declared::execute_shared(ectx, op)) break;
             switch (declared::resolve_kernel(sym)) {
-            case declared::Kernel::ScalarMul: {
-                const std::string_view which = aux(0);
-                // ISLAND (value arena). Four sites that named four
-                // buffers and four element counts to apply one scalar.
-                // The buffer and the count are the value's; only the
-                // SCALAR is a declared fact, and it stays read by name.
-                const auto outs = plan.outputs(op);
-                need(outs, 1, "scalar_mul outputs");
-                float by;
-                if (which == "scale.sqrt_hidden") {
-                    by = std::sqrt(static_cast<float>(H));
-                } else if (which == "scale.sqrt_ple_dim") {
-                    by = std::sqrt(static_cast<float>(ple_dim));
-                } else if (which == "scale.rsqrt_hidden") {
-                    by = 1.0f / std::sqrt(static_cast<float>(H));
-                } else if (which == "scale.rsqrt_2") {
-                    by = 1.0f / std::sqrt(2.0f);
-                } else {
-                    throw_drift("scale '" + std::string(which) + "'");
-                }
-                kernels::norm::scalar_mul_bf16(
-                    values.slot(outs[0]), by,
-                    static_cast<std::size_t>(N) * row_width(outs[0]), stream);
-                break;
-            }
+            // The SCALE generates. Four sites named four buffers and
+            // four element counts to apply one scalar; the buffer and
+            // the count are the value's, and the scalar is the
+            // statement's now -- a number in the param channel, where it
+            // was a NAME this arm turned back into arithmetic the host
+            // had already done.
             case declared::Kernel::LoraQkvCorrection:
                 // Unreachable by construction: the `HasLora` guard's
                 // then-region needs a lora row, and gemma-4 states none.

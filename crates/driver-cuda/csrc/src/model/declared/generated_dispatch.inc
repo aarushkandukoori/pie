@@ -176,6 +176,14 @@ if (sym == "norm::rmsnorm_residual_add_bf16" && ins.size >= 1 && outs.size >= 1 
         c.arm.stream);
     return true;
 }
+if (sym == "norm::scalar_mul_bf16" && outs.size >= 1 && ps.size >= 1) {
+    ::pie_cuda_driver::kernels::norm::scalar_mul_bf16(
+        c.arm.values.slot(outs[0]),
+        f32_param(ps[0]),
+        static_cast<::std::size_t>(c.arm.rows) * static_cast<::std::size_t>(row_width(c.arm.plan, outs[0])),
+        c.arm.stream);
+    return true;
+}
 if (sym == "norm::residual_add_bf16" && ins.size >= 2 && outs.size >= 1) {
     ::pie_cuda_driver::kernels::norm::residual_add_bf16(
         c.arm.values.slot(outs[0]),

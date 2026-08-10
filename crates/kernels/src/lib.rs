@@ -454,6 +454,15 @@ pub enum Source {
     Weight(u8),
     /// The `i`-th scalar the statement carries (`Launch`'s params).
     Param(u8),
+    /// The same slot read as a FLOAT.
+    ///
+    /// The param channel is untyped `u32` — "what each slot means is the
+    /// SYMBOL's contract" — and a scale is a float. gemma-4 fires one
+    /// kernel four times per fire with four different constants, all
+    /// derived from dims the HOST knows, and the driver held a
+    /// name-to-arithmetic table to get them back. The statement carries
+    /// the number instead, in the bits the slot already has room for.
+    ParamF32(u8),
     /// The rectangle's row count.
     ///
     /// The fire's, and only right for a statement whose rows ARE the

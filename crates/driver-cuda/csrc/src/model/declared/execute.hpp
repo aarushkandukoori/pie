@@ -68,6 +68,7 @@
 // names the header the moment a row starts generating without it.
 #include "norm/altup_aux.hpp"
 #include "norm/dsv4_hc.hpp"
+#include "norm/scalar_mul.hpp"
 #include "ssm/gated_delta_net.hpp"
 #include "mlp/swiglu.hpp"
 #include "moe/moe_dispatch.hpp"

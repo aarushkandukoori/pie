@@ -5273,14 +5273,29 @@ pub mod cuda {
     /// The name rides the weight slot because that is what a name slot
     /// is: `scale.` marks it as a constant rather than a tensor, so a
     /// binder never looks for it.
-    pub fn scalar_mul(x: &Val, scale: &str) -> Val {
+    /// The NUMBER rides the param channel, in the bits an untyped `u32`
+    /// slot already has room for. The name stays because a reader wants
+    /// it; the driver used to need it, and that is the difference. It
+    /// held a name-to-arithmetic table — `sqrt(hidden)`, `sqrt(ple_dim)`,
+    /// `1/sqrt(hidden)`, `1/sqrt(2)` — recomputing on the device side
+    /// what the host had already derived from its own dims, and an
+    /// unrecognised name was a runtime refusal rather than a number.
+    /// `by` is OPTIONAL, and a `None` is a family saying its facts do
+    /// not carry the number yet — gemma-3n's altup and laurel scales and
+    /// gemma-2's query scale are per-layer constants nothing on the host
+    /// side has derived, and inventing one here would be worse than the
+    /// name it replaces. A statement without the param falls through the
+    /// generated branch's arity guard to whatever arm knows better,
+    /// which for those two families is the hand-written pass.
+    pub fn scalar_mul(x: &Val, scale: &str, by: Option<f32>) -> Val {
         let out = (x.t.inner.borrow().value_shape(x.id), DType::BF16);
-        record(
+        record_with_params(
             &x.t,
             x.layer,
             "norm::scalar_mul_bf16",
             vec![format!("scale.{scale}")],
             None,
+            by.map(f32::to_bits).into_iter().collect(),
             vec![x.id],
             Some(out),
         )
