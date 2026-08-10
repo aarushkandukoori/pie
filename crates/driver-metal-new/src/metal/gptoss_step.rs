@@ -142,7 +142,7 @@ impl GptOssStep {
 /// The family's own slot-keyed MB pipelines: the routed MXFP4 GEMM
 /// lattice. Kept by slot, not kind, because which entry a routed dispatch
 /// runs is the `qmm_bn`/`qmm_bm` the DAG builder wrote on it.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct GptOssMbPsos {
     /// Slot → pipeline.
     pub by_slot: HashMap<GptOssSlot, Pso>,

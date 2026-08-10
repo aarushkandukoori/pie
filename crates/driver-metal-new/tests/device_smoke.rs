@@ -2586,3 +2586,98 @@ fn the_llama_engine_decodes_across_fires() {
         "the decode fires must read the KV the prefill wrote"
     );
 }
+
+/// The gpt-oss engine decodes across fires — and cross-validates the
+/// PAGED KV path against the ring: the M=1 smoke produced this exact
+/// chain through the contiguous ring, and the engine reproduces it
+/// through pages, one prefill fire and seven decode fires.
+#[test]
+fn the_gptoss_engine_decodes_across_fires() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_GPTOSS_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_GPTOSS_CHECKPOINT to a gpt-oss MLX snapshot");
+        return;
+    };
+    let snapshot = PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json"))
+        .expect("the snapshot has a config.json");
+    let root: serde_json::Value = serde_json::from_str(&config).expect("config.json parses");
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().expect("utf8 path"))
+        .expect("the config converts to a descriptor");
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json)
+        .expect("the driver's facts read the descriptor");
+    let mut geometry =
+        driver_metal_new::batch::gptoss_geometry_from_facts(&facts).expect("a gpt-oss shape");
+    let prompt: Vec<u32> = vec![976, 9029, 328, 10128, 382];
+    geometry.max_tokens = 16;
+    geometry.max_requests = 1;
+    geometry.paged_kv_enabled = true;
+    geometry.kv_page_size = 32;
+    geometry.total_pages = 128;
+
+    let target = metal_storage_target();
+    let (plan, _moe) = compile_load_plan(&snapshot, &target, &descriptor_json)
+        .expect("the plan compiles and its files exist");
+    let context = Context::new().expect("a Metal device answers");
+    let compiler = Compiler::new(&context).expect("the shader compiler starts");
+    let mut engine = driver_metal_new::metal::GptOssEngine::new(
+        &context,
+        &compiler,
+        &kernels_dir(),
+        &plan,
+        &snapshot,
+        geometry.clone(),
+        Tuning::default(),
+        4096,
+    )
+    .expect("the engine stages, solves and compiles");
+    assert!(
+        engine.geometry.mxfp4_experts,
+        "the trio solved off the heap"
+    );
+    engine.reset().expect("a fresh sequence");
+
+    let mut stepper = Stepper::new(&context).expect("a stepper");
+    let vocab = geometry.vocab as usize;
+    let argmax_of = |engine: &driver_metal_new::metal::GptOssEngine| -> u32 {
+        let logits = engine.logits().expect("paged logits");
+        // SAFETY: the fire retired.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(logits.contents().cast::<u8>().as_ptr(), vocab * 2)
+        };
+        let mut best = (0usize, f32::NEG_INFINITY);
+        for (i, pair) in bytes.chunks_exact(2).enumerate() {
+            let v = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+            if v.is_finite() && v > best.1 {
+                best = (i, v);
+            }
+        }
+        best.0 as u32
+    };
+
+    let prefill = driver_metal_new::batch::FireCsr::prefill(
+        prompt.clone(),
+        geometry.kv_page_size,
+        geometry.total_pages,
+    );
+    engine
+        .fire(&context, &mut stepper, &prefill)
+        .expect("the prefill fire retires");
+    let mut next = argmax_of(&engine);
+    let mut produced = vec![next];
+    for position in (prompt.len() as u32..).take(7) {
+        let decode =
+            driver_metal_new::batch::FireCsr::decode(next, position, geometry.kv_page_size);
+        engine
+            .fire(&context, &mut stepper, &decode)
+            .expect("the decode fire retires");
+        next = argmax_of(&engine);
+        produced.push(next);
+    }
+    eprintln!("engine produced {produced:?}");
+    assert_eq!(
+        produced,
+        vec![12650, 3692, 279, 12, 6240, 1, 976, 9029],
+        "the paged chain must match the ring's token-exact reference"
+    );
+}
