@@ -225,16 +225,6 @@ pub fn glm5_cuda(facts: &Glm5Facts, class: FireClass) -> ForwardPlan {
             y = dsl::cuda::residual_add(&y, &moe_out, facts.hidden);
         }
 
-        let normed = dsl::cuda::rmsnorm(
-            &y,
-            &NormW {
-                name: "final_norm".to_string(),
-                variant: NormVariant::Plain,
-                per_head: None,
-                layer: None,
-            },
-        );
-        let logits = dsl::lm_head_at(t, &normed, "lm_head", facts.vocab);
-        dsl::seam(t, &dsl::seam::OUT, &[&logits], None);
+        dsl::logits_epilogue(t, &y, NormVariant::Plain, false, facts.vocab, false);
     })
 }

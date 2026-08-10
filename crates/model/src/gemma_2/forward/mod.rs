@@ -154,21 +154,13 @@ pub fn gemma2_cuda(facts: &Gemma2Facts, class: FireClass) -> ForwardPlan {
             y = dsl::cuda::residual_add(&y, &mlp, facts.hidden);
         }
 
-        let normed = dsl::cuda::rmsnorm(
+        dsl::logits_epilogue(
+            t,
             &y,
-            &NormW {
-                name: "final_norm".to_string(),
-                variant: NormVariant::Gemma,
-                per_head: None,
-                layer: None,
-            },
+            NormVariant::Gemma,
+            facts.tied_embeddings,
+            facts.vocab,
+            facts.final_logit_softcap,
         );
-        let logits = dsl::lm_head_tied(t, &normed, facts.tied_embeddings, facts.vocab);
-        let logits = if facts.final_logit_softcap {
-            dsl::cuda::logit_softcap(&logits, facts.vocab)
-        } else {
-            logits
-        };
-        dsl::seam(t, &dsl::seam::OUT, &[&logits], None);
     })
 }

@@ -247,17 +247,6 @@ pub fn gemma3n_cuda(facts: &Gemma3nFacts, class: FireClass) -> ForwardPlan {
         let target = dsl::cuda::compute_rms(&active_final);
         let y = dsl::cuda::mean_streams(&streams, facts.hidden);
         let y = dsl::cuda::magnitude_rescale(&y, &target, facts.hidden);
-        let normed = dsl::cuda::rmsnorm(
-            &y,
-            &NormW {
-                name: "final_norm".to_string(),
-                variant: NormVariant::Gemma,
-                per_head: None,
-                layer: None,
-            },
-        );
-        let logits = dsl::lm_head_at(t, &normed, "lm_head", facts.vocab);
-        let logits = dsl::cuda::logit_softcap(&logits, facts.vocab);
-        dsl::seam(t, &dsl::seam::OUT, &[&logits], None);
+        dsl::logits_epilogue(t, &y, NormVariant::Gemma, false, facts.vocab, true);
     })
 }

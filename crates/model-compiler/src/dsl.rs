@@ -773,6 +773,44 @@ pub fn rope(q: &Val, k: &Val, kind: RopeKind) -> (Val, Val) {
     (mk(qo), mk(ko))
 }
 
+/// THE EPILOGUE, and the three facts that vary in it.
+///
+/// Five families wrote this: final norm, readout, an optional logit
+/// softcap, and the exit seam. What differed was the norm's VARIANT
+/// (gemma's `(1 + w)` fold or plain), whether the readout is tied, and
+/// whether the deployment caps its logits — three facts, and everything
+/// else identical down to the `"final_norm"` weight name.
+///
+/// The softcap is a LAUNCH, not a parameter: a cap large enough to do
+/// nothing is still a kernel run per fire to compute the identity, so a
+/// deployment without one states no statement rather than a wide one.
+///
+/// The exit seam is inside, because it is the boundary sampling attaches
+/// to and a family that forgot it would trace a plan nothing can read
+/// from. Four of the five had it as the last line; making it the block's
+/// last line means a fifth cannot omit it.
+pub fn logits_epilogue(
+    t: &Trace,
+    y: &Val,
+    norm_variant: crate::trace::NormVariant,
+    tied_embeddings: bool,
+    vocab: u32,
+    logit_softcap: bool,
+) {
+    let normed = cuda::rmsnorm(
+        y,
+        &NormW {
+            name: "final_norm".to_string(),
+            variant: norm_variant,
+            per_head: None,
+            layer: None,
+        },
+    );
+    let logits = lm_head_tied(t, &normed, tied_embeddings, vocab);
+    let logits = if logit_softcap { cuda::logit_softcap(&logits, vocab) } else { logits };
+    seam(t, &seam::OUT, &[&logits], None);
+}
+
 /// The five widths an MLA layer is described by.
 ///
 /// Three families carry a field-identical struct for these — glm5's
