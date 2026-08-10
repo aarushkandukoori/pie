@@ -431,16 +431,31 @@ fn a_row_that_states_its_operands_agrees_with_its_shader() {
         unstated.len(),
         unstated.join("\n")
     );
-    // TEN, measured 2026-08-10, down from fourteen. Four rows state their
+    // EIGHT, measured 2026-08-10, down from fourteen. Seven rows state their
     // operands now — `rms_single_row`, `silu_mul`, `split_qkv_bf16` and the
-    // two projections, which were the loud case: `affine_qmv_fast` declares
-    // its weights FIRST and the trace states them last, so every projection
-    // of every layer bound its activation where the packed weight belongs.
+    // four projections, which were the loud case: `affine_qmv_fast`
+    // declares its weights FIRST and the trace states them last, so every
+    // projection of every layer bound its activation where the packed weight
+    // belongs.
     //
     // **Every remaining entry is a launch whose operands are at the wrong
-    // buffers**, and this may only shrink.
+    // buffers**, and this may only shrink. What each still needs, so the next
+    // reader has a map rather than a count:
+    //
+    // | symbol | what is missing |
+    // |---|---|
+    // | `embed_gather_4bit`, `..._mb_4bit` | the token IDS. A fire value the text does not state; `Arg::Named` is the channel |
+    // | `neox_decode`, `neox_mb` | the POSITIONS. `Source::Positions` already exists for exactly this |
+    // | `kv_append`, `kv_append_paged` | the layer's K and V pages, plus `pos` and three strides. **`Source` has no variant for a state store** — the op carries `StateRef { KvCache, layer }` and the pool holds the pages, so this needs one |
+    // | `sdpa_vector_decode`, `sdpa_paged_decode` | the same K/V pages, six strides, a scale and a window. Blocked on the same variant |
+    //
+    // So the backlog is TWO pieces of work and not eight: teach the text to
+    // state its fire values (ids, positions — `Source::Positions` is already
+    // there), and give `Source` a way to name the KV store. The second is the
+    // only new vocabulary, and it is what the attention pair and the KV writes
+    // both wait on.
     assert!(
-        unstated.len() <= 10,
+        unstated.len() <= 8,
         "the backlog GREW to {}. A row with no operands is bound positionally, \
          and the trace's order is not the kernel's.\n{}",
         unstated.len(),
