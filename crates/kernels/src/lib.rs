@@ -185,6 +185,22 @@ pub enum Ty {
     /// entries are packed nibbles and block scales, and a `void*` row
     /// would let a bf16 bank through.
     U8Array,
+    /// The element type a buffer is stored in — `DType`, a
+    /// `std::uint8_t`-backed enum class.
+    ///
+    /// It is a scalar the CALLER states, not a property the launcher
+    /// discovers, and that is the whole reason the scaled GEMM entry
+    /// points take it: the storage a weight is in used to reach them
+    /// inside a `WeightView`, and a driver built that descriptor by
+    /// looking at a per-layer struct no statement mentioned. The
+    /// descriptor is assembled INSIDE the launcher now and the caller
+    /// passes what the declaration said.
+    ///
+    /// Its own kind rather than [`Ty::U32`]: an enum class does not
+    /// convert from an integer, so a row that widened it would not
+    /// compile -- which is the answer wanted, but for the wrong reason.
+    /// Spelling it means the shim forwards the enum the header declares.
+    Dtype,
     /// A host scalar spelled `long long` — the recurrent state's slot
     /// stride, which is an ELEMENT count into a multi-gigabyte arena and
     /// so was widened deliberately. Its own kind for `Ty::U32`'s reason:
@@ -264,6 +280,7 @@ impl Ty {
             Ty::BufArrayOut => "const void**",
             Ty::BufArrayOutMut => "void**",
             Ty::U8Array => "const ::std::uint8_t* const*",
+            Ty::Dtype => "::pie_cuda_driver::DType",
             Ty::I64 => "long long",
             Ty::U32s => "const ::std::uint32_t*",
             Ty::U8s => "const ::std::uint8_t*",
@@ -307,6 +324,7 @@ impl Ty {
             Ty::BufArrayOut => "*mut *const ::core::ffi::c_void",
             Ty::BufArrayOutMut => "*mut *mut ::core::ffi::c_void",
             Ty::U8Array => "*const *const u8",
+            Ty::Dtype => "u8",
             Ty::I64 => "::core::ffi::c_longlong",
             Ty::U32s => "*const u32",
             Ty::U8s => "*const u8",
