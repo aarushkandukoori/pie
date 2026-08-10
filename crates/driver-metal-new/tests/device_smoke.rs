@@ -2891,6 +2891,9 @@ fn the_llama_engine_isolates_two_requests() {
     let mut chain_b = vec![next_b];
     let mut pos_a = prompt_a.len() as u32;
     let mut pos_b = prompt_b.len() as u32;
+    // Two counters advance together; clippy would have one of them own
+    // the loop, but neither is more the loop's than the other.
+    #[allow(clippy::explicit_counter_loop)]
     for _ in 0..3 {
         let fleet = driver_metal_new::batch::FireCsr {
             token_ids: vec![next_a, next_b],
