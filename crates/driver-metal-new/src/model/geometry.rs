@@ -89,27 +89,115 @@ pub enum Ungeometric {
 /// `kernels`' — the table STATES the rule and this backend is what knows the
 /// arithmetic, which is the same split `Prepare` and `Source` already make.
 ///
+/// # One rule, both lanes
+///
+/// The driver carries a *second* set of geometry functions for the batched
+/// lane (`batch/dispatch_mb.rs`), and the planning documents recorded "which
+/// of the two a row means" as an open question to answer before M>1 could be
+/// dispatched.
+///
+/// Measured, the question dissolves. Every M=1 function is its M>1 function
+/// **at one row** — `qmv(w)` is `qmv_mb(w, 1)`, `residual(w)` is
+/// `elementwise_mb(w, 1)`, `kv_append(hd, kvh)` is the paged append at `n = 1`
+/// — and where the two lanes genuinely differ they are *different kernels with
+/// different names* (`affine_qmv_fast` against `affine_qmm_t`,
+/// `embed_gather_4bit` against `embed_gather_mb_4bit`), each stating its own
+/// row. So a row never has to say which lane it means: **the lane is
+/// `dims.rows`**, and the symbol is the rest.
+///
+/// The tests below hold both ends of that claim — every rule reproduces its
+/// M=1 function at one row, and its M>1 function above one.
+///
 /// # Errors
 ///
 /// [`Ungeometric::Unstated`] when the row has not named a rule. That is drift,
 /// not a runtime condition: a symbol reached dispatch whose contract does not
 /// say how to launch it.
 pub fn eval(rule: Rule, dims: Dims) -> Result<Launch, Ungeometric> {
-    {
-        Ok(match rule {
-            Rule::Unstated => return Err(Ungeometric::Unstated),
-            Rule::Qmv => dispatch::qmv(dims.width),
-            Rule::Rms => dispatch::rms(dims.width, dims.rows),
-            Rule::Rope => dispatch::rope(dims.rotary_dims, dims.q_heads),
-            Rule::Elementwise => dispatch::residual(dims.width),
-            Rule::PerHead => dispatch::kv_append(dims.head_dim, dims.kv_heads),
-            Rule::SdpaVector => dispatch::sdpa(dims.q_heads),
-            Rule::PerHeadElementwise => dispatch::attn_gate(dims.q_heads, dims.head_dim),
-            Rule::GatedRms => dispatch::gated_rms(dims.kv_heads, dims.head_dim),
-            Rule::RouterLane => dispatch::router_topk(dims.n_experts),
-            Rule::RouteRows => dispatch::route_rows(dims.width, dims.rows),
-            Rule::RoutedQmv => dispatch::routed_qmv(dims.width, dims.experts_per_token, dims.rows),
-        })
+    // A rectangle covers at least one row; zero would produce a grid of no
+    // threads, which runs nothing and reports success.
+    let rows = dims.rows.max(1);
+    Ok(match rule {
+        Rule::Unstated => return Err(Ungeometric::Unstated),
+        Rule::Qmv => dispatch::qmv_mb(dims.width, rows),
+        Rule::Qmm => {
+            let bm = dispatch::qmm_bm(rows);
+            let bn = widest_column_tile(dims.width);
+            // A tile that does not divide the work is a GEMM computing part of
+            // the output. Falling back to the matvec grid computes all of it,
+            // slower — which is the failure worth having.
+            if bn == 0 || !rows.is_multiple_of(bm) {
+                dispatch::qmv_mb(dims.width, rows)
+            } else {
+                dispatch::qmm_t(dims.width, rows, bn, bm)
+            }
+        }
+        Rule::Rms => dispatch::rms(dims.width, rows),
+        Rule::Rope => rope_rows(dims.rotary_dims, dims.q_heads, rows),
+        Rule::Elementwise => dispatch::elementwise_mb(dims.width, rows),
+        Rule::ElementwiseRows => embed_rows(dims.width, rows),
+        Rule::PerHead => per_head_rows(dims.head_dim, dims.kv_heads, rows),
+        Rule::SdpaVector => sdpa_rows(dims.q_heads, rows),
+        Rule::PerHeadElementwise => dispatch::attn_gate(dims.q_heads, dims.head_dim),
+        Rule::GatedRms => dispatch::gated_rms(dims.kv_heads, dims.head_dim),
+        Rule::RouterLane => dispatch::router_topk(dims.n_experts),
+        Rule::RouteRows => dispatch::route_rows(dims.width, rows),
+        Rule::RoutedQmv => dispatch::routed_qmv(dims.width, dims.experts_per_token, rows),
+    })
+}
+
+/// The widest 16/32/64 column tile that divides `out_vec`, or zero.
+///
+/// Wider is strictly fewer dequantizations of each weight tile —
+/// [`dispatch::qmm_bn`]'s finding, without its `min_batch` gate, which is a
+/// per-family tuning number the lowering does not state.
+fn widest_column_tile(out_vec: u32) -> u32 {
+    [16, 32, 64]
+        .into_iter()
+        .filter(|bn| out_vec.is_multiple_of(*bn))
+        .next_back()
+        .unwrap_or(0)
+}
+
+// The row-aware shapes live HERE rather than in `batch/dispatch.rs`, and that
+// is the point: the launch arithmetic is legitimate backend knowledge and
+// stays, while the DAG builder beside it retires. Each is its M=1 sibling's
+// generalisation and reduces to it at one row — proved below.
+
+/// Rope with the row on the third axis: `x` = frequency index, `y` = head,
+/// `z` = row. In place, so it is dispatched once for Q and once for K.
+fn rope_rows(rotary_dims: u32, n_heads: u32, rows: u32) -> Launch {
+    let half = rotary_dims / 2;
+    Launch {
+        grid: [half, n_heads, rows],
+        tg: [half, 1, 1],
+    }
+}
+
+/// A gather whose rows are NOT contiguous, so the row gets its own axis
+/// instead of stacking flat: one thread per (channel, row).
+fn embed_rows(width: u32, rows: u32) -> Launch {
+    Launch {
+        grid: [width, rows, 1],
+        tg: [256, 1, 1],
+    }
+}
+
+/// The per-head scatter with the row on the third axis — the q/k/v split and
+/// the KV append, paged or not.
+fn per_head_rows(head_dim: u32, n_heads: u32, rows: u32) -> Launch {
+    Launch {
+        grid: [head_dim, n_heads, rows],
+        tg: [head_dim, 1, 1],
+    }
+}
+
+/// Single-pass attention with the row on the second axis: one 1024-thread
+/// threadgroup per (query head, row).
+fn sdpa_rows(n_q_heads: u32, rows: u32) -> Launch {
+    Launch {
+        grid: [n_q_heads * 1024, rows, 1],
+        tg: [1024, 1, 1],
     }
 }
 
@@ -131,7 +219,8 @@ mod tests {
     }
 
     /// The proof the vocabulary is right: every rule the driver hand-writes
-    /// today is reachable through the enum and produces the same launch.
+    /// today is reachable through the enum and produces the same launch —
+    /// **at one row**, which is the M=1 lane.
     ///
     /// If this holds, moving the rule onto the row is mechanical — the row
     /// names a variant and nothing else changes. If a new kernel ever needs a
@@ -139,12 +228,13 @@ mod tests {
     /// documented function, not a special case in the executor.
     #[test]
     fn every_rule_reproduces_the_function_the_driver_already_uses() {
-        let d = dims();
+        let d = Dims { rows: 1, ..dims() };
         for (rule, expected) in [
             (Rule::Qmv, dispatch::qmv(d.width)),
-            (Rule::Rms, dispatch::rms(d.width, d.rows)),
+            (Rule::Rms, dispatch::rms(d.width, 1)),
             (Rule::Rope, dispatch::rope(d.rotary_dims, d.q_heads)),
             (Rule::Elementwise, dispatch::residual(d.width)),
+            (Rule::ElementwiseRows, dispatch::embed(d.width)),
             (Rule::PerHead, dispatch::kv_append(d.head_dim, d.kv_heads)),
             (Rule::SdpaVector, dispatch::sdpa(d.q_heads)),
             (
@@ -153,18 +243,92 @@ mod tests {
             ),
             (Rule::GatedRms, dispatch::gated_rms(d.kv_heads, d.head_dim)),
             (Rule::RouterLane, dispatch::router_topk(d.n_experts)),
-            (Rule::RouteRows, dispatch::route_rows(d.width, d.rows)),
+            (Rule::RouteRows, dispatch::route_rows(d.width, 1)),
             (
                 Rule::RoutedQmv,
-                dispatch::routed_qmv(d.width, d.experts_per_token, d.rows),
+                dispatch::routed_qmv(d.width, d.experts_per_token, 1),
             ),
         ] {
             assert_eq!(
                 eval(rule, d).expect("a stated rule evaluates"),
                 expected,
-                "{rule:?} does not reproduce its function"
+                "{rule:?} does not reproduce its M=1 function"
             );
         }
+    }
+
+    /// The other end of the same claim, and the one that retires
+    /// `batch/dispatch_mb.rs`'s vocabulary: **above one row a rule reproduces
+    /// the BATCHED function**, so a row never has to say which lane it means.
+    #[test]
+    fn every_rule_reproduces_the_batched_function_above_one_row() {
+        let d = dims();
+        let n = d.rows;
+        assert!(n > 1, "the batched lane needs more than one row");
+        for (rule, expected) in [
+            (Rule::Qmv, dispatch::qmv_mb(d.width, n)),
+            (Rule::Elementwise, dispatch::elementwise_mb(d.width, n)),
+            (Rule::Rms, dispatch::rms_mb(d.width, 1, n)),
+            // The shapes whose batched form puts the row on its own axis.
+            // `mb_geometry`'s arms are the reference for each.
+            (Rule::ElementwiseRows, Launch {
+                grid: [d.width, n, 1],
+                tg: [256, 1, 1],
+            }),
+            (Rule::PerHead, Launch {
+                grid: [d.head_dim, d.kv_heads, n],
+                tg: [d.head_dim, 1, 1],
+            }),
+            (Rule::Rope, Launch {
+                grid: [d.rotary_dims / 2, d.q_heads, n],
+                tg: [d.rotary_dims / 2, 1, 1],
+            }),
+            (Rule::SdpaVector, Launch {
+                grid: [d.q_heads * 1024, n, 1],
+                tg: [1024, 1, 1],
+            }),
+        ] {
+            assert_eq!(
+                eval(rule, d).expect("a stated rule evaluates"),
+                expected,
+                "{rule:?} does not reproduce its M>1 function"
+            );
+        }
+    }
+
+    /// The GEMM is a DIFFERENT KERNEL, not the matvec launched wider — which
+    /// is what makes the batched lane a row's statement rather than a mode the
+    /// driver picks.
+    #[test]
+    fn the_gemm_tiles_over_rows_and_falls_back_when_a_tile_would_not_divide() {
+        let d = Dims {
+            rows: 32,
+            width: 4096,
+            ..dims()
+        };
+        assert_eq!(
+            eval(Rule::Qmm, d).expect("stated"),
+            dispatch::qmm_t(4096, 32, 64, dispatch::qmm_bm(32)),
+            "a divisible shape tiles"
+        );
+        // A row count no rung divides computes part of the output as a GEMM;
+        // the matvec grid computes all of it, slower, which is the failure
+        // worth having.
+        let ragged = Dims { rows: 3, ..d };
+        assert_eq!(
+            eval(Rule::Qmm, ragged).expect("stated"),
+            dispatch::qmv_mb(4096, 3),
+            "an indivisible shape falls back rather than dropping outputs"
+        );
+    }
+
+    #[test]
+    fn a_rectangle_of_no_rows_still_launches_one() {
+        // Zero rows would multiply a grid to nothing, and a dispatch of no
+        // threads runs nothing and reports success.
+        let none = Dims { rows: 0, ..dims() };
+        let one = Dims { rows: 1, ..dims() };
+        assert_eq!(eval(Rule::Elementwise, none), eval(Rule::Elementwise, one));
     }
 
     #[test]
@@ -172,7 +336,7 @@ mod tests {
         // `residual`, `embed` and `silu_mul` are the same 256-wide pointwise
         // launch; the C++ and the driver spell it three times. A kernel that
         // launches like an existing one should cost zero arms.
-        let d = dims();
+        let d = Dims { rows: 1, ..dims() };
         let ew = eval(Rule::Elementwise, d).expect("stated");
         assert_eq!(ew, dispatch::residual(d.width));
         assert_eq!(ew, dispatch::embed(d.width));

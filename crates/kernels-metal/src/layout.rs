@@ -9,7 +9,7 @@ pub static KERNELS: &[KernelSig] = &[
     // 6 in embed_gather.metal
     kernel!(embed_gather_4bit "embed_gather_4bit", file = Some("layout/embed_gather.metal"), launch = kernels::LaunchRule::Elementwise, axes = &[BF16, GROUP, BITS]),
     // 6 in embed_gather.metal
-    kernel!(embed_gather_mb_4bit "embed_gather_mb_4bit", file = Some("layout/embed_gather.metal"), axes = &[BF16, GROUP, BITS]),
+    kernel!(embed_gather_mb_4bit "embed_gather_mb_4bit", file = Some("layout/embed_gather.metal"), launch = kernels::LaunchRule::ElementwiseRows, axes = &[BF16, GROUP, BITS]),
     // 6 in embed_gather.metal
     kernel!(embed_gather_scaled_4bit "embed_gather_scaled_4bit", axes = &[BF16, GROUP, BITS]),
     // 6 in embed_gather.metal

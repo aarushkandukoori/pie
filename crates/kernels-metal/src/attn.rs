@@ -35,6 +35,7 @@ pub static KERNELS: &[KernelSig] = &[
     // here, and no capture variant exists so neither can publish scores. The
     // declaration says so instead of a C++ throw discovering it.
     kernel!(sdpa_paged_decode "sdpa_paged_decode", file = Some("attn/sdpa_paged.metal"),
+    launch = kernels::LaunchRule::SdpaVector,
     lacks = &[Cap::Scores, Cap::PageMaskSink],
     axes = &[Axis {
         what: "head dim and page shape",

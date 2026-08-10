@@ -85,12 +85,19 @@ pub enum LaunchRule {
     /// Rope: half the rotary channels, per head.
     Rope,
     /// Pointwise over one row, 256-wide — residual adds, embeddings, silu-mul.
+    /// Rows stack flat: `width * rows` threads on one axis.
     Elementwise,
+    /// Pointwise with the row on its own grid axis rather than stacked flat —
+    /// what a gather whose rows are not contiguous needs
+    /// (`embed_gather_mb`). One rule apart from [`LaunchRule::Elementwise`]
+    /// because the two agree at one row and disagree above it, which is
+    /// exactly the distinction a row has to be able to state.
+    ElementwiseRows,
     /// One threadgroup per head, `head_dim` wide — the q/k/v split, the KV
-    /// append.
+    /// append. The row is the third grid axis.
     PerHead,
     /// Single-pass decode attention: one 1024-thread threadgroup per query
-    /// head.
+    /// head, rows on the second axis.
     SdpaVector,
     /// Pointwise over every head's channels, 256-wide.
     PerHeadElementwise,
@@ -102,6 +109,11 @@ pub enum LaunchRule {
     RouteRows,
     /// Routed GEMV: [`LaunchRule::Qmv`] per row, per expert slot.
     RoutedQmv,
+    /// Affine GEMM: the batched projection, tiled over rows and columns.
+    /// Distinct from [`LaunchRule::Qmv`] because it is a different kernel with
+    /// a different name, not the same one launched wider — which is what makes
+    /// the M>1 lane a ROW's statement rather than a mode the driver picks.
+    Qmm,
 }
 
 /// The host-side plan a kernel's contract obligates: stated so a reader of

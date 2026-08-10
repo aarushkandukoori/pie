@@ -16,7 +16,7 @@ pub static KERNELS: &[KernelSig] = &[
     // 1 in rope.metal
     kernel!(neox_freqs_mb "neox_freqs_mb", axes = &[BF16]),
     // 1 in rope.metal
-    kernel!(neox_mb "neox_mb", file = Some("rope/neox.metal"), axes = &[BF16]),
+    kernel!(neox_mb "neox_mb", file = Some("rope/neox.metal"), launch = kernels::LaunchRule::Rope, axes = &[BF16]),
     // 1 in rope.metal
     kernel!(neox_prop_decode "neox_prop_decode", axes = &[BF16]),
     // 1 in rope.metal

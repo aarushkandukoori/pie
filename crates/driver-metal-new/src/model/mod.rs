@@ -7,9 +7,17 @@
 //! * [`executor`] — binding a launch's operands. Host logic, no device.
 //! * [`geometry`] — turning a rectangle into a thread grid: the rule a row
 //!   names, so the executor is a loop rather than a switch.
+//! * [`dispatch`] — the walk that uses both: every launch of a fire becomes a
+//!   symbol, a grid and a list of addresses. Still host logic.
+//! * [`encode`] — the one half that needs a GPU: compile the symbols, bind the
+//!   addresses, dispatch. Apple-only.
 
+pub mod dispatch;
+#[cfg(target_vendor = "apple")]
+pub mod encode;
 pub mod executor;
 pub mod geometry;
 
+pub use dispatch::{Dispatch, Geometry, Undispatchable, plan as plan_dispatches};
 pub use executor::{BindRefusal, BoundArg, BoundLaunch, Frame, Resolver, Slice, bind, resolve_arg};
 pub use geometry::{Dims, Rule, Ungeometric, eval as eval_launch};
