@@ -492,6 +492,11 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         // value yet — so these rows decline, like `InDim` does, and stay
         // with the arm that knows.
         Source::ResultOrRegion(..) => return None,
+        // The KV pages are a Metal spelling. CUDA's launchers take a
+        // `KvCacheLayerView` by value rather than two pointers, so a row that
+        // states these is not one this emitter can generate — and saying so
+        // is better than emitting a call that binds the wrong thing.
+        Source::KvKeys | Source::KvValues => return None,
         Source::Ctx(f) | Source::CtxNonZero(f) => format!("ctx.{f}"),
         // A NULL is returned fully typed and skips the cast step below:
         // that step turns a slot into the row's pointee, and a null has

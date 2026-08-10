@@ -469,3 +469,97 @@ mod the_map {
         assert!(weights[2].ends_with(".zeros"));
     }
 }
+
+/// A statement's STATE, which is not one of its operands.
+///
+/// The KV cache outlives the fire, so no traced value stands for it and a
+/// statement names it as `StateRef { KvCache, layer }`. Every backend has
+/// answered that with a hand-written arm; `Source::KvKeys`/`KvValues` let the
+/// ROW ask, and `Resolver::kv` is where the asking lands.
+mod state {
+    use std::collections::HashMap;
+
+    use driver_metal_new::model::executor::{Resolver, Slice};
+    use driver_metal_new::model::resolve::{Names, Store};
+
+    use super::*;
+
+    /// Distinct addresses per (layer, side), so a wrong one names itself.
+    fn pages(layer: u16, values: bool) -> Option<Slice> {
+        Some(Slice {
+            address: 0x7000_0000u64.wrapping_add(u64::from(layer) << 16)
+                + if values { 0x8000 } else { 0 },
+            bytes: 1 << 20,
+        })
+    }
+
+    #[test]
+    fn a_kv_write_binds_the_pages_of_its_own_layer() {
+        let low = lowered(FireClass::Decode, 1);
+        let (tensors, named) = (HashMap::new(), HashMap::new());
+        let kv = |l: u16, v: bool| pages(l, v);
+        let mut store = Store::new(Names::mlx(), &tensors, &named).with_kv(&kv);
+
+        // Answer the weights too, so a refusal is about state and nothing else.
+        assert!(store.weight("layer.0.attn_norm").is_none());
+
+        let mut checked = 0;
+        for launch in &low.launches {
+            if !low.kernels[launch.kernel as usize].starts_with("kv_append") {
+                continue;
+            }
+            let d = plan_one(
+                &low,
+                launch,
+                kernels_metal::KERNELS,
+                frame(&low),
+                geometry(),
+                &mut store,
+            )
+            .expect("a kv write plans");
+            let layer = launch.layers.start;
+            // Buffers 2 and 3 are the cache, which the ROW says and this
+            // reads back: keys then values, of this statement's own layer.
+            assert_eq!(
+                d.args[2].slice.address,
+                pages(layer, false).unwrap().address,
+                "layer {layer}: keys"
+            );
+            assert_eq!(
+                d.args[3].slice.address,
+                pages(layer, true).unwrap().address,
+                "layer {layer}: values"
+            );
+            checked += 1;
+        }
+        assert!(checked >= 24, "only {checked} kv writes; a 24-layer text has one a layer");
+    }
+
+    #[test]
+    fn a_resolver_with_no_pool_binds_a_region_that_addresses_nothing() {
+        // The default. A binder's own tests have no pool and must not need
+        // one, and a statement that asks and gets nothing binds a region
+        // addressing nothing — the same honest answer a missing scale gets,
+        // and not a skipped slot, which would shift every operand after it.
+        let low = lowered(FireClass::Decode, 1);
+        let (tensors, named) = (HashMap::new(), HashMap::new());
+        let mut store = Store::new(Names::mlx(), &tensors, &named);
+        let launch = low
+            .launches
+            .iter()
+            .find(|l| low.kernels[l.kernel as usize].starts_with("kv_append"))
+            .expect("the text writes KV");
+        let d = plan_one(
+            &low,
+            launch,
+            kernels_metal::KERNELS,
+            frame(&low),
+            geometry(),
+            &mut store,
+        )
+        .expect("it still plans");
+        assert_eq!(d.args[2].slice.address, 0);
+        assert_eq!(d.args[2].slice.bytes, 0);
+        assert_eq!(d.args.len(), 8, "and every other slot is still in place");
+    }
+}

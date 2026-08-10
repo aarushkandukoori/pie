@@ -167,6 +167,12 @@ pub struct Store<'a> {
     tensors: &'a HashMap<String, Slice>,
     /// The values a seam binds, by id.
     named: &'a HashMap<ValueId, Slice>,
+    /// The layer KV pages a statement's state reference resolves through.
+    ///
+    /// `None` for a store with no pool — the host checks, the name-map tests —
+    /// which is why [`Resolver::kv`] defaults to `None` rather than being
+    /// required.
+    kv: Option<&'a dyn Fn(u16, bool) -> Option<Slice>>,
     /// Every traced name this store could not answer, in ask order.
     ///
     /// Collected rather than logged: a fire that cannot bind is diagnosed by
@@ -187,8 +193,20 @@ impl<'a> Store<'a> {
             names,
             tensors,
             named,
+            kv: None,
             missed: Vec::new(),
         }
+    }
+
+    /// The same store, answering a statement's KV state through `pages`.
+    ///
+    /// A closure rather than a borrowed pool, so this module stays portable:
+    /// the pool is Apple-only and the map is not, and a resolver that named
+    /// the pool's type would drag one into the other.
+    #[must_use]
+    pub fn with_kv(mut self, pages: &'a dyn Fn(u16, bool) -> Option<Slice>) -> Self {
+        self.kv = Some(pages);
+        self
     }
 
     /// The checkpoint tensor a traced name means, spelled the checkpoint's way.
@@ -232,6 +250,10 @@ impl Resolver for Store<'_> {
 
     fn named(&mut self, value: ValueId) -> Option<Slice> {
         self.named.get(&value).copied()
+    }
+
+    fn kv(&mut self, layer: u16, values: bool) -> Option<Slice> {
+        self.kv.and_then(|pages| pages(layer, values))
     }
 }
 

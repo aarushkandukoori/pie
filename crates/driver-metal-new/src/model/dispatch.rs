@@ -280,7 +280,7 @@ pub fn plan_one<'a, S: Resolver>(
         op: launch.op,
         why,
     })?;
-    let args = reorder(sig, &bound.args, lowered, launch);
+    let args = reorder(sig, &bound.args, lowered, launch, resolver);
     // Where the row puts its scalars. A row that states no operands has them
     // appended as one packed struct after the operands, which is the only
     // convention available when nothing said otherwise.
@@ -357,11 +357,12 @@ pub fn plan<'a, S: Resolver>(
 /// addresses nothing, which is the same honest answer `resolve_arg` gives a
 /// `scale.` marker. It is not silently skipped, because a skipped slot shifts
 /// every operand after it.
-fn reorder(
+fn reorder<S: Resolver>(
     sig: &'static KernelSig,
     bound: &[BoundArg],
     lowered: &Lowered,
     launch: &Launch,
+    resolver: &mut S,
 ) -> Vec<BoundArg> {
     if sig.operands.is_empty() {
         return bound.to_vec();
@@ -402,22 +403,48 @@ fn reorder(
         },
         width: 0,
     };
+    // The layer this statement runs in, for the state lookups. A rolled trace
+    // states a span and an unrolled one states a layer; the span's first is
+    // the answer either way, because a rolled statement runs once per layer
+    // and reaches this once per layer with it.
+    let layer = launch.layers.start;
     sig.operands
         .iter()
-        .map(|operand| {
-            let at = match operand.source {
-                kernels::Source::In(i) => ins.get(i as usize).copied(),
-                kernels::Source::Out(i) => outs.get(i as usize).copied(),
-                kernels::Source::Weight(i) => weights.get(i as usize).copied(),
-                // A scalar does not come out of the operand list at all — it
-                // rides `Dispatch::params`, bound as one struct after the
-                // buffers — so its slot here addresses nothing and the
-                // encoder's own binding is what the kernel reads.
-                _ => None,
-            };
-            at.and_then(|i| bound.get(i).copied()).unwrap_or(nothing)
+        .map(|operand| match operand.source {
+            kernels::Source::In(i) => pick(bound, ins.get(i as usize)),
+            kernels::Source::Out(i) => pick(bound, outs.get(i as usize)),
+            kernels::Source::Weight(i) => pick(bound, weights.get(i as usize)),
+            // The KV cache is STATE, not an operand: no traced value stands
+            // for it, so the pointer comes from the driver's own pool through
+            // the resolver rather than from the statement's args.
+            kernels::Source::KvKeys => resolver
+                .kv(layer, false)
+                .map_or(nothing, |slice| BoundArg { slice, width: 0 }),
+            kernels::Source::KvValues => resolver
+                .kv(layer, true)
+                .map_or(nothing, |slice| BoundArg { slice, width: 0 }),
+            // A scalar does not come out of the operand list at all — it rides
+            // `Dispatch::params`, bound at the slot the row placed it — so its
+            // slot here addresses nothing and the encoder's binding is what
+            // the kernel reads.
+            _ => nothing,
         })
         .collect()
+}
+
+/// The bound operand at `at`, or one that addresses nothing.
+///
+/// Nothing rather than a skip: a skipped slot shifts every operand after it,
+/// which turns one missing pointer into a whole misbound launch.
+fn pick(bound: &[BoundArg], at: Option<&usize>) -> BoundArg {
+    at.and_then(|&i| bound.get(i).copied())
+        .unwrap_or(BoundArg {
+            slice: crate::model::executor::Slice {
+                address: 0,
+                bytes: 0,
+            },
+            width: 0,
+        })
 }
 
 /// The distinct `(file, entry point)` pairs a dispatch list needs compiled.

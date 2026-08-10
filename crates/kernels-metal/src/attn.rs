@@ -26,9 +26,46 @@ pub static KERNELS: &[KernelSig] = &[
     // 1 in attn_gate.metal
     kernel!(gate "gate", axes = &[BF16]),
     // 1 in kv_append.metal
-    kernel!(kv_append "kv_append", file = Some("attn/kv_write.metal"), launch = kernels::LaunchRule::PerHead, axes = &[BF16]),
+    // The first row to name STATE. The cache is not an operand — no traced
+    // value stands for it, because it outlives the fire — so the pointers come
+    // from the driver's pool through `Resolver::kv` and the row is what asks.
+    kernel!(kv_append "kv_append", file = Some("attn/kv_write.metal"), launch = kernels::LaunchRule::PerHead,
+        operands = kernels::operands![
+            k_new: Buf <- kernels::Source::In(0),
+            v_new: Buf <- kernels::Source::In(1),
+            k_cache: BufMut <- kernels::Source::KvKeys,
+            v_cache: BufMut <- kernels::Source::KvValues,
+            pos: I32s <- kernels::Source::Positions,
+            head_dim: I32 <- kernels::Source::Param(0),
+            k_head_stride: Usize <- kernels::Source::Param(1),
+            k_seq_stride: Usize <- kernels::Source::Param(2),
+        ],
+        axes = &[BF16]),
     // 1 in kv_append_paged.metal
-    kernel!(kv_append_paged "kv_append_paged", file = Some("attn/kv_write.metal"), launch = kernels::LaunchRule::PerHead, axes = &[BF16]),
+    // Sparse indices, and the gaps are stated. Buffers 4, 6-9 and 11 belong to
+    // a shared ring ABI this kernel does not read; a row is positional, so it
+    // lists them as `Unbound` rather than closing the gap and shifting
+    // everything after.
+    kernel!(kv_append_paged "kv_append_paged", file = Some("attn/kv_write.metal"), launch = kernels::LaunchRule::PerHead,
+        operands = kernels::operands![
+            k_new: Buf <- kernels::Source::In(0),
+            v_new: Buf <- kernels::Source::In(1),
+            k_pages: BufMut <- kernels::Source::KvKeys,
+            v_pages: BufMut <- kernels::Source::KvValues,
+            ring_4: Buf,
+            head_dim: I32 <- kernels::Source::Param(0),
+            ring_6: Buf,
+            ring_7: Buf,
+            ring_8: Buf,
+            ring_9: Buf,
+            page_size: I32 <- kernels::Source::Param(1),
+            ring_11: Buf,
+            n_kv_heads: I32 <- kernels::Source::Param(2),
+            w_page: U32s <- kernels::Source::Param(3),
+            w_off: U32s <- kernels::Source::Param(4),
+            ring_15: Buf,
+        ],
+        axes = &[BF16]),
     // 1 in logit_softcap.metal
     kernel!(logit_softcap "logit_softcap", axes = &[BF16]),
     // 1 in attn_gate.metal

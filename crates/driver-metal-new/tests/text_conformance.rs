@@ -281,7 +281,14 @@ fn declared_buffers(root: &std::path::Path, file: &str, stem: &str) -> Option<us
             seen.insert(n);
         }
     }
-    (!seen.is_empty()).then_some(seen.len())
+    // The HIGHEST index plus one, not the count. A row is positional — its
+    // n-th operand is buffer n — so a kernel with gaps in its indices needs a
+    // row that covers them, and `kv_append_paged` has gaps: it declares
+    // 0,1,2,3,5,10,12..15 and leaves the rest to a ring ABI it does not read.
+    // `Source::Unbound` is what a row says in a gap, and the operands doc
+    // already asks for exactly that: *"a row lists every operand the callee
+    // has, defaulted or not"*.
+    seen.iter().next_back().map(|&n| n + 1)
 }
 
 /// A shader entry's parameter list, by its template stem.
@@ -400,10 +407,18 @@ fn a_row_that_states_its_operands_agrees_with_its_shader() {
                     ));
                 }
                 if let Some(writes) = first_writable(&root, file, sig.symbol) {
-                    let row_writes = sig
-                        .operands
-                        .iter()
-                        .position(|o| matches!(o.source, kernels::Source::Out(_)));
+                    // A writable buffer is a RESULT or a STATE STORE. The KV
+                    // writes have no result at all — their whole effect is on
+                    // the cache — so a check that only knew `Out` called them
+                    // wrong, and it was the check that was wrong.
+                    let row_writes = sig.operands.iter().position(|o| {
+                        matches!(
+                            o.source,
+                            kernels::Source::Out(_)
+                                | kernels::Source::KvKeys
+                                | kernels::Source::KvValues
+                        )
+                    });
                     if row_writes != Some(writes) {
                         disagrees.push(format!(
                             "  {symbol}: shader writes buffer {writes}, row puts its \
@@ -431,9 +446,9 @@ fn a_row_that_states_its_operands_agrees_with_its_shader() {
         unstated.len(),
         unstated.join("\n")
     );
-    // EIGHT, measured 2026-08-10, down from fourteen. Seven rows state their
-    // operands now — `rms_single_row`, `silu_mul`, `split_qkv_bf16` and the
-    // four projections, which were the loud case: `affine_qmv_fast`
+    // SIX, measured 2026-08-10, down from fourteen. Nine rows state their
+    // operands now — the norm, the activation, the QKV split, the four
+    // projections and both KV writes. The projections were the loud case: `affine_qmv_fast`
     // declares its weights FIRST and the trace states them last, so every
     // projection of every layer bound its activation where the packed weight
     // belongs.
@@ -446,16 +461,17 @@ fn a_row_that_states_its_operands_agrees_with_its_shader() {
     // |---|---|
     // | `embed_gather_4bit`, `..._mb_4bit` | the token IDS. A fire value the text does not state; `Arg::Named` is the channel |
     // | `neox_decode`, `neox_mb` | the POSITIONS. `Source::Positions` already exists for exactly this |
-    // | `kv_append`, `kv_append_paged` | the layer's K and V pages, plus `pos` and three strides. **`Source` has no variant for a state store** — the op carries `StateRef { KvCache, layer }` and the pool holds the pages, so this needs one |
-    // | `sdpa_vector_decode`, `sdpa_paged_decode` | the same K/V pages, six strides, a scale and a window. Blocked on the same variant |
+    // | `sdpa_vector_decode`, `sdpa_paged_decode` | the K/V pages (`Source::KvKeys`/`KvValues` now exist), six strides, a scale and a window |
     //
-    // So the backlog is TWO pieces of work and not eight: teach the text to
-    // state its fire values (ids, positions — `Source::Positions` is already
-    // there), and give `Source` a way to name the KV store. The second is the
-    // only new vocabulary, and it is what the attention pair and the KV writes
-    // both wait on.
+    // So the backlog is ONE piece of work and not six: **teach the text to
+    // state what its statements carry**. The vocabulary is complete —
+    // `Source::Positions` for the ropes and the KV writes, `Arg::Named` for
+    // the gathers' token ids, `Source::KvKeys`/`KvValues` for the cache — and
+    // what is missing is statements that state their scalars and their fire
+    // values, which is `dsl::metal`'s side of the seam rather than the
+    // table's.
     assert!(
-        unstated.len() <= 8,
+        unstated.len() <= 6,
         "the backlog GREW to {}. A row with no operands is bound positionally, \
          and the trace's order is not the kernel's.\n{}",
         unstated.len(),

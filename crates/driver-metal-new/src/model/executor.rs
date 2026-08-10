@@ -61,6 +61,31 @@ pub trait Resolver {
     /// The region a backend-named value lives in — the values a seam exposes,
     /// the ones `Buffers::NAMED` marks.
     fn named(&mut self, value: ValueId) -> Option<Slice>;
+
+    /// A layer's KV pages: its keys when `values` is clear, its values when
+    /// set.
+    ///
+    /// The third question, and it is a different KIND from the other two. A
+    /// weight and a named value are both things the TRACE mentions. The KV
+    /// cache is not: a statement names it as STATE
+    /// (`StateRef { store: KvCache, layer }`) because the cache outlives the
+    /// fire and no traced value stands for it. So a kernel that reads or
+    /// writes it has a pointer that cannot come from the statement's args, and
+    /// every backend has answered that with a hand-written arm.
+    ///
+    /// [`Source::KvKeys`] and [`Source::KvValues`] let a row ask instead, and
+    /// this is where the asking lands.
+    ///
+    /// Defaulted to `None` so a resolver with no pool — the binder's tests,
+    /// the name-map checks — needs no answer for a question it never faces. A
+    /// statement that asks and gets `None` binds a region addressing nothing,
+    /// which is the same honest answer a missing scale gets.
+    ///
+    /// [`Source::KvKeys`]: kernels::Source::KvKeys
+    /// [`Source::KvValues`]: kernels::Source::KvValues
+    fn kv(&mut self, _layer: u16, _values: bool) -> Option<Slice> {
+        None
+    }
 }
 
 /// Where an operand is: a device address and the bytes it may address.

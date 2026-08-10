@@ -537,6 +537,21 @@ pub enum Source {
     Weight(u8),
     /// The `i`-th scalar the statement carries (`Launch`'s params).
     Param(u8),
+    /// The KEY pages of the layer this statement runs in.
+    ///
+    /// A statement writing or reading the KV cache names it as STATE
+    /// (`StateRef { store: KvCache, layer }`) and not as an operand, because
+    /// the cache outlives the fire and the trace has no value for it. So the
+    /// pointer cannot come from the statement's args, and every backend has
+    /// had to know which of its own buffers to bind — one hand-written arm at
+    /// a time, which is the thing this table exists to end.
+    ///
+    /// The layer is the statement's own; a rolled trace states a span and an
+    /// unrolled one states a layer, and both reach the same lookup.
+    KvKeys,
+    /// The VALUE pages of the layer this statement runs in. See
+    /// [`Source::KvKeys`].
+    KvValues,
     /// The same slot read as a FLOAT.
     ///
     /// The param channel is untyped `u32` — "what each slot means is the

@@ -526,8 +526,20 @@ impl MetalDriver {
                 experts_per_token: 0,
             };
             let names = driver_metal_new::model::resolve::Names::mlx();
+            // The KV pages a statement's state reference resolves through. A
+            // closure, because the map is portable and the pool is not.
+            let pages = |layer: u16, values: bool| {
+                pool.layer(u32::from(layer)).map(|l| {
+                    let h = if values { &l.v } else { &l.k };
+                    driver_metal_new::model::executor::Slice {
+                        address: h.gpu_address(),
+                        bytes: pool.shape().layer_bytes(),
+                    }
+                })
+            };
             let mut store =
-                driver_metal_new::model::resolve::Store::new(names, &model.tensors, &named);
+                driver_metal_new::model::resolve::Store::new(names, &model.tensors, &named)
+                    .with_kv(&pages);
             driver_metal_new::model::run::run(
                 &self.context,
                 &self.compiler,
