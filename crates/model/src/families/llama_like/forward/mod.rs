@@ -270,6 +270,25 @@ fn llama_like_metal_text(
     // same instantiation index it is on CUDA.
     let multi_batch = class != FireClass::Decode;
     dsl::trace_metal("llama_like", &facts.shape(), class, |m| {
+        // The depth axis, and it is stated unconditionally here where the
+        // CUDA text gates it on deployment facts. The gate exists there
+        // because a padded deployment stages q/k at PHYSICAL width while a
+        // row window addresses at LOGICAL width, so half the axis is
+        // unservable. Metal has neither padding fact nor an XQA path — its
+        // attention takes `head_dim` as an operand since the `_d_256` fix —
+        // so both halves are free, and the argument the CUDA comment makes
+        // for the narrowing half ("stopping after layer `k` addresses
+        // nothing at all, because the retired ops simply do not run")
+        // applies to the whole of it.
+        //
+        // This is the ONE statement that makes the text polymorphic on
+        // depth: every layer-tagged op below becomes implicitly
+        // `rows(depth > layer)`, so a fire whose rows truncate at different
+        // layers lowers to rectangles that narrow rather than to one
+        // rectangle per op. `driver-metal-new/tests/polymorphism.rs`
+        // measures it.
+        m.depth_window();
+
         let f = facts.clone();
         let q_w = f.q_width();
         let kv_w = f.kv_width();

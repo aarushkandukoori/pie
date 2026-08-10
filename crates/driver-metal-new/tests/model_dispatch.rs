@@ -308,29 +308,59 @@ mod from_a_frame {
     #[test]
     fn a_region_table_changes_the_rows_and_therefore_the_fire() {
         // The seriation's output IS the row feature points, so a step whose
-        // regions differ must lower differently from one whose regions do not.
-        // Today the Metal text splits on nothing, so the rectangle COUNT is
-        // unchanged — and that is the monomorphism `tests/polymorphism.rs`
-        // measures, showing up here from the frame end.
+        // regions differ lowers differently from one whose regions do not.
+        // This is where the two tasks meet: the region table supplies the
+        // rows, and the text's depth axis is what makes them matter.
         let plain = Step {
             token_ids: &[1, 2, 3, 4],
             qo_indptr: &[0, 4],
             ..Step::default()
         };
+        // Full-depth rows first, truncated last — the order a depth split
+        // requires, and the order the scheduler's seriation produces.
         let seriated = Step {
             region_row_indptr: &[0, 2, 4],
-            region_sig: &[sig::TRUNCATED, 0],
-            region_k: &[4, u32::MAX],
+            region_sig: &[0, sig::TRUNCATED],
+            region_k: &[u32::MAX, 4],
             ..plain.clone()
         };
         let plan = plan_for(FireClass::Prefill);
         let a = lower_step(&plan, &plain).expect("lowers");
-        let b = lower_step(&plan, &seriated).expect("lowers");
-        assert_eq!(
-            a.launches.len(),
-            b.launches.len(),
-            "the text gained a guard — rewrite this and tests/polymorphism.rs \
-             to assert WHICH axes split"
+        let b = lower_step(&plan, &seriated).expect("a seriated step lowers");
+
+        let work = |low: &model_compiler::lower::Lowered| -> u64 {
+            low.launches
+                .iter()
+                .map(|l| u64::from(l.rows.end - l.rows.start))
+                .sum()
+        };
+        assert!(
+            work(&b) < work(&a),
+            "the truncated region did no less work than the full one \
+             ({} against {}), so the depth axis is not reaching the frame",
+            work(&b),
+            work(&a)
+        );
+    }
+
+    #[test]
+    fn a_region_table_the_scheduler_did_not_seriate_is_refused() {
+        // The truncated region FIRST. A rectangle is a row range, so at layer
+        // 4 the alive set would be a suffix and there is no honest way to
+        // state that — the lowering says so rather than covering the wrong
+        // rows. This is the contract the frame bridge inherits the moment the
+        // text states an axis, and it is why the region table's ORDER matters.
+        let unseriated = Step {
+            token_ids: &[1, 2, 3, 4],
+            qo_indptr: &[0, 4],
+            region_row_indptr: &[0, 2, 4],
+            region_sig: &[sig::TRUNCATED, 0],
+            region_k: &[4, u32::MAX],
+            ..Step::default()
+        };
+        assert!(
+            lower_step(&plan_for(FireClass::Prefill), &unseriated).is_err(),
+            "an unseriated region table lowered anyway"
         );
     }
 }
