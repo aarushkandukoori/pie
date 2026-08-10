@@ -249,6 +249,43 @@ impl MoeFacts {
     }
 }
 
+/// A GQA attention block's three widths.
+///
+/// gemma-3n and nemotron-h carried this field-identically. It is the
+/// smallest fact a family can have and still be describing attention:
+/// query heads, key/value heads, and the width of one head. Everything
+/// else an attention statement wants is derived from these — which is
+/// what the two methods below are for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GqaFacts {
+    pub heads: u32,
+    pub kv_heads: u32,
+    pub head_dim: u32,
+}
+
+impl GqaFacts {
+    /// Every query head's width — what `q_proj` writes.
+    #[must_use]
+    pub const fn q_width(&self) -> u32 {
+        self.heads * self.head_dim
+    }
+
+    /// Every KV head's width — what `k_proj` and `v_proj` each write.
+    #[must_use]
+    pub const fn kv_width(&self) -> u32 {
+        self.kv_heads * self.head_dim
+    }
+
+    /// Query heads per KV head. FlashInfer instantiates a fixed set of
+    /// these and reports anything else by throwing, which is why the
+    /// driver refuses an unservable ratio at LOAD — see
+    /// `refuse_unservable_gqa`.
+    #[must_use]
+    pub const fn group_size(&self) -> u32 {
+        if self.kv_heads == 0 { 0 } else { self.heads / self.kv_heads }
+    }
+}
+
 #[cfg(test)]
 mod schedule {
     use super::full_attn_at;

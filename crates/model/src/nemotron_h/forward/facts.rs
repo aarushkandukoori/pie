@@ -52,22 +52,12 @@ impl NemotronMambaFacts {
     }
 }
 
-/// The attention mixer's dims.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NemotronAttnFacts {
-    pub heads: u32,
-    pub kv_heads: u32,
-    pub head_dim: u32,
-}
+/// This family's attention IS a plain GQA block — see
+/// [`model_compiler::facts::GqaFacts`], which both families carried
+/// field-identically.
+pub type NemotronAttnFacts = model_compiler::facts::GqaFacts;
 
-impl NemotronAttnFacts {
-    pub fn q_width(&self) -> u32 {
-        self.heads * self.head_dim
-    }
-    pub fn kv_width(&self) -> u32 {
-        self.kv_heads * self.head_dim
-    }
-}
+
 
 /// This family's mixture IS the shared one — see
 /// [`model_compiler::facts::MoeFacts`]. Three families carried
