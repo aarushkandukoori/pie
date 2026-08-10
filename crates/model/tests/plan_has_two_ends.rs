@@ -146,3 +146,62 @@ fn the_exit_seam_publishes_what_the_readout_produced() {
         );
     }
 }
+
+/// THE THIRD ORDER CONTRACT, and the only one representable.
+///
+/// `attn.out` is the OnAttn site — where attached programs read the
+/// attention's result and where a score consumer binds — so it must see
+/// the value BEFORE `o_proj` consumes it. A family that projected first
+/// would seam a value nothing else can reach.
+///
+/// Unlike `in`/`out`, this seam records the op it attaches to, so the
+/// claim is checkable: the value it names must still be READ by some
+/// statement after it. A seam on a value nothing later consumes is a
+/// dead observation point, which is exactly what projecting first
+/// produces.
+///
+/// Both orders trace and both lower, and the difference shows only when
+/// something attaches — which is why this is a test rather than a
+/// comment.
+///
+/// `llama_like` IS EXCLUDED, and the reason is structural rather than a
+/// waiver. Its attention sits inside a value-producing GUARD, so the
+/// arm's value and the region's output are different `ValueId`s by
+/// construction — that is what `Lowering::region_outs` exists to
+/// reconcile. The seam names the arm's; `o_proj` reads the region's; and
+/// "is this value read later" cannot see through that. The families
+/// below state their attention as a plain statement, where the question
+/// means what it says.
+#[test]
+fn the_attention_seam_sees_a_value_something_later_consumes() {
+    for (name, plan) in plans().into_iter().filter(|(n, _)| *n != "llama_like") {
+        let sites: Vec<_> = plan
+            .seams
+            .iter()
+            .filter(|s| s.seam == "attn.out")
+            .filter_map(|s| s.op.map(|op| (op as usize, s.values.clone())))
+            .collect();
+        assert!(
+            !sites.is_empty(),
+            "{name}: no `attn.out` seam anywhere. Every layer with an \
+             attention has one; a family with none has no OnAttn site and \
+             no score consumer can bind."
+        );
+        for (at, values) in sites {
+            for v in values {
+                let consumed_later = plan.ops[at + 1..]
+                    .iter()
+                    .any(|o| o.inputs.contains(&v));
+                assert!(
+                    consumed_later,
+                    "{name}: the `attn.out` seam at op {at} names a value \
+                     nothing after it reads. `o_proj` is supposed to be \
+                     that reader, so this family projected BEFORE seaming \
+                     and the observation point is dead. \
+                     `dsl::attention_landing` is the pair in the right \
+                     order."
+                );
+            }
+        }
+    }
+}
