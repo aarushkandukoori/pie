@@ -89,6 +89,21 @@ impl Resolver for Sentinels {
     fn fire(&mut self, _: driver_metal_new::model::executor::FireTable) -> Option<Slice> {
         Some(self.tables)
     }
+
+    /// A pool shaped like something rather than like nothing.
+    ///
+    /// `page_size = 0` is what hung this test for sixty seconds: the paged
+    /// attention divides by it, and the zeroed page CSR that makes the scan
+    /// terminate does not save a kernel that never gets to the scan.
+    fn pool(&mut self, which: driver_metal_new::model::executor::FireTable) -> Option<u32> {
+        use driver_metal_new::model::executor::FireTable as F;
+        Some(match which {
+            F::KvHeadStride => 128,
+            F::KvSeqStride => 128 * 8,
+            F::KvPageSize => 16,
+            _ => return None,
+        })
+    }
 }
 
 /// A region of zeros for the fire's tables.
@@ -200,11 +215,10 @@ fn the_whole_metal_text_fires_on_the_device() {
 /// Zeroing the fire tables does not help, which is the useful half: the hang
 /// is in the SCALARS and not the tables.
 ///
-/// So this is un-ignored by `every_scalar_a_row_names_is_a_scalar_the_
-/// statement_states` reaching zero, and until then it is a test that would
-/// hang the gate rather than one that is broken.
+/// The scalars are stated now — the pool's geometry arrives through
+/// `Resolver::pool` — so this runs. `Sentinels::pool` states a shape rather
+/// than zeros for exactly the reason above.
 #[test]
-#[ignore = "sdpa_paged_decode runs with page_size = 0 until its scalars are stated"]
 fn a_prefill_step_fires_too_so_both_lanes_reach_the_device() {
     let Ok(context) = Context::new() else {
         eprintln!("SKIP: no Metal 4 device");

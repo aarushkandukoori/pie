@@ -175,6 +175,8 @@ pub struct Store<'a> {
     kv: Option<&'a dyn Fn(u16, bool) -> Option<Slice>>,
     /// The fire's own tables, when this store has a fire behind it.
     fire: Option<&'a dyn Fn(super::executor::FireTable) -> Option<Slice>>,
+    /// The pool's geometry, when this store has a pool behind it.
+    pool: Option<super::kv::Shape>,
     /// Every traced name this store could not answer, in ask order.
     ///
     /// Collected rather than logged: a fire that cannot bind is diagnosed by
@@ -197,6 +199,7 @@ impl<'a> Store<'a> {
             named,
             kv: None,
             fire: None,
+            pool: None,
             missed: Vec::new(),
         }
     }
@@ -219,6 +222,17 @@ impl<'a> Store<'a> {
         tables: &'a dyn Fn(super::executor::FireTable) -> Option<Slice>,
     ) -> Self {
         self.fire = Some(tables);
+        self
+    }
+
+    /// The same store, answering the POOL's geometry from `shape`.
+    ///
+    /// Separate from [`Self::with_kv`], which hands out the pages themselves,
+    /// because the two answer different questions: where a layer's keys are,
+    /// and how far apart the rows in them sit.
+    #[must_use]
+    pub fn with_pool(mut self, shape: super::kv::Shape) -> Self {
+        self.pool = Some(shape);
         self
     }
 
@@ -271,6 +285,27 @@ impl Resolver for Store<'_> {
 
     fn fire(&mut self, table: super::executor::FireTable) -> Option<Slice> {
         self.fire.and_then(|tables| tables(table))
+    }
+
+    fn pool(&mut self, which: super::executor::FireTable) -> Option<u32> {
+        use super::executor::FireTable;
+        let shape = self.pool?;
+        // The pool is `[page, token, head, dim]` -- `row_bytes` is "every
+        // head's channels, contiguously", so a token row INTERLEAVES the heads
+        // rather than a head owning a contiguous span of tokens. The strides
+        // therefore come out the other way around from the head-major layout
+        // the names suggest: one head is `head_dim` away, one token is a whole
+        // row away.
+        //
+        // Worth stating rather than deriving at the call site. Swapping these
+        // two is a fire that reads real memory at every step and attends to
+        // the wrong tokens, which no bounds check catches.
+        Some(match which {
+            FireTable::KvHeadStride => shape.head_dim,
+            FireTable::KvSeqStride => shape.kv_heads * shape.head_dim,
+            FireTable::KvPageSize => shape.page_size,
+            _ => return None,
+        })
     }
 }
 

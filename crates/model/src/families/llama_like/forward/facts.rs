@@ -529,9 +529,25 @@ pub struct LlamaLikeMetalFacts {
     /// layer until the activations saturate.
     #[serde(default)]
     pub rope_theta: f32,
+    /// The SLIDING WINDOW each layer attends over, `-1` for none.
+    ///
+    /// The same load-time fact [`LlamaLikeCudaFacts::window_left`] carries,
+    /// and stated here rather than shared because the two halves are
+    /// independently deserialized: a Metal deployment that alternates windows
+    /// (OLMo-3, Mistral) has to say so on its own side.
+    ///
+    /// Empty means every layer is `-1`. Read through
+    /// [`Self::window_left_at`].
+    #[serde(default)]
+    pub window_left: Vec<i32>,
 }
 
 impl LlamaLikeMetalFacts {
+    /// This layer's window, `-1` for all of it. See [`Self::window_left`].
+    pub fn window_left_at(&self, l: u32) -> i32 {
+        model_compiler::facts::window_left_at(&self.window_left, l)
+    }
+
     /// A SYNTHETIC fixture, not a measurement — see the struct comment.
     /// These are the driver's own defaults as its source reads them.
     pub fn synthetic() -> Self {
@@ -564,6 +580,8 @@ impl LlamaLikeMetalFacts {
             // statement hands it `log2(theta)`; handing theta rotates by a
             // frequency ladder that is wrong from the second channel on.
             rope_theta: 1_000_000.0,
+            // qwen3 attends over the whole context at every layer.
+            window_left: Vec::new(),
         }
     }
 }

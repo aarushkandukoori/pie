@@ -2007,18 +2007,23 @@ pub mod metal {
 
     /// `kv_append.metal::kv_append_bfloat16` (contiguous) /
     /// `kv_append_paged.metal::kv_append_paged_bfloat16` (page table).
-    pub fn kv_append(k: &Val, v: &Val, kv: &Kv, paged: bool) {
+    pub fn kv_append(k: &Val, v: &Val, kv: &Kv, paged: bool, head_dim: u32, kv_heads: u32) {
         let kernel = if paged {
             "kv_append_paged_bfloat16"
         } else {
             "kv_append_bfloat16"
         };
-        record(
+        with_params(
             &kv.t,
             Some(kv.l),
             kernel,
             vec![],
             kv_state(kv),
+            // The model's two: how wide a head is and how many there are. The
+            // pool's strides come from the ROW (`KvHeadStride`, `KvSeqStride`)
+            // because they are the shape the driver allocated, not the shape
+            // the model has.
+            vec![head_dim, kv_heads],
             vec![k.id, v.id],
             None,
         );
@@ -2039,19 +2044,45 @@ pub mod metal {
     /// also `_d_512`. A width neither carries has no kernel, and the symbol
     /// this returns will simply not resolve — which the driver's
     /// `every_symbol_the_lowering_names_has_a_row` check reports by name.
-    pub fn sdpa(q: &Val, kv: &Kv, q_width: u32, head_dim: u32, paged: bool) -> Option<Val> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn sdpa(
+        q: &Val,
+        kv: &Kv,
+        q_width: u32,
+        head_dim: u32,
+        paged: bool,
+        gqa_factor: u32,
+        kv_heads: u32,
+        window: i32,
+    ) -> Option<Val> {
         let kernel = if paged {
             format!("sdpa_paged_decode_bfloat16_d_{head_dim}")
         } else {
             format!("sdpa_vector_decode_bfloat16_d_{head_dim}")
         };
         let kernel = kernel.as_str();
-        record(
+        // The model's scalars, in the order both rows name them. The strides
+        // and the page size are the POOL's and come from the row; the mask
+        // stride is zero because this text states no custom mask.
+        //
+        // The scale is `1/sqrt(head_dim)` — the softmax temperature, and the
+        // one number here a reader is most likely to assume the kernel knows.
+        // It does not: it takes it, and a zero makes every logit zero and
+        // every attention uniform.
+        let scale = 1.0f32 / (head_dim as f32).sqrt();
+        with_params(
             &q.t,
             Some(kv.l),
             kernel,
             vec![],
             kv_state(kv),
+            vec![
+                gqa_factor,
+                kv_heads,
+                scale.to_bits(),
+                0,
+                window as u32,
+            ],
             vec![q.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(q_width)]), DType::BF16)),
         )

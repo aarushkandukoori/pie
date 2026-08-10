@@ -589,7 +589,7 @@ fn every_scalar_a_row_names_is_a_scalar_the_statement_states() {
         short.len(),
         short.join("\n")
     );
-    // FOUR, down from THIRTEEN — which was every statement but the QKV split,
+    // ZERO, down from THIRTEEN — which was every statement but the QKV split,
     // the only one that had ever stated a scalar. Every projection was told
     // its extents were zero and computed nothing; every rope was told its head
     // width was zero; the attention was told its strides were zero and read
@@ -599,15 +599,21 @@ fn every_scalar_a_row_names_is_a_scalar_the_statement_states() {
     // stated how many scalars a kernel wants, so nothing could notice that
     // none were supplied.
     //
-    // The four that remain all want the SAME thing and it is not the text's to
-    // give: the KV pool's strides. `k_head_stride` is `max_ctx * head_dim` and
-    // `k_seq_stride` is `head_dim` — the shape the DRIVER allocated
-    // (`model::kv::Shape`), which a model text cannot know and should not
-    // guess. They want a `Source` variant naming the pool's geometry, beside
-    // the `KvKeys`/`KvValues` that name its pages.
-    assert!(
-        short.len() <= 4,
-        "the gap GREW to {}. A kernel told its output is zero wide computes \
+    // The last four all wanted the SAME thing and it was not the text's to
+    // give: the KV pool's strides and its page size — the shape the DRIVER
+    // allocated (`model::kv::Shape`), which no model text can know. They are
+    // `Source::KvHeadStride`/`KvSeqStride`/`KvPageSize` now, answered by the
+    // resolver beside the pages themselves and APPENDED to the statement's own
+    // scalars by `dispatch::param_layout`.
+    //
+    // Writing them down found the layout was the other way around from the
+    // names: the pool is `[page, token, head, dim]`, so one head is `head_dim`
+    // away and one TOKEN is a whole interleaved row away. Swapping the two is
+    // a fire that reads real memory and attends to the wrong tokens.
+    assert_eq!(
+        short.len(),
+        0,
+        "the gap REOPENED at {}. A kernel told its output is zero wide computes \
          nothing and reports success.\n{}",
         short.len(),
         short.join("\n")

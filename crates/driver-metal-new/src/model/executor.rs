@@ -104,6 +104,21 @@ pub trait Resolver {
     fn fire(&mut self, _table: FireTable) -> Option<Slice> {
         None
     }
+
+    /// One of the pool's geometry numbers, as a value.
+    ///
+    /// A stride is `max_ctx * head_dim` for the pool the DRIVER allocated, so
+    /// no text can state it. Answered here beside the pages themselves, and
+    /// returned as a number rather than an address because it rides the
+    /// scalar channel: the row names it `Param`-like and the encoder stages it
+    /// with the statement's own.
+    ///
+    /// `None` for a resolver with no pool, and a slot it does not fill is a
+    /// slot the kernel reads as zero — which for a stride means every head
+    /// reads the first.
+    fn pool(&mut self, _which: FireTable) -> Option<u32> {
+        None
+    }
 }
 
 /// Which of the fire's tables a slot wants.
@@ -126,6 +141,16 @@ pub enum FireTable {
     AttentionMask,
     /// The per-lane byte saying whether the mask applies.
     AttentionMaskEnabled,
+    /// Elements between one KV head's pages and the next.
+    KvHeadStride,
+    /// Elements between one token and the next within a head.
+    KvSeqStride,
+    /// Token rows per page.
+    KvPageSize,
+    /// Per token: the physical page its KV row is written into.
+    KvWritePage,
+    /// Per token: the row within that page.
+    KvWriteOffset,
 }
 
 /// Where an operand is: a device address and the bytes it may address.

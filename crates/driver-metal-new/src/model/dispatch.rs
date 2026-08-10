@@ -110,7 +110,7 @@ pub struct Dispatch<'a> {
     /// forwards them without knowing what they mean, which is the difference
     /// between a driver that passes a constant and one that re-derives it
     /// from a config it had to understand.
-    pub params: &'a [u32],
+    pub params: Vec<u32>,
     /// The layers this rectangle covers.
     pub layers: Range<u16>,
     /// Which traced op produced it — where a refusal points.
@@ -306,10 +306,10 @@ pub fn plan_one<'a, S: Resolver>(
         why,
     })?;
     let args = reorder(sig, &bound.args, lowered, launch, resolver);
-    let param_slots = param_layout(sig, args.len());
+    let (param_slots, params) = param_layout(sig, args.len(), lowered, launch, resolver);
     Ok(Dispatch {
         symbol: bound.kernel,
-        params: &lowered.params[launch.params.start as usize..launch.params.end as usize],
+        params,
         file,
         grid: grid.grid,
         threadgroup: grid.tg,
@@ -441,6 +441,8 @@ fn reorder<S: Resolver>(
             kernels::Source::RequestOfToken => fire(resolver, FireTable::RequestOfToken),
             kernels::Source::KvPageIndices => fire(resolver, FireTable::KvPageIndices),
             kernels::Source::KvPageIndptr => fire(resolver, FireTable::KvPageIndptr),
+            kernels::Source::KvWritePage => fire(resolver, FireTable::KvWritePage),
+            kernels::Source::KvWriteOffset => fire(resolver, FireTable::KvWriteOffset),
             kernels::Source::AttentionMask => fire(resolver, FireTable::AttentionMask),
             kernels::Source::AttentionMaskEnabled => {
                 fire(resolver, FireTable::AttentionMaskEnabled)
@@ -464,27 +466,56 @@ fn reorder<S: Resolver>(
 /// The staged run is laid out in the row's order with each scalar naturally
 /// aligned, so an eight-byte stride starts on an eight-byte boundary rather
 /// than wherever the previous four-byte extent happened to end.
-fn param_layout(sig: &'static KernelSig, operands: usize) -> Vec<ParamSlot> {
+fn param_layout<S: Resolver>(
+    sig: &'static KernelSig,
+    operands: usize,
+    lowered: &Lowered,
+    launch: &Launch,
+    resolver: &mut S,
+) -> (Vec<ParamSlot>, Vec<u32>) {
+    let mut params: Vec<u32> =
+        lowered.params[launch.params.start as usize..launch.params.end as usize].to_vec();
     if sig.operands.is_empty() {
-        return vec![ParamSlot {
-            slot: operands,
-            at: 0,
-            bytes: 4,
-            packed: true,
-            value: Some(0),
-        }];
+        return (
+            vec![ParamSlot {
+                slot: operands,
+                at: 0,
+                bytes: 4,
+                packed: true,
+                value: Some(0),
+            }],
+            params,
+        );
     }
     let mut at = 0u32;
     let mut out = Vec::new();
     for (slot, operand) in sig.operands.iter().enumerate() {
-        let (which, bytes, packed) = match operand.source {
-            kernels::Source::Param(i) | kernels::Source::ParamF32(i) => match operand.ty {
-                kernels::Ty::Usize => (Some(i), 8, false),
-                // A pointer where a scalar could be is the packed struct.
-                kernels::Ty::Buf | kernels::Ty::BufMut => (Some(i), 4, true),
-                _ => (Some(i), 4, false),
-            },
-            _ => continue,
+        // A pool number is not one of the statement's scalars: the driver
+        // resolves it and APPENDS it, so the slot points at a value the
+        // statement never carried. That is the whole reason it is a `Source`
+        // — a stride is the pool's shape, and a text that guessed one would be
+        // right for a deployment and silently wrong for the next.
+        let pooled = match operand.source {
+            kernels::Source::KvHeadStride => Some(FireTable::KvHeadStride),
+            kernels::Source::KvSeqStride => Some(FireTable::KvSeqStride),
+            kernels::Source::KvPageSize => Some(FireTable::KvPageSize),
+            _ => None,
+        };
+        let (which, bytes, packed) = if let Some(want) = pooled {
+            let value = resolver.pool(want).unwrap_or(0);
+            params.push(value);
+            let i = u8::try_from(params.len() - 1).unwrap_or(u8::MAX);
+            (Some(i), if operand.ty == kernels::Ty::Usize { 8 } else { 4 }, false)
+        } else {
+            match operand.source {
+                kernels::Source::Param(i) | kernels::Source::ParamF32(i) => match operand.ty {
+                    kernels::Ty::Usize => (Some(i), 8, false),
+                    // A pointer where a scalar could be is the packed struct.
+                    kernels::Ty::Buf | kernels::Ty::BufMut => (Some(i), 4, true),
+                    _ => (Some(i), 4, false),
+                },
+                _ => continue,
+            }
         };
         at = at.next_multiple_of(bytes);
         out.push(ParamSlot {
@@ -496,7 +527,7 @@ fn param_layout(sig: &'static KernelSig, operands: usize) -> Vec<ParamSlot> {
         });
         at += bytes;
     }
-    out
+    (out, params)
 }
 
 /// One of the fire's tables, or a region addressing nothing.
@@ -731,7 +762,7 @@ mod tests {
                 packed: true,
                 value: Some(0),
             }],
-            params: &[],
+            params: Vec::new(),
             layers: 0..1,
             op: 0,
         };
