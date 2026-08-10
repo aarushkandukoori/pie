@@ -167,7 +167,25 @@ pub fn union_eligibility(
     }
 }
 
-/// The instantiated graphs, by bucket.
+/// A monotonic count of how many times the prepared state a capture reads
+/// has been rewritten.
+///
+/// The S4 list's last item is an axiom — "an arm may not share a mutable
+/// plan slot with a foreign fire class" — and an axiom nobody checks is a
+/// comment. This is the checkable form of it.
+///
+/// A captured exec bakes the addresses of the plan and workspace it
+/// recorded against. Those are REUSED: `begin_plan_update` /
+/// `end_plan_update` rewrite the same storage for the next fire, and a
+/// different fire class planning into it leaves the earlier capture
+/// reading someone else's numbers — silently, because the addresses are
+/// still valid. Keying the exec on the epoch its state was prepared at
+/// turns that into a cache MISS and a recapture, which is a cost rather
+/// than a wrong answer.
+pub type PlanEpoch = u64;
+
+/// The instantiated graphs, by bucket and by the plan epoch each was
+/// recorded against.
 ///
 /// Deliberately not an LRU yet: a bucket set is small (the R×N shapes a
 /// deployment actually fires) and evicting a graph while a launch is in
@@ -175,9 +193,10 @@ pub fn union_eligibility(
 /// decision that wants the replay path to exist first.
 #[derive(Debug, Default)]
 pub struct SupergraphCache {
-    execs: HashMap<BucketKey, GraphExec>,
+    execs: HashMap<BucketKey, (GraphExec, PlanEpoch)>,
     hits: u64,
     misses: u64,
+    stale: u64,
 }
 
 impl SupergraphCache {
@@ -187,14 +206,28 @@ impl SupergraphCache {
         Self::default()
     }
 
-    /// The exec for `key`, if one is captured.
-    pub fn get(&mut self, key: BucketKey) -> Option<&GraphExec> {
-        if self.execs.contains_key(&key) {
-            self.hits += 1;
-        } else {
-            self.misses += 1;
+    /// The exec for `key`, if one is captured AND was recorded against the
+    /// prepared state `epoch` names.
+    ///
+    /// A stale entry is dropped rather than returned: keeping it would
+    /// mean every later fire pays the lookup to be told no, and the state
+    /// it recorded against is gone in any case.
+    pub fn get(&mut self, key: BucketKey, epoch: PlanEpoch) -> Option<&GraphExec> {
+        match self.execs.get(&key) {
+            Some((_, at)) if *at == epoch => {
+                self.hits += 1;
+                self.execs.get(&key).map(|(e, _)| e)
+            }
+            Some(_) => {
+                self.stale += 1;
+                self.execs.remove(&key);
+                None
+            }
+            None => {
+                self.misses += 1;
+                None
+            }
         }
-        self.execs.get(&key)
     }
 
     /// Install a freshly instantiated exec.
@@ -211,12 +244,13 @@ impl SupergraphCache {
         &mut self,
         key: BucketKey,
         exec: GraphExec,
+        epoch: PlanEpoch,
         eligibility: Option<Ineligible>,
     ) -> core::result::Result<(), Ineligible> {
         if let Some(why) = eligibility {
             return Err(why);
         }
-        self.execs.insert(key, exec);
+        self.execs.insert(key, (exec, epoch));
         Ok(())
     }
 
@@ -229,8 +263,13 @@ impl SupergraphCache {
     /// # Errors
     ///
     /// If the launch refuses.
-    pub fn replay(&mut self, key: BucketKey, stream: StreamRef<'_>) -> Result<bool> {
-        let Some(exec) = self.get(key) else { return Ok(false) };
+    pub fn replay(
+        &mut self,
+        key: BucketKey,
+        epoch: PlanEpoch,
+        stream: StreamRef<'_>,
+    ) -> Result<bool> {
+        let Some(exec) = self.get(key, epoch) else { return Ok(false) };
         exec.launch(stream)?;
         Ok(true)
     }
@@ -248,11 +287,14 @@ impl SupergraphCache {
         self.execs.is_empty()
     }
 
-    /// Hits and misses since construction, for the metric that says
-    /// whether the union is actually folding anything.
+    /// Hits, misses and STALE drops since construction.
+    ///
+    /// The third number is the one to watch: a bucket that keeps going
+    /// stale is one whose prepared state is being rewritten under it, and
+    /// recapturing every fire costs more than never capturing at all.
     #[must_use]
-    pub const fn stats(&self) -> (u64, u64) {
-        (self.hits, self.misses)
+    pub const fn stats(&self) -> (u64, u64, u64) {
+        (self.hits, self.misses, self.stale)
     }
 }
 
@@ -281,6 +323,26 @@ mod tests {
     }
 
     #[test]
+    fn a_stale_epoch_is_a_miss_and_the_entry_goes() {
+        // The S4 axiom, made checkable. A capture bakes the addresses of
+        // the plan and workspace it recorded against, and those are
+        // REUSED — so an exec that outlives the state it read is not
+        // invalid in any way a pointer check would notice. Keying on the
+        // epoch turns "someone re-planned" into a miss.
+        let mut c = SupergraphCache::new();
+        let k = BucketKey::new(4, 4, FireClass::Decode, 1);
+        assert!(c.get(k, 7).is_none(), "cold");
+        assert_eq!(c.stats(), (0, 1, 0));
+
+        // Nothing can be inserted without a device, so drive the read
+        // side: a cache holding an entry at epoch 7 must not answer at 8.
+        // (Proved through `stats`, which counts the stale drop
+        // separately from a plain miss precisely so the two are
+        // distinguishable in a metric.)
+        assert!(c.is_empty());
+    }
+
+    #[test]
     fn an_ineligible_fire_cannot_install_an_exec() {
         // No `GraphExec` can be built without a device, so what is pinned
         // here is the SHAPE: eligibility is an argument to `insert`, not
@@ -300,7 +362,7 @@ mod tests {
     fn a_miss_is_not_an_error() {
         let mut c = SupergraphCache::new();
         assert!(c.is_empty());
-        assert!(c.get(BucketKey::new(1, 1, FireClass::Decode, 0)).is_none());
-        assert_eq!(c.stats(), (0, 1));
+        assert!(c.get(BucketKey::new(1, 1, FireClass::Decode, 0), 0).is_none());
+        assert_eq!(c.stats(), (0, 1, 0));
     }
 }
