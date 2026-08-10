@@ -197,8 +197,7 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
                      semantic SigmoidGateMul wants equal Shapes and MLA's \
                      absorb is rank-3. See this arm's comment."
                 );
-                dsl::seam(attn_v.trace(), &dsl::seam::ATTN_OUT, &[&attn_v], Some(l));
-                y += matmul(&attn_v, &w.o_proj);
+                y += dsl::attention_landing(&attn_v, &w.o_proj, l);
             } else {
                 // ── KDA ──────────────────────────────────────────────
                 let q = matmul(&x, &w.kda_q);

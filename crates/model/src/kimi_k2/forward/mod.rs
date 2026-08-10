@@ -132,8 +132,7 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
                     v_head_dim: a.v_head_dim,
                 },
             );
-            dsl::seam(attn_v.trace(), &dsl::seam::ATTN_OUT, &[&attn_v], Some(l));
-            y += matmul(&attn_v, &w.o_proj);
+            y += dsl::attention_landing(&attn_v, &w.o_proj, l);
 
             let m = dsl::cuda::rmsnorm(&y, &w.mlp_norm);
             if !facts.is_moe_layer(l) {

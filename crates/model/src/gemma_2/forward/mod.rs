@@ -138,8 +138,7 @@ pub fn gemma2_cuda(facts: &Gemma2Facts, class: FireClass) -> ForwardPlan {
             // statement of its own.
             let o = dsl::cuda::attention_flashinfer_decode(&q, &kv, window_left)
                 .expect("a plain attention statement produces its value");
-            dsl::seam(o.trace(), &dsl::seam::ATTN_OUT, &[&o], Some(l));
-            let o = matmul(&o, &w.o_proj);
+            let o = dsl::attention_landing(&o, &w.o_proj, l);
             // The POST norm, then an explicit add — gemma's pair.
             let o = dsl::cuda::rmsnorm(&o, &w.post_attn_norm);
             y = dsl::cuda::residual_add(&y, &o, facts.hidden);

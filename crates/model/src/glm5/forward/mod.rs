@@ -165,9 +165,8 @@ pub fn glm5_cuda(facts: &Glm5Facts, class: FireClass) -> ForwardPlan {
             );
             // The OnAttn site: after the core, before `o_proj` — the
             // hand-written invoke's position.
-            dsl::seam(attn_v.trace(), &dsl::seam::ATTN_OUT, &[&attn_v], Some(l));
             // `+=` of a fresh matmul IS the beta=1 fold the T==1 arm makes.
-            y += matmul(&attn_v, &w.o_proj);
+            y += dsl::attention_landing(&attn_v, &w.o_proj, l);
 
             // ── MLP / MoE ────────────────────────────────────────────
             let m = dsl::cuda::rmsnorm(&y, &w.mlp_norm);

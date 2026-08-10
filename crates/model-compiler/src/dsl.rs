@@ -827,6 +827,27 @@ pub fn logits_epilogue(
     seam(t, &seam::OUT, &[&logits], None);
 }
 
+/// THE ATTENTION LANDING: observe the core's output, then project it.
+///
+/// Nine sites across eight families, and the ORDER is the contract. The
+/// `attn.out` seam is the OnAttn site — where attached programs read the
+/// attention's result and where a score consumer binds — so it must see
+/// the value BEFORE `o_proj` consumes it. A family that projected first
+/// would seam a value nothing else can reach.
+///
+/// That is not locally visible: both orders trace, both lower, and the
+/// difference only shows when something actually attaches. Which is why
+/// it is worth being a function rather than a convention repeated nine
+/// times.
+///
+/// Returns the projection. Whether the caller writes `y += …` or folds
+/// the residual into the GEMM's beta is the family's business — gpt-oss
+/// does the second — so this has no opinion about the landing.
+pub fn attention_landing(a: &Val, o_proj: &MatW, layer: u32) -> Val {
+    seam(a.trace(), &seam::ATTN_OUT, &[a], Some(layer));
+    matmul(a, o_proj)
+}
+
 /// MLA's TWO LATENTS: the query's, normed and expanded, and the KV's.
 ///
 /// Three families wrote the unfused form identically — glm5, kimi-k2's

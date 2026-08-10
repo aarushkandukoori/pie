@@ -189,8 +189,7 @@ pub fn gemma3n_cuda(facts: &Gemma3nFacts, class: FireClass) -> ForwardPlan {
             dsl::seam(q.trace(), &dsl::seam::ATTN_Q, &[&q], Some(l));
             let o = dsl::cuda::attention_flashinfer_decode(&q, &kv, window_left)
                 .expect("a plain attention statement produces its value");
-            dsl::seam(o.trace(), &dsl::seam::ATTN_OUT, &[&o], Some(l));
-            let o = matmul(&o, &w.o_proj);
+            let o = dsl::attention_landing(&o, &w.o_proj, l);
             let o = dsl::cuda::rmsnorm(&o, &w.post_attn_norm);
             let mid = dsl::cuda::residual_add(&p_active, &o, facts.hidden);
             let mid = dsl::cuda::residual_add(&mid, &lau, facts.hidden);
