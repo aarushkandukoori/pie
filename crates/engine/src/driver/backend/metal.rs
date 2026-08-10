@@ -522,8 +522,12 @@ impl MetalDriver {
                 kv_heads: facts.kv_heads,
                 head_dim: facts.head_dim,
                 rotary_dims: facts.head_dim,
-                n_experts: 0,
-                experts_per_token: 0,
+                // The DEPLOYMENT's, not zero. `Rule::RouterLane`/`RouteRows`/
+                // `RoutedQmv` read these off the dims the same way `Qmv` reads
+                // `width`, so a mixture handed zeros launches a router over no
+                // experts -- which is a fire that runs and routes nothing.
+                n_experts: facts.n_experts,
+                experts_per_token: facts.experts_per_token,
             };
             // The fire's own tables, staged into one device region. The row
             // names which a slot wants and this answers — the driver never
@@ -553,6 +557,21 @@ impl MetalDriver {
                 }
                 (pages, offs)
             };
+            let inv_freq: Vec<u32> = driver_metal_new::model::rope::frequencies(
+                geometry.head_dim,
+                geometry.rope_theta,
+                (geometry.rope_freq_factor > 0.0).then_some(
+                    driver_metal_new::model::rope::Rescale {
+                        factor: geometry.rope_freq_factor,
+                        low: geometry.rope_low_freq_factor,
+                        high: geometry.rope_high_freq_factor,
+                        original_max: geometry.rope_original_max_position as f32,
+                    },
+                ),
+            )
+            .iter()
+            .map(|f| f.to_bits())
+            .collect();
             let mut blob: Vec<u32> = Vec::new();
             let mut spans: Vec<(usize, usize)> = Vec::new();
             for table in [
@@ -566,6 +585,14 @@ impl MetalDriver {
                 step.plan.kv_page_indptr.as_slice(),
                 &w_page,
                 &w_off,
+                // The rotary ladder, derived at LOAD from the config: a
+                // deployment that RESCALES it (llama-3, YaRN) is not a
+                // geometric series in any base, so no text can state one.
+                &inv_freq,
+                // Which rows the readout samples, one per request. A fire's
+                // stream is one row per TOKEN; without this the readout reads
+                // row 0 and answers the FIRST token's distribution.
+                step.plan.sampling_indices.as_slice(),
             ] {
                 spans.push((blob.len(), table.len()));
                 blob.extend_from_slice(table);
@@ -592,6 +619,8 @@ impl MetalDriver {
                     F::KvPageIndptr => 4,
                     F::KvWritePage => 5,
                     F::KvWriteOffset => 6,
+                    F::RopeFrequencies => 7,
+                    F::SamplingIndices => 8,
                     // No custom mask on this path yet; a slot nobody fills is
                     // better than one filled with the wrong table.
                     F::AttentionMask | F::AttentionMaskEnabled => return None,
