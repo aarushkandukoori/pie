@@ -258,6 +258,9 @@ first arm of `forward.cpp`'s orchestration exists as `metal/decoder.rs`.
 | `request_rs_binding` | `batch::rs_binding` | ported; the legacy member-level arm is dropped — `ForwardDesc::rs_slot` already derives that view from the per-request vectors, so there is no arm to pick |
 | `validate_paged_request_state` | `batch::validate_paged_continuation` | ported; the five not-matching cases stay five answers, for the reason the C++ gives |
 | `commit_paged_request_state` | `batch::commit_paged` | ported, defect fixed: the C++ is `void` and returns silently on a guard the validation should have made unreachable — but if it fires, the fire has already run and the slot keeps pre-fire state, so the NEXT continuation validates against a position the device moved past and passes |
+| `rs_slot_bytes_for` | `batch::rs_slot_bytes` | ported; the conv stride counts twice because the state is a ping-pong pair |
+| `rs_slot_budget_bytes` | `batch::rs_slot_budget_bytes` + `RS_SLOT_BUDGET_FLOOR` | ported |
+| `rs_slots_for_budget` | `batch::rs_slots_for_budget` + `MAX_RS_SLOTS` | ported, with the shipped bug it records: `requested` was applied as `max(slots, requested)`, which made the budget decorative — 64 slots at 170 MiB each is 10.6 GiB, 5.2 GiB over the device, and the OOM arrived as a command buffer that never ran so every PTIR lane read its own zero fill back as a fault |
 | `forward.cpp`: `copy_state`/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
 
 Verified on device (Qwen3.6-27B, `tests/device_smoke.rs`): the M=1 ring

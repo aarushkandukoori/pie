@@ -113,8 +113,9 @@ pub use gptoss::{
 pub use gptoss_consts::{RowGatherParams, SwiGluParams, gptoss_qmv_kn, yarn_inv_freq, yarn_mscale};
 pub use gptoss_solve::{StagedQuant, bits_from_extents, solve_quant_into, solve_staged_quant};
 pub use heap_budget::{
-    PAGED_MAX_FORWARD_TOKENS, PAGED_MIN_FORWARD_TOKENS, gemma4_extra_heap_bytes,
-    gptoss_extra_heap_bytes, llama_extra_heap_bytes, max_forward_tokens_for_budget,
+    MAX_RS_SLOTS, PAGED_MAX_FORWARD_TOKENS, PAGED_MIN_FORWARD_TOKENS, RS_SLOT_BUDGET_FLOOR,
+    gemma4_extra_heap_bytes, gptoss_extra_heap_bytes, llama_extra_heap_bytes,
+    max_forward_tokens_for_budget, rs_slot_budget_bytes, rs_slot_bytes, rs_slots_for_budget,
     stream_predicate,
 };
 pub use llama::{LlamaGeometry, llama_decode_geometry, llama_geometry_from_facts, llama_qmv_kn};
