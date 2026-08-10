@@ -32,14 +32,12 @@ impl KimiK3KdaFacts {
     }
 }
 
-/// The MoE block. MXFP4 experts, so the decode leg is the MXFP4 GEMV.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KimiK3MoeFacts {
-    pub num_experts: u32,
-    pub top_k: u32,
-    pub moe_intermediate: u32,
-    pub shared_intermediate: u32,
-}
+/// This family's mixture IS the shared one — see
+/// [`model_compiler::facts::MoeFacts`]. Three families carried
+/// field-identical copies; the alias keeps every spelling working while
+/// there is one definition.
+pub type KimiK3MoeFacts = model_compiler::facts::MoeFacts;
+
 
 /// The whole family.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

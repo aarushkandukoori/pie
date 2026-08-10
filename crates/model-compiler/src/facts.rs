@@ -206,6 +206,49 @@ impl MlaFacts {
     }
 }
 
+/// A ROUTED FFN's shape — the mixture, said once.
+///
+/// kimi-k2, kimi-k3 and nemotron-h carried this struct field-identically,
+/// and glm5, deepseek-v4 and qwen3.5 carry the same four numbers plus one
+/// of their own. These four ARE the mixture: how many experts, how many a
+/// row goes to, how wide one is, and whether a shared expert rides beside
+/// them.
+///
+/// The families that add a field are adding a real one — glm5's
+/// `aligned_block` is its dispatch's tile, deepseek-v4's `hash_routed`
+/// picks a different router — so they keep their own struct and this is
+/// the part that stopped being written six times.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MoeFacts {
+    /// Experts in this deployment's mixture.
+    pub num_experts: u32,
+    /// How many of them a row goes to — the router's k.
+    pub top_k: u32,
+    /// One expert's inner width.
+    pub moe_intermediate: u32,
+    /// The shared expert's inner width; 0 for a mixture without one,
+    /// which is the plain `qwen3_moe` shape.
+    pub shared_intermediate: u32,
+}
+
+impl MoeFacts {
+    /// Whether a shared expert rides beside the routed ones. A predicate
+    /// rather than a second field, for the reason every derived width in
+    /// this module is a method: a stored answer is a second thing to keep
+    /// in step.
+    #[must_use]
+    pub const fn has_shared_expert(&self) -> bool {
+        self.shared_intermediate > 0
+    }
+
+    /// The fire's ROUTE count at `tokens` rows — tokens times k, the
+    /// number the aligned dispatch's every extent is derived from.
+    #[must_use]
+    pub const fn routes(&self, tokens: u32) -> u32 {
+        tokens * self.top_k
+    }
+}
+
 #[cfg(test)]
 mod schedule {
     use super::full_attn_at;

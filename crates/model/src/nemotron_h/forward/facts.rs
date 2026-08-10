@@ -69,15 +69,12 @@ impl NemotronAttnFacts {
     }
 }
 
-/// The MoE block. ReLU² rather than swiglu, and a sigmoid-with-bias
-/// router.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NemotronMoeFacts {
-    pub num_experts: u32,
-    pub top_k: u32,
-    pub moe_intermediate: u32,
-    pub shared_intermediate: u32,
-}
+/// This family's mixture IS the shared one — see
+/// [`model_compiler::facts::MoeFacts`]. Three families carried
+/// field-identical copies; the alias keeps every spelling working while
+/// there is one definition.
+pub type NemotronMoeFacts = model_compiler::facts::MoeFacts;
+
 
 /// The whole family.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

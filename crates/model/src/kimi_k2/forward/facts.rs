@@ -15,15 +15,12 @@ pub type KimiMlaFacts = model_compiler::facts::MlaFacts;
 
 
 
-/// The MoE block.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KimiMoeFacts {
-    pub num_experts: u32,
-    pub top_k: u32,
-    pub moe_intermediate: u32,
-    /// `shared_expert_intermediate_size`; zero means no shared expert.
-    pub shared_intermediate: u32,
-}
+/// This family's mixture IS the shared one — see
+/// [`model_compiler::facts::MoeFacts`]. Three families carried
+/// field-identical copies; the alias keeps every spelling working while
+/// there is one definition.
+pub type KimiMoeFacts = model_compiler::facts::MoeFacts;
+
 
 /// The CUDA reading's deployment facts — the choices the hand-written
 /// pass makes from the BINDING and the config, resolved once at load.
