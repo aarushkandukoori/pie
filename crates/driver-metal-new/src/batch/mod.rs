@@ -65,7 +65,9 @@ pub use dispatch::{
     DagOptions, Dispatch, Launch, barrier_after, build_decode_dag, concurrent_run_ends,
 };
 pub use dispatch_gemma4::{
-    Gemma4DagStats, build_gemma4_dag, gemma4_dag_stats, gemma4_pool_elems, gemma4_value_extent,
+    Gemma4DagStats, build_gemma4_dag, build_gemma4_dag_mb, gemma4_dag_stats, gemma4_moe_qmm_bn,
+    gemma4_moe_sorted_rows, gemma4_pool_elems, gemma4_qmm_bn, gemma4_qmm_min_batch,
+    gemma4_qmm_rows, gemma4_value_extent,
 };
 pub use dispatch_gptoss::{
     GptOssDagStats, build_gptoss_dag, build_gptoss_dag_mb, gptoss_dag_stats, gptoss_is_dense_proj,
@@ -117,7 +119,7 @@ pub use paging::{
     Cut, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging, renumber_routing,
 };
 pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, plan_decode_psos};
-pub use psos_gemma4::gemma4_step_plan;
+pub use psos_gemma4::{gemma4_mb_plan, gemma4_step_plan};
 pub use psos_gptoss::{
     GptOssPsoRequest, GptOssSlot, SDPA_MMA_HEAD_DIM, gptoss_kinds, gptoss_mb_kinds, gptoss_mb_plan,
     gptoss_step_plan, plan_gptoss_psos,

@@ -23,6 +23,7 @@ use super::dispatch::{
     Dispatch, Launch, embed, kv_append, qmv, residual, rms, rope, route_rows, route_sort,
     routed_qmv, router_topk, sdpa,
 };
+use super::dispatch_mb::{qmm_t, rms_mb};
 use super::gemma4::{Gemma4Geometry, gemma4_qmv_kn};
 use crate::tuning::Tuning;
 
@@ -402,6 +403,311 @@ pub fn gemma4_pool_elems(
         sorted,
         u64::from(rows.max(1)) * u64::from(g.hidden),
     )
+}
+
+// ─── The M>1 fire path ───
+
+/// This family's GEMM crossover — dense or routed by what the FFN is,
+/// FP16 by the model format.
+#[must_use]
+pub fn gemma4_qmm_min_batch(g: &Gemma4Geometry, tuning: &Tuning) -> u32 {
+    tuning.qmm_min_batch_for(
+        g.is_moe(),
+        tuning.fp16_gemm_format(g.quant.bits, g.quant.group),
+    )
+}
+
+/// Whole row blocks past the crossover; the pool is pre-padded to the
+/// widest tile, as in the other families.
+#[must_use]
+pub fn gemma4_qmm_rows(g: &Gemma4Geometry, tuning: &Tuning, rows: u32) -> u32 {
+    let n = rows.max(1);
+    if n < gemma4_qmm_min_batch(g, tuning) {
+        return n;
+    }
+    n.div_ceil(super::dispatch_mb::qmm_bm(n)) * super::dispatch_mb::qmm_bm(n)
+}
+
+/// A dense projection's column tile, or 0 for the matvec —
+/// `qmm_bn_unsplit`, because this family dispatches no split at all
+/// (the C++ records a split that wrote partials nobody summed: a
+/// 16-row prefill answered 147040 where the oracle says 476).
+#[must_use]
+pub fn gemma4_qmm_bn(
+    kind: Kernel,
+    g: &Gemma4Geometry,
+    tuning: &Tuning,
+    rows: u32,
+    layer: Option<u32>,
+) -> u32 {
+    let routed = matches!(
+        kind,
+        Kernel::G4ExpertGate | Kernel::G4ExpertUp | Kernel::G4ExpertDown
+    );
+    if routed || matches!(kind, Kernel::G4Router) {
+        return 0;
+    }
+    let n = gemma4_qmv_kn(kind, g, layer).n;
+    if n == 0 {
+        return 0;
+    }
+    super::dispatch_mb::qmm_bn_unsplit(
+        n,
+        gemma4_qmm_rows(g, tuning, rows),
+        gemma4_qmm_min_batch(g, tuning),
+        tuning.qmm_bn_crossover_tg,
+    )
+}
+
+/// The mixture's sorted-stack extent, tile and padding from the same
+/// tuning answer the sort reads.
+#[must_use]
+pub fn gemma4_moe_sorted_rows(g: &Gemma4Geometry, tuning: &Tuning, rows: u32) -> u32 {
+    if !g.is_moe() {
+        return rows.max(1);
+    }
+    let pairs = rows.max(1).saturating_mul(g.experts_per_token);
+    let tile = tuning.moe_tile_rows(pairs, g.n_experts);
+    u32::try_from(super::sizing::sorted_rows(pairs, g.n_experts, tile)).expect("a sort is bounded")
+}
+
+/// The routed GEMM's column tile, or 0 when the batch stays a matvec.
+#[must_use]
+pub fn gemma4_moe_qmm_bn(kind: Kernel, g: &Gemma4Geometry, tuning: &Tuning, rows: u32) -> u32 {
+    if !matches!(
+        kind,
+        Kernel::G4ExpertGate | Kernel::G4ExpertUp | Kernel::G4ExpertDown
+    ) {
+        return 0;
+    }
+    let pairs = rows.max(1).saturating_mul(g.experts_per_token.max(1));
+    if tuning.moe_tile_rows(pairs, g.n_experts) <= 1 {
+        return 0;
+    }
+    let n = gemma4_qmv_kn(kind, g, None).n;
+    if n == 0 {
+        return 0;
+    }
+    super::dispatch_mb::qmm_bn(
+        n,
+        gemma4_moe_sorted_rows(g, tuning, rows),
+        tuning.qmm_min_batch_for(true, tuning.fp16_gemm_format(g.quant.bits, g.quant.group)),
+    )
+}
+
+/// The M>1 DAG: the M=1 order with the paged kinds, the compaction in
+/// the tail, and every tiling decision made here, once — the shape the
+/// gpt-oss and llama arcs closed, at this family's per-layer widths.
+/// Both attention types become [`Kernel::SdpaPaged`]: which paged
+/// INSTANTIATION serves a layer is its head width, resolved by the
+/// step's table from `d.layer`, and the window is the geometry's per
+/// layer — the kind no longer needs to carry it.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn build_gemma4_dag_mb(
+    g: &Gemma4Geometry,
+    tuning: &Tuning,
+    n_tokens: u32,
+    head_rows: u32,
+    ordinal_base: u32,
+    with_argmax: bool,
+) -> Vec<Dispatch> {
+    assert!(n_tokens > 0, "a multibatch DAG carries at least one token");
+    let n = n_tokens;
+    let s = if head_rows == 0 { n } else { head_rows.min(n) };
+    let sorted = gemma4_moe_sorted_rows(g, tuning, n);
+    let min_batch = gemma4_qmm_min_batch(g, tuning);
+
+    let mut dag: Vec<Dispatch> = Vec::new();
+    for base in build_gemma4_dag(g, with_argmax) {
+        if base.kind == Kernel::G4RowGather {
+            // The M=1 builder omits it; nothing to do — but the M=1
+            // list never emits it, so insert before the tail norm.
+            continue;
+        }
+        if base.kind == Kernel::FinalRms {
+            dag.push(Dispatch {
+                kind: Kernel::G4RowGather,
+                ordinal: 0,
+                layer: None,
+                launch: Launch {
+                    grid: [g.hidden, s, 1],
+                    tg: [64, 1, 1],
+                },
+                fuse_residual: false,
+                qmm_bn: 0,
+                qmm_split: 1,
+                qmm_bm: 16,
+            });
+        }
+        let mut d = base;
+        d.kind = match d.kind {
+            Kernel::KvAppend => Kernel::KvAppendPaged,
+            Kernel::Sdpa | Kernel::G4SdpaSliding => Kernel::SdpaPaged,
+            other => other,
+        };
+        let layer = d.layer;
+        let hd = layer.map_or(g.head_dim, |l| g.head_dim_of(l));
+        let kv_heads = layer.map_or(g.n_kv_heads, |l| g.n_kv_heads_of(l));
+        let m = if matches!(d.kind, Kernel::QmvLmHead | Kernel::LmHeadUntied) {
+            s
+        } else {
+            n
+        };
+        if let bn @ 1.. = gemma4_moe_qmm_bn(d.kind, g, tuning, n) {
+            let pairs = n.saturating_mul(g.experts_per_token.max(1));
+            d.qmm_bn = bn;
+            d.qmm_bm = tuning.moe_tile_rows(pairs, g.n_experts);
+            d.launch = qmm_t(gemma4_qmv_kn(d.kind, g, None).n, sorted, bn, d.qmm_bm);
+        } else if let bn @ 1.. = gemma4_qmm_bn(d.kind, g, tuning, m, layer) {
+            let rows = gemma4_qmm_rows(g, tuning, m);
+            d.qmm_bn = bn;
+            d.qmm_bm = super::dispatch_mb::qmm_bm(rows);
+            d.launch = qmm_t(gemma4_qmv_kn(d.kind, g, layer).n, rows, bn, d.qmm_bm);
+        } else {
+            d.launch = match d.kind {
+                Kernel::EmbedGather => Launch {
+                    grid: [g.hidden, n, 1],
+                    tg: [256, 1, 1],
+                },
+                Kernel::G4PleTokenGather => Launch {
+                    grid: [g.n_layers * g.per_layer_emb_dim, n, 1],
+                    tg: [256, 1, 1],
+                },
+                Kernel::Rms
+                | Kernel::G4FfnPreNorm
+                | Kernel::G4AttnPostResidual
+                | Kernel::G4FfnPostResidual
+                | Kernel::G4PleResidualScaled
+                | Kernel::G4RouterNorm
+                | Kernel::G4MoeNorm
+                | Kernel::G4DenseBranchNorm
+                | Kernel::G4MoeBranchNorm => rms_mb(g.hidden, 1, n),
+                Kernel::FinalRms => rms_mb(g.hidden, 1, s),
+                Kernel::QNorm => rms_mb(hd, g.n_q_heads, n),
+                Kernel::KNorm | Kernel::G4VNorm | Kernel::G4VNormFromK => rms_mb(hd, kv_heads, n),
+                Kernel::G4PleProjNorm => rms_mb(g.per_layer_emb_dim, g.n_layers, n),
+                Kernel::Rope => Launch {
+                    grid: [
+                        layer.map_or(g.head_dim / 2, |l| g.rotary_dims_of(l) / 2),
+                        g.n_q_heads,
+                        n,
+                    ],
+                    tg: [
+                        layer.map_or(g.head_dim / 2, |l| g.rotary_dims_of(l) / 2),
+                        1,
+                        1,
+                    ],
+                },
+                Kernel::RopeK => Launch {
+                    grid: [
+                        layer.map_or(g.head_dim / 2, |l| g.rotary_dims_of(l) / 2),
+                        kv_heads,
+                        n,
+                    ],
+                    tg: [
+                        layer.map_or(g.head_dim / 2, |l| g.rotary_dims_of(l) / 2),
+                        1,
+                        1,
+                    ],
+                },
+                Kernel::KvAppendPaged => Launch {
+                    grid: [hd, kv_heads, n],
+                    tg: [hd.min(1024), 1, 1],
+                },
+                Kernel::SdpaPaged => Launch {
+                    grid: [g.n_q_heads * 1024, n, 1],
+                    tg: [1024, 1, 1],
+                },
+                Kernel::G4Geglu => super::dispatch_mb::elementwise_mb(
+                    layer.map_or(g.intermediate, |l| g.intermediate_of(l)),
+                    n,
+                ),
+                Kernel::G4LayerScalar | Kernel::G4BranchAdd => {
+                    super::dispatch_mb::elementwise_mb(g.hidden, n)
+                }
+                Kernel::G4PleCombine => {
+                    super::dispatch_mb::elementwise_mb(g.n_layers * g.per_layer_emb_dim, n)
+                }
+                // One thread per (channel, token row): the strided kernel
+                // indexes both, because its `up` operand strides by the
+                // whole PLE table.
+                Kernel::G4PleGeglu => Launch {
+                    grid: [g.per_layer_emb_dim, n, 1],
+                    tg: [g.per_layer_emb_dim.min(256), 1, 1],
+                },
+                Kernel::G4RouterTopK => {
+                    let w = super::dispatch::router_lane_width(g.n_experts);
+                    Launch {
+                        grid: [w, n, 1],
+                        tg: [w, 1, 1],
+                    }
+                }
+                Kernel::G4MoeSort => route_sort(g.n_experts),
+                Kernel::G4MoeGather => route_rows(g.hidden, sorted),
+                Kernel::G4ExpertGate | Kernel::G4ExpertUp => {
+                    routed_qmv(g.moe_intermediate, 1, sorted)
+                }
+                Kernel::G4ExpertGeglu => {
+                    super::dispatch_mb::elementwise_mb(g.moe_intermediate, sorted)
+                }
+                Kernel::G4ExpertDown => routed_qmv(g.hidden, 1, sorted),
+                Kernel::G4ExpertCombine => {
+                    let w = g.hidden.max(1);
+                    Launch {
+                        grid: [w, n, 1],
+                        tg: [w.min(256), 1, 1],
+                    }
+                }
+                Kernel::QmvQ => qmv(g.n_q_heads * hd),
+                Kernel::QmvK | Kernel::QmvV => qmv(kv_heads * hd),
+                _ => {
+                    // The matvecs below the crossover ride the shared MB
+                    // matvec shape; the softcap and argmax scale on S.
+                    match d.kind {
+                        Kernel::QmvO | Kernel::QmvDown | Kernel::G4PleProjLayerGemv => {
+                            super::dispatch_mb::qmv_mb(g.hidden, n)
+                        }
+                        Kernel::QmvGate | Kernel::QmvUp => super::dispatch_mb::qmv_mb(
+                            layer.map_or(g.intermediate, |l| g.intermediate_of(l)),
+                            n,
+                        ),
+                        Kernel::G4PleProjGemv => {
+                            super::dispatch_mb::qmv_mb(g.n_layers * g.per_layer_emb_dim, n)
+                        }
+                        Kernel::G4PleGateGemv => super::dispatch_mb::qmv_mb(g.per_layer_emb_dim, n),
+                        Kernel::G4Router => super::dispatch_mb::qmv_mb(g.n_experts, n),
+                        Kernel::QmvLmHead | Kernel::LmHeadUntied => {
+                            super::dispatch_mb::qmv_mb(g.vocab, s)
+                        }
+                        Kernel::G4Softcap => super::dispatch_mb::elementwise_mb(g.vocab, s),
+                        other => {
+                            debug_assert!(
+                                matches!(other, Kernel::Argmax),
+                                "missing multibatch launch geometry for {other:?}"
+                            );
+                            d.launch
+                        }
+                    }
+                }
+            };
+        }
+        // The dense-projection matvecs above went through qmv() at their
+        // per-layer width for rows=1 semantics; at MB they ride qmv_mb.
+        if matches!(d.kind, Kernel::QmvQ | Kernel::QmvK | Kernel::QmvV) && d.qmm_bn == 0 {
+            let width = if d.kind == Kernel::QmvQ {
+                g.n_q_heads * hd
+            } else {
+                kv_heads * hd
+            };
+            d.launch = super::dispatch_mb::qmv_mb(width, n);
+        }
+        dag.push(d);
+    }
+    for (i, d) in dag.iter_mut().enumerate() {
+        d.ordinal = ordinal_base + u32::try_from(i).expect("a DAG is hundreds of dispatches");
+    }
+    dag
 }
 
 #[cfg(test)]

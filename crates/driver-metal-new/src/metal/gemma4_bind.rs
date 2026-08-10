@@ -277,6 +277,105 @@ pub fn bind_gemma4_consts(
                 consts.bind(context, tables, ord, slot::SDPA_SLIDING_Q_ROW_STRIDE, &row)?;
                 consts.bind(context, tables, ord, slot::SDPA_SLIDING_O_ROW_STRIDE, &row)?;
             }
+            Kernel::SdpaPaged => {
+                let nkv = layer.map_or(g.n_kv_heads, |l| g.n_kv_heads_of(l));
+                let gqa = g.n_q_heads.checked_div(nkv).unwrap_or(1) as i32;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_GQA_FACTOR,
+                    &gqa,
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_PAGE_SIZE,
+                    &(g.kv_page_size as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_N_KV_HEADS,
+                    &(nkv as i32),
+                )?;
+                // 1.0: folded into the q-norm weights, as on the ring.
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_SCALE,
+                    &1.0f32,
+                )?;
+                // The kind no longer carries the attention type; the
+                // geometry answers per layer. 0 attends all.
+                let window = if layer.is_some_and(|l| g.is_sliding(l)) {
+                    g.sliding_window as i32
+                } else {
+                    0
+                };
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_WINDOW,
+                    &window,
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::SDPA_PAGED_ROWS,
+                    &(r as i32),
+                )?;
+            }
+            Kernel::KvAppendPaged => {
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_HEAD_DIM,
+                    &(hd as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_K_HEAD_STRIDE,
+                    &head_stride,
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_K_SEQ_STRIDE,
+                    &u64::from(hd),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_PAGE_SIZE,
+                    &(g.kv_page_size as i32),
+                )?;
+                let nkv = layer.map_or(g.n_kv_heads, |l| g.n_kv_heads_of(l));
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_N_KV_HEADS,
+                    &(nkv as i32),
+                )?;
+                consts.bind(
+                    context,
+                    tables,
+                    ord,
+                    super::bind::slot::KV_APPEND_PAGED_SRC_ROW_STRIDE,
+                    &0i32,
+                )?;
+            }
             Kernel::KvAppend => {
                 consts.bind(
                     context,

@@ -210,6 +210,58 @@ pub fn gemma4_step_plan(g: &Gemma4Geometry) -> DecodePsoPlan {
     plan
 }
 
+/// The M>1 compile list: the M=1 plan with the batched forms claimed
+/// AFTER their base entries. The paged attention's by-kind claim is the
+/// SLIDING width's; the full layers' d512 instantiation is slot-keyed
+/// in the shared lattice and the step's table resolves it from the
+/// layer — one kind, two widths, the same rule as everywhere: the
+/// launch is identical, only the instantiation moves.
+#[must_use]
+pub fn gemma4_mb_plan(g: &Gemma4Geometry) -> DecodePsoPlan {
+    let mut plan = gemma4_step_plan(g);
+    let suffix = g.quant.kernel_suffix();
+    let mut want = |file: &'static str, entry: String, kinds: &[Kernel]| {
+        plan.requests.push(PsoRequest {
+            file,
+            entry,
+            kinds: kinds.to_vec(),
+        });
+    };
+    want(
+        "layout/embed_gather.metal",
+        format!("embed_gather_scaled_mb_4bit{suffix}"),
+        &[Kernel::EmbedGather, Kernel::G4PleTokenGather],
+    );
+    want(
+        "rope/neox.metal",
+        "neox_prop_mb_bfloat16".to_owned(),
+        &[Kernel::Rope, Kernel::RopeK],
+    );
+    want(
+        "attn/kv_write.metal",
+        "kv_append_paged_bfloat16".to_owned(),
+        &[Kernel::KvAppendPaged],
+    );
+    want(
+        "attn/sdpa_paged.metal",
+        format!("sdpa_paged_decode_bfloat16_d_{}", g.head_dim),
+        &[Kernel::SdpaPaged],
+    );
+    // The PLE gate is the one elementwise kernel whose operands have
+    // different row pitches at M>1: `up` strides by the whole table.
+    want(
+        "mlp/gated.metal",
+        "geglu_tanh_strided_bfloat16".to_owned(),
+        &[Kernel::G4PleGeglu],
+    );
+    want(
+        "layout/row_gather.metal",
+        "row_gather_bfloat16".to_owned(),
+        &[Kernel::G4RowGather],
+    );
+    plan
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
