@@ -233,10 +233,19 @@ pub fn llama_like_cuda(
 /// WHAT IS ALMOST CERTAINLY WRONG, so a reader does not mistake
 /// plausibility for correctness:
 ///
-/// * the M>1 (Prefill) lane is a guess. The driver's `MultiBatchPsos`
-///   carries split-k, fp16-precast, strided and bias variants and a
-///   `kQmmMinBatch` gate; this text states one GEMM and one paged
-///   attention.
+/// * the M>1 (Prefill) lane states one GEMM and one paged attention, and
+///   that was written down as a guess against `MultiBatchPsos`'s split-k,
+///   fp16-precast, strided and bias variants. Checked 2026-08-10: it is
+///   **correct for what runs**. The live `MbFeatures` on this family is
+///   `{ gdn, sdpa_d256 }` — every one of those variants is `false` in every
+///   live path and set true only in `psos_mb.rs`'s `all_features()` test
+///   fixture, and `PARITY-BATCH.md` records them as deferred with reasons
+///   ("with split-K deferred every dispatch is unsplit, which by the C++'s
+///   OWN measurement makes `qmm_bn_unsplit` the right width"). `bias` is
+///   gpt-oss's, and `routed` is a mixture this family does not model at all.
+///   So the driver carries rungs nothing turns on; the text states the lane
+///   that fires. What remains untested is the `kQmmMinBatch` gate, which the
+///   text takes as the load-time fact `qmm_multi_batch` rather than deciding.
 /// * `sdpa_*_d_256` pins head_dim 256. The driver compiles other widths
 ///   (`d_512` for gemma4); which one a deployment needs is a fact this
 ///   text does not yet take.
