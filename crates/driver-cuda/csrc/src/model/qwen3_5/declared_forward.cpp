@@ -636,13 +636,14 @@ bool forward_declared_tmpl(
     // commit_len); else the env-gated cached kernel; else the batched
     // GQA-aware FLA (the c>=64 spec path). `use_batched_fla_gqa` also
     // decides whether GdnPrep skips the repeat_interleave materialisation.
+    //
     // What the recurrence consumes when the GQA kernels don't index the
-    // compact K_h layout directly (the `q_recur_full` indirection).
-    const float* q_recur_full =
-        (V_h == K_h) ? la.q_pre.data() : la.q_norm.data();
-    const float* k_recur_full =
-        (V_h == K_h) ? la.k_pre.data() : la.k_norm.data();
-
+    // compact K_h layout directly used to be a pair of host
+    // indirections here (`q_recur_full`, `k_recur_full`), forking on
+    // `V_h == K_h` to pick between the pre-repeat and post-repeat
+    // workspace fields. Both are gone: the repeat declares its result,
+    // so the cached arm states it as the recurrence's operand and the
+    // fork the driver was making is the DECLARATION's.
 
     // Commit-advance op filter — the walk's mirror of the hand-written
     // layer loop's `if (commit_advance) { if (!is_linear) continue; ...
@@ -652,11 +653,6 @@ bool forward_declared_tmpl(
     // (the hand-written `replay_load` false branch — same launches, same
     // degenerate reliance on whatever norm_x holds).
 
-    // The repeat_interleave pair's operand order is fixed by the
-    // declaration (q then k), so a toggle binds them. It is the ONE
-    // piece of state that crosses statements, and it belongs to the
-    // arms, not to a traversal.
-    bool repeat_next_is_k = false;
     // The row axes this family does NOT state are what makes the drive
     // short. No peel (its hooks are observation-only and fire-wide), no
     // spatial mask split, no depth bands, no lora lanes — so every
@@ -1309,27 +1305,23 @@ bool forward_declared_tmpl(
             throw_drift("a launch that declares no output sits in no "
                         "value-producing guard");
         };
-        // The recurrence's five operands. v/g/beta are the GDN prep's
-        // results and always the statement's; q/k are too UNTIL the GQA
-        // repeat sits between them, and that repeat declares no output
-        // of its own -- `repeat_interleave_heads` records `None` -- so
-        // its result is `la.q_norm`/`la.k_norm` by convention and the
-        // recurrence reads THAT. The declaration still names q_pre
-        // there, which is the same "declares no output" gap the
-        // attention has; the difference is that here it costs only two
-        // operands and the repeat's own SOURCE is stated, so the chain
-        // stays consistent either way.
+        // The recurrence's five operands, all five the statement's.
+        //
+        // q and k were the exception until the repeat declared its
+        // result: the GQA head repeat sits between the prep and the
+        // cached recurrence, and while it was output-less the value it
+        // produced had no id, so the recurrence's stated q/k still named
+        // the PRE-repeat pair and the arm had to substitute a workspace
+        // buffer for both. The cached arm now states the repeat's
+        // results as the recurrence's operands, which is what the arm
+        // always meant, so this reads the span and nothing else.
         const auto rec_in = [&](std::size_t i) -> const float* {
             const auto ins = plan.inputs(op);
             need(ins, 5, "recurrence inputs");
             return static_cast<const float*>(values.slot(ins[i]));
         };
-        const auto rec_q = [&]() -> const float* {
-            return (V_h == K_h) ? rec_in(0) : q_recur_full;
-        };
-        const auto rec_k = [&]() -> const float* {
-            return (V_h == K_h) ? rec_in(1) : k_recur_full;
-        };
+        const auto rec_q = [&]() -> const float* { return rec_in(0); };
+        const auto rec_k = [&]() -> const float* { return rec_in(1); };
         if (pin_audit) audit(op);
         if (ext_dump) extents(op);
         switch (op.kind) {
@@ -1877,21 +1869,21 @@ case PieForwardOpKind::Launch: {
                     commit_lens);
                 break;
             case declared::Kernel::RepeatInterleave: {
-                // The declaration states the pair q-then-k; the toggle
-                // binds them in that order.
-                // ISLAND (value arena) on the SOURCE. The
-                // DESTINATION stays `la.q_norm`/`la.k_norm`: this
-                // launch declares no output, so the repeated heads are
-                // a value nothing names.
+                // ISLAND (value arena), BOTH ENDS. The destination was
+                // `la.q_norm`/`la.k_norm` picked by a `repeat_next_is_k`
+                // toggle -- a launch's meaning read off the ORDER it
+                // arrived in, which is the one thing a walk over a plan
+                // should never have to do. The repeat declares its
+                // result now, so the id says which it is and the
+                // recurrence below takes the same id as its operand.
                 const auto rins = plan.inputs(op);
+                const auto routs = plan.outputs(op);
                 need(rins, 1, "repeat inputs");
-                const float* src =
-                    static_cast<const float*>(values.slot(rins[0]));
-                float* dst = repeat_next_is_k ? la.k_norm.data()
-                                              : la.q_norm.data();
+                need(routs, 1, "repeat outputs");
                 kernels::ssm::repeat_interleave_heads_fp32(
-                    src, dst, N, K_h, V_h, K_d, stream);
-                repeat_next_is_k = !repeat_next_is_k;
+                    static_cast<const float*>(values.slot(rins[0])),
+                    static_cast<float*>(values.slot(routs[0])),
+                    N, K_h, V_h, K_d, stream);
                 break;
             }
             case declared::Kernel::VerifyStashLoad:
@@ -1931,14 +1923,31 @@ case PieForwardOpKind::Launch: {
                 const std::size_t n_ab =
                     static_cast<std::size_t>(N) * V_h *
                     sizeof(std::uint16_t);
+                // ISLAND (value arena), BOTH ENDS. The pair declares the
+                // triple on both sides -- `verify_stash_load` states
+                // three results, `verify_stash_store` three operands --
+                // so the slab's peer is the statement's, and the arm no
+                // longer restates which workspace field the in-proj
+                // triple happens to live in. That was the DSL's own
+                // deferral ("WHERE those buffers live is the driver's
+                // binding") and the declaration outgrew it.
+                const auto trip = load ? plan.outputs(op) : plan.inputs(op);
+                if (trip.size != 3) {
+                    throw_drift("a stash op states " +
+                                std::to_string(trip.size) +
+                                " halves of the in-proj triple, wants 3");
+                }
+                void* const v_qkv = values.slot(trip[0]);
+                void* const v_a = values.slot(trip[1]);
+                void* const v_b = values.slot(trip[2]);
                 if (load) {
-                    cp(la.mixed_qkv.data(), stash, n_qkv);
-                    cp(la.a.data(), stash + stash_a_off, n_ab);
-                    cp(la.b.data(), stash + stash_b_off, n_ab);
+                    cp(v_qkv, stash, n_qkv);
+                    cp(v_a, stash + stash_a_off, n_ab);
+                    cp(v_b, stash + stash_b_off, n_ab);
                 } else {
-                    cp(stash, la.mixed_qkv.data(), n_qkv);
-                    cp(stash + stash_a_off, la.a.data(), n_ab);
-                    cp(stash + stash_b_off, la.b.data(), n_ab);
+                    cp(stash, v_qkv, n_qkv);
+                    cp(stash + stash_a_off, v_a, n_ab);
+                    cp(stash + stash_b_off, v_b, n_ab);
                 }
                 break;
             }

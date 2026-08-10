@@ -6432,14 +6432,24 @@ pub mod cuda {
     }
 
     /// `kernels::ssm::repeat_interleave_heads_fp32`: materialize the
-    /// K_h → V_h head repeat of a compact per-head f32 value into the
-    /// workspace buffer the cached recurrence family reads. Output-less:
-    /// where that buffer lives is the driver's binding, not dataflow —
-    /// the same stance as the KV writes. Stated only inside the cached
-    /// arm, because only that kernel family consumes the repeated layout
-    /// (the decode-GQA step, warp-tiled and FLA kernels all index the
-    /// compact layout directly).
-    pub fn repeat_interleave_heads(x: &Val) {
+    /// K_h → V_h head repeat of a compact per-head f32 value. Stated
+    /// only inside the cached arm, because only that kernel family
+    /// consumes the repeated layout (the decode-GQA step, warp-tiled and
+    /// FLA kernels all index the compact layout directly).
+    ///
+    /// It DECLARES its result, which it did not use to. Output-less, the
+    /// stance was "where that buffer lives is the driver's binding, not
+    /// dataflow" — and the cost of that stance was paid twice over: the
+    /// driver kept a `repeat_next_is_k` toggle to decide which of two
+    /// workspace fields a launch meant, the emitter kept the SAME toggle
+    /// to decide it statically, and the recurrence below could not name
+    /// its own q/k operands because the value between them had no id.
+    /// A repeat is dataflow; it took a value to say so.
+    ///
+    /// `[Tokens, value_heads, key_dim]` f32 — the compact `[Tokens,
+    /// key_heads, key_dim]` operand with each key head repeated to fill
+    /// the value-head count.
+    pub fn repeat_interleave_heads(x: &Val, value_heads: u32, key_dim: u32) -> Val {
         record(
             &x.t,
             x.layer,
@@ -6447,8 +6457,16 @@ pub mod cuda {
             vec![],
             None,
             vec![x.id],
-            None,
-        );
+            Some((
+                Shape(vec![
+                    Dim::Tokens,
+                    Dim::Const(value_heads),
+                    Dim::Const(key_dim),
+                ]),
+                DType::F32,
+            )),
+        )
+        .expect("the head repeat produces its value")
     }
 
     /// `"qwen35_verify_stash_load"`: replay the layer's stashed in-proj
