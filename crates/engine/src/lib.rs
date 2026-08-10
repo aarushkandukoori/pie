@@ -11,6 +11,12 @@
 // and eight more. `as _` because there is nothing to call.
 #[cfg(feature = "driver-cuda")]
 extern crate driver_cuda as _;
+// THE CUTOVER, and it is one line because it has to be: the Rust shell
+// exports the same thirteen `pie_cuda_*` symbols, so which crate supplies
+// them is a link question. `backend/cuda.rs` never learns which one it
+// reached.
+#[cfg(feature = "driver-cuda-new")]
+extern crate driver_cuda_new as _;
 
 pub mod bootstrap;
 pub mod driver;
