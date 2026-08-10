@@ -725,6 +725,24 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
 /// the build is a map nobody reads.
 #[test]
 fn the_second_lane_stops_somewhere_and_this_says_where() {
+    bisect(FireClass::Decode);
+}
+
+/// The same walk over the PREFILL lane, which states a different half of the
+/// kernel table: `affine_qmm_t` where a decode states `affine_qmv_fast`, and
+/// a causal attention over a prefix where a decode has one key.
+///
+/// SIXTEEN tokens, because `Rule::Qmm` refuses a row count its tile does not
+/// divide and `QMM_BMS` starts there. MLX's stages for the same prefix, for
+/// comparison against what this prints:
+///
+///   embed 0.361, L0 attn_norm 2.207, L0 q_proj 1.320
+#[test]
+fn the_prefill_lane_too() {
+    bisect(FireClass::Prefill);
+}
+
+fn bisect(class: FireClass) {
     let Some(snapshot) = snapshot() else {
         eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT to an MLX snapshot");
         return;
@@ -746,13 +764,27 @@ fn the_second_lane_stops_somewhere_and_this_says_where() {
         driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
     let (_, metal) = driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
 
-    let step = Step {
-        token_ids: &[128_000, 9906, 1917, 128_001],
-        qo_indptr: &[0, 1, 2, 3, 4],
-        sampling_indices: &[0, 1, 2, 3],
-        ..Step::default()
+    // A decode posts four independent lanes; a prefill posts one sequence.
+    let decode = class == FireClass::Decode;
+    let step = if decode {
+        Step {
+            token_ids: &[128_000, 9906, 1917, 128_001],
+            qo_indptr: &[0, 1, 2, 3, 4],
+            sampling_indices: &[0, 1, 2, 3],
+            ..Step::default()
+        }
+    } else {
+        Step {
+            token_ids: &[
+                128_000, 9906, 1917, 11, 420, 374, 264, 1296, 315, 279, 1646,
+                596, 4741, 1522, 902, 1288,
+            ],
+            qo_indptr: &[0, 16],
+            sampling_indices: &[15],
+            ..Step::default()
+        }
     };
-    let plan = llama_like_metal(&facts, &metal, FireClass::Decode);
+    let plan = llama_like_metal(&facts, &metal, class);
     let lowered = lower_step(&plan, &step).expect("the step lowers");
 
     let shape = Shape {
@@ -780,7 +812,11 @@ fn the_second_lane_stops_somewhere_and_this_says_where() {
             original_max: dg.rope_original_max_position as f32,
         }),
     );
-    let (staged, spans) = stage_tables(&context, &step, shape.page_size, &freqs);
+    let (staged, spans) = if decode {
+        stage_tables(&context, &step, shape.page_size, &freqs)
+    } else {
+        stage_prefill(&context, &step, shape.page_size, &freqs)
+    };
 
     let named = HashMap::new();
     let mut live = Live {
@@ -1171,28 +1207,35 @@ fn one_token_at_position_zero_agrees_with_mlx() {
 /// a sampler wants. MLX's answer for `[128000, 9906]` at position 1 is argmax
 /// **0** with the distribution spanning [-5.42, 18.56].
 ///
-/// # Ignored, and the reason is the next work
+/// # Ignored, and the reason is a precondition rather than a bug
 ///
-/// It no longer returns NaN — that was `Rule::Qmm` falling back to
-/// `shapes::qmv_mb`, **the MATVEC grid under the GEMM's symbol**, whenever the
-/// rows did not divide the tile. Its comment said the fallback "computes all
-/// of it, slower", which would hold if one kernel served both shapes;
-/// `affine_qmm_t` reads its tile FROM the grid, so handed a matvec grid it
-/// addresses a tiling that is not there. `QMM_BMS` starts at sixteen, so every
-/// prefill shorter than sixteen rows took it. `qmm_t` rounds the row axis up
-/// now and the last tile covers the rows that are there.
+/// Two rows do not tile. `qmm_t.metal` has no `M` argument -- its own header
+/// says *"the driver only selects this kernel when M % BM == 0 ... every tile
+/// is full and the `load_unsafe` path is the only one reachable; the row count
+/// lives in the grid"* -- and `QMM_BMS` starts at sixteen. So `Rule::Qmm`
+/// refuses this fire with `Ungeometric::PartialTile { rows: 2, tile: 16 }`,
+/// which is the honest answer and the reason this stays ignored.
 ///
-/// What it returns instead is a real distribution that is the WRONG one:
-/// argmax 93738 spanning [-8.63, 11.31] where MLX says 0 spanning
-/// [-5.42, 18.56]. Finite, varied, plausible — and not the answer.
+/// Both substitutions were tried here first, against this checkpoint, and both
+/// were wrong:
 ///
-/// So the prefill lane has its own defect and the decode lane's gate cannot
-/// see it. The instrument is already here: point
-/// `the_second_lane_stops_somewhere_and_this_says_where` at
-/// `FireClass::Prefill` and compare the same stages MLX prints, which is how
-/// the decode lane's `w_stride` was found in three narrowing steps.
+///   * the MATVEC's grid under the GEMM's symbol — which is what the arm did
+///     before — made every logit **NaN**;
+///   * rounding the row axis up made them finite and WRONG: q_proj came out
+///     1.258 where the matvec and MLX both say 1.320. That is the worse of the
+///     two, because the arena is laid out back to back and fourteen rows of
+///     overrun land on the next value.
+///
+/// What it wants is a TEXT that states the pair with a predicate on rows, the
+/// way the DSL states every other polymorphism — a driver picking between two
+/// kernels is the thing this crate exists to remove. Until then a prefill is
+/// served at sixteen rows and up, which is what
+/// `device_text_fire::a_prefill_step_fires_too...` now posts.
+///
+/// Reviving this test therefore means changing the TEXT, not this file, and
+/// the constants below are ready for when it happens.
 #[test]
-#[ignore = "the prefill lane answers a plausible WRONG distribution; the decode lane agrees exactly"]
+#[ignore = "two rows do not tile; Rule::Qmm refuses, and the text has no short-row arm yet"]
 fn a_two_token_prefill_agrees_with_mlx() {
     let Some(snapshot) = snapshot() else {
         eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT to an MLX snapshot");

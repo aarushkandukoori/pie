@@ -113,7 +113,7 @@ impl Resolver for Anything {
 
 /// Both fire classes, at a row count that exercises each lane.
 fn fires(text: &Text) -> Vec<(FireClass, Lowered)> {
-    [(FireClass::Decode, 1usize), (FireClass::Prefill, 8)]
+    [(FireClass::Decode, 1usize), (FireClass::Prefill, 16)]
         .into_iter()
         .map(|(class, rows)| {
             let plan = (text.plan)(class);

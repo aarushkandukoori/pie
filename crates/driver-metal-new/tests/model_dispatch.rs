@@ -110,7 +110,12 @@ fn planned(low: &Lowered) -> (Vec<Dispatch<'_>>, Vec<Undispatchable>) {
 
 #[test]
 fn every_launch_whose_symbol_has_a_row_becomes_a_grid() {
-    for (class, rows) in [(FireClass::Decode, 1), (FireClass::Prefill, 8)] {
+// SIXTEEN rows for a prefill, not eight, and it is a precondition rather than
+// a round number: `qmm_t.metal` has no `M` argument -- its header says the
+// driver only selects it when `M % BM == 0`, so the row count lives in the
+// grid -- and `QMM_BMS` starts at sixteen. `Rule::Qmm` refuses anything else
+// with `Ungeometric::PartialTile`.
+    for (class, rows) in [(FireClass::Decode, 1), (FireClass::Prefill, 16)] {
         let low = lowered(class, rows);
         let (dispatches, refused) = planned(&low);
 
@@ -159,7 +164,7 @@ fn there_is_no_symbol_this_backend_cannot_dispatch() {
     // dispatch constant with no channel to receive one. The text states it now
     // and the driver forwards it, so the set is empty.
     let mut refusals: BTreeSet<String> = BTreeSet::new();
-    for (class, rows) in [(FireClass::Decode, 1), (FireClass::Prefill, 8)] {
+    for (class, rows) in [(FireClass::Decode, 1), (FireClass::Prefill, 16)] {
         for why in planned(&lowered(class, rows)).1 {
             refusals.insert(match why {
                 Undispatchable::NoRow { symbol, .. }
@@ -269,7 +274,7 @@ fn a_rectangles_dims_come_from_the_rectangle_and_the_fire_and_nowhere_else() {
     // serves the attention norm at 1024 and the qk-norm at 2048 in the same
     // fire, because a width is the OPERAND's and not the kernel's — which is
     // the property that makes one rule serve every use of a kernel.
-    for (class, rows) in [(FireClass::Decode, 1u32), (FireClass::Prefill, 8)] {
+    for (class, rows) in [(FireClass::Decode, 1u32), (FireClass::Prefill, 16)] {
         let low = lowered(class, rows as usize);
         for launch in &low.launches {
             let symbol = low.kernels[launch.kernel as usize].as_str();
@@ -291,7 +296,7 @@ fn the_batched_lane_is_the_row_count_and_not_a_second_vocabulary() {
     // where the lanes differ they are DIFFERENT SYMBOLS, each stating its own
     // row, and the rest is `dims.rows`.
     let decode: BTreeSet<String> = lowered(FireClass::Decode, 1).kernels.into_iter().collect();
-    let prefill: BTreeSet<String> = lowered(FireClass::Prefill, 8).kernels.into_iter().collect();
+    let prefill: BTreeSet<String> = lowered(FireClass::Prefill, 16).kernels.into_iter().collect();
     let only_batched: Vec<&String> = prefill.difference(&decode).collect();
     assert!(
         !only_batched.is_empty(),
@@ -299,7 +304,7 @@ fn the_batched_lane_is_the_row_count_and_not_a_second_vocabulary() {
     );
     // And every one of them dispatches, which is what says the row carries the
     // lane rather than the driver picking it.
-    let refused = planned(&lowered(FireClass::Prefill, 8)).1;
+    let refused = planned(&lowered(FireClass::Prefill, 16)).1;
     assert!(
         refused.is_empty(),
         "a batched symbol did not dispatch: {refused:?}"
@@ -435,7 +440,7 @@ mod the_map {
         let store = Store::new(names, &tensors, &named);
 
         let mut unknown: BTreeSet<String> = BTreeSet::new();
-        for (class, rows) in [(FireClass::Decode, 1), (FireClass::Prefill, 8)] {
+        for (class, rows) in [(FireClass::Decode, 1), (FireClass::Prefill, 16)] {
             let low = lowered(class, rows);
             for arg in &low.args {
                 if let model_compiler::lower::Arg::Weight(name) = arg {

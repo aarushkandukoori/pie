@@ -74,7 +74,7 @@ fn names_the_text_states(
     metal: &LlamaLikeMetalFacts,
 ) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    for (class, rows) in [(FireClass::Decode, 1usize), (FireClass::Prefill, 8)] {
+    for (class, rows) in [(FireClass::Decode, 1usize), (FireClass::Prefill, 16)] {
         let plan = llama_like_metal(facts, metal, class);
         let low = lower(
             &plan,

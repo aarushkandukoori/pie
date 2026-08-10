@@ -124,7 +124,7 @@ fn the_metal_text_splits_on_depth_so_a_shared_prefix_executes_once() {
 fn a_uniform_fire_still_lowers_to_one_range_because_nothing_differs() {
     // The axis costs nothing when no row uses it: rows that agree share one
     // rectangle, which is the other half of the supergraph claim.
-    for (class, n) in [(FireClass::Decode, 4usize), (FireClass::Prefill, 8)] {
+    for (class, n) in [(FireClass::Decode, 4usize), (FireClass::Prefill, 16)] {
         let low = fire(class, &uniform(n)).expect("a uniform fire lowers");
         assert_eq!(
             ranges(&low).into_iter().collect::<Vec<_>>(),

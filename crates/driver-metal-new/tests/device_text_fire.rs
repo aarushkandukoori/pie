@@ -318,12 +318,23 @@ fn a_prefill_step_fires_too_so_both_lanes_reach_the_device() {
     let compiler = Compiler::new(&context).expect("a compiler");
     let mut pipelines = Pipelines::new(kernels_dir());
 
-    // Eight tokens in one request: a prefill, which takes the batched symbols
-    // (`affine_qmm_t`, `embed_gather_mb_4bit`, `neox_mb`, the paged pair).
+    // SIXTEEN tokens in one request: a prefill, which takes the batched
+    // symbols (`affine_qmm_t`, `embed_gather_mb_4bit`, the paged pair).
+    //
+    // Sixteen and not eight, and the difference is a real precondition rather
+    // than a round number. `qmm_t.metal` has no `M` argument -- its header
+    // says the driver only selects it when `M % BM == 0`, so the row count
+    // lives in the grid and every tile is full. `QMM_BMS` starts at sixteen,
+    // so eight rows tile no rung and `Rule::Qmm` refuses them
+    // (`Ungeometric::PartialTile`). It used to substitute, and both
+    // substitutions were measured wrong against a real checkpoint: the
+    // matvec's grid under the GEMM's symbol gave NaN, and rounding the row
+    // axis up gave a finite wrong answer plus fourteen rows of overrun into
+    // the next value.
     let step = Step {
-        token_ids: &[1, 2, 3, 4, 5, 6, 7, 8],
-        qo_indptr: &[0, 8],
-        sampling_indices: &[7],
+        token_ids: &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+        qo_indptr: &[0, 16],
+        sampling_indices: &[15],
         ..Step::default()
     };
     let plan = llama_like_metal(
