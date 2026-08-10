@@ -58,6 +58,11 @@ pub struct MetalDriver {
     /// which `crates/model/tests/one_normalizer.rs` refuses to let the runtime
     /// read a second time.
     boot_descriptor: Option<std::path::PathBuf>,
+    /// Whether the loaded checkpoint has GDN / linear-attention layers.
+    ///
+    /// A control-op capability rather than a shape: the recurrent state only
+    /// exists if it does, so `copy_state` and `copy_kv` ask it before planning.
+    has_linear_attn: bool,
     /// The deployment's facts, derived at load from the descriptor.
     ///
     /// Held rather than re-derived per fire: they come from a file, and a
@@ -134,6 +139,7 @@ impl MetalDriver {
                 pool: None,
                 boot_descriptor,
                 deployment: None,
+                has_linear_attn: false,
                 compiler,
                 pipelines: driver_metal_new::model::encode::Pipelines::new(shader_tree()),
                 broker: CompletionBroker::new(),
@@ -209,6 +215,7 @@ impl MetalDriver {
         let facts = driver_metal_new::facts::ModelFacts::from_descriptor(&descriptor)
             .ok_or_else(|| anyhow!("the descriptor does not parse as model facts"))?;
         self.arch = facts.arch_name.clone();
+        self.has_linear_attn = facts.has_linear_attn;
         if !driver_metal_new::model::text::serves(&self.arch) {
             bail!(
                 "driver-metal-new has no Metal text for `{}`; it serves {:?}. \
@@ -554,12 +561,62 @@ impl MetalDriver {
         bail!("driver-metal-new: media encode is unsupported on this backend")
     }
 
+    /// Move KV pages and rows within the pool.
+    ///
+    /// Two halves, both already written: `store::control::plan_kv_copy`
+    /// decides what would move and refuses what cannot, and `Pool::apply`
+    /// runs it — as a `memmove`, because the pages are `StorageModeShared`
+    /// and therefore host addressable.
+    ///
+    /// **Page order is load-bearing**, and the plan says so: a chain like
+    /// `{1→0, 2→1}` reads page 1 for the second pair *after* the first has
+    /// overwritten it. Each pair is independent and the caller sequences; a
+    /// true swap needs a scratch page or separate calls.
+    ///
     /// # Errors
     ///
-    /// Always, until the KV pool exists. `store::control::plan_kv_copy` and
-    /// `store::kv_move::plan_cell_moves` already decide what would move.
-    pub fn copy_kv(&mut self, _desc: &KvCopyPlan) -> Result<SubmissionCompletion> {
-        bail!(UNSERVED_MOVE)
+    /// A refusal from the planner (a foreign memory domain, a page the pool
+    /// does not have), or a copy that leaves a layer's region.
+    pub fn copy_kv(&mut self, desc: &KvCopyPlan) -> Result<SubmissionCompletion> {
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| anyhow!("driver-metal-new: copy_kv before load_model"))?;
+        let caps = driver_metal_new::store::Capabilities {
+            has_linear_attn: self.has_linear_attn,
+            kv_total_pages: pool.pages(),
+            rs_slots: 0,
+        };
+        let work = driver_metal_new::store::plan_kv_copy(desc, caps, pool.shape().grid())
+            .map_err(|why| anyhow!("metal copy_kv: {why:?}"))?;
+
+        // Whole-page moves first, as page pairs; then the row cells. Both run
+        // over every layer's K and V, because the pool is page-major at one
+        // stride everywhere.
+        let page_bytes = pool.shape().page_bytes();
+        let mut cells = Vec::new();
+        for &(src, dst) in &work.pages {
+            cells.push(driver_metal_new::store::CellCopy {
+                src_off: u64::from(src) * page_bytes,
+                dst_off: u64::from(dst) * page_bytes,
+                bytes: page_bytes,
+            });
+        }
+        if !cells.is_empty() {
+            pool.apply(&driver_metal_new::store::CellMovePlan {
+                copies: cells,
+                pages_touched: work.pages_touched,
+            })
+            .map_err(|e| anyhow!("metal copy_kv: {e:?}"))?;
+        }
+        if let Some(plan) = work.cells.as_ref() {
+            pool.apply(plan).map_err(|e| anyhow!("metal copy_kv: {e:?}"))?;
+        }
+
+        // Settled already: the move ran on the host, so nothing is in flight
+        // and a completion the caller waits on would wait for nothing.
+        let (_raw, completion) = self.broker.pie_completion(1);
+        Ok(completion)
     }
 
     /// # Errors

@@ -23,7 +23,8 @@
 
 use crate::error::Result;
 use crate::metal::{Context, Handle, allocate};
-use crate::store::PoolGrid;
+use crate::region::Region as _;
+use crate::store::{CellMovePlan, PoolGrid};
 
 /// One full-attention layer's pages.
 #[derive(Debug)]
@@ -151,6 +152,45 @@ impl Pool {
     #[must_use]
     pub fn bytes(&self) -> u64 {
         self.shape.layer_bytes() * 2 * u64::from(self.shape.layers)
+    }
+
+    /// Run a move plan over every layer's K and V pages.
+    ///
+    /// # One plan, every buffer, on the host
+    ///
+    /// `store::kv_move` says why one plan serves all of them: the pool is
+    /// page-major at one stride everywhere, so the same `(src, dst, bytes)`
+    /// offsets apply to the K and V pages of every layer. This walks them.
+    ///
+    /// **No encoder.** The pages are `StorageModeShared`, so they are host
+    /// addressable and a move is a `memmove` — which is what `Region::copy`
+    /// is, and its memmove semantics are not incidental here: a compaction
+    /// slides rows toward the front of the pool, so source and destination
+    /// overlap.
+    ///
+    /// What makes that safe is the fire's shape rather than a lock: `run`
+    /// blocks until the stepper's command buffer completes, so between fires
+    /// the host owns these bytes outright. A driver that overlapped fires
+    /// would need a barrier here, and would know it because this comment
+    /// stopped being true.
+    ///
+    /// # Errors
+    ///
+    /// A copy whose span leaves a layer's region — which the plan's own
+    /// validation should have refused first, so reaching it is drift between
+    /// the grid the plan was built from and the pool it is run against.
+    pub fn apply(&self, plan: &CellMovePlan) -> Result<()> {
+        for layer in &self.layers {
+            for side in [&layer.k, &layer.v] {
+                for copy in &plan.copies {
+                    // SAFETY: both spans are checked against the region's own
+                    // length by `Region::copy`, and overlap is permitted
+                    // because the operation is a memmove.
+                    unsafe { side.copy(copy.dst_off, side, copy.src_off, copy.bytes)? };
+                }
+            }
+        }
+        Ok(())
     }
 }
 

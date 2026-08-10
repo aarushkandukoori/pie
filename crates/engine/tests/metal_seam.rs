@@ -41,16 +41,26 @@ fn the_verbs_that_need_the_kv_pool_refuse_by_name() {
     };
     let text = match backend.copy_kv(&Default::default()) {
         Err(why) => format!("{why}"),
-        Ok(_) => panic!("the encoder that runs a move plan is not wired yet"),
+        Ok(_) => panic!("a copy before a load has no pool to move within"),
     };
     assert!(
         text.contains("driver-metal-new"),
         "a refusal must name the backend that made it: {text}"
     );
     assert!(
+        text.contains("before load_model"),
+        "and say which order was broken: {text}"
+    );
+
+    // `resize_pool` still refuses, and its message says which half is missing
+    // so the next reader does not re-port machinery that is already there.
+    let text = match backend.resize_pool(&Default::default()) {
+        Err(why) => format!("{why}"),
+        Ok(_) => panic!("the pool is a fixed allocation today"),
+    };
+    assert!(
         text.contains("already decide and plan"),
-        "and which half is actually missing, so the next reader does not \
-         re-port machinery that is already there: {text}"
+        "the refusal should say what exists: {text}"
     );
 }
 

@@ -231,3 +231,67 @@ fn the_kv_pool_allocates_at_the_geometry_the_fire_states() {
         "a page past the pool addresses another layer's memory"
     );
 }
+
+/// A KV move, run on the pool, checked byte for byte.
+///
+/// The pages are `StorageModeShared`, so a move is a `memmove` and needs no
+/// encoder — and the memmove semantics are not incidental: a compaction slides
+/// rows toward the front, so source and destination overlap.
+#[test]
+fn a_move_plan_slides_rows_without_smearing_them() {
+    use driver_metal_new::model::kv::{Pool, Shape};
+    use driver_metal_new::region::Region as _;
+    use driver_metal_new::store::{CellCopy, CellMovePlan};
+
+    let Ok(context) = Context::new() else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+    // One layer, one head, tiny pages: the arithmetic is the subject, not the
+    // size.
+    let shape = Shape {
+        layers: 1,
+        kv_heads: 1,
+        head_dim: 4,
+        page_size: 2,
+        pages: 4,
+        element_bytes: 2,
+    };
+    let pool = Pool::allocate(&context, shape).expect("the pool allocates");
+    let layer = pool.layer(0).expect("layer 0");
+    let row = shape.row_bytes() as usize;
+
+    // Each row is its own byte, so a misplaced one names itself.
+    let total = shape.layer_bytes() as usize;
+    let src: Vec<u8> = (0..total).map(|i| (i / row) as u8).collect();
+    unsafe {
+        layer.k.write(0, &src).expect("the pattern fits");
+        layer.v.write(0, &src).expect("and into v");
+    }
+
+    // Slide page 1 onto page 0 — the overlapping case a compaction makes.
+    let page = shape.page_bytes();
+    pool.apply(&CellMovePlan {
+        copies: vec![CellCopy {
+            src_off: page,
+            dst_off: 0,
+            bytes: page,
+        }],
+        pages_touched: 2,
+    })
+    .expect("the move runs");
+
+    let read = |h: &driver_metal_new::metal::Handle| -> Vec<u8> {
+        unsafe { std::slice::from_raw_parts(h.contents().as_ptr().cast::<u8>(), total) }.to_vec()
+    };
+    for (name, got) in [("k", read(&layer.k)), ("v", read(&layer.v))] {
+        // Page 0 now holds what page 1 held: rows 2 and 3.
+        assert_eq!(got[0], 2, "{name}: page 0 row 0 came from page 1 row 0");
+        assert_eq!(got[row], 3, "{name}: page 0 row 1 came from page 1 row 1");
+        // And page 1 is untouched — a smear would have overwritten it.
+        assert_eq!(got[2 * row], 2, "{name}: page 1 row 0 still its own");
+        assert_eq!(got[3 * row], 3, "{name}: page 1 row 1 still its own");
+        // Pages 2 and 3 were never named.
+        assert_eq!(got[4 * row], 4, "{name}: page 2 untouched");
+    }
+}
