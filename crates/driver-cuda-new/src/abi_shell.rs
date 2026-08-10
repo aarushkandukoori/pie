@@ -1283,6 +1283,15 @@ fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
 /// its `linear_*` geometry + layer schedule, else the llama-like
 /// mapping. Only the qwen3-family pre-norm shape is claimed on the
 /// llama-like side; anything else refuses rather than mis-executes.
+/// The `FireArrays::named` key the SCORE pin is pooled under.
+///
+/// A reserved id rather than a traced one: no statement names this value,
+/// the driver publishes it, and the pool is keyed by `ValueId` because
+/// every other thing in it is a traced seam. `u32::MAX` cannot collide
+/// with a trace value — a plan with four billion values would have failed
+/// long before.
+const SCORE_PIN: model_compiler::trace::ValueId = model_compiler::trace::ValueId::MAX;
+
 /// Is the unionized supergraph armed for this process?
 ///
 /// `PIE_CUDA_SUPERGRAPH=1`. Off by default and deliberately so: every A/B
@@ -1564,9 +1573,14 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
     }
 
     // DUAL-PREPARE: one warm fire per variant, each a resolved program.
+    // Only variants this fire can PREPARE. A `wants_scores` warm-up would
+    // lower the score-capturing dispatch, which refuses without a score
+    // sink — and warming is not the place to discover that. It is also
+    // why scores are not a union axis: the north star's list is "hook
+    // attachment, mask kind, correction arm, depth, LoRA rank", and every
+    // one of those is a branch rather than a different prepared state.
     for marks in [
         model_compiler::lower::Row { samples: true, ..Default::default() },
-        model_compiler::lower::Row { samples: true, wants_scores: true, ..Default::default() },
         model_compiler::lower::Row { samples: true, write_desc: true, ..Default::default() },
     ] {
         let warm_rows = vec![marks; rows];
@@ -1593,10 +1607,23 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
             lowered, dplan, frame, resolver, ctx, regions, gdn, &mut b,
         );
         drop(b);
+        // A REFUSED CAPTURE IS NOT A REFUSED FIRE.
+        //
+        // Some arms cannot be recorded at all, and the reason is always
+        // the same shape: their prepared state is something the fire
+        // declined to build. The score-capturing prefill dispatch wants a
+        // plan raised for the full-attention variant, buffers laid out for
+        // an observation window, and a positive window — none of which a
+        // fire that wants no scores has any reason to prepare.
+        //
+        // So the capture is abandoned and the fire runs eagerly. That is
+        // the same answer ungrouped LoRA gets from `union_eligibility`,
+        // and the same one the C++ arc gives mixed peels: what cannot be
+        // replayed stays eager. The alternative — failing the fire — would
+        // make an optimisation into a correctness requirement.
         match (ran, scope.end()) {
             (Ok(n), Ok(g)) => Some((n, g)),
-            (Err(e), _) => return Err(e),
-            (_, Err(_)) => None,
+            (Err(_) | Ok(_), _) => None,
         }
     };
     let Some((ran, graph)) = captured else {
@@ -1691,14 +1718,64 @@ fn step_impl(
     // replay; `Resolve` answers them here and produces one program. Off by
     // default because the eager leg is what every A/B in the tree pins,
     // and a capture is an optimisation that must prove itself against it.
-    let union = supergraph_enabled();
-    let guards = if union { GuardMode::Union } else { GuardMode::Resolve };
-    let lowered =
-        lower_with(&plan, &fire_rows, Fire { captures_across_splits: false }, guards)
-            .map_err(|e| {
-                eprintln!("[driver-cuda-new] launch: uncovered: {e:?}");
-                PIE_STATUS_UNSUPPORTED
-            })?;
+    let mut union = supergraph_enabled();
+    let lower_as = |g: GuardMode| {
+        lower_with(&plan, &fire_rows, Fire { captures_across_splits: false }, g).map_err(|e| {
+            eprintln!("[driver-cuda-new] launch: uncovered: {e:?}");
+            PIE_STATUS_UNSUPPORTED
+        })
+    };
+    let mut lowered = lower_as(if union { GuardMode::Union } else { GuardMode::Resolve })?;
+
+    // A union this fire cannot record is not a union worth building, and
+    // the decision has to be made HERE — before the arena, the pins and
+    // the attention context are sized against it — because falling back
+    // later would run one lowering's program against another's offsets.
+    //
+    // The test is narrow on purpose: a SCORE-capturing dispatch needs a
+    // plan raised for the full-attention variant, a folded-row layout and
+    // an observation window, none of which a fire that wants no scores
+    // prepares. Its launcher answers by throwing, which the shim can only
+    // turn into a message and an abort. So a union that names one is
+    // abandoned for this fire and the guards are answered instead.
+    if union {
+        let d = DispatchPlan::new(&plan, &lowered);
+        // Two things make a union unservable for THIS fire, and both are
+        // about prepared state rather than about the graph.
+        //
+        // A `_capture` dispatch wants a plan raised for the full-attention
+        // variant, a folded-row layout and an observation window, none of
+        // which a fire that wants no scores builds; its launcher answers
+        // by throwing, which the shim can only turn into an abort.
+        //
+        // And the attention output slot has to be findable from the op
+        // JOIN. The neighbour trick — "the launch after the dispatch is
+        // the o_proj" — is what `Resolve` allows and `Union` does not,
+        // because every arm is present and the neighbour belongs to some
+        // other body. A deployment that states its attention as [q, o]
+        // records no output in the join and has only the neighbour.
+        let servable = !lowered.kernels.iter().any(|k| k.contains("_capture"))
+            && {
+                let name = if lowered
+                    .kernels
+                    .iter()
+                    .any(|k| k == "attn::dispatch_attention_flashinfer_decode")
+                {
+                    "attn::dispatch_attention_flashinfer_decode"
+                } else {
+                    "attn::dispatch_attention_flashinfer_prefill_bf16"
+                };
+                lowered
+                    .launches
+                    .iter()
+                    .position(|x| lowered.kernels[x.kernel as usize] == name)
+                    .is_some_and(|fi| matches!(d.spec(fi).outs.first(), Some(Arg::Arena { .. })))
+            };
+        if !servable {
+            union = false;
+            lowered = lower_as(GuardMode::Resolve)?;
+        }
+    }
     let dplan = DispatchPlan::new(&plan, &lowered);
 
     // ── Device state: KV pools (persistent), fire arrays (per launch). ──
@@ -1959,6 +2036,25 @@ fn step_impl(
         // simply leave half the pin unread.
         state.fire_arrays.named(&alloc, v, rows * w as usize * 4, stream.as_ref())?;
     }
+    // NO SCORE SINK, deliberately, and this is what makes the capture
+    // path safe rather than merely optional.
+    //
+    // A fire that wants no scores prepares no score path: no plan raised
+    // for the full-attention variant, no folded-row layout, no
+    // observation window. The score-capturing dispatch needs all three,
+    // and its launcher REFUSES by throwing — which the generated shim
+    // prints and then aborts on, because an exception crossing the C ABI
+    // has nowhere else to go.
+    //
+    // So the arm has to refuse before the launcher is reached, and a null
+    // sink is how it knows to. `run_captured` then returns a refusal, the
+    // capture is abandoned, and the fire runs eagerly — the same answer
+    // ungrouped LoRA gets. Publishing a plausible-looking empty sink
+    // instead would put the decision inside a launcher that can only
+    // answer by killing the process.
+    let d_score_indptr: *const u32 = core::ptr::null();
+    let d_scores: *mut std::ffi::c_void = core::ptr::null_mut();
+
     let named_bufs = &state.fire_arrays.named;
 
     // ── The hybrid's GDN context: driver-owned slabs, instance slots. ──
@@ -2075,6 +2171,7 @@ fn step_impl(
         .alloc(rows * model.hf.num_attention_heads as usize * 4)
         .map_err(|_| PIE_STATUS_EXHAUSTED)?;
 
+
     // The guard-owned attention values, discovered from the lowering as
     // the smokes discovered them. gemma-4 has NONE: both its attention
     // forms state [q, o] as SSA args, so the pins stay null.
@@ -2086,11 +2183,16 @@ fn step_impl(
         } else {
             "attn::dispatch_attention_flashinfer_prefill_bf16"
         };
-        let fi = lowered
+        let Some(fi) = lowered
             .launches
             .iter()
             .position(|x| lowered.kernels[x.kernel as usize] == dispatch_name)
-            .ok_or(PIE_STATUS_UNSUPPORTED)?;
+        else {
+            eprintln!(
+                "[driver-cuda-new] launch: the lowering states no {dispatch_name}"
+            );
+            return Err(PIE_STATUS_UNSUPPORTED);
+        };
         let q_pin = lowered.launches[fi]
             .args
             .clone()
@@ -2098,9 +2200,42 @@ fn step_impl(
                 Arg::Named { value, .. } => Some(*value),
                 _ => None,
             });
-        let o_off = match &lowered.args[lowered.launches[fi + 1].args.start as usize] {
-            Arg::Arena { at, .. } => *at,
-            _ => return Err(PIE_STATUS_UNSUPPORTED),
+        // The dispatch's OUTPUT, read off its own op join.
+        //
+        // This used to be `launches[fi + 1]`'s first operand — "the launch
+        // after the dispatch is the o_proj, and its input is the slot the
+        // dispatch wrote". True under `Resolve`, where the guard has
+        // already deleted every arm the fire did not take, and false under
+        // `Union`, where every arm is present and the next launch belongs
+        // to some other guard's body.
+        //
+        // A value found by counting launches is a fact derived from where
+        // a statement SITS. The join says it: the attention statement
+        // carries one arg (q) and its output placement, which is exactly
+        // the slot wanted. Same read the executor's arms make.
+        // Prefer the join, fall back to the neighbour.
+        //
+        // The join is the STATED read: the attention statement carries its
+        // output placement, which is the slot the o_proj goes on to read.
+        // Where a deployment spells the attention with [q, o] as SSA args
+        // the join records no output of its own, and there the old
+        // positional read is still the only answer available.
+        //
+        // Positional is what breaks under `Union` — every guard arm is
+        // present, so the launch after the dispatch belongs to some other
+        // body — which is why the join is tried first rather than second.
+        let o_off = match dplan.spec(fi).outs.first() {
+            Some(Arg::Arena { at, .. }) => *at,
+            _ => match lowered.launches.get(fi + 1).map(|n| &lowered.args[n.args.start as usize]) {
+                Some(Arg::Arena { at, .. }) => *at,
+                _ => {
+                    eprintln!(
+                        "[driver-cuda-new] launch: {dispatch_name} states no arena \
+                         output, and the launch after it is not one either"
+                    );
+                    return Err(PIE_STATUS_UNSUPPORTED);
+                }
+            },
         };
         (q_pin, Some(o_off))
     };
@@ -2143,8 +2278,8 @@ fn step_impl(
         q_out: q_pin
             .and_then(|v| named_bufs.get(&v).map(|b| b.as_ptr()))
             .unwrap_or(core::ptr::null_mut()),
-        score_out: core::ptr::null_mut(),
-        score_indptr_d: core::ptr::null(),
+        score_out: d_scores.cast(),
+        score_indptr_d: d_score_indptr.cast(),
         o_out: o_off
             .map_or(core::ptr::null_mut(), |off| unsafe {
                 arena_ptr.cast::<u8>().add(off)

@@ -1581,6 +1581,71 @@ pub fn dispatch<R: Resolver>(
         }
         // args: [q]; o is guard-owned ([`AttnCtx::o_out`]); the pages are
         // the layer's bf16 MIRRORS — the native alias, the decode lesson.
+        // The prefill sibling of the score-capturing decode dispatch, and
+        // the same story: `WantsAttnScore` selects it, the score buffers
+        // ride the ctx because they must be arena-stable under a folded
+        // predicate, and it takes one more output than the decode form —
+        // `folded_out` beside `score_out`, since a prefill's raw scores
+        // and their per-request fold are different extents.
+        //
+        // The fold shares `score_out`'s slot here: an empty CSR makes both
+        // zero-length, which is what a fire that wants no scores means,
+        // and a fire that does want them needs `DecodeScoreCapturePlan`'s
+        // layout for both anyway.
+        "attn::dispatch_attention_flashinfer_prefill_capture_bf16" => {
+            let a = attn
+                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
+            let layer = a
+                .layers
+                .get(bound.layers.start as usize)
+                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
+            if a.score_out.is_null() || a.score_indptr_d.is_null() {
+                return Err(DispatchRefusal::NoAttnCtx(format!(
+                    "{}: the fire published no score buffers",
+                    bound.kernel
+                )));
+            }
+            let (q, o) = match bound.args.len() {
+                1 => (bound.args[0], a.o_out),
+                2 => (bound.args[0], bound.args[1].ptr),
+                got => {
+                    return Err(DispatchRefusal::ArgCount {
+                        kernel: bound.kernel.to_string(),
+                        expected: 1,
+                        got,
+                    });
+                }
+            };
+            unsafe {
+                ffi::pie_k_attn_dispatch_attention_flashinfer_prefill_capture_bf16(
+                    a.prefill_plan.cast_const(),
+                    q.ptr,
+                    layer.k_bf16_pages,
+                    layer.v_bf16_pages,
+                    o,
+                    a.qo_indptr_d,
+                    a.kv_page_indices_d,
+                    a.kv_page_indptr_d,
+                    a.kv_last_page_lens_d,
+                    a.workspace,
+                    ctx.stream,
+                    a.score_out,
+                    a.score_out,
+                    a.score_indptr_d,
+                    // The OBSERVATION window, not the attention one. The
+                    // launcher refuses `<= 0`, and `window_left` is -1 on
+                    // a family that attends the whole context — passing it
+                    // here reads as "no window" to one layer and "invalid"
+                    // to the other. It is a driver policy, which is what
+                    // `attn_score` is for.
+                    i32::try_from(crate::model::attn_score::default_attn_score_window())
+                        .unwrap_or(i32::MAX),
+                    a.logits_soft_cap,
+                    a.sm_scale,
+                    a.lse_out_d,
+                );
+            }
+        }
         "attn::dispatch_attention_flashinfer_prefill_bf16" => {
             let a = attn
                 .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
