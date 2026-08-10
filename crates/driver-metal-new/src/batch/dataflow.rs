@@ -1108,19 +1108,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_gptoss_dag_schedules_hazard_free_inside_the_pool() {
-        let g = crate::batch::GptOssGeometry::default();
-        let dag = crate::batch::build_gptoss_dag(&g, true);
-        let schedule = build_scratch_schedule(&dag, false).expect("no hazards");
-        assert!(
-            (schedule.coloring.colors_used as usize) <= crate::batch::SCRATCH_POOL,
-            "{} colours over a pool of {}",
-            schedule.coloring.colors_used,
-            crate::batch::SCRATCH_POOL
-        );
-        assert_eq!(schedule.per_dispatch.len(), dag.len());
-    }
+    // `the_gptoss_dag_schedules_hazard_free_inside_the_pool` went with the
+    // gpt-oss DAG builder it drove. The generic executor builds no per-family
+    // DAG: `lower` flattens the text into rectangles and `Buffers::assign`
+    // places every activation, so there is no scratch-pool colouring to check
+    // and no pool to overflow.
 
     #[test]
     fn fused_residuals_and_the_prep_split_still_schedule() {
