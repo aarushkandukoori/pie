@@ -1742,11 +1742,21 @@ pub mod metal {
         repr: WeightRepr,
         point: &str,
     ) -> Val {
-        let stem = if multi_batch {
-            "embed_gather_mb_4bit"
-        } else {
-            "embed_gather_4bit"
-        };
+        // ALWAYS the M>1 symbol, and `multi_batch` is deliberately unread.
+        //
+        // `embed_gather_4bit` reads `id[0]` and writes `out[hidden]` — one row,
+        // by construction, whatever grid it is handed. The class is not the
+        // question: a DECODE of four requests is four rows, so a text that
+        // picks by class names the single-row gather for a four-row fire and
+        // three lanes get nothing. Measured against a real checkpoint: one of
+        // four readout lanes held anything, and bisecting the fire put the
+        // stop at statement ZERO.
+        //
+        // The mb variant's own comment says it "reduces to embed_gather_4bit
+        // at N=1", so naming it unconditionally is not a widening — it is the
+        // same kernel with the row read from the grid instead of assumed.
+        let _ = multi_batch;
+        let stem = "embed_gather_mb_4bit";
         with_params(
             t,
             None,

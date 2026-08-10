@@ -26,6 +26,30 @@
 //! Passing here is not correctness; it is the floor beneath which correctness
 //! cannot be discussed.
 //!
+//! It found four defects in its first afternoon, and the fourth is the one
+//! that argues for the file:
+//!
+//!   1. **No barrier between dispatches.** Metal does not order two dispatches
+//!      in one compute encoder and the executor's loop emitted none. Three
+//!      runs of one fire gave widest activations of 11.7, 23.1 and 4.5e12 --
+//!      TWO OF THE THREE looked entirely plausible.
+//!   2. **The readout's dtype.** The text said `F32`, `affine_qmv_fast` writes
+//!      bfloat, and the logits came back exactly half zero.
+//!   3. **Unzeroed arena and KV pool.** A fresh Metal buffer is usually zero
+//!      and nothing promises it, so an attention read past what a fire wrote
+//!      attended to whatever the allocator last held.
+//!   4. **The single-row gather.** `embed_gather_4bit` reads `id[0]` and
+//!      writes one row whatever grid it is handed, and the text picked it by
+//!      CLASS -- but a decode of four requests is four rows. One readout lane
+//!      of four held anything, and NOTHING ELSE WAS WRONG: every launch stated
+//!      four rows, every grid covered them, and every other kernel read the
+//!      row where the grid put it.
+//!
+//! Three measurements track what is left, each pinned so it can only improve:
+//! declared outputs nothing fills (**0**, was 5), readout lanes that hold
+//! anything (**4** of 4, was 1), and the arena's non-zero share (**99%**, was
+//! 26%).
+//!
 //! Gated on `PIE_METAL_SMOKE_CHECKPOINT`, the same variable the other
 //! checkpoint tests take. Run against
 //! `mlx-community/Llama-3.2-1B-Instruct-4bit`.
@@ -201,6 +225,52 @@ fn plan_count(
     format!("{} ({empty} with an empty grid)", dispatches.len())
 }
 
+/// The fire's own tables, staged into one region exactly as the engine seam
+/// stages them.
+///
+/// FOUR DIFFERENT tokens at four different positions, which is what makes the
+/// per-token checks able to fail at all. A zeroed region for every table was
+/// the first draft and it decodes token 0 at position 0 on every lane -- a
+/// legitimate input, and a degenerate one that says nothing about whether the
+/// per-token axis works.
+fn stage_tables(
+    context: &Context,
+    step: &Step<'_>,
+    page_size: u32,
+) -> (driver_metal_new::metal::Handle, Vec<(usize, usize)>) {
+    let tokens: Vec<u32> = step.token_ids.to_vec();
+    let positions: Vec<u32> = (0..tokens.len() as u32).collect();
+    let req_of_token: Vec<u32> = (0..tokens.len() as u32).collect();
+    // One page per request, and the CSR that says so.
+    let kv_page_indices: Vec<u32> = (0..tokens.len() as u32).collect();
+    let kv_page_indptr: Vec<u32> = (0..=tokens.len() as u32).collect();
+    let w_page: Vec<u32> = kv_page_indices.clone();
+    let w_off: Vec<u32> = positions.iter().map(|p| p % page_size.max(1)).collect();
+
+    let mut blob: Vec<u32> = Vec::new();
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for table in [
+        &tokens,
+        &positions,
+        &req_of_token,
+        &kv_page_indices,
+        &kv_page_indptr,
+        &w_page,
+        &w_off,
+    ] {
+        spans.push((blob.len(), table.len()));
+        blob.extend_from_slice(table);
+    }
+    let staged =
+        allocate(context, (blob.len() * 4) as u64, "fire tables").expect("a table region");
+    // SAFETY: freshly allocated, nothing encoded against it yet.
+    unsafe {
+        let raw = core::slice::from_raw_parts(blob.as_ptr().cast::<u8>(), blob.len() * 4);
+        staged.write(0, raw).expect("the tables stage");
+    }
+    (staged, spans)
+}
+
 #[test]
 fn a_real_checkpoints_weights_produce_finite_varied_activations() {
     let Some(snapshot) = snapshot() else {
@@ -249,45 +319,14 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
         })
     };
 
-    // The fire's own tables, staged into one region exactly as the engine seam
-    // stages them. FOUR DIFFERENT tokens at four different positions, which is
-    // what makes the per-token check below able to fail.
-    let tokens: Vec<u32> = step.token_ids.to_vec();
-    let positions: Vec<u32> = vec![0, 1, 2, 3];
-    let req_of_token: Vec<u32> = vec![0, 1, 2, 3];
-    // One page per request, and the CSR that says so.
-    let kv_page_indices: Vec<u32> = vec![0, 1, 2, 3];
-    let kv_page_indptr: Vec<u32> = vec![0, 1, 2, 3, 4];
-    let w_page: Vec<u32> = kv_page_indices.clone();
-    let w_off: Vec<u32> = positions.iter().map(|p| p % shape.page_size).collect();
-
-    let mut blob: Vec<u32> = Vec::new();
-    let mut spans: Vec<(usize, usize)> = Vec::new();
-    for table in [
-        &tokens,
-        &positions,
-        &req_of_token,
-        &kv_page_indices,
-        &kv_page_indptr,
-        &w_page,
-        &w_off,
-    ] {
-        spans.push((blob.len(), table.len()));
-        blob.extend_from_slice(table);
-    }
-    let staged = allocate(&context, (blob.len() * 4) as u64, "fire tables").expect("a table region");
-    // SAFETY: freshly allocated, nothing encoded against it yet.
-    unsafe {
-        let raw = core::slice::from_raw_parts(blob.as_ptr().cast::<u8>(), blob.len() * 4);
-        staged.write(0, raw).expect("the tables stage");
-    }
+    let (staged, spans) = stage_tables(&context, &step, shape.page_size);
 
     let named = HashMap::new();
     let mut live = Live {
         store: Store::new(Names::mlx(), &loaded.tensors, &named),
         tables: Slice {
             address: staged.gpu_address(),
-            bytes: (blob.len() * 4) as u64,
+            bytes: staged.len(),
         },
         spans,
         shape,
@@ -490,13 +529,11 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
          zero epsilon does to a near-zero row.",
         c.inf
     );
-    // A QUARTER non-zero, measured, and the quarter is the whole story: three
-    // of every four rows are zero because the fire fills one lane of four (see
-    // the per-token axis below). The bound is therefore a tenth rather than a
-    // half -- it is here to catch an arena that is EMPTY, which is a fire that
-    // ran and computed nothing, and the lane count is what tracks the rest.
+    // Measured 648205 non-zero to 8179 zero: 99% of the arena holds a value.
+    // It was 171268 to 485116 while the gather was the single-row one, which
+    // is the same defect the lane count below names.
     assert!(
-        c.finite_nonzero * 10 > c.zero,
+        c.finite_nonzero > c.zero * 10,
         "the arena is {} zero to {} non-zero. A projection told its extents \
          are zero no-ops and leaves exactly this, so a near-empty arena is a \
          fire that ran and did not compute.",
@@ -547,6 +584,27 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
         "every logit is under 1e-4, so the readout accumulated nothing."
     );
 
+    // ── the regions a launch declares and does not fill ──
+    //
+    // ZERO, down from FIVE. All five were the same defect the lane count below
+    // names: the text picked the single-row `embed_gather_4bit`, so every lane
+    // but the first was zero from statement zero onward, and the branches only
+    // those lanes fed never held anything.
+    //
+    // The NUMBER is what made it findable. It said "five regions", the writer
+    // attribution said which statements, and a prefix bisection
+    // (`the_second_lane_stops_somewhere_and_this_says_where`) put the stop at
+    // statement 0 -- three steps, each narrowing, none of them a guess.
+    eprintln!("{} declared output(s) nothing filled", unwritten.len());
+    assert!(
+        unwritten.is_empty(),
+        "{} statement(s) declare an output nothing filled. A statement whose \
+         output stays zero is a branch of the forward pass that computes \
+         nothing.\n{}",
+        unwritten.len(),
+        unwritten.join("\n")
+    );
+
     // ── THE PER-TOKEN AXIS ──
     //
     // Four lanes decoded four different tokens, so the readout should hold
@@ -581,9 +639,193 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
             .count()
     };
     eprintln!("{lanes} of 4 readout lane(s) hold anything");
-    assert!(
-        lanes >= 1,
-        "not one lane's readout holds anything, so the fire produced no \
-         answer at all rather than one answer for four tokens."
+    assert_eq!(
+        lanes, 4,
+        "the per-token axis lost a lane: {lanes} of four readout rows hold \
+         anything. A fire that answers one token for four is the failure this \
+         gate exists to catch, because every magnitude check passes through it."
     );
+}
+
+/// **Where the second lane stops.**
+///
+/// The instrument the test above says it lacks: run the first `n` dispatches
+/// of the fire and read the arena, for every `n`, and report the first prefix
+/// after which no arena region holds anything in its second row.
+///
+/// A bisection rather than a guess. "Every later row is zero" is true of a
+/// gather that emitted one row and of a projection that did, and four
+/// launches downstream they look identical -- so the only thing that
+/// distinguishes them is running fewer launches.
+#[test]
+fn the_second_lane_stops_somewhere_and_this_says_where() {
+    let Some(snapshot) = snapshot() else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_CHECKPOINT to an MLX snapshot");
+        return;
+    };
+    let Ok(context) = Context::new() else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+    let compiler = Compiler::new(&context).expect("a compiler");
+    let mut pipelines = Pipelines::new(kernels_dir());
+
+    let descriptor = descriptor_for(&snapshot);
+    let loaded = load(&context, &snapshot, &descriptor).expect("the checkpoint loads");
+    let model_facts = driver_metal_new::facts::ModelFacts::from_descriptor(&descriptor)
+        .expect("the descriptor states the model's facts");
+    let dg =
+        driver_metal_new::batch::geometry_from_facts(&model_facts).expect("a decodable geometry");
+    let (facts, _metal) =
+        driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
+    let (_, metal) = driver_metal_new::model::text::facts_from(&dg, |t| loaded.tensors.contains_key(t));
+
+    let step = Step {
+        token_ids: &[128_000, 9906, 1917, 128_001],
+        qo_indptr: &[0, 1, 2, 3, 4],
+        sampling_indices: &[0, 1, 2, 3],
+        ..Step::default()
+    };
+    let plan = llama_like_metal(&facts, &metal, FireClass::Decode);
+    let lowered = lower_step(&plan, &step).expect("the step lowers");
+
+    let shape = Shape {
+        layers: facts.layers,
+        kv_heads: facts.kv_heads,
+        head_dim: facts.head_dim,
+        page_size: 16,
+        pages: 64,
+        element_bytes: 2,
+    };
+    let pool = Pool::allocate(&context, shape).expect("a pool");
+    let pages = |layer: u16, values: bool| {
+        pool.layer(u32::from(layer)).map(|l| Slice {
+            address: if values { l.v.gpu_address() } else { l.k.gpu_address() },
+            bytes: shape.layer_bytes(),
+        })
+    };
+    let (staged, spans) = stage_tables(&context, &step, shape.page_size);
+
+    let named = HashMap::new();
+    let mut live = Live {
+        store: Store::new(Names::mlx(), &loaded.tensors, &named),
+        tables: Slice {
+            address: staged.gpu_address(),
+            bytes: staged.len(),
+        },
+        spans,
+        shape,
+        pages: &pages,
+    };
+    let geometry = Geometry {
+        q_heads: facts.q_heads,
+        kv_heads: facts.kv_heads,
+        head_dim: facts.head_dim,
+        rotary_dims: facts.head_dim,
+        n_experts: facts.n_experts,
+        experts_per_token: facts.experts_per_token,
+    };
+
+    // Every launch's OUTPUT rectangle, so a prefix can be judged by what its
+    // last statement was supposed to write rather than by the whole arena.
+    let outs: Vec<(usize, usize, usize, String)> = lowered
+        .launches
+        .iter()
+        .map(|l| {
+            let symbol = lowered.kernels[l.kernel as usize].clone();
+            let args = &lowered.args[l.args.start as usize..l.args.end as usize];
+            let last = args
+                .iter()
+                .rev()
+                .find_map(|a| match a {
+                    model_compiler::lower::Arg::Arena { at, width, bytes } => {
+                        Some((*at, *width as usize, *bytes as usize))
+                    }
+                    _ => None,
+                })
+                .unwrap_or((0, 0, 0));
+            (last.0, last.1, last.2, symbol)
+        })
+        .collect();
+
+    // The prefixes worth running: the first twelve statements are one layer's
+    // worth, which is where a per-row defect either appears or does not.
+    let mut first_bad: Option<(usize, String)> = None;
+    for n in 1..=12.min(lowered.launches.len()) {
+        let arena = allocate(
+            &context,
+            (lowered.arena_bytes as u64).max(1),
+            "bisect arena",
+        )
+        .expect("an arena");
+        // SAFETY: freshly allocated.
+        unsafe { arena.zero(0, arena.len()).expect("it zeroes") };
+        let dispatches = driver_metal_new::model::dispatch::plan(
+            &lowered,
+            driver_metal_new::model::run::table(),
+            driver_metal_new::model::executor::Frame {
+                arena: Slice {
+                    address: arena.gpu_address(),
+                    bytes: arena.len(),
+                },
+            },
+            geometry,
+            &mut live,
+        )
+        .expect("the fire plans");
+        let prefix = &dispatches[..n];
+        let prepared = driver_metal_new::model::run::prepare(&context, &lowered, prefix)
+            .expect("the prefix prepares");
+        pipelines
+            .ensure(&context, &compiler, prefix)
+            .expect("the pipelines compile");
+        let mut stepper = driver_metal_new::metal::Stepper::new(&context).expect("a stepper");
+        stepper
+            .run(|encoder| {
+                driver_metal_new::model::encode::encode(
+                    encoder,
+                    &prepared.table,
+                    &pipelines,
+                    &prepared.params,
+                    prefix,
+                )
+            })
+            .expect("the prefix runs");
+
+        let mut read = vec![0u8; arena.len() as usize];
+        // SAFETY: the command buffer retired.
+        unsafe {
+            let raw = core::slice::from_raw_parts(
+                arena.contents().as_ptr().cast_const().cast::<u8>(),
+                arena.len() as usize,
+            );
+            read.copy_from_slice(raw);
+        }
+
+        // The nth statement's own output, row 0 against row 1.
+        let (at, width, element, symbol) = &outs[n - 1];
+        let row = width * element;
+        let live_row = |i: usize| {
+            let (a, b) = (at + i * row, (at + (i + 1) * row).min(read.len()));
+            a < b && read[a..b].iter().any(|&x| x != 0)
+        };
+        let (r0, r1) = (live_row(0), live_row(1));
+        eprintln!(
+            "  [{:>2}] {symbol:<44} @{at} row0 {} row1 {}",
+            n - 1,
+            if r0 { "yes" } else { "NO " },
+            if r1 { "yes" } else { "NO " },
+        );
+        if r0 && !r1 && first_bad.is_none() {
+            first_bad = Some((n - 1, symbol.clone()));
+        }
+    }
+
+    match &first_bad {
+        Some((i, symbol)) => eprintln!(
+            "\nThe second lane stops at statement {i}, `{symbol}`: it wrote row 0 \
+             and not row 1."
+        ),
+        None => eprintln!("\nEvery statement in the first layer wrote both rows."),
+    }
 }
