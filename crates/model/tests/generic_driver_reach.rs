@@ -237,3 +237,68 @@ fn how_many_symbols_the_undriven_families_still_owe() {
         println!("    {k}");
     }
 }
+
+/// How many arms are LEFT in the four family executors.
+///
+/// The number to steer by, and it is not the count of `case` labels: a
+/// family file holds three switches over the same enum — the walk's
+/// commit-advance filter, the pin table's A/B, and the executor proper —
+/// and only the third is an arm. So a label counts here when the body
+/// under it actually LAUNCHES: it names a `kernels::` entry point or one
+/// of the shared `arm_*` helpers.
+///
+/// A measurement, like everything else in this file. It prints, and only
+/// fails if the executors stop being readable — because the honest
+/// version of "how much is left" is a number nobody can talk up, and one
+/// hand-counted in a commit message is exactly that.
+#[test]
+fn how_many_arms_the_four_executors_still_hold() {
+    let families = ["llama_like", "mixtral", "gemma4", "qwen3_5"];
+    let mut total = 0usize;
+    println!("{:12} {:>6} {:>7}", "", "arms", "labels");
+    for f in families {
+        let path = format!(
+            "{}/../driver-cuda/csrc/src/model/{f}/declared_forward.cpp",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+
+        let mut arms = 0usize;
+        let mut labels = 0usize;
+        let mut pending = 0usize;
+        for line in text.lines() {
+            let t = line.trim_start();
+            if let Some(rest) = t.strip_prefix("case declared::Kernel::") {
+                if rest.contains(':') {
+                    pending += 1;
+                    continue;
+                }
+            }
+            if pending == 0 {
+                continue;
+            }
+            // A LAUNCHING body closes the run of labels above it.
+            if t.contains("kernels::") || t.contains("declared::arm_") {
+                arms += 1;
+                labels += pending;
+                pending = 0;
+            } else if t.starts_with("break;")
+                || t.starts_with("return ")
+                || t.starts_with("place(")
+                || t.starts_with("pin(")
+            {
+                // A filter's label, or a pin table's. Not an arm.
+                pending = 0;
+            }
+        }
+        println!("{f:12} {arms:>6} {labels:>7}");
+        total += arms;
+    }
+    println!("\nlaunching arms left across the four executors: {total}");
+    assert!(
+        total > 0,
+        "no executor holds a launching arm — either D1 is finished or \
+         this measurement stopped reading the executors"
+    );
+}
