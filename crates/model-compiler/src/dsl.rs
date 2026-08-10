@@ -1894,6 +1894,27 @@ pub mod cuda {
     /// `q_pe` -- and a statement returning one of them would leave the other
     /// three unnamed on the tape, which is exactly the silent dataflow gap
     /// the trace exists to make visible.
+    /// [`record_many`], plus the scalar arguments — [`record_with_params`]
+    /// for a statement with more than one result.
+    fn record_many_with_params(
+        t: &Trace,
+        layer: Option<u32>,
+        kernel: &str,
+        weights: Vec<String>,
+        params: Vec<u32>,
+        inputs: Vec<crate::trace::ValueId>,
+        outs: Vec<(Shape, DType)>,
+    ) -> Vec<Val> {
+        let n = outs.len();
+        let ids = t.with(layer, |b| {
+            b.launch_with_params(kernel, weights, None, params, inputs, outs)
+        });
+        assert_eq!(ids.len(), n, "the tape recorded a different arity than stated");
+        ids.into_iter()
+            .map(|id| Val { t: t.clone(), id, layer })
+            .collect()
+    }
+
     fn record_many(
         t: &Trace,
         layer: Option<u32>,
@@ -4542,18 +4563,25 @@ pub mod cuda {
     /// Returns `(sorted_route_ids, expert_ids, route_to_aligned_row)` — the
     /// permutation, which expert each block belongs to, and the inverse map
     /// the combine reads.
+    /// The three load-time numbers ride the param channel. They are the
+    /// permutation's own shape — how many experts to bucket into, how
+    /// wide a block is, how many blocks the padding admits — and the
+    /// executor was reading two of them out of a config struct and one
+    /// out of its MoE workspace.
     pub fn moe_align(
         topk_idx: &Val,
         max_blocks: u32,
         block_size: u32,
         top_k: u32,
+        num_experts: u32,
     ) -> (Val, Val, Val) {
         let routes = Dim::Const(top_k);
-        let outs = record_many(
+        let outs = record_many_with_params(
             &topk_idx.t,
             topk_idx.layer,
             "moe::moe_align_decode",
             vec![],
+            vec![num_experts, block_size, max_blocks],
             vec![topk_idx.id],
             vec![
                 (

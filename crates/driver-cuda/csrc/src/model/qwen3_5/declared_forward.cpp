@@ -2019,28 +2019,15 @@ case PieForwardOpKind::Launch: {
                                 values.slot(plan.outputs(op)[1])),
                             N, E, Ktop, stream);
                         break;
-                    case declared::Kernel::MoeAlignDecode: {
-                        // ISLAND (value arena). `moe_align(topk_idx)`
-                        // states one operand and three results -- the
-                        // sorted route order, the per-block expert id,
-                        // and the inverse map. The third is the one this
-                        // leg does not fire (the reorder below undoes
-                        // the permutation instead), and a null says so
-                        // rather than the arm quietly not having it.
-                        const auto ains = plan.inputs(op);
-                        const auto aouts = plan.outputs(op);
-                        need(ains, 1, "align inputs");
-                        need(aouts, 3, "align outputs");
-                        kernels::moe::moe_align_decode(
-                            static_cast<const std::int32_t*>(
-                                values.slot(ains[0])),
-                            static_cast<std::int32_t*>(values.slot(aouts[0])),
-                            static_cast<std::int32_t*>(values.slot(aouts[1])),
-                            /*route_to_aligned_row=*/nullptr,
-                            routes, E, block, max_blocks,
-                            /*num_tokens_past_padded=*/nullptr, stream);
-                        break;
-                    }
+                    // The PERMUTATION generates. Its route count is
+                    // the operand's element count -- `topk_idx` is
+                    // `[Tokens, top_k]` -- and its three load-time
+                    // numbers ride the param channel, where two came out
+                    // of a config struct and one out of the MoE
+                    // workspace. It binds the INVERSE MAP too, which the
+                    // arm passed null for: the statement declares three
+                    // results, and "declared but not written" is a claim
+                    // the declaration does not make.
                     case declared::Kernel::MoeGatherAligned:
                         // ISLAND (value arena).
                         // `gather_moe_aligned_inputs(x, sorted_route_ids)`

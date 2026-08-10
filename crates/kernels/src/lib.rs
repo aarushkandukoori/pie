@@ -489,6 +489,13 @@ pub enum Source {
     /// Rows times the `i`-th result's row width — the ELEMENT count a
     /// flat launcher takes where a row-shaped one takes both.
     OutElements(u8),
+    /// The same for the `i`-th OPERAND.
+    ///
+    /// The MoE routing kernels want the ROUTE count, which is the fire's
+    /// tokens times `top_k` — and `topk_idx` is `[Tokens, top_k]`, so it
+    /// is exactly that operand's element count. A product the table has
+    /// no arithmetic for, read off a value that already is it.
+    InElements(u8),
     /// Dimension `d` of the `i`-th operand. The routed combine reads
     /// `[Tokens, top_k, H]` and both extents come off it.
     InDim(u8, u8),

@@ -192,18 +192,29 @@ pub static KERNELS: &[KernelSig] = &[
     // permutation is computed over ALL routes in the fire, so a statement
     // addressed through `sorted_route_ids` cannot take a row window -- the
     // window would name different routes than the sort did.
+    // `num_routes` is the OPERAND's element count: `topk_idx` is
+    // `[Tokens, top_k]`, so the fire's tokens times `top_k` is exactly
+    // what it holds. That product is what kept this row unstated — the
+    // table has no arithmetic — and reading it off a value that already
+    // is it costs none.
+    //
+    // `route_to_aligned_row` is BOUND, where the arm passed null. The
+    // statement declares three results and the arena places all three;
+    // the inverse map is the one this leg's combine does not read, and
+    // "declared but not written" is a claim the declaration does not
+    // make.
     kernel!(moe_align "moe::moe_align_decode", whole = true,
         operands = operands![
-            topk_idx: I32s,
-            sorted_route_ids: I32sMut,
-            expert_ids: I32sMut,
-            route_to_aligned_row: I32sMut,
-            num_routes: I32,
-            num_experts: I32,
-            block_size: I32,
-            max_blocks: I32,
-            num_tokens_past_padded: I32sMut,
-            stream: Stream,
+            topk_idx: I32s <- Source::In(0),
+            sorted_route_ids: I32sMut <- Source::Out(0),
+            expert_ids: I32sMut <- Source::Out(1),
+            route_to_aligned_row: I32sMut <- Source::Out(2),
+            num_routes: I32 <- Source::InElements(0),
+            num_experts: I32 <- Source::Param(0),
+            block_size: I32 <- Source::Param(1),
+            max_blocks: I32 <- Source::Param(2),
+            num_tokens_past_padded: I32sMut <- Source::Lit("nullptr"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(gather_moe_aligned_inputs "moe::gather_moe_aligned_inputs_bf16", whole = true,
         operands = operands![

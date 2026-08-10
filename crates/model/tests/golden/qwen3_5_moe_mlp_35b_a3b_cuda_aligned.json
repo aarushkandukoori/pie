@@ -285,7 +285,12 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "moe::moe_align_decode"
+          "kernel": "moe::moe_align_decode",
+          "params": [
+            256,
+            16,
+            1024
+          ]
         }
       },
       "inputs": [
