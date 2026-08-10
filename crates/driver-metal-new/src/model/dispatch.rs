@@ -623,6 +623,7 @@ mod tests {
         let low = one("attn::split_qkv_bf16", 1, vec![Arg::Arena {
             at: 0,
             width: 8,
+            bytes: 16,
         }]);
         assert_eq!(
             plan(&low, TABLE, frame(), Geometry::default(), &mut Anything),
