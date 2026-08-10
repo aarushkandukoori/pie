@@ -6306,13 +6306,24 @@ pub mod cuda {
     /// one re-cast the block input while the routed activations were
     /// never written — a live defect the ledger, the golden and the
     /// registry all passed.
-    pub fn gpt_oss_glu(gate: &Val, up: &Val, top_k: u32, intermediate: u32) -> Val {
-        record(
+    /// `limit` is the deployment's `swiglu_limit`, and it rides the
+    /// param channel for the reason [`Self::scalar_mul`]'s scale does:
+    /// it is a load-time number the host has, and the executor was
+    /// reaching into a config struct for it.
+    pub fn gpt_oss_glu(
+        gate: &Val,
+        up: &Val,
+        top_k: u32,
+        intermediate: u32,
+        limit: f32,
+    ) -> Val {
+        record_with_params(
             &gate.t,
             gate.layer,
             "mlp::gpt_oss_glu_bf16",
             vec![],
             None,
+            vec![limit.to_bits()],
             vec![gate.id, up.id],
             Some((
                 Shape(vec![

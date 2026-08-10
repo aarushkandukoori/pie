@@ -76,6 +76,18 @@ if (sym == "mlp::chunked_geglu_tanh_bf16" && ins.size >= 1 && outs.size >= 1 && 
         false);
     return true;
 }
+if (sym == "mlp::gpt_oss_glu_bf16" && ins.size >= 2 && outs.size >= 1 && ps.size >= 1) {
+    ::pie_cuda_driver::kernels::mlp::gpt_oss_glu_bf16(
+        c.arm.values.slot(ins[0]),
+        c.arm.values.slot(ins[1]),
+        c.arm.values.slot(outs[0]),
+        static_cast<::std::size_t>(c.arm.rows) * static_cast<::std::size_t>(row_width(c.arm.plan, outs[0])),
+        c.arm.stream,
+        f32_param(ps[0]),
+        1.702f,
+        nullptr);
+    return true;
+}
 if (sym == "mlp::sigmoid_dot_scalar_gate_add_bf16" && ins.size >= 3 && outs.size >= 1 && aux.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::mlp::sigmoid_dot_scalar_gate_add_bf16(
         c.arm.values.slot(ins[0]),

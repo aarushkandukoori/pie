@@ -154,14 +154,19 @@ pub static KERNELS: &[KernelSig] = &[
     // is why the driver passes its pointer twice.
     kernel!(gpt_oss_glu "mlp::gpt_oss_glu_bf16", in_place = &[(0, 0)],
         operands = operands![
-            gate: Buf,
-            up: Buf,
-            y: BufMut,
-            num_elements: I32,
-            stream: Stream,
-            limit: F32,
-            alpha: F32,
-            y_fp16: BufMut,
+            gate: Buf <- Source::In(0),
+            up: Buf <- Source::In(1),
+            y: BufMut <- Source::Out(0),
+            num_elements: I32 <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
+            limit: F32 <- Source::ParamF32(0),
+            // The two the arm let DEFAULT. A generated call passes every
+            // operand, so the row spells what the header's defaults are
+            // — which is the better place for them anyway: a default in
+            // a header is a fact about the launcher that no caller can
+            // see it relying on.
+            alpha: F32 <- Source::Lit("1.702f"),
+            y_fp16: BufMut <- Source::Lit("nullptr"),
         ]),
     kernel!(sigmoid_scalar_gate_add "mlp::sigmoid_scalar_gate_add_bf16",
         operands = operands![
