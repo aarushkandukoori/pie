@@ -824,6 +824,129 @@ fn every_lowered_kernel_of_the_remaining_families_has_a_bridge_row() {
     );
 }
 
+/// Every symbol any family lowers to has an ARM, not merely a row.
+///
+/// The bridge-row claims above answer "can the launcher be CALLED"; this
+/// one answers "does `dispatch` know what to call". They are different
+/// questions and the gap between them cost this branch a GPU cycle per
+/// instance during the `origin/rewrite` merges: a row exists, the crate
+/// compiles, every non-GPU test passes, and the first thing that notices
+/// is a fire refusing with `NoArm`.
+///
+/// It reads the arms out of the executor's SOURCE, which is worth being
+/// upfront about. `dispatch` is one `match` on `&str` and there is no
+/// value to enumerate; calling it per symbol would need a device and a
+/// plausible operand for each. The source scan asks a narrower question
+/// than the match answers — an arm may still refuse on arity, and does —
+/// but the failure it catches is the one that keeps happening: a symbol
+/// nothing matches at all.
+#[test]
+fn every_lowered_symbol_has_an_arm() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/model/executor.rs"),
+    )
+    .expect("the executor's source");
+
+    // Arms are `"sym" =>` or `"a" | "b" =>`, so collect every quoted
+    // `family::symbol` on a line that ends in `=>`. Guard the shape: a
+    // rewrite that changes how arms are spelled must not leave this
+    // passing vacuously.
+    let mut armed = BTreeSet::new();
+    for line in src.lines() {
+        let line = line.trim();
+        if !line.ends_with("=>") && !line.ends_with("=> {") {
+            continue;
+        }
+        for part in line.split('"').skip(1).step_by(2) {
+            if part.contains("::") && !part.contains(char::is_whitespace) {
+                armed.insert(part.to_string());
+            }
+        }
+    }
+    assert!(
+        armed.len() > 60,
+        "the arm scan found {} arms, so its shape assumption broke",
+        armed.len()
+    );
+
+    let mut every: BTreeSet<String> = BTreeSet::new();
+    for l in [
+        lowered(FireClass::Decode, 4),
+        lowered(FireClass::Prefill, 7),
+        qwen35_lowered(FireClass::Decode, 4),
+        qwen35_lowered(FireClass::Prefill, 7),
+        glm5_lowered(4),
+        kimi_k2_lowered(4),
+        kimi_k3_lowered(4),
+        dsv4_lowered(4),
+    ] {
+        every.extend(l.kernels.iter().cloned());
+    }
+
+    // `gemm::act_x_w` is the one rename at the ABI; its arm is spelled
+    // with the symbol the lowering states, so it is already in `armed`.
+    //
+    // The set below is the PORT'S REMAINING WORK, not an exemption. Three
+    // subsystems, none of them started, each tracked: MLA and its latent
+    // cache (glm5, kimi_k2), kimi_k3's KDA, and deepseek_v4's DSA indexer
+    // with the hyper-connection residual. They lower — the declarations
+    // are written and their rows are stated — and no arm executes them.
+    //
+    // It is a CLOSED set on purpose, and that is what this test is for:
+    // the list shrinks as arms land, and a symbol that joins it because
+    // some other change stopped matching an arm fails here instead of on
+    // a GPU. Sorted, so the diff when one leaves is one line.
+    #[rustfmt::skip]
+    const UNARMED: &[&str] = &[
+        // ── MLA: the latent-cache attention (glm5, kimi_k2) ──────────
+        "attn::attention_compressed_paged_bf16",
+        "attn::combine_attn_outputs_bf16",
+        "attn::dispatch_attention_mla_bf16",
+        "attn::kimi_split_kv_a_norm_bf16",
+        "attn::kimi_split_q_b_bf16",
+        "attn::lse_log2_to_ln",
+        "attn::mla_prepare_bf16",
+        "attn::write_mla_to_pages",
+        "gemm::mla_absorb_latent_to_v_bf16",
+        "gemm::mla_absorb_q_to_latent_bf16",
+        "rope::rope_partial_last_bf16",
+        // ── deepseek_v4: the DSA indexer and hyper-connections ────────
+        "attn::dsa_index_knorm_rope_bf16",
+        "attn::dsa_index_q_rope_bf16",
+        "attn::dsa_index_topk_mask",
+        "attn::dsv4_boundary_meta_decode",
+        "attn::dsv4_compress_gather_paged_bf16",
+        "attn::dsv4_store_comp_entries_bf16",
+        "norm::hc_head_postprocess_bf16",
+        "norm::hc_post_bf16",
+        "norm::hc_pre_postprocess_bf16",
+        "norm::hc_rmsnorm_to_f32",
+        // ── kimi_k3: KDA, the per-key-channel delta rule ──────────────
+        "ssm::bf16_to_fp32",
+        "ssm::kda_gate_beta_bf16",
+        "ssm::kda_o_norm_gated_bf16",
+        "ssm::kda_recurrent_step_batched",
+        "ssm::l2norm_scale_bf16_to_fp32",
+    ];
+
+    // Compared as SETS: the list above is grouped by subsystem because
+    // that is how a reader decides whether a line is theirs, and sorting
+    // it would scatter the three groups into one alphabetical run.
+    let unarmed: BTreeSet<&str> = every.difference(&armed).map(String::as_str).collect();
+    let expected: BTreeSet<&str> = UNARMED.iter().copied().collect();
+    assert_eq!(
+        unarmed.len(),
+        UNARMED.len(),
+        "a line in UNARMED is duplicated"
+    );
+    assert_eq!(
+        unarmed, expected,
+        "the unarmed set moved. A symbol that LEFT means an arm landed — \
+         delete its line. A symbol that JOINED lowers with nothing to \
+         execute it, and a fire will refuse with NoArm."
+    );
+}
+
 #[test]
 #[ignore = "enumeration aid, not a claim"]
 fn print_the_remaining_families_vocabulary() {

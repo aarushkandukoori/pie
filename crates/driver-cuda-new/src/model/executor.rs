@@ -145,6 +145,15 @@ pub struct LaunchSpec {
     pub params: Vec<u32>,
 }
 
+/// A wire param read back as `f32`.
+///
+/// `params` is `[u32]` because that is what a wire carries; a float rides
+/// it as its BITS (`f32::to_bits`), never as a rounded integer — which is
+/// the whole reason this is one function rather than a cast at each arm.
+fn param_f32(spec: &LaunchSpec, at: usize) -> Option<f32> {
+    spec.params.get(at).copied().map(f32::from_bits)
+}
+
 /// The window a launch attends over: the STATEMENT's, or the context's
 /// where a statement carries none.
 ///
@@ -1750,15 +1759,25 @@ pub fn dispatch<R: Resolver>(
         "norm::scalar_mul_bf16" => {
             need(3)?;
             let (x_in, x_out) = (bound.args[0], bound.args[1]);
-            let name = spec
-                .weight
-                .as_deref()
-                .and_then(|n| n.strip_prefix("scale."))
-                .ok_or_else(|| DispatchRefusal::NoWeight(bound.kernel.to_string()))?;
-            let s = *ctx
-                .scales
-                .get(name)
-                .ok_or_else(|| DispatchRefusal::UnknownWeight(format!("scale.{name}")))?;
+            // A NUMBER when the statement carries one, a NAME otherwise.
+            // `dsl::cuda::scalar_mul` takes `Option<f32>`: given a value it
+            // rides the params as bits, and given none the row names a
+            // `scale.*` the driver looks up in a table it built from a
+            // config. The first form is the one a reader can check against
+            // the text; the second is what it replaces.
+            let s = match param_f32(spec, 0) {
+                Some(by) => by,
+                None => {
+                    let name = spec
+                        .weight
+                        .as_deref()
+                        .and_then(|n| n.strip_prefix("scale."))
+                        .ok_or_else(|| DispatchRefusal::NoWeight(bound.kernel.to_string()))?;
+                    *ctx.scales
+                        .get(name)
+                        .ok_or_else(|| DispatchRefusal::UnknownWeight(format!("scale.{name}")))?
+                }
+            };
             stage_d2d(ctx, &bound.rows, x_out, x_in);
             let n = (bound.rows.end - bound.rows.start) as usize * x_out.width as usize;
             unsafe {
@@ -1768,30 +1787,29 @@ pub fn dispatch<R: Resolver>(
         // args: [gate, up, y] — gemma's GeGLU (tanh approximation); the
         // lowering lands y on the gate's bytes (the kernel's in-place
         // contract), staged when it assigned distinct buffers.
+        //
+        // TWO sites share this symbol and the arm no longer tells them
+        // apart, which is the point. The PLE gate's second operand used
+        // to be the WHOLE `[L, Tokens, ple_dim]` relay, so this arm added
+        // `layer * N * ple_dim` to reach the layer's slice — and to know
+        // WHEN to add it, forked on the out width against `ctx.ple_dim`.
+        // The declaration states a `select` at `l` now; the layer axis
+        // leads, so the slice IS a select, and `Buffers::assign` places it
+        // at `offset(relay) + l · N · ple_dim` without being told. A
+        // select allocates nothing.
+        //
+        // What went with the arithmetic is worth naming: the width fork
+        // was a driver deciding which SITE it was serving from a number,
+        // and the two sites now differ only in which values they name.
         "mlp::geglu_tanh_bf16" => {
             need(3)?;
             let (gate, up, y) = (bound.args[0], bound.args[1], bound.args[2]);
             stage_d2d(ctx, &bound.rows, y, gate);
-            // TWO sites share this symbol, told apart by the out WIDTH
-            // (the C++ declared arm's own discrimination): the PLE gate
-            // is `ple_dim` wide and its "up" operand is the WHOLE relay
-            // `[L, N, ple_dim]` — the layer offset is the ARM'S, because
-            // the declaration passes the table base and the transpose
-            // exists precisely so each layer reads a contiguous slice.
-            // The unfused-MLP pair states its two projections directly.
-            let up_ptr = if ctx.ple_dim > 0 && y.width == u32::try_from(ctx.ple_dim).unwrap_or(0)
-            {
-                let elems =
-                    bound.layers.start as usize * rows as usize * ctx.ple_dim as usize;
-                unsafe { up.ptr.cast::<u16>().add(elems).cast() }
-            } else {
-                up.ptr
-            };
             let n = rows * i32::try_from(y.width).expect("width fits i32");
             unsafe {
                 ffi::pie_k_mlp_geglu_tanh_bf16(
                     y.ptr.cast_const(),
-                    up_ptr.cast_const(),
+                    up.ptr.cast_const(),
                     y.ptr,
                     n,
                     ctx.stream,
@@ -2807,7 +2825,12 @@ pub fn dispatch<R: Resolver>(
                     y.ptr,
                     rows * i32::try_from(y.width).expect("width"),
                     ctx.stream,
-                    ctx.glu_limit,
+                    // The CLAMP is the statement's — `dsl::cuda::gpt_oss_glu`
+                    // carries it as param bits, where it used to be a
+                    // header default the driver re-derived from a config.
+                    // `ctx.glu_limit` is the fallback for a trace that
+                    // states none.
+                    param_f32(spec, 0).unwrap_or(ctx.glu_limit),
                     ctx.glu_alpha,
                     std::ptr::null_mut(),
                 );
