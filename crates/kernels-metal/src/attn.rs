@@ -201,6 +201,31 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(sdpa_vector_decode_sink "sdpa_vector_decode_sink",
         axes = &[BF16, Axis { what: "head dim", points: &["_d_64"] }]),
     // 2 in sdpa_sliding.metal
+    // `sdpa_vector_decode` over a SLIDING window, and the window is an
+    // operand rather than a flag -- the port's rule that a per-fire choice the
+    // C++ made at encode time becomes data on the dispatch.
+    //
+    // Two row pitches the contiguous form does not have: gemma reads its query
+    // out of a wider buffer than it writes.
     kernel!(sdpa_vector_decode_swa "sdpa_vector_decode_swa",
+        file = Some("attn/sdpa_sliding.metal"),
+        launch = kernels::LaunchRule::SdpaVector,
+        operands = kernels::operands![
+            queries: Buf <- kernels::Source::In(0),
+            keys: Buf <- kernels::Source::KvKeys,
+            values: Buf <- kernels::Source::KvValues,
+            out: BufMut <- kernels::Source::Out(0),
+            gqa_factor: I32 <- kernels::Source::Param(0),
+            n: I32 <- kernels::Source::Param(1),
+            k_head_stride: Usize <- kernels::Source::KvHeadStride,
+            k_seq_stride: Usize <- kernels::Source::KvSeqStride,
+            v_head_stride: Usize <- kernels::Source::KvHeadStride,
+            v_seq_stride: Usize <- kernels::Source::KvSeqStride,
+            scale: F32 <- kernels::Source::ParamF32(2),
+            window: I32 <- kernels::Source::Param(3),
+            q_row_stride: I32 <- kernels::Source::Param(4),
+            o_row_stride: I32 <- kernels::Source::Param(5),
+        ],
+        lacks = &[Cap::Scores, Cap::PageMaskSink],
         axes = &[BF16, Axis { what: "head dim", points: &["_d_256", "_d_512"] }]),
 ];

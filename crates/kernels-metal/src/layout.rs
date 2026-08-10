@@ -36,7 +36,25 @@ pub static KERNELS: &[KernelSig] = &[
         ],
         axes = &[BF16, GROUP, BITS]),
     // 6 in embed_gather.metal
-    kernel!(embed_gather_scaled_4bit "embed_gather_scaled_4bit", axes = &[BF16, GROUP, BITS]),
+    // `embed_gather_4bit` with the embedding SCALE folded in -- gemma
+    // multiplies its embeddings by `sqrt(hidden)`, which is a number the
+    // statement carries rather than a kernel that knows the model.
+    //
+    // Single-row like its unscaled twin: `embed_gather_scaled_mb_4bit` is the
+    // M>1 form and the one a text should name.
+    kernel!(embed_gather_scaled_4bit "embed_gather_scaled_4bit",
+        file = Some("layout/embed_gather.metal"),
+        launch = kernels::LaunchRule::Elementwise,
+        operands = kernels::operands![
+            w: Buf <- kernels::Source::Weight(0),
+            scales: Buf <- kernels::Source::Weight(1),
+            biases: Buf <- kernels::Source::Weight(2),
+            id: I32s <- kernels::Source::TokenIds,
+            out: BufMut <- kernels::Source::Out(0),
+            hidden: I32 <- kernels::Source::Param(0),
+            embed_scale: F32 <- kernels::Source::ParamF32(1),
+        ],
+        axes = &[BF16, GROUP, BITS]),
     // 6 in embed_gather.metal
     kernel!(embed_gather_scaled_mb_4bit "embed_gather_scaled_mb_4bit",
         axes = &[BF16, GROUP, BITS]),
