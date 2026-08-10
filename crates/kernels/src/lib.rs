@@ -496,6 +496,20 @@ pub enum Source {
     /// value, and that judgment is what these rows are waiting on rather
     /// than any missing vocabulary.
     ParamF32(u8),
+    /// The fire's POSITIONS, advanced to the rectangle's first row.
+    ///
+    /// `Ctx("positions")` would bind the fire's base, and a rectangle
+    /// that starts partway in would then rotate its own rows against
+    /// another rectangle's positions — the same defect `ArmCtx::row`
+    /// exists for, on the one fire input that is token-rowed. So it gets
+    /// the same treatment and its own source rather than a `Ctx` a
+    /// reader has to notice is special.
+    ///
+    /// The DEVICE-WINDOW call forms are the exception and they do not
+    /// use this: their kernel reads the split off a device word and
+    /// wants the fire's positions unadvanced. Those are hand-written
+    /// arms, which is where a per-call-form fact belongs.
+    Positions,
     /// The rectangle's row count.
     ///
     /// The fire's, and only right for a statement whose rows ARE the

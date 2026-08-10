@@ -377,8 +377,10 @@ use kernels::Source;
 fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
     let e = match op.source {
         Source::Unbound => return None,
-        Source::In(i) => format!("{ctx}.arm.values.slot(ins[{i}])"),
-        Source::Out(i) => format!("{ctx}.arm.values.slot(outs[{i}])"),
+        // `row`, not `slot`: a rectangle that starts partway into the
+        // fire binds ITS rows, not the value's base. See `ArmCtx::row`.
+        Source::In(i) => format!("{ctx}.arm.row(ins[{i}])"),
+        Source::Out(i) => format!("{ctx}.arm.row(outs[{i}])"),
         Source::ResultOrRegion(i) => format!(
             "result_or_region({ctx}, outs, {i})"
         ),
@@ -387,6 +389,7 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
         }
         Source::Param(i) => format!("static_cast<int>(ps[{i}])"),
         Source::ParamF32(i) => format!("f32_param(ps[{i}])"),
+        Source::Positions => format!("{ctx}.positions + {ctx}.arm.win_start"),
         Source::Rows => format!("{ctx}.arm.rows"),
         Source::OutRows(i) => format!(
             "value_rows({ctx}.arm.plan, outs[{i}], {ctx}.arm.rows, {ctx}.num_requests)"
