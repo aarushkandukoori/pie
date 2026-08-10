@@ -242,18 +242,53 @@ exists.** `adopt_launch_package` → `make_instance` → `step` runs a program's
 shell stages on the CPU today, and four device tests already build their
 `ExecPlan` through the same entry point.
 
-What gate item 4 actually needs is the **harness**, not the port: a device test
-that runs one fire through `metal::fire` and the same fire through
-`pipeline::step`, and compares. No test does that yet — `pipeline::step` is
-not referenced from `tests/`. That is the open work, and it is a test file
-rather than a 1.7k-line port.
+What gate item 4 actually needs is the **harness**, not the port.
 
-One thing to settle when that harness is written: which interpreter is the
-oracle. Diffing the device against `src/pipeline/` proves the device agrees
-with *this crate's* copy of the golden model, which is the narrower claim.
-Diffing it against `tensor_compiler::eval::interp` — reachable as a
-dev-dependency, the precedent `pipeline/status.rs` already set for exactly this
-reason — proves it agrees with the original, and would catch a copy error this
-port could have introduced. The second is the claim gate item 4 is written to
-make, and the C++'s own "minus the per-layer taps" comment is the reason it is
-worth making.
+## The harness — first half landed
+
+`tests/oracle_interp.rs` runs one trace through **both** interpreters and
+compares every observable: the commit verdict, which host-readable channels
+produced a value, and the lanes on each — compared by `to_bits`, so a `NaN`
+must match a `NaN` and `-0.0` does not pass for `0.0`.
+
+Both sides start from one `TraceContainer`, bound once and compiled once. The
+golden side runs the `BoundTrace` through `tensor_compiler::eval::interp`; the
+driver side takes the *same* bound trace through
+`tensor_compiler::codegen::launch::build` — the artefact the driver actually
+receives — then `adopt_launch_package` → `make_host_instance` → `step`. Putting
+the lowering inside the compared path is deliberate: a copy error in
+`adopt_launch_package` is as fatal as one in `eval_op`, and only running the
+real artefact catches it. The seeds are written once, in the golden's `Value`,
+and converted for the driver, so a case cannot accidentally seed the two sides
+differently and pass.
+
+Seven cases, chosen where a copy error would hide rather than for coverage:
+the `sort_desc` tie, the width-32 pairwise reduction, the argmax tie-break,
+`max(-0.0, +0.0)`, the matmul zero-skip, a readiness miss, and a
+comparison-into-select that carries `Bool` across the two crates' differing
+representations.
+
+Three are mutation-verified — flipping the argmax tie-break to last-wins,
+replacing the pairwise tree with a left fold, and deleting matmul's
+`if xv == 0.0 { continue }` each make exactly the intended case fail (`I32([1])`
+against `I32([5])`; `4.0` against `3.0`; a finite row against all-`NaN`). A
+green oracle that cannot fail is not an oracle.
+
+**The verdict: the two interpreters agree.** No divergence was found, including
+at the places the C++'s "minus the per-layer taps" comment suggested one might
+be. `matmul` on both sides is the same k-outer accumulation with the same
+zero-skip, down to the guard.
+
+## What is still open
+
+The device half. `tests/oracle_interp.rs` is CPU-to-CPU and runs on any host;
+it does not yet fire anything on Metal. The remaining step is a device test
+that runs a fire through `metal::fire` and diffs it against `pipeline::step`.
+Because this file now pins `pipeline::step` to the original golden model, that
+device test can diff against the cheap local interpreter and still be making
+the strong claim — which is what makes the split worth having.
+
+The comparison's stated boundary is per-layer tap stages: both the C++ and this
+crate's `step` reject them at classification, so a trace containing one is not
+a case where the two are expected to agree. Every case here is an epilogue
+program, which is what the channel-plane interpreter exists to run.

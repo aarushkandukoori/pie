@@ -90,14 +90,24 @@ The flip is authorised when all of the following hold, and not before:
    *Correction (2026-08-09):* this item was recorded as blocked on porting
    `interp.hpp`. It is not — the interpreter is `src/pipeline/`, closed out
    in `PARITY-INTERP.md`, and `adopt_launch_package` → `make_instance` →
-   `step` runs today. The open work is the **harness**: nothing in `tests/`
-   references `pipeline::step`, so no fire has ever been run both ways and
-   compared. Settle there which interpreter is the oracle — this crate's
-   copy proves self-consistency, `tensor_compiler::eval::interp` (a
-   dev-dependency, as `pipeline/status.rs` already does for the fault table)
-   proves agreement with the original golden model. `interp.hpp` itself
-   records that it is a copy "minus the per-layer taps", which is the reason
-   the stronger check is worth writing.
+   `step` runs today. The open work was always the harness.
+
+   *Progress (2026-08-09):* the harness's **CPU half is done**.
+   `tests/oracle_interp.rs` runs one trace through both this crate's
+   interpreter and `tensor_compiler::eval::interp` — the original golden
+   model, reached as a dev-dependency exactly as `pipeline/status.rs`
+   reaches the fault table — and compares commit verdicts and every
+   host-readable channel bit for bit. Seven cases, three of them
+   mutation-verified. **They agree**, including at matmul's zero-skip, which
+   both implement identically. That settles the oracle question the stronger
+   way: `pipeline::step` is now pinned to the original, so the remaining
+   device test may diff against the local interpreter and still be claiming
+   agreement with the golden model.
+
+   What is left for this item: the device half — one fire through
+   `metal::fire`, the same fire through `pipeline::step`, compared. Stated
+   boundary: per-layer tap stages, which both the C++ and this crate reject
+   at classification and which are therefore outside the claim.
 5. **Soak without growth.** A sustained decode (hours, not minutes) with
    `PoolStats`, `Memory`, and ring counts sampled: no monotone growth, no
    working-set creep. This is the leak class `release_standalone_buffer`
