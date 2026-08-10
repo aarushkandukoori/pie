@@ -1556,3 +1556,108 @@ fn every_generated_call_has_its_header_in_scope() {
         missing.join("\n")
     );
 }
+
+/// The two executors, crossed: how many arms are written twice.
+///
+/// There are two of them now. The C++ shared switch DERIVES an arm from
+/// a row that states its sources (`generated_dispatch.inc`); this
+/// crate's `model::executor::dispatch` WRITES one per symbol by hand,
+/// "kernel by kernel beside the bridge". Both read the same launchers,
+/// in the same argument order, out of the same tables.
+///
+/// So a symbol that appears in both is an arm someone is maintaining
+/// twice, and for the ones whose row is fully stated the second copy is
+/// derivable — the generator would emit it from the same `Source`s, in
+/// Rust instead of C++, the way `emit_rust_bindings` already emits the
+/// other half of the flat ABI.
+///
+/// A measurement, not a gate. It prints the three sets, because the
+/// useful thing is which way each symbol falls: derivable-and-duplicated
+/// is work the generator could take over, hand-written-only is a row
+/// whose sources are not filled, and generated-only is a symbol the Rust
+/// executor has not reached yet.
+#[test]
+fn how_many_arms_the_two_executors_write_twice() {
+    let dispatch = kernels_cuda::abi::emit_dispatch(
+        &[
+            kernels_cuda::attn::KERNELS,
+            kernels_cuda::gemm::KERNELS,
+            kernels_cuda::layout::KERNELS,
+            kernels_cuda::mlp::KERNELS,
+            kernels_cuda::moe::KERNELS,
+            kernels_cuda::norm::KERNELS,
+            kernels_cuda::quant::KERNELS,
+            kernels_cuda::rope::KERNELS,
+            kernels_cuda::sample::KERNELS,
+            kernels_cuda::ssm::KERNELS,
+        ],
+        "c",
+    );
+    let mut generated: Vec<&str> = dispatch
+        .match_indices("if (sym == \"")
+        .filter_map(|(i, _)| {
+            let rest = &dispatch[i + 12..];
+            rest.find('"').map(|e| &rest[..e])
+        })
+        .collect();
+    generated.sort_unstable();
+    generated.dedup();
+
+    // The Rust executor's arms: `"ns::symbol" =>` at the head of a match
+    // arm. Read as text, like every other census here, because the
+    // question is which SYMBOLS it claims and a parse would answer the
+    // same thing at more cost.
+    let exec = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/model/executor.rs");
+    let text = std::fs::read_to_string(&exec)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", exec.display()));
+    let mut handwritten: Vec<&str> = text
+        .lines()
+        .filter_map(|l| {
+            let t = l.trim();
+            if !t.starts_with('"') || !t.contains("=>") {
+                return None;
+            }
+            let rest = &t[1..];
+            let end = rest.find('"')?;
+            let sym = &rest[..end];
+            sym.contains("::").then_some(sym)
+        })
+        .collect();
+    handwritten.sort_unstable();
+    handwritten.dedup();
+
+    let both: Vec<&&str> = generated
+        .iter()
+        .filter(|s| handwritten.binary_search(s).is_ok())
+        .collect();
+    let rust_only: Vec<&&str> = handwritten
+        .iter()
+        .filter(|s| generated.binary_search(s).is_err())
+        .collect();
+    let cpp_only: Vec<&&str> = generated
+        .iter()
+        .filter(|s| handwritten.binary_search(s).is_err())
+        .collect();
+
+    eprintln!(
+        "generated (C++) {}   hand-written (Rust) {}",
+        generated.len(),
+        handwritten.len()
+    );
+    eprintln!("\nWRITTEN TWICE — the row states its sources, so the Rust arm is derivable ({}):", both.len());
+    for s in &both {
+        eprintln!("  {s}");
+    }
+    eprintln!("\nRUST ONLY — no generated branch; the row has not stated its sources ({}):", rust_only.len());
+    for s in &rust_only {
+        eprintln!("  {s}");
+    }
+    eprintln!("\nC++ ONLY — generated, and the Rust executor has not reached it ({}):", cpp_only.len());
+    for s in &cpp_only {
+        eprintln!("  {s}");
+    }
+    assert!(
+        !handwritten.is_empty(),
+        "the Rust executor stopped being a symbol-keyed match, or moved"
+    );
+}
