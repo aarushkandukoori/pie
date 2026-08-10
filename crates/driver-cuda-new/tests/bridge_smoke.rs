@@ -496,7 +496,6 @@ fn the_full_zero_weight_decode_walks_every_launch() {
 /// resolve one, because neither a peel region nor a captured replay can
 /// assume the fire's.
 #[test]
-#[ignore = "the peel tail's attention needs a plan for its own row count; see the doc comment"]
 fn a_hooked_fire_peels_and_still_lands_the_same_numbers() {
     zero_weight_decode(Leg::Hooked);
 }
@@ -604,7 +603,7 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
     use driver_cuda_new::launch::{KvCacheLayerView, KvCacheScheme};
     use driver_cuda_new::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use driver_cuda_new::model::executor::{
-        AttnCtx, DecodePlan, DispatchCtx, DispatchPlan, Frame, Resolver, run, run_captured,
+        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, DispatchPlan, Frame, Resolver, run, run_captured,
     };
     use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeFacts};
     use model::families::llama_like::forward::llama_like_cuda;
@@ -800,6 +799,37 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
         other => panic!("o_proj reads the attention slot, got {other:?}"),
     };
 
+    // The TAIL region's prepared attention state, for the peeled leg.
+    //
+    // A peel's tail serves rows [split, N) — a different row count, a
+    // different set of requests, and therefore a different plan, different
+    // KV page CSRs, and output pins that start at the tail's first row.
+    // `AttnRegions` is what hands it to the arm; building it here is what
+    // makes the peel gate a real test of the handing-over rather than of
+    // the vocabulary alone.
+    //
+    // The CSR indptr is REBASED: FlashInfer reads a prefix sum that starts
+    // at zero, so a sub-batch cannot borrow the fire's.
+    let split = rows.iter().position(|r| r.hooked).unwrap_or(0);
+    let tail_rows = ROWS - split;
+    let tail_indptr = up(&u32s(&(0..=tail_rows as u32).collect::<Vec<_>>()));
+    let tail_lens = up(&u32s(&vec![1u32; tail_rows]));
+    let tail_indices = up(&u32s(&(split as u32..ROWS as u32).collect::<Vec<_>>()));
+    let mut tail_plan = DecodePlan::new();
+    ws.begin_plan_update(&mut sops).expect("begin tail plan");
+    tail_plan.plan_decode(
+        &(0..=tail_rows as u32).collect::<Vec<_>>(),
+        Q_HEADS,
+        KV_HEADS,
+        HEAD_DIM,
+        PAGE,
+        ws.view(),
+        raw_stream,
+        false,
+        -1,
+    );
+    ws.end_plan_update(&mut sops, raw_stream);
+
     let attn = AttnCtx {
         decode_plan: dplan_cache.as_ptr(),
         decode_plan_full: core::ptr::null_mut(),
@@ -826,6 +856,33 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
         logits_soft_cap: 0.0,
         sm_scale: 1.0 / (HEAD_DIM as f32).sqrt(),
     };
+
+    // The tail's state: the fire's, with the region's plan, its rebased
+    // CSRs, and pins that start at the tail's first row. Everything else
+    // (workspace, layers, geometry) is fire-wide and shared.
+    let attn_tail = AttnCtx {
+        decode_plan: tail_plan.as_ptr(),
+        kv_page_indices_d: tail_indices.as_ptr().cast(),
+        kv_page_indptr_d: tail_indptr.as_ptr().cast(),
+        kv_last_page_lens_d: tail_lens.as_ptr().cast(),
+        num_requests: tail_rows as i32,
+        first_token: split as i32,
+        o_out: unsafe {
+            arena.as_ptr().cast::<u8>().add(o_off + split * HIDDEN * 2)
+        }
+        .cast(),
+        lse_out_d: unsafe {
+            lse.as_ptr().cast::<u8>().add(split * Q_HEADS as usize * 4)
+        }
+        .cast(),
+        ..attn.clone()
+    };
+    let regions = if leg == Leg::Hooked {
+        AttnRegions::split(&attn, &attn_tail)
+    } else {
+        AttnRegions::whole(Some(&attn))
+    };
+
 
     let mut cublas_ops = LiveCublas;
     let mut cublas = CublasHandle::create(&mut cublas_ops, raw_stream).expect("cublas");
@@ -902,7 +959,7 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
         }
     }
     if leg == Leg::UnionProbe {
-        let refusal = run(&l, &dplan, frame, &mut resolver, &ctx, Some(&attn), None)
+        let refusal = run(&l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), None)
             .err()
             .map(|e| (e.kernel, e.why));
         stream.as_ref().synchronize().ok();
@@ -929,7 +986,7 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
         // which crosses `extern "C"` and aborts the process without a
         // Rust panic to read. So a real driver captures a WARM fire, and
         // so does this. (The C++ arc calls the same thing dual-prepare.)
-        run(&l, &dplan, frame, &mut resolver, &ctx, Some(&attn), None)
+        run(&l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), None)
             .unwrap_or_else(|e| panic!("the warm-up walk refused: {e:?}"));
         stream.as_ref().synchronize().expect("the warm-up retires");
 
@@ -942,7 +999,7 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
             let scope = alloc.begin_capture(stream.as_ref()).expect("begin capture");
             let mut b = SupergraphBuilder::new(scope.stream(), &preds);
             let ran = run_captured(
-                &l, &dplan, frame, &mut resolver, &ctx, Some(&attn), None, &mut b,
+                &l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), None, &mut b,
             )
             .unwrap_or_else(|e| panic!("the captured walk refused: {e:?}"));
             drop(b);
@@ -952,7 +1009,7 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
         exec.launch(stream.as_ref()).expect("replay");
         ran
     } else {
-        run(&l, &dplan, frame, &mut resolver, &ctx, Some(&attn), None)
+        run(&l, &dplan, frame, &mut resolver, &ctx, regions, None)
             .unwrap_or_else(|e| panic!("the walk refused: {e:?}"))
     };
     assert_eq!(ran, l.launches.len(), "every launch ran");
@@ -1019,7 +1076,7 @@ fn the_full_zero_weight_prefill_walks_every_launch() {
     use driver_cuda_new::launch::{KvCacheLayerView, KvCacheScheme};
     use driver_cuda_new::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use driver_cuda_new::model::executor::{
-        AttnCtx, DispatchCtx, DispatchPlan, Frame, PrefillPlan, Resolver, run,
+        AttnCtx, AttnRegions, DispatchCtx, DispatchPlan, Frame, PrefillPlan, Resolver, run,
     };
     use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeFacts};
     use model::families::llama_like::forward::llama_like_cuda;
@@ -1282,7 +1339,7 @@ fn the_full_zero_weight_prefill_walks_every_launch() {
         zeros: zeros_dev.as_ptr(),
         named: &named_bufs,
     };
-    let ran = run(&l, &dplan, frame, &mut resolver, &ctx, Some(&attn), None)
+    let ran = run(&l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), None)
         .unwrap_or_else(|e| panic!("the walk refused: {e:?}"));
     assert_eq!(ran, l.launches.len(), "every launch ran");
     stream.as_ref().synchronize().expect("the whole prefill retires");
@@ -1347,7 +1404,7 @@ fn the_hybrid_zero_weight_decode_walks_every_launch() {
     use driver_cuda_new::launch::{KvCacheLayerView, KvCacheScheme};
     use driver_cuda_new::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use driver_cuda_new::model::executor::{
-        AttnCtx, DecodePlan, DispatchCtx, DispatchPlan, Frame, GdnCtx, Resolver, run,
+        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, DispatchPlan, Frame, GdnCtx, Resolver, run,
     };
     use model::qwen_3_5::forward::facts::{Qwen35CudaFacts, Qwen35HybridFacts};
     use model::qwen_3_5::forward::qwen3_5_hybrid_cuda;
@@ -1765,7 +1822,7 @@ fn the_hybrid_zero_weight_decode_walks_every_launch() {
         }
         l.launches.len()
     } else {
-        run(&l, &dplan, frame, &mut resolver, &ctx, Some(&attn), Some(&gdn))
+        run(&l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), Some(&gdn))
             .unwrap_or_else(|e| panic!("the hybrid walk refused: {e:?}"))
     };
     assert_eq!(ran, l.launches.len(), "every launch ran");
@@ -1826,7 +1883,7 @@ fn the_hybrid_zero_weight_prefill_walks_every_launch() {
     use driver_cuda_new::launch::{KvCacheLayerView, KvCacheScheme};
     use driver_cuda_new::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use driver_cuda_new::model::executor::{
-        AttnCtx, DispatchCtx, DispatchPlan, Frame, GdnCtx, PrefillPlan, Resolver, run,
+        AttnCtx, AttnRegions, DispatchCtx, DispatchPlan, Frame, GdnCtx, PrefillPlan, Resolver, run,
     };
     use model::qwen_3_5::forward::facts::{Qwen35CudaFacts, Qwen35HybridFacts};
     use model::qwen_3_5::forward::qwen3_5_hybrid_cuda;
@@ -2201,7 +2258,7 @@ fn the_hybrid_zero_weight_prefill_walks_every_launch() {
             logits_value = Some(*value);
         }
     }
-    let ran = run(&l, &dplan, frame, &mut resolver, &ctx, Some(&attn), Some(&gdn))
+    let ran = run(&l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), Some(&gdn))
         .unwrap_or_else(|e| panic!("the hybrid prefill walk refused: {e:?}"));
     assert_eq!(ran, l.launches.len(), "every launch ran");
     stream.as_ref().synchronize().expect("the whole hybrid prefill retires");
@@ -2267,7 +2324,7 @@ fn the_nemotron_zero_weight_decode_walks_every_launch() {
     use driver_cuda_new::launch::{KvCacheLayerView, KvCacheScheme};
     use driver_cuda_new::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use driver_cuda_new::model::executor::{
-        AttnCtx, DecodePlan, DispatchCtx, DispatchPlan, Frame, GdnCtx, Resolver, run,
+        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, DispatchPlan, Frame, GdnCtx, Resolver, run,
     };
     use model::nemotron_h::forward::facts::NemotronHFacts;
     use model::nemotron_h::forward::nemotron_h_cuda;
@@ -2605,7 +2662,7 @@ fn the_nemotron_zero_weight_decode_walks_every_launch() {
         }
         l.launches.len()
     } else {
-        run(&l, &dplan, frame, &mut resolver, &ctx, Some(&attn), Some(&gdn))
+        run(&l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), Some(&gdn))
             .unwrap_or_else(|e| panic!("the nemotron walk refused: {e:?}"))
     };
     assert_eq!(ran, l.launches.len(), "every launch ran");
@@ -3314,7 +3371,7 @@ fn the_gemma3n_zero_weight_decode_walks_every_launch() {
     use driver_cuda_new::launch::{KvCacheLayerView, KvCacheScheme};
     use driver_cuda_new::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use driver_cuda_new::model::executor::{
-        AttnCtx, DecodePlan, DispatchCtx, DispatchPlan, Frame, Resolver, bind, dispatch,
+        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, DispatchPlan, Frame, Resolver, bind, dispatch,
     };
     use model::gemma3n::forward::facts::{Gemma3nAltUpFacts, Gemma3nAttnFacts, Gemma3nFacts};
     use model::gemma3n::forward::gemma3n_cuda;
@@ -3638,7 +3695,7 @@ fn the_gpt_oss_zero_weight_decode_walks_every_launch() {
     use driver_cuda_new::launch::{KvCacheLayerView, KvCacheScheme};
     use driver_cuda_new::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use driver_cuda_new::model::executor::{
-        AttnCtx, DecodePlan, DispatchCtx, DispatchPlan, Frame, Resolver, bind, dispatch,
+        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, DispatchPlan, Frame, Resolver, bind, dispatch,
     };
     use model::gpt_oss::forward::facts::{GptOssCudaFacts, GptOssFacts};
     use model::gpt_oss::forward::gpt_oss_cuda;

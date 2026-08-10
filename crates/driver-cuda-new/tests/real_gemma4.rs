@@ -54,7 +54,7 @@ use driver_cuda_new::cuda::{Allocator, DeviceBuffer, OwnedStream};
 use driver_cuda_new::dtype::DType;
 use driver_cuda_new::launch::{KvCacheLayerView, KvCacheScheme};
 use driver_cuda_new::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
-use driver_cuda_new::model::executor::{AttnCtx, DispatchCtx, DispatchPlan, Frame, Resolver, run};
+use driver_cuda_new::model::executor::{AttnCtx, AttnRegions, DispatchCtx, DispatchPlan, Frame, Resolver, run};
 use model::gemma_4::forward::facts::{Gemma4CudaFacts, Gemma4Facts};
 use model::gemma_4::forward::gemma4_cuda;
 use model_compiler::lower::{Arg, Fire, Row, lower};
@@ -582,7 +582,7 @@ fn gemma4_matches_transformers_on_real_weights() {
         }
         l.launches.len()
     } else {
-        run(&l, &dplan, frame, &mut resolver, &ctx, Some(&attn), None)
+        run(&l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), None)
             .unwrap_or_else(|e| panic!("the gemma-4 A/B walk refused: {e:?}"))
     };
     assert_eq!(ran, l.launches.len());

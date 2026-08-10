@@ -1398,7 +1398,7 @@ fn step_impl(
 ) -> Result<(), i32> {
     use crate::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use crate::model::executor::{
-        AttnCtx, DecodePlan, DispatchCtx, DispatchPlan, Frame, GdnCtx, PrefillPlan, Resolver,
+        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, DispatchPlan, Frame, GdnCtx, PrefillPlan, Resolver,
         run,
     };
     use model_compiler::lower::{Arg, Fire, Row, lower};
@@ -2013,7 +2013,7 @@ fn step_impl(
 
     let mut resolver = LiveResolver { model, named: &named_bufs };
     let result =
-        run(&lowered, &dplan, exec_frame, &mut resolver, &ctx, Some(&attn), gdn_ctx.as_ref());
+        run(&lowered, &dplan, exec_frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), gdn_ctx.as_ref());
     let sync = stream.as_ref().synchronize();
     cublas.release(&mut cublas_ops);
     match (result, sync) {

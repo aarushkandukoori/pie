@@ -3407,6 +3407,54 @@ pub enum RunRefusalKind {
     Dispatch(DispatchRefusal),
 }
 
+/// The prepared attention state a fire publishes, BY REGION.
+///
+/// A peel splits a fire's rows, and the tail region serves a different
+/// row count against different requests — so it needs a different
+/// prepared plan, and different KV page CSRs, and different output pins.
+/// `Launch::peel`'s own doc says the first of those: a prepared plan "is
+/// found by the rectangle's ROW COUNT".
+///
+/// The point of the type is that an arm no longer RESOLVES its state; it
+/// is handed the state for the region it is executing. That is the
+/// discipline `cuda.md` §3.1 asks for from the capture side — the C++'s
+/// `f28ec1fed`, "the plan follows `kv_layer`; the family resolves and
+/// hands the answer over" — and a peel region needs it for the same
+/// reason a replayed capture does: neither may assume the fire's.
+#[cfg(feature = "bridge")]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AttnRegions<'a> {
+    /// The fire's own state, for rectangles that span it.
+    pub fire: Option<&'a AttnCtx>,
+    /// A peel TAIL's state. `None` on a fire with no split, where it is
+    /// never selected because no rectangle is windowed.
+    pub tail: Option<&'a AttnCtx>,
+}
+
+#[cfg(feature = "bridge")]
+impl<'a> AttnRegions<'a> {
+    /// A fire with no split: one prepared state, every rectangle.
+    #[must_use]
+    pub const fn whole(fire: Option<&'a AttnCtx>) -> Self {
+        Self { fire, tail: None }
+    }
+
+    /// A peeled fire: the prefix uses the fire's state, the tail its own.
+    #[must_use]
+    pub const fn split(fire: &'a AttnCtx, tail: &'a AttnCtx) -> Self {
+        Self { fire: Some(fire), tail: Some(tail) }
+    }
+
+    /// The state a rectangle executes against.
+    ///
+    /// Keyed on whether the rectangle is WINDOWED, which is what makes it
+    /// a tail: a peel's prefix starts at row zero and its tail does not.
+    #[must_use]
+    pub fn of(&self, rows: &std::ops::Range<u32>) -> Option<&'a AttnCtx> {
+        if rows.start == 0 { self.fire } else { self.tail.or(self.fire) }
+    }
+}
+
 /// Execute one fire: bind and dispatch every launch of the lowering, in
 /// order. The walk the full-decode smoke proved, as the executor's entry.
 ///
@@ -3421,7 +3469,7 @@ pub fn run<R: Resolver>(
     frame: Frame,
     resolver: &mut R,
     ctx: &DispatchCtx,
-    attn: Option<&AttnCtx>,
+    attn: AttnRegions<'_>,
     gdn: Option<&GdnCtx>,
 ) -> Result<usize, RunRefusal> {
     for (i, launch) in lowered.launches.iter().enumerate() {
@@ -3431,7 +3479,8 @@ pub fn run<R: Resolver>(
             kernel: kernel(),
             why: RunRefusalKind::Bind(e),
         })?;
-        dispatch(&bound, dplan.spec(i), frame, resolver, ctx, attn, gdn).map_err(|e| {
+        dispatch(&bound, dplan.spec(i), frame, resolver, ctx, attn.of(&launch.rows), gdn)
+            .map_err(|e| {
             RunRefusal { launch: i, kernel: kernel(), why: RunRefusalKind::Dispatch(e) }
         })?;
     }
@@ -3503,7 +3552,7 @@ pub fn run_captured<R: Resolver>(
     frame: Frame,
     resolver: &mut R,
     ctx: &DispatchCtx,
-    attn: Option<&AttnCtx>,
+    attn: AttnRegions<'_>,
     gdn: Option<&GdnCtx>,
     builder: &mut crate::cuda::SupergraphBuilder<'_>,
 ) -> Result<usize, RunRefusal> {
@@ -3571,7 +3620,8 @@ pub fn run_captured<R: Resolver>(
             kernel: kernel.clone(),
             why: RunRefusalKind::Bind(e),
         })?;
-        dispatch(&bound, dplan.spec(i), frame, resolver, &ctx, attn, gdn).map_err(|e| {
+        dispatch(&bound, dplan.spec(i), frame, resolver, &ctx, attn.of(&launch.rows), gdn)
+            .map_err(|e| {
             RunRefusal { launch: i, kernel: kernel.clone(), why: RunRefusalKind::Dispatch(e) }
         })?;
     }
