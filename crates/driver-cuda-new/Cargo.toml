@@ -46,6 +46,21 @@ cuda-13 = ["_cuda", "cudarc/cuda-13000"]
 # `cargo test` with no features on the same single error.
 _cuda = ["dep:cudarc"]
 
+# The launch bridge (retirement plan phase A): build.rs generates the
+# `extern "C"` shim and the Rust bindings from the kernel table, compiles the
+# shim against the real headers, and links the kernels archive so
+# `launch::ffi` can actually be called. Off by default, deliberately: the
+# bridge needs the CUDA toolkit at BUILD time (real `cuda_runtime.h`, nvcc
+# for the archive), and this crate's toolkit-free build — cudarc resolves
+# symbols by `dlopen`, nothing links — is load-bearing for CI.
+bridge = ["dep:kernels-cuda"]
+
+# Phase D's door: the thirteen `pie_cuda_*` exports the engine binds
+# (retirement plan — "the cutover boundary, measured"). Implies `bridge`
+# (the shell runs the executor). MUTUALLY EXCLUSIVE with linking the C++
+# shell into the same binary: same symbols, one provider.
+abi = ["bridge", "dep:driver-abi", "dep:model-loader", "dep:toml", "model/forward"]
+
 [dependencies]
 # The CUDA version is pinned EXPLICITLY rather than through
 # `cuda-version-from-build-system`, and that is the whole reason this crate
@@ -71,6 +86,10 @@ cudarc = { version = "0.19.8", optional = true, default-features = false, featur
     "std",
     "driver",
     "runtime",
+    # The first subsystem to come back (see the note above): the live
+    # `CublasOps` behind `cuda::cublas::CublasHandle` makes the five handle
+    # calls the C++ wrapper makes. Dynamically loaded like everything else.
+    "cublas",
     "fallback-dynamic-loading",
 ] }
 
@@ -96,10 +115,45 @@ tracing = "0.1"
 # exists to prevent.
 serde_json = { version = "1.0", features = ["preserve_order"] }
 
+# The `pie.model/1` schema. `HfConfig` is ONE type with two consumers now:
+# the Rust normalizer writes it at import, this driver reads it back from the
+# artifact -- which is the whole point of the descriptor (config.hpp's tail
+# comment records the C++ parser's deletion for the same reason). The
+# `config` feature is the crate's declared leaf: serde + serde_json and
+# nothing of the loader, tracer, or kernels table.
+model = { path = "../model", default-features = false, features = ["config"] }
+
 # `flock` and `open`. The cache's read -> merge -> rename has to be atomic
 # against another process calibrating a different GPU under the same $HOME,
 # and an advisory whole-file lock is what the C++ uses.
 libc = "0.2"
+
+# The executor's input: `lower()`'s flat launch list and the trace types
+# its operands name. Pure Rust — the toolkit-free build is unaffected.
+model-compiler = { path = "../model-compiler" }
+
+# The ABI's Rust source of truth: the `#[repr(C)]` descriptors and status
+# codes the thirteen exports speak. Optional — only the `abi` shell needs
+# it.
+driver-abi = { path = "../driver-abi", optional = true }
+
+# `load_model`'s checkpoint reader — one parse of the snapshot, all three
+# layouts (.zt artifact, HF safetensors, GGUF), and the embedded
+# `model/descriptor` meta an artifact carries.
+model-loader = { path = "../model-loader", optional = true }
+
+# The boot config `create` receives as `config_bytes` — the C++ shell
+# parses the same TOML with toml++; `[model] descriptor` is where an HF
+# snapshot's descriptor path arrives.
+toml = { version = "1.1", optional = true }
+
+# The bridge's other half: with `bridge` on, the same crate that provides the
+# table also builds `libpie_kernels_cuda.a` (its `native` feature, CMake +
+# nvcc) and publishes the link-search paths. The `-l` directives are OURS to
+# emit, in build.rs, because a static archive must follow the shim that
+# references it on the link line. Optional so that without `bridge` the
+# archive build is not even in the graph.
+kernels-cuda = { path = "../kernels-cuda", default-features = false, features = ["native"], optional = true }
 
 # The launch ABI pilot reads the kernel table and generates both halves of the
 # flat entry points from it (`kernels_cuda::abi`). A dev-dependency rather
@@ -112,6 +166,17 @@ libc = "0.2"
 [dev-dependencies]
 kernels = { path = "../kernels" }
 kernels-cuda = { path = "../kernels-cuda", default-features = false }
+# The executor's binder test lowers a REAL deployment's traced form —
+# `forward` builds the family texts; the regular dependency above stays
+# `config`-only so the library never carries the tracer.
+model = { path = "../model", default-features = false, features = ["config", "forward"] }
+
+# The bridge generator: build.rs reads the SAME tables the tests read and
+# writes both halves of the flat ABI to OUT_DIR. Table-only (`native` off) —
+# generating text costs no nvcc; compiling the shim is `cc`'s job below.
+[build-dependencies]
+kernels-cuda = { path = "../kernels-cuda", default-features = false }
+cc = "1"
 
 # `required-features` keeps `cargo test` with no CUDA feature reporting the
 # same one error the library does, instead of additionally failing to compile
@@ -163,3 +228,27 @@ required-features = ["_cuda"]
 [[test]]
 name = "launch_abi"
 required-features = ["_cuda"]
+
+[[test]]
+name = "bridge_smoke"
+required-features = ["_cuda", "bridge"]
+
+[[test]]
+name = "executor_bind"
+required-features = ["_cuda"]
+
+[[test]]
+name = "real_prefill"
+required-features = ["_cuda", "bridge"]
+
+[[test]]
+name = "real_hybrid"
+required-features = ["_cuda", "bridge"]
+
+[[test]]
+name = "real_gemma4"
+required-features = ["_cuda", "bridge"]
+
+[[test]]
+name = "abi_shell"
+required-features = ["_cuda", "abi"]

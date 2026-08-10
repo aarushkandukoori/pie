@@ -218,6 +218,14 @@ pub struct HopperPrefillPlan {
     pub num_kv_heads: c_int,
     /// Head width.
     pub head_dim: c_int,
+    /// Tokens per page.
+    pub page_size: c_int,
+    /// Sliding-window extent, or `-1` for none.
+    pub window_left: c_int,
+    /// The schedule is causal.
+    pub causal: bool,
+    /// The schedule was built. A default-constructed plan is not.
+    pub valid: bool,
 }
 
 /// Original-YaRN scaling, for the MLA rope.
@@ -238,6 +246,138 @@ pub struct YarnOriginalParams {
     pub attention_factor: f32,
     /// The context length the checkpoint was trained at.
     pub original_max_position: c_int,
+}
+
+/// One lane's structured-mask descriptor, for `attn::pack_structured_mask`
+/// — a driver-internal launcher, so the mirror serves the bridge rather
+/// than any DSL row. Three `u32`s; the C++ defaults them to zero and so
+/// does [`Default`] here.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(C)]
+pub struct StructuredMaskParams {
+    /// `StructuredMaskKind`'s numeric value.
+    pub kind: u32,
+    /// Sliding-window extent, when the kind has one.
+    pub window: u32,
+    /// Attention-sink width, when the kind has one.
+    pub sink: u32,
+}
+
+/// The activation the fused CUTLASS MoE runs between its two grouped GEMMs.
+///
+/// A mirror of `moe::MoeActivation` — an `enum class` with the default `int`
+/// underlying type, passed BY VALUE, so `#[repr(i32)]` with the C++'s own
+/// discriminants. `tests/launch_abi.rs` pins each value against the header;
+/// a reordered C++ enum fails there rather than routing gemma-4 through
+/// qwen's activation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum MoeActivation {
+    /// nemotron_h.
+    Relu2 = 0,
+    /// qwen3.5 / qwen3.6 MoE, glm5 / kimi / deepseek_v4.
+    Swiglu = 1,
+    /// gemma-4 26B-A4B routed experts (GELU-tanh gate).
+    Geglu = 2,
+}
+
+/// Which rows of a gpt-oss packed MXFP4 scale table the Marlin repack
+/// selects. Mirror of `quant::Mxfp4RowSelect` (`enum class : int`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum Mxfp4RowSelect {
+    /// Every row, in order.
+    Identity = 0,
+    /// Even rows — the gate half of an interleaved bank.
+    Even = 1,
+    /// Odd rows — the up half.
+    Odd = 2,
+}
+
+/// The generated `extern "C"` half of the launch ABI — the bridge's door.
+///
+/// `build.rs` writes this file to `OUT_DIR` from the same kernel tables the
+/// launch_abi tests prove, beside the C shim it compiles and links. One
+/// declaration per stated row, `pie_k_<symbol>` — see `kernels_cuda::abi`.
+///
+/// Everything here is `unsafe` in the plainest sense: the bindings state
+/// types, and the TRUTH of each pointer (liveness, extent, stream ordering)
+/// is the caller's. The executor (retirement plan phase C) is the intended
+/// caller; tests smoke one entry to prove the plumbing.
+#[cfg(feature = "bridge")]
+pub mod ffi {
+    #[allow(unused_imports)]
+    use super::{
+        AttentionWorkspaceView, HopperPrefillPlan, KvCacheLayerView, MlaCacheLayerView,
+        MoeActivation, Mxfp4RowSelect, StructuredMaskParams, YarnOriginalParams,
+    };
+    #[allow(unused_imports)]
+    use crate::dtype::DType;
+    #[allow(unused_imports)]
+    use crate::model::weight_view::WeightView;
+    include!(concat!(env!("OUT_DIR"), "/launch_bindings.rs"));
+
+    // The HAND-WRITTEN extras (`csrc/launch_extras.cpp`): plan-cache
+    // lifecycle the generated shim cannot express. `pie_x_*`, never
+    // `pie_k_*` — the generated namespace stays the table's alone.
+    unsafe extern "C" {
+        /// `make_decode_plan().release()` — the caller owns the result and
+        /// returns it through [`pie_x_destroy_decode_plan`].
+        pub unsafe fn pie_x_make_decode_plan() -> *mut ::core::ffi::c_void;
+        /// The factory's deleter.
+        pub unsafe fn pie_x_destroy_decode_plan(cache: *mut ::core::ffi::c_void);
+        /// `set_decode_plan_int_base` — where the plan's int arrays sit
+        /// inside the workspace's `int_buffer`.
+        pub unsafe fn pie_x_set_decode_plan_int_base(
+            cache: *mut ::core::ffi::c_void,
+            bytes: usize,
+        );
+/// The prefill factory, `release()`d like the decode one.
+        pub unsafe fn pie_x_make_prefill_plan() -> *mut ::core::ffi::c_void;
+        /// Its deleter.
+        pub unsafe fn pie_x_destroy_prefill_plan(cache: *mut ::core::ffi::c_void);
+        /// The prefill prepare: FlashInfer's planner over the fire's HOST
+        /// CSRs (query indptr, page indptr, last-page lens).
+        #[allow(clippy::too_many_arguments)]
+        pub unsafe fn pie_x_plan_attention_flashinfer_prefill_bf16(
+            cache: *mut ::core::ffi::c_void,
+            qo_indptr_h: *const u32,
+            kv_page_indptr_h: *const u32,
+            kv_last_page_lens_h: *const u32,
+            total_tokens: ::core::ffi::c_int,
+            num_requests: ::core::ffi::c_int,
+            num_q_heads: ::core::ffi::c_int,
+            num_kv_heads: ::core::ffi::c_int,
+            head_dim: ::core::ffi::c_int,
+            page_size: ::core::ffi::c_int,
+            workspace: AttentionWorkspaceView,
+            stream: *mut ::core::ffi::c_void,
+            enable_cuda_graph: bool,
+            window_left: ::core::ffi::c_int,
+            full_attention_variant: bool,
+            hnd_layout: bool,
+            causal_mask: bool,
+            custom_mask: bool,
+            wants_prefill_score: bool,
+        );
+        /// The decode prepare: FlashInfer's planner over the fire's HOST
+        /// page-indptr, into the cache and the workspace.
+        pub unsafe fn pie_x_plan_attention_flashinfer_decode_bf16(
+            cache: *mut ::core::ffi::c_void,
+            kv_page_indptr_h: *const u32,
+            num_requests: ::core::ffi::c_int,
+            num_q_heads: ::core::ffi::c_int,
+            num_kv_heads: ::core::ffi::c_int,
+            head_dim: ::core::ffi::c_int,
+            page_size: ::core::ffi::c_int,
+            workspace: AttentionWorkspaceView,
+            stream: *mut ::core::ffi::c_void,
+            enable_cuda_graph: bool,
+            full_attention_variant: bool,
+            hnd_layout: bool,
+            window_left: ::core::ffi::c_int,
+        );
+    }
 }
 
 #[cfg(test)]

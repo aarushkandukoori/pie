@@ -61,6 +61,28 @@ std::string layers_label(const std::vector<bool>& linear) {
 // out-of-range ones throw. Rendered relative to the buffer each pointer lands
 // in, so a wrong layer stride shows as a wrong offset rather than as an
 // indistinguishable address.
+// Every scalar accessor the generated forward bodies read off the live
+// cache, in one field per case. Appended to the grid cases rather than
+// given a section of their own so every geometry in the sweep pins them —
+// the strides are where a conv_dim/conv_kernel transposition becomes a
+// number, and the geometry section varies exactly those.
+std::string scalar_dims(RecurrentStateCache& c) {
+    return "dims cd=" + std::to_string(c.conv_dim()) +
+           " ck=" + std::to_string(c.conv_kernel()) +
+           " vh=" + std::to_string(c.v_heads()) +
+           " kd=" + std::to_string(c.head_k_dim()) +
+           " vd=" + std::to_string(c.head_v_dim()) +
+           " hs=" + std::to_string(c.hidden_size()) +
+           " nl=" + std::to_string(c.num_layers()) +
+           " ms=" + std::to_string(c.max_slots()) +
+           " bf16=" + std::to_string((int)c.recurrent_state_bf16()) +
+           " css=" + std::to_string(c.conv_slot_stride_bytes()) +
+           " rsf=" + std::to_string(c.recurrent_slot_stride_floats()) +
+           " rsb=" + std::to_string(c.recurrent_slot_stride_bytes()) +
+           " vst=" + std::to_string(c.verify_stash_max_tokens()) +
+           " vsh=" + std::to_string(c.verify_stash_hidden());
+}
+
 std::string accessors(RecurrentStateCache& c) {
     std::vector<std::string> rows;
     const int nl = c.num_layers();
@@ -197,6 +219,8 @@ void run_case(const std::string& id,
     fields.push_back("frozen=" + std::to_string((int)c.verify_frozen()));
     c.set_verify_frozen(false);
 
+    fields.push_back(scalar_dims(c));
+
     emit(id, join(fields));
 }
 
@@ -247,6 +271,8 @@ void run_tiers(const std::string& id,
         }
         fields.push_back(join(rows));
     }
+
+    fields.push_back(scalar_dims(c));
 
     emit(id, join(fields));
 }

@@ -5,45 +5,99 @@
 //! [`KernelSig`], `whole`, `needs`, `lacks`, `sink` — are `kernels`'.
 
 use kernels::kernel;
-use kernels::KernelSig;
+use kernels::{KernelSig, operands};
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
-    kernel!(rmsnorm_gated_launch "norm::rmsnorm_gated_bf16"),
-    kernel!(rmsnorm_strided "norm::rmsnorm_strided_bf16"),
+    kernel!(rmsnorm_gated_launch "norm::rmsnorm_gated_bf16",
+        operands = operands![
+            x: Buf, gate: Buf, weight: Buf, y: BufMut,
+            num_rows: I32, hidden: I32, eps: F32, stream: Stream,
+        ]),
+    kernel!(rmsnorm_strided "norm::rmsnorm_strided_bf16",
+        operands = operands![
+            x: Buf, weight: Buf, y: BufMut, num_rows: I32,
+            hidden: I32, x_row_stride: I32, y_row_stride: I32, eps: F32,
+            stream: Stream,
+        ]),
     // gemma-4's end-of-layer shape: the scale sits BETWEEN the add and the
     // norm, which is why it is not `residual_add_rmsnorm` with a multiply
     // somewhere.
-    kernel!(residual_add_scale_rmsnorm "norm::residual_add_scale_rmsnorm_bf16"),
+    kernel!(residual_add_scale_rmsnorm "norm::residual_add_scale_rmsnorm_bf16",
+        operands = operands![
+            hidden: BufMut, residual: Buf, scale: F32, next_weight: Buf,
+            norm_out: BufMut, num_rows: I32, hidden_size: I32, eps: F32,
+            stream: Stream,
+        ]),
     // gpt-oss ships its experts as MXFP4 -- 4-bit values with an E8M0
     // exponent byte per block of 32 -- and mixtral's shell runs them through
     // Marlin. Several of these operate on WEIGHTS rather than activations
     // (repacking a scale layout, splitting a fused bias) and have no token
     // extent at all; they are declared because they are launches the fire
     // performs.
-    kernel!(add_bias_strided "norm::add_bias_bf16_strided"),
+    kernel!(add_bias_strided "norm::add_bias_bf16_strided",
+        operands = operands![
+            out: BufMut, bias: Buf, num_rows: I32, dim: I32,
+            stride: I32, stream: Stream,
+        ]),
     // The fp16 copy is what the MXFP4 grouped GEMM consumes; producing it
     // here rather than casting afterwards is the binding.
-    kernel!(rmsnorm_with_fp16 "norm::rmsnorm_bf16_with_fp16"),
+    kernel!(rmsnorm_with_fp16 "norm::rmsnorm_bf16_with_fp16",
+        operands = operands![
+            x: Buf, weight: Buf, y: BufMut, y_fp16: BufMut,
+            num_rows: I32, hidden: I32, eps: F32, stream: Stream,
+        ]),
     // The SECOND rank-K residual scheme here, and not AltUp's. gemma-3n
     // predicts each stream from a learned combination and corrects from one
     // ACTIVE stream; HC mixes with a per-token, sinkhorn-normalized matrix
     // and has no active stream -- every layer reads a weighted collapse of
     // all of them and writes back to all of them. Row-shaped throughout.
-    kernel!(hc_rmsnorm_to_f32 "norm::hc_rmsnorm_to_f32"),
+    kernel!(hc_rmsnorm_to_f32 "norm::hc_rmsnorm_to_f32",
+        operands = operands![
+            input: Buf, output: F32sMut, n: I32, dim: I32,
+            eps: F32, stream: Stream,
+        ]),
     // Where a rank-K residual BEGINS: replicate the embedding into K
     // streams. AltUp's equivalent is implicit in gemma-3n's workspace
     // layout; HC states it, which is the one a declaration can read.
-    kernel!(hc_expand "norm::hc_expand_bf16"),
-    kernel!(hc_pre "norm::hc_pre_postprocess_bf16"),
-    kernel!(hc_post "norm::hc_post_bf16"),
-    kernel!(hc_head "norm::hc_head_postprocess_bf16"),
-    kernel!(per_head_rmsnorm "norm::per_head_rmsnorm_bf16"),
+    kernel!(hc_expand "norm::hc_expand_bf16",
+        operands = operands![
+            input: Buf, output: BufMut, n: I32, hc_mult: I32,
+            hidden_size: I32, stream: Stream,
+        ]),
+    kernel!(hc_pre "norm::hc_pre_postprocess_bf16",
+        operands = operands![
+            mixes: F32s, scale: F32s, base: F32s, residual: Buf,
+            post_mix: F32sMut, comb_mix: F32sMut, layer_input: BufMut, n: I32,
+            hc_mult: I32, hidden_size: I32, hc_eps: F32, hc_post_alpha: F32,
+            sinkhorn_iters: I32, stream: Stream,
+        ]),
+    kernel!(hc_post "norm::hc_post_bf16",
+        operands = operands![
+            x: Buf, residual: Buf, post_mix: F32s, comb_mix: F32s,
+            out_residual: BufMut, n: I32, hc_mult: I32, hidden_size: I32,
+            stream: Stream,
+        ]),
+    kernel!(hc_head "norm::hc_head_postprocess_bf16",
+        operands = operands![
+            mixes: F32s, scale: F32s, base: F32s, residual: Buf,
+            out: BufMut, n: I32, hc_mult: I32, hidden_size: I32,
+            stream: Stream, hc_eps: F32,
+        ]),
+    kernel!(per_head_rmsnorm "norm::per_head_rmsnorm_bf16",
+        operands = operands![
+            q: BufMut, n: I32, num_heads: I32, head_dim: I32,
+            eps: F32, stream: Stream,
+        ]),
     // Residual add + the next block's pre-norm, fused. Numerically the
     // two-kernel sequence (the kernel matches `residual_add`'s bf16 rounding
     // before norming), which is what makes it a binding a declaration may
     // state rather than a different computation.
-    kernel!(residual_add_rmsnorm "norm::residual_add_rmsnorm_bf16"),
+    kernel!(residual_add_rmsnorm "norm::residual_add_rmsnorm_bf16",
+        operands = operands![
+            hidden: BufMut, residual: Buf, weight: Buf, norm_out: BufMut,
+            num_rows: I32, hidden_size: I32, eps: F32, stream: Stream,
+        ]),
     // A rank-K residual stream: K parallel streams predicted from each
     // other, one of them run through the real layer, the rest corrected
     // from the difference. See `dsl::cuda`'s AltUp block for the algebra.
@@ -53,28 +107,98 @@ pub static KERNELS: &[KernelSig] = &[
     // output reads only token `t`'s inputs -- so a peel may split it, it
     // obligates no host plan, and there is no seam capability for it to
     // refuse.
-    kernel!(altup_predict "norm::altup_predict_bf16"),
-    kernel!(altup_correct "norm::altup_correct_bf16"),
-    kernel!(altup_unpack_predict_coefs "norm::altup_unpack_predict_coefs"),
-    kernel!(altup_unpack_correct_coefs "norm::altup_unpack_correct_coefs"),
-    kernel!(mean_streams "norm::mean_streams_bf16"),
-    kernel!(compute_rms "norm::compute_rms_bf16"),
-    kernel!(magnitude_rescale "norm::magnitude_rescale_bf16"),
+    kernel!(altup_predict "norm::altup_predict_bf16",
+        operands = operands![
+            streams: Buf, coefs: F32s, predictions: BufMut, k: I32,
+            t: I32, h: I32, stream: Stream,
+        ]),
+    kernel!(altup_correct "norm::altup_correct_bf16",
+        operands = operands![
+            predictions: Buf, activated: Buf, correction_coefs_plus_one: F32s, corrected: BufMut,
+            k: I32, t: I32, h: I32, active_idx: I32,
+            stream: Stream,
+        ]),
+    kernel!(altup_unpack_predict_coefs "norm::altup_unpack_predict_coefs",
+        operands = operands![
+            in_bf16: Buf, out_fp32: F32sMut, t: I32, k: I32,
+            stream: Stream,
+        ]),
+    kernel!(altup_unpack_correct_coefs "norm::altup_unpack_correct_coefs",
+        operands = operands![
+            in_bf16: Buf, out_fp32: F32sMut, t: I32, k: I32,
+            stream: Stream,
+        ]),
+    kernel!(mean_streams "norm::mean_streams_bf16",
+        operands = operands![
+            streams: Buf, out: BufMut, k: I32, t: I32,
+            h: I32, stream: Stream,
+        ]),
+    kernel!(compute_rms "norm::compute_rms_bf16",
+        operands = operands![
+            reference: Buf, target_rms_out: F32sMut, t: I32, h: I32,
+            eps: F32, stream: Stream,
+        ]),
+    kernel!(magnitude_rescale "norm::magnitude_rescale_bf16",
+        operands = operands![
+            x: BufMut, target_rms: F32s, t: I32, h: I32,
+            eps: F32, stream: Stream,
+        ]),
+    // The Gemma fold — `x * (1 + w)` — which qwen3.5 uses everywhere
+    // (per-block norms, q/k norms over N·heads rows, the final norm).
+    kernel!(rmsnorm_gemma "norm::rmsnorm_gemma_bf16",
+        operands = operands![
+            x: Buf, weight: Buf, y: BufMut, num_rows: I32, hidden: I32,
+            eps: F32, stream: Stream,
+        ]),
+    // The GDN landing norm: RMSNormGated over the recurrence's fp32
+    // output, gated by `in_proj_z`'s bf16 rows, weight fp32 (the
+    // `gdn_fp32_parameters` widening on the load contract), out bf16.
+    kernel!(rmsnorm_gated_fp32_in "norm::rmsnorm_gated_fp32_in_bf16",
+        operands = operands![
+            x: Buf, gate: Buf, weight: Buf, y: BufMut, num_rows: I32,
+            hidden: I32, eps: F32, stream: Stream,
+        ]),
     // Weightless per-head norm (the V-norm) — no gamma, so no variant.
-    kernel!(rmsnorm_no_scale "norm::rmsnorm_no_scale_bf16", in_place = &[(0, 0)]),
+    kernel!(rmsnorm_no_scale "norm::rmsnorm_no_scale_bf16", in_place = &[(0, 0)],
+        operands = operands![
+            x: Buf, y: BufMut, num_rows: I32, hidden: I32,
+            eps: F32, stream: Stream,
+        ]),
     // Four statements in one launch, and two: gemma-4 fuses the next
     // block's input norm into the previous block's landing, which is why
     // its layer body appears to be missing one.
     // `(landed, mlp_in)` over `(x, y)`: the stream operand is the one it
     // lands on, and the landed stream is output 0.
     kernel!(norm_residual_scale_norm "norm::rmsnorm_residual_add_scale_rmsnorm_bf16",
-        in_place = &[(0, 1)]),
-    kernel!(norm_residual_add "norm::rmsnorm_residual_add_bf16", in_place = &[(0, 1)]),
-    kernel!(scalar_mul "norm::scalar_mul_bf16", in_place = &[(0, 0)]),
+        in_place = &[(0, 1)],
+        operands = operands![
+            x: Buf, weight: Buf, hidden: BufMut, scale: F32,
+            next_weight: Buf, norm_out: BufMut, num_rows: I32, hidden_size: I32,
+            eps: F32, stream: Stream,
+        ]),
+    kernel!(norm_residual_add "norm::rmsnorm_residual_add_bf16", in_place = &[(0, 1)],
+        operands = operands![
+            x: Buf, weight: Buf, hidden: BufMut, num_rows: I32,
+            hidden_size: I32, eps: F32, stream: Stream,
+        ]),
+    kernel!(scalar_mul "norm::scalar_mul_bf16", in_place = &[(0, 0)],
+        operands = operands![
+            x: BufMut, s: F32, n: Usize, stream: Stream,
+        ]),
     // Accumulates into its FIRST argument. Stating it is what lets a
     // text add into a window (`select`) and have the window keep the
     // result — see `KernelSig::in_place`.
-    kernel!(residual_add_cuda "norm::residual_add_bf16", in_place = &[(0, 0)]),
-    kernel!(tanh "norm::tanh_bf16"),
-    kernel!(attn_sink_correction "norm::attn_sink_correction_bf16"),
+    kernel!(residual_add_cuda "norm::residual_add_bf16", in_place = &[(0, 0)],
+        operands = operands![
+            y: BufMut, x: Buf, n: Usize, stream: Stream,
+        ]),
+    kernel!(tanh "norm::tanh_bf16",
+        operands = operands![
+            x: BufMut, numel: I32, stream: Stream,
+        ]),
+    kernel!(attn_sink_correction "norm::attn_sink_correction_bf16",
+        operands = operands![
+            attn_out: BufMut, lse: F32s, sink: F32s, n: I32,
+            num_heads: I32, head_dim: I32, stream: Stream,
+        ]),
 ];

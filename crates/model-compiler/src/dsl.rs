@@ -2491,12 +2491,30 @@ pub mod cuda {
     /// `topk_idx` here is `[N, K]` in TOKEN order -- not the route-major
     /// order the aligned path sorts into -- so a row window keeps each
     /// token's routing intact and this is not `whole`.
-    pub fn wna16_gate_up_decode(act: &Val, topk_idx: &Val, intermediate: u32) -> (Val, Val) {
+    /// `bank` names the layer's expert weights; the statement records the
+    /// FOUR per-expert tables the launcher actually reads
+    /// (`<bank>.gate_packed` / `.gate_scale` / `.up_packed` /
+    /// `.up_scale`). They were unnamed once, and a driver whose executor
+    /// is model-agnostic could not reach them at all: with no name in the
+    /// trace there is nothing to resolve, and the only way in was a
+    /// family's private layer struct — the convention this whole
+    /// direction exists to remove.
+    pub fn wna16_gate_up_decode(
+        act: &Val,
+        topk_idx: &Val,
+        intermediate: u32,
+        bank: &str,
+    ) -> (Val, Val) {
         let outs = record_many(
             &act.t,
             act.layer,
             "quant::wna16_gate_up_decode_bf16",
-            vec![],
+            vec![
+                format!("{bank}.gate_packed"),
+                format!("{bank}.gate_scale"),
+                format!("{bank}.up_packed"),
+                format!("{bank}.up_scale"),
+            ],
             vec![act.id, topk_idx.id],
             vec![
                 (
@@ -2517,12 +2535,17 @@ pub mod cuda {
 
     /// `kernels::quant::wna16_down_decode_bf16`: the down projection, same
     /// shape.
-    pub fn wna16_down_decode(act: &Val, topk_idx: &Val, hidden: u32) -> Val {
+    pub fn wna16_down_decode(
+        act: &Val,
+        topk_idx: &Val,
+        hidden: u32,
+        bank: &str,
+    ) -> Val {
         record(
             &act.t,
             act.layer,
             "quant::wna16_down_decode_bf16",
-            vec![],
+            vec![format!("{bank}.down_packed"), format!("{bank}.down_scale")],
             None,
             vec![act.id, topk_idx.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),

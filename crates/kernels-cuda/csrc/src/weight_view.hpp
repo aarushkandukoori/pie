@@ -85,9 +85,15 @@ struct WeightView {
         return v;
     }
 
+    // `channel_axis` is defaulted for the Marlin repack path (mixtral),
+    // whose scales are already in the axis-0 layout the repack produced.
+    // glm5's routed experts carry the checkpoint's own axis in their
+    // QuantMeta and pass it through -- before the parameter existed, that
+    // one caller hand-built this view field by field.
     static WeightView mxfp4_marlin(
         const DeviceTensor& weight,
-        const DeviceTensor& scale)
+        const DeviceTensor& scale,
+        int channel_axis = 0)
     {
         WeightView v;
         v.data = weight.data();
@@ -98,7 +104,7 @@ struct WeightView {
         v.scale_numel = scale.numel();
         v.quant_kind = QuantMeta::Kind::PerGroup;
         v.group_size = 32;
-        v.channel_axis = 0;
+        v.channel_axis = channel_axis;
         return v;
     }
 };

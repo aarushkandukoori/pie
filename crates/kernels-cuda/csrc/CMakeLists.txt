@@ -552,6 +552,15 @@ endif()
 add_library(pie_kernels_cuda STATIC
   src/layout/split_gate_up.cu
   src/moe/topk_sigmoid.cu
+  # vision/ -- the multimodal towers, bridged at TOWER granularity (one
+  # launcher per tower; the walk and its host prep stay C++ — see the
+  # provenance headers and the retirement wiki's VL judgment).
+  src/vision/qwen3_vl_tower.cu
+  src/vision/qwen3_vl_tower_c.cpp
+  src/vision/vis_helpers.cpp
+  src/vision/gemma4_vision.cu
+  src/vision/gemma4_audio.cu
+  src/vision/gemma4_towers_c.cpp
   ${PIE_KERNELS_CUSTOM_ALL_REDUCE_SOURCE}
   src/tensor.cpp
   # ops/ -- attention / GEMM / MoE / SSM wrappers

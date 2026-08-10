@@ -102,6 +102,13 @@ const NOT_SHARED: &[(&str, &str)] = &[
         "a DOOR, not vocabulary: one `extern \"C\"` entry per family is what \
          the C surface of a per-family declaration looks like",
     ),
+    (
+        "emissions.rs",
+        "a DEPLOYMENT LIST: which families' static forms are committed, from \
+         which fact sets -- shared between the emit-cuda bin and the \
+         regeneration check so neither holds a copy, and per-family by its \
+         nature",
+    ),
 ];
 
 /// `instruct.rs` is half vocabulary and half registry, in that order, split by

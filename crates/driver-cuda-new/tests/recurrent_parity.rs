@@ -17,7 +17,7 @@ use driver_cuda_new::store::recurrent_state_cache::{
     stash_tokens_cap,
 };
 
-const GOLDEN_FNV1A64: u64 = 0x1e4b670e938266b2;
+const GOLDEN_FNV1A64: u64 = 0x96718f7ba4005865;
 const GOLDEN_ROWS: usize = 188;
 
 /// The unit separator the oracle uses between fields of one row.
@@ -159,6 +159,31 @@ fn layers_label(linear: &[bool]) -> String {
         return "-".to_owned();
     }
     linear.iter().map(|&b| if b { 'L' } else { '.' }).collect()
+}
+
+/// The oracle's `scalar_dims` field: every scalar accessor the generated
+/// bodies read off the live cache, through the cache's own forwarding
+/// accessors rather than `layout()`, because those forwards are the surface
+/// under test.
+fn scalar_dims(c: &RecurrentStateCache) -> String {
+    format!(
+        "dims cd={} ck={} vh={} kd={} vd={} hs={} nl={} ms={} bf16={} \
+         css={} rsf={} rsb={} vst={} vsh={}",
+        c.conv_dim(),
+        c.conv_kernel(),
+        c.v_heads(),
+        c.head_k_dim(),
+        c.head_v_dim(),
+        c.hidden_size(),
+        c.num_layers(),
+        c.max_slots(),
+        i32::from(c.recurrent_state_bf16()),
+        c.conv_slot_stride_bytes(),
+        c.recurrent_slot_stride_floats(),
+        c.recurrent_slot_stride_bytes(),
+        c.verify_stash_max_tokens(),
+        c.verify_stash_hidden(),
+    )
 }
 
 fn shape_report(c: &RecurrentStateCache) -> String {
@@ -325,6 +350,8 @@ fn run_case(
     fields.push(format!("frozen={}", i32::from(c.verify_frozen())));
     c.set_verify_frozen(false);
 
+    fields.push(scalar_dims(&c));
+
     sw.fields(id, &fields);
 }
 
@@ -434,6 +461,8 @@ fn run_tiers(
         }
     }
     fields.push(rows.join(&US.to_string()));
+
+    fields.push(scalar_dims(&c));
 
     sw.fields(id, &fields);
 }

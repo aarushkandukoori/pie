@@ -167,7 +167,12 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
 
             // ── MoE, on the mixer layers ─────────────────────────────
             let m = rmsnorm(&y, &w.norm);
-            let logits = matmul(&m, &w.router);
+            // FP32 logits — `nemotron_h_forward.cpp` fires
+            // `act_x_wt_bf16_out_fp32` for the router because
+            // `topk_sigmoid_bias_fp32` consumes fp32. The first
+            // transcription stated a plain (bf16) matmul here; the
+            // executor port caught the dtype seam before it ever ran.
+            let logits = dsl::cuda::gemm_out_fp32(&m, &w.router.name, facts.moe.num_experts);
             let (experts, weights) = dsl::cuda::topk_sigmoid_bias(
                 &logits,
                 &format!("layer.{l}.router_bias"),

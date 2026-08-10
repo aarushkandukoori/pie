@@ -40,8 +40,9 @@ use std::process::Command;
 
 use driver_cuda_new::launch::{
     AttentionWorkspaceView, HopperPrefillPlan, KvCacheLayerView, MlaCacheLayerView,
-    YarnOriginalParams,
+    StructuredMaskParams, YarnOriginalParams,
 };
+use driver_cuda_new::model::weight_view::WeightView;
 use kernels::{KernelSig, Operand, Ty};
 use kernels_cuda::abi::Record;
 
@@ -120,10 +121,51 @@ fn attn_headers() -> Vec<String> {
     hs
 }
 
-fn attn_shim(table: &'static [KernelSig]) -> String {
-    let hs = attn_headers();
-    let refs: Vec<&str> = hs.iter().map(String::as_str).collect();
+/// Every `norm/*.hpp`. Unlike `attn`, no `norm` row is declared outside its
+/// own directory, so this one can follow the directory.
+fn norm_headers() -> Vec<String> {
+    headers_in("norm")
+}
+
+fn headers_in(dir: &str) -> Vec<String> {
+    let mut hs: Vec<String> = std::fs::read_dir(csrc().join(dir))
+        .expect("family directory")
+        .filter_map(|e| {
+            let n = e.ok()?.file_name().into_string().ok()?;
+            n.ends_with(".hpp").then(|| format!("{dir}/{n}"))
+        })
+        .collect();
+    hs.sort();
+    hs
+}
+
+fn shim_over(table: &'static [KernelSig], headers: &[String]) -> String {
+    let refs: Vec<&str> = headers.iter().map(String::as_str).collect();
     kernels_cuda::abi::emit_c_shim(&[table], &refs).expect("no entry-point collisions")
+}
+
+/// Every row of a family states its launcher exactly, and every row is stated.
+///
+/// Factored out because the check has two halves and only the second one is
+/// the compiler's. `emit_c_shim` SKIPS a row with no operands, so a family
+/// where half the rows are blank produces a shim that compiles and proves
+/// nothing — the count assertion is what keeps "it compiled" from meaning
+/// "some of it compiled".
+fn prove_family(family: &str, table: &'static [KernelSig], headers: &[String]) {
+    let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
+    assert_eq!(
+        stated,
+        table.len(),
+        "{} of {} {family} rows are unstated, so the shim silently skips them",
+        table.len() - stated,
+        table.len()
+    );
+    if let Err(err) = compile(&shim_over(table, headers)) {
+        panic!(
+            "the generated {family} shim does not compile, so a row misstates \
+             its launcher:\n{err}"
+        );
+    }
 }
 
 /// The pilot itself: every stated `rope` row describes its launcher exactly.
@@ -148,22 +190,200 @@ fn every_rope_row_states_its_launcher_exactly() {
 /// compile — which is the point of running it as one shim rather than fifty.
 #[test]
 fn every_attn_row_states_its_launcher_exactly() {
-    let table = kernels_cuda::attn::KERNELS;
-    let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
+    prove_family("attn", kernels_cuda::attn::KERNELS, &attn_headers());
+}
+
+/// All twenty-six `norm` rows.
+///
+/// The third family, and the one that exercises a corner the first two did
+/// not: `norm` launchers take `std::size_t` extents (`residual_add_bf16`,
+/// `scalar_mul_bf16`) where every `attn` and `rope` extent is an `int`. A row
+/// that wrote `I32` there would be wrong by four bytes on the stack of a
+/// varargs-free call — invisible to a reader, and a compile error here.
+///
+/// It also has the family's one defaulted parameter:
+/// `hc_head_postprocess_bf16` declares `float hc_eps = 1e-6f` AFTER its
+/// stream. A row is the full parameter list, defaults included, because a
+/// caller that omits it is not calling a different function — it is calling
+/// the same one and letting C++ fill the slot, which a Rust binding cannot do.
+#[test]
+fn every_norm_row_states_its_launcher_exactly() {
+    prove_family("norm", kernels_cuda::norm::KERNELS, &norm_headers());
+}
+
+/// All thirty-four `ssm` rows.
+///
+/// The fourth family, and three new spellings at once: `long long` slot
+/// strides (`I64` — a width `int` misstates by four bytes), FlashInfer's
+/// `std::uint16_t*` bf16 pointers (`U16s`/`U16sMut` — the one launcher family
+/// that does not say `void*` for bf16), and the MoE pointer builders' three
+/// table shapes (`const void* const*` in, `const void**` and `void**` out),
+/// which differ only in where the `const` sits — exactly the distinction a
+/// hand-transcribed row would flatten and the C++ compiler will not.
+///
+/// It also carries the widest defaulted tails in the codebase:
+/// `write_state = true`, `commit_len = nullptr`, `write_state_mask = nullptr`
+/// after the stream. Rows state them all — a caller that omits them is
+/// calling the same function and letting C++ fill the slots, which a Rust
+/// binding cannot do.
+#[test]
+fn every_ssm_row_states_its_launcher_exactly() {
+    prove_family("ssm", kernels_cuda::ssm::KERNELS, &headers_in("ssm"));
+}
+
+/// The headers `moe`'s rows are declared in.
+///
+/// Like `attn`, the list follows the ROWS rather than the directory: five of
+/// the family's rows are the quantized decode GEMVs whose C++ lives in
+/// `quant/dequant_{fp4,wna16}.cu` (they share those files' unpack helpers —
+/// §status of `.wiki/kernel-refactor.md` says why that is correct rather than
+/// pending), and one is the vendored Marlin grouped GEMM, whose header sits
+/// outside `src/` entirely and whose namespace sits beside `kernels` —
+/// which `abi::cpp_path` states.
+fn moe_headers() -> Vec<String> {
+    let mut hs = headers_in("moe");
+    hs.push("quant/dequant_fp4.hpp".into());
+    hs.push("quant/dequant_wna16.hpp".into());
+    hs.push("../third_party/marlin_moe/marlin_moe_wrapper.hpp".into());
+    hs
+}
+
+/// All twenty-seven `moe` rows.
+///
+/// What this family adds to the proof's coverage: an `enum class` operand
+/// passed BY VALUE (`MoeActivation` — four bytes, and a row that spelled it
+/// `I32` would compile a conversion C++ refuses on a function pointer), a
+/// second `Ret::Bool` tried launch (the fused CUTLASS block), the per-expert
+/// pointer BANKS (`U8Bufs`/`I32Bufs` — `const T* const*`, where every `const`
+/// is load-bearing), and a symbol whose namespace is NOT under `kernels::`
+/// (the vendored Marlin tree).
+#[test]
+fn every_moe_row_states_its_launcher_exactly() {
+    prove_family("moe", kernels_cuda::moe::KERNELS, &moe_headers());
+}
+
+/// All sixteen `mlp` rows. No new vocabulary — what this family exercises is
+/// parameter ORDER: the gpt-oss pair and both chunked-glu forms put scalars
+/// and flags AFTER the stream (`limit`, `alpha`, `gate_second`, the fused
+/// `y_fp16` epilogue), where every other family ends on it. A hand-written
+/// binding pattern-matched on "stream last" would be wrong four times here
+/// and compile zero of them.
+#[test]
+fn every_mlp_row_states_its_launcher_exactly() {
+    prove_family("mlp", kernels_cuda::mlp::KERNELS, &headers_in("mlp"));
+}
+
+/// The nine `layout` rows that name C++ launchers, plus the two that do not.
+///
+/// `verify_stash_store`/`verify_stash_load` are PSEUDO-SYMBOLS: qwen3_5's
+/// declared executor implements each as a `cudaMemcpyAsync` trio against the
+/// layer's stash slab. A launcher may be three API calls — the symbol names
+/// the operation — but there is no C++ function whose signature a row could
+/// state, so `prove_family`'s "every row is stated" half is replaced here by
+/// naming the two exceptions exactly. An exception list that DRIFTS (a stash
+/// row gains a real launcher, a new unstated row hides behind the two known
+/// ones) fails the equality.
+#[test]
+fn every_layout_row_states_its_launcher_exactly() {
+    let unstated: Vec<&str> = kernels_cuda::layout::KERNELS
+        .iter()
+        .filter(|k| k.operands.is_empty())
+        .map(|k| k.symbol)
+        .collect();
     assert_eq!(
-        stated,
-        table.len(),
-        "{} of {} attn rows are unstated, so the shim silently skips them",
-        table.len() - stated,
-        table.len()
+        unstated,
+        ["qwen35_verify_stash_store", "qwen35_verify_stash_load"],
+        "the memcpy pseudo-symbols are the only rows without a launcher to state"
     );
-    let shim = attn_shim(table);
-    if let Err(err) = compile(&shim) {
+    if let Err(err) = compile(&shim_over(kernels_cuda::layout::KERNELS, &headers_in("layout"))) {
         panic!(
-            "the generated shim does not compile, so a row misstates its \
-             launcher:\n{err}"
+            "the generated layout shim does not compile, so a row misstates \
+             its launcher:\n{err}"
         );
     }
+}
+
+/// All nine `quant` rows. The addition here is the second by-value
+/// `enum class` (`Mxfp4RowSelect`), and the family mixes `int` and
+/// `std::size_t` extents row by row — the same four-byte trap `norm`
+/// documented, three more times.
+#[test]
+fn every_quant_row_states_its_launcher_exactly() {
+    prove_family("quant", kernels_cuda::quant::KERNELS, &headers_in("quant"));
+}
+
+/// All seven `gemm` rows. Five take the cuBLAS handle instead of a stream
+/// (the vocabulary `attn`'s MLA absorb pair introduced), two of the pointer
+/// tables are the `void* const*` shape no other family has (`BufMuts` — the
+/// table read-only, its targets written), `act_x_wt_bf16` and
+/// `batched_act_x_wt_bf16` are `inline` wrappers (the shim compiles their
+/// BODIES, so the proof reaches through to `act_x_w`), and `gemv3` is the
+/// third `Ret::Bool` tried launch.
+#[test]
+fn every_gemm_row_states_its_launcher_exactly() {
+    prove_family("gemm", kernels_cuda::gemm::KERNELS, &headers_in("gemm"));
+}
+
+/// The one `sample` row. Its weight is the table's only `const int8_t*`
+/// (`I8s`) — a fused GEMV+argmax over an int8 lm_head with per-channel fp32
+/// scales.
+#[test]
+fn every_sample_row_states_its_launcher_exactly() {
+    prove_family("sample", kernels_cuda::sample::KERNELS, &headers_in("sample"));
+}
+
+/// Across EVERY table, the rows without operands are exactly the three
+/// pseudo-symbols — and nothing else.
+///
+/// This is the fill campaign's closing claim. Each family proof asserts its
+/// own table; this one says no family was skipped and no future row can
+/// quietly join the exception list. The three that remain name OPERATIONS of
+/// declared executors (a `cudaMemcpyAsync` trio, a staged LoRA apply), not
+/// C++ functions, so they have no signature to state — the comments on their
+/// rows say so, and this test keeps the set closed.
+#[test]
+fn the_pseudo_symbol_rows_are_exactly_the_known_three() {
+    let unstated: Vec<&str> = kernels_cuda::KERNELS
+        .iter()
+        .filter(|k| k.operands.is_empty())
+        .map(|k| k.symbol)
+        .collect();
+    assert_eq!(
+        unstated,
+        [
+            "qwen35_verify_stash_store",
+            "qwen35_verify_stash_load",
+            "pie_lora_qkv_correction",
+        ],
+        "an unstated row that is not a documented pseudo-symbol is an \
+         unfilled row"
+    );
+}
+
+/// Every row of the DRIVER-INTERNAL table states its launcher exactly.
+///
+/// The second table (`driver_internal::DRIVER_KERNELS`): launchers the
+/// driver fires with no DSL statement behind them — the `DriverInternal`
+/// kind the attn exhaustiveness test classifies, made callable for the
+/// executor without ever joining the DSL-surface table that `model`'s
+/// `kernels_table` holds to equality. Same proof as every family: the shim
+/// calls the launcher, the compiler decides.
+#[test]
+fn every_driver_internal_row_states_its_launcher_exactly() {
+    let mut headers = headers_in("layout");
+    headers.extend(headers_in("attn"));
+    headers.extend(headers_in("norm"));
+    headers.push("gemm/gemm.hpp".into());
+    // The VL tower rows' flat launchers — the C++-struct tower headers
+    // stay out (their `std::vector` members are the wrappers' business,
+    // not the shim's).
+    headers.push("vision/qwen3_vl_tower_c.hpp".into());
+    headers.push("vision/gemma4_towers_c.hpp".into());
+    prove_family(
+        "driver-internal",
+        kernels_cuda::driver_internal::DRIVER_KERNELS,
+        &headers,
+    );
 }
 
 /// Every launcher `rope.hpp` declares has a row.
@@ -268,7 +488,7 @@ fn every_attn_launcher_is_a_row_or_a_stated_exception() {
         ("write_mla_to_pages_bf16",                     NoRow::KernelsInternal),
     ];
 
-    let declared = declared_launchers();
+    let declared = declared_in("attn", &["void "]);
     assert!(
         declared.len() >= 77,
         "the scan found {} declarations, so its shape assumption broke",
@@ -318,17 +538,177 @@ fn every_attn_launcher_is_a_row_or_a_stated_exception() {
     );
 }
 
-/// Every `void` launcher declared across `attn/*.hpp`, by name.
-fn declared_launchers() -> Vec<String> {
+/// Why a launcher `norm`'s headers declare is allowed to have no row.
+///
+/// Disjoint from [`NoRow`] because `norm`'s not-a-rows are different KINDS
+/// of thing, not the same kinds with different members — and an enum shared
+/// across families would invite classifying a new `norm` launcher as
+/// `Prepare` when `norm` has no prepares.
+#[derive(Clone, Copy, PartialEq)]
+enum NormNoRow {
+    /// The EMITTER chooses this launcher from a semantic op (`RmsNorm`,
+    /// `AddBias`) rather than a trace recording it as a `Launch`. There is
+    /// no DSL statement behind it, so a row would claim a surface that does
+    /// not exist. Checked below rather than believed: the name must appear
+    /// in the emitter sources.
+    EmitterChosen,
+    /// An autotuner probe: returns `bool` and has zero driver call sites.
+    /// Both halves checked below.
+    AutotunerProbe,
+}
+
+/// Every launcher `norm`'s headers declare is a row, or is one of two
+/// documented kinds of not-a-row.
+///
+/// The `attn` twin above owns the long rationale; what is specific to `norm`
+/// is the arithmetic — 32 declarations against 26 rows is 6 decisions — and
+/// that BOTH exception kinds are checkable, so neither is taken on trust.
+/// `rmsnorm_bf16` is the loud case here the way `split_qkv_bf16` was for
+/// `attn`: 1,337 call sites, every one of them emitter-chosen.
+#[test]
+fn every_norm_launcher_is_a_row_or_a_stated_exception() {
+    #[rustfmt::skip]
+    let exceptions: &[(&str, NormNoRow)] = &[
+        ("rmsnorm_bf16",               NormNoRow::EmitterChosen),
+        ("add_bias_bf16",              NormNoRow::EmitterChosen),
+        ("rmsnorm_gemma_bf16",         NormNoRow::EmitterChosen),
+        ("rmsnorm_gated_fp32_in_bf16", NormNoRow::EmitterChosen),
+        ("rmsnorm_bf16_tuned",         NormNoRow::AutotunerProbe),
+        ("rmsnorm_rasr_tuned",         NormNoRow::AutotunerProbe),
+    ];
+
+    // `bool ` is load-bearing: the probes are the only non-`void` launchers,
+    // and a void-only scan would count 30 and never see them.
+    let declared = declared_in("norm", &["void ", "bool "]);
+    assert!(
+        declared.len() >= 32,
+        "the scan found {} declarations, so its shape assumption broke",
+        declared.len()
+    );
+
+    let has_row = |n: &str| {
+        kernels_cuda::norm::KERNELS
+            .iter()
+            .any(|k| k.symbol == format!("norm::{n}"))
+    };
+    let undecided: Vec<&String> = declared
+        .iter()
+        .filter(|d| !has_row(d) && !exceptions.iter().any(|(n, _)| n == d))
+        .collect();
+    assert!(
+        undecided.is_empty(),
+        "declared in norm/, no row, and no stated reason: {undecided:?}"
+    );
+
+    let stale: Vec<&str> = exceptions
+        .iter()
+        .map(|(n, _)| *n)
+        .filter(|n| !declared.iter().any(|d| d == n))
+        .collect();
+    assert!(stale.is_empty(), "exception for a launcher no header declares: {stale:?}");
+
+    // The `EmitterChosen` claim, checked against the emitter's sources.
+    // The file set is `scripts/kernel-vocabulary-audit.py`'s `emitted`
+    // scan: every `emit.rs` under `model/src`, plus the compiler's lowering.
+    let mut emitter_text = String::new();
+    collect_files_named(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../model/src"),
+        "emit.rs",
+        &mut emitter_text,
+    );
+    if let Ok(t) = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../model-compiler/src/lower.rs"),
+    ) {
+        emitter_text.push_str(&t);
+    }
+    assert!(
+        emitter_text.len() > 10_000,
+        "only {} bytes of emitter source found, so the check is vacuous",
+        emitter_text.len()
+    );
+    let unchosen: Vec<&str> = exceptions
+        .iter()
+        .filter(|(_, why)| *why == NormNoRow::EmitterChosen)
+        .map(|(n, _)| *n)
+        .filter(|n| !mentions_word(&emitter_text, n))
+        .collect();
+    assert!(
+        unchosen.is_empty(),
+        "called `EmitterChosen` but no emitter names it, so it is really a \
+         missing row or some other kind of not-a-row: {unchosen:?}"
+    );
+
+    // The `AutotunerProbe` claim, both halves. A probe RETURNS its verdict —
+    let norm_text: String = norm_headers()
+        .iter()
+        .map(|h| std::fs::read_to_string(csrc().join(h)).expect("header"))
+        .collect();
+    let probes: Vec<&str> = exceptions
+        .iter()
+        .filter(|(_, why)| *why == NormNoRow::AutotunerProbe)
+        .map(|(n, _)| *n)
+        .collect();
+    for probe in &probes {
+        assert!(
+            norm_text.contains(&format!("bool {probe}(")),
+            "called `AutotunerProbe` but `{probe}` does not return bool, so \
+             it is not a probe"
+        );
+    }
+    // — and the driver never calls one.
+    let driver = Path::new(env!("CARGO_MANIFEST_DIR")).join("../driver-cuda/csrc/src");
+    let mut driver_text = String::new();
+    collect_sources(&driver, &mut driver_text);
+    assert!(
+        driver_text.len() > 1_000_000,
+        "only {} bytes of driver source found, so the check is vacuous",
+        driver_text.len()
+    );
+    let called: Vec<&&str> = probes.iter().filter(|n| mentions_word(&driver_text, n)).collect();
+    assert!(
+        called.is_empty(),
+        "called `AutotunerProbe` but the driver mentions it, so its \"zero \
+         driver call sites\" is stale: {called:?}"
+    );
+}
+
+/// Concatenate every file named `name` under `dir`, recursively.
+///
+/// [`collect_sources`] filters by extension; this filters by exact file
+/// name, because "the emitter sources" is a claim about which FILES choose
+/// kernels, not about a language.
+fn collect_files_named(dir: &Path, name: &str, out: &mut String) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            collect_files_named(&p, name, out);
+        } else if p.file_name().and_then(|n| n.to_str()) == Some(name)
+            && let Ok(t) = std::fs::read_to_string(&p)
+        {
+            out.push_str(&t);
+            out.push('\n');
+        }
+    }
+}
+
+/// Every launcher declared across a family's headers, by name.
+///
+/// `returns` lists the return-type spellings the scan accepts. `attn`'s
+/// launchers are all `void`; `norm` also declares two `bool` autotuner
+/// probes, and a void-only scan would not merely miscount — it would never
+/// ask what kind of not-a-row the probes are, which is the question the
+/// exception tests exist to force.
+fn declared_in(dir: &str, returns: &[&str]) -> Vec<String> {
     let mut out = Vec::new();
-    for entry in std::fs::read_dir(csrc().join("attn")).expect("attn/") {
+    for entry in std::fs::read_dir(csrc().join(dir)).expect("family directory") {
         let path = entry.expect("dir entry").path();
         if path.extension().and_then(|e| e.to_str()) != Some("hpp") {
             continue;
         }
         let text = std::fs::read_to_string(&path).expect("header");
         for line in text.lines() {
-            let Some(rest) = line.strip_prefix("void ") else { continue };
+            let Some(rest) = returns.iter().find_map(|r| line.strip_prefix(r)) else { continue };
             let Some((name, _)) = rest.split_once('(') else { continue };
             if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !name.is_empty() {
                 out.push(name.to_string());
@@ -454,6 +834,7 @@ fn a_wrong_row_does_not_compile() {
             in_place: base.in_place,
             depth_prefix_plan: base.depth_prefix_plan,
             operands: leaked,
+            ret: base.ret,
             axes: base.axes,
         }]);
         assert!(
@@ -496,6 +877,7 @@ fn renaming_an_operand_is_not_a_mistake() {
         in_place: base.in_place,
         depth_prefix_plan: base.depth_prefix_plan,
         operands: renamed,
+        ret: base.ret,
         axes: base.axes,
     }]);
     if let Err(err) = compile(&rope_shim(row)) {
@@ -547,9 +929,17 @@ fn records() -> Vec<Record> {
             work_indptr_offset, batch_indices_offset,
             same_schedule_for_all_heads,
             total_tokens, num_requests, num_q_heads, num_kv_heads, head_dim,
+            page_size, window_left, causal, valid,
         }),
         kernels_cuda::record!(YarnOriginalParams => "::pie_cuda_driver::kernels::attn::YarnOriginalParams" {
             factor, beta_fast, beta_slow, attention_factor, original_max_position,
+        }),
+        kernels_cuda::record!(StructuredMaskParams => "::pie_cuda_driver::kernels::attn::StructuredMaskParams" {
+            kind, window, sink,
+        }),
+        kernels_cuda::record!(WeightView => "::pie_cuda_driver::WeightView" {
+            data, dtype, nbytes, scale_data, scale_dtype, scale_numel,
+            quant_kind, zero_point_data, group_size, channel_axis,
         }),
     ]
 }
@@ -567,7 +957,47 @@ const MIRROR_HPPS: &[&str] = &[
     "attn/mla_cache_view.hpp",
     "attn/attention_flashinfer_hopper.hpp",
     "attn/mla_paged.hpp",
+    "attn/pack_dense_mask.hpp",
+    "weight_view.hpp",
 ];
+
+/// The two by-value `enum class` mirrors carry the C++'s own discriminants.
+///
+/// Enums are not records — `record!` has no fields to walk — so the claim is
+/// made directly, in the layout proof's own style: every number below is read
+/// off the RUST side (`as i32`, `size_of`) and baked into a generated TU as
+/// `static_assert`s against the real headers. A reordered C++ enum fails here
+/// rather than routing gemma-4's experts through qwen's activation.
+#[test]
+fn the_enum_mirrors_carry_the_cpp_discriminants() {
+    use driver_cuda_new::launch::{MoeActivation, Mxfp4RowSelect};
+    let tu = format!(
+        "#include <cstdint>\n\
+         #include \"moe/flashinfer_moe.hpp\"\n\
+         #include \"quant/mxfp4_marlin.hpp\"\n\
+         using ::pie_cuda_driver::kernels::moe::MoeActivation;\n\
+         using ::pie_cuda_driver::kernels::quant::Mxfp4RowSelect;\n\
+         static_assert(sizeof(MoeActivation) == {});\n\
+         static_assert(static_cast<int>(MoeActivation::Relu2) == {});\n\
+         static_assert(static_cast<int>(MoeActivation::Swiglu) == {});\n\
+         static_assert(static_cast<int>(MoeActivation::Geglu) == {});\n\
+         static_assert(sizeof(Mxfp4RowSelect) == {});\n\
+         static_assert(static_cast<int>(Mxfp4RowSelect::Identity) == {});\n\
+         static_assert(static_cast<int>(Mxfp4RowSelect::Even) == {});\n\
+         static_assert(static_cast<int>(Mxfp4RowSelect::Odd) == {});\n",
+        core::mem::size_of::<MoeActivation>(),
+        MoeActivation::Relu2 as i32,
+        MoeActivation::Swiglu as i32,
+        MoeActivation::Geglu as i32,
+        core::mem::size_of::<Mxfp4RowSelect>(),
+        Mxfp4RowSelect::Identity as i32,
+        Mxfp4RowSelect::Even as i32,
+        Mxfp4RowSelect::Odd as i32,
+    );
+    if let Err(err) = compile(&tu) {
+        panic!("an enum mirror disagrees with the C++:\n{err}");
+    }
+}
 
 /// A `#[repr(C)]` mirror really does have the C++ record's layout.
 ///
