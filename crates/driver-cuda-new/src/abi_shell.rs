@@ -1121,20 +1121,267 @@ fn slice_of<'a, T>(ptr: *const T, len: usize) -> &'a [T] {
     }
 }
 
-/// The families the shell can plan today.
-enum FamilyFacts {
-    LlamaLike(
+/// What the SHELL needs to ask a loaded model, and the whole of it.
+///
+/// `cuda.md` §5.B calls deleting `FamilyFacts` the real half of B's exit,
+/// and the reason is this list: a shell that claims not to know which
+/// families there are was matching a three-armed enum at eleven sites,
+/// each asking a different question. The questions were never the
+/// problem — every one of them is a legitimate thing a driver must know
+/// before it can plan. Naming the families to answer them was.
+///
+/// So the questions became the trait, and the shape of the old matches
+/// became the defaults: almost every site read `Gemma4(..) => …, _ => …`,
+/// one family answering and the rest falling through. A fall-through IS a
+/// default body, and writing it here means a family that never mentions
+/// `head_dim_of` is *stating* that its layers agree about head dim rather
+/// than being lumped in with everything else that never came up.
+///
+/// A new family implements this and appears in [`FACTS_ROWS`]. Nothing
+/// else in the shell learns its name.
+trait PlannedFamily {
+    /// This family's text, traced and lowered for one fire class.
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan;
+
+    /// Layers in the backbone — the length of every per-layer answer below.
+    fn layers(&self) -> u32;
+
+    /// Layer `l`'s head dim. Uniform unless a family says otherwise;
+    /// gemma-4's two layer kinds disagree (256 vs 512), which is the only
+    /// reason this is per-layer at all.
+    fn head_dim_of(&self, _l: u32, uniform: u32) -> u32 {
+        uniform
+    }
+
+    /// The layer whose KV pages `l` attends through, or `None` when `l`
+    /// owns its own. A `Some` layer projects and writes nothing.
+    fn kv_source(&self, _l: u32) -> Option<u32> {
+        None
+    }
+
+    /// Layer `l`'s sliding window, `-1` for the whole context. An empty
+    /// answer from [`Self::window_by_layer`] means the fire's single
+    /// window applies to every layer.
+    fn window_by_layer(&self, _sliding_window: i32) -> Vec<i32> {
+        Vec::new()
+    }
+
+    /// The attention softmax scale. `1/sqrt(head_dim)` unless the
+    /// family's q/k norms already carry it (gemma-4 runs 1.0).
+    fn sm_scale(&self, head_dim: u32) -> f32 {
+        1.0 / (head_dim as f32).sqrt()
+    }
+
+    /// Whether this family carries RECURRENT STATE. Such a fire is not
+    /// replayable — a captured body bakes one instance's slots — so it
+    /// stays eager, and it is the only family that may be handed an MTP
+    /// service class.
+    fn recurrent(&self) -> bool {
+        false
+    }
+
+    /// The two head dims a family's layer kinds decode at, when it needs
+    /// SEPARATE decode plans for them — `(sliding, full)`. `None` for a
+    /// family whose layers agree, which is why one plan serves them: the
+    /// planner bakes the head dim in.
+    fn decode_plan_head_dims(&self) -> Option<(u32, u32)> {
+        None
+    }
+
+    /// Whether the family's PREFILL plans internally, per fire, off the
+    /// host CSR mirrors — so there is nothing to pre-plan and the mirrors
+    /// must be uploaded.
+    fn planless_prefill(&self) -> bool {
+        false
+    }
+
+    /// Whether both attention forms state `[q, o]` as SSA args, so the
+    /// guard-owned attention pins stay null. Only gemma-4 does.
+    fn pins_attention_values(&self) -> bool {
+        true
+    }
+
+    /// Per-layer rope tables, softcap, PLE width and named scalar
+    /// constants — everything the prologue reads that is not a shape.
+    /// Empty for a family whose rope is one theta and whose epilogue caps
+    /// nothing.
+    fn tables(&self, _model: &LoadedModel) -> FamilyTables {
+        FamilyTables::default()
+    }
+
+    /// The family's recurrent geometry, when it has one.
+    fn gdn_shape(&self) -> Option<GdnShape> {
+        None
+    }
+}
+
+/// The per-layer tables and named constants a family's prologue reads.
+#[derive(Default)]
+struct FamilyTables {
+    /// Rope base per layer; empty means the one `rope_theta` applies.
+    theta_by_layer: Vec<f32>,
+    /// Rotary width per layer; empty means full rotation at head dim.
+    rotary_by_layer: Vec<u32>,
+    /// Final-logit softcap, 0 for none.
+    softcap: f32,
+    /// Per-layer-embedding width, 0 for a family without one.
+    ple_dim: i32,
+    /// Named scalar constants the trace refers to by name.
+    scales: std::collections::BTreeMap<String, f32>,
+}
+
+/// A recurrent family's slab geometry — what the shell must allocate and
+/// stride before it can hand the executor a `GdnCtx`.
+struct GdnShape {
+    layers: u32,
+    linear_layers: Vec<u32>,
+    conv_stride: usize,
+    state_stride: usize,
+    state_elem: usize,
+    k_h: i32,
+    v_h: i32,
+    k_d: i32,
+    v_d: i32,
+    conv_dim: i32,
+    conv_k: i32,
+}
+
+/// The three implementations. Each is the set of answers its family
+/// PREVIOUSLY contributed to eleven scattered matches, gathered into one
+/// place where the family's own name is the last time it is mentioned.
+
+impl PlannedFamily
+    for (
         model::families::llama_like::forward::facts::LlamaLikeFacts,
         model::families::llama_like::forward::facts::LlamaLikeCudaFacts,
-    ),
-    Qwen35(
+    )
+{
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::families::llama_like::forward::llama_like_cuda(&self.0, &self.1, class)
+    }
+    fn layers(&self) -> u32 {
+        self.0.layers
+    }
+    // Every other answer is the default: uniform head dim, no KV sharing,
+    // one window, the standard scale, no recurrence, one decode plan, no
+    // per-layer tables. The lineage is the family the defaults were
+    // written from.
+}
+
+impl PlannedFamily
+    for (
         model::qwen_3_5::forward::facts::Qwen35HybridFacts,
         model::qwen_3_5::forward::facts::Qwen35CudaFacts,
-    ),
-    Gemma4(
+    )
+{
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::qwen_3_5::forward::qwen3_5_hybrid_cuda(&self.0, &self.1, class)
+    }
+    fn layers(&self) -> u32 {
+        self.0.layers
+    }
+    fn recurrent(&self) -> bool {
+        true
+    }
+    fn gdn_shape(&self) -> Option<GdnShape> {
+        let g = &self.0.gdn;
+        Some(GdnShape {
+            layers: self.0.layers,
+            linear_layers: (0..self.0.layers).filter(|&l| !self.0.is_full_attn(l)).collect(),
+            conv_stride: (g.conv_kernel * g.conv_dim()) as usize,
+            state_stride: (g.value_heads * g.key_head_dim * g.value_head_dim) as usize,
+            state_elem: if self.1.state_bf16 { 2 } else { 4 },
+            k_h: g.key_heads as i32,
+            v_h: g.value_heads as i32,
+            k_d: g.key_head_dim as i32,
+            v_d: g.value_head_dim as i32,
+            conv_dim: g.conv_dim() as i32,
+            conv_k: g.conv_kernel as i32,
+        })
+    }
+}
+
+impl PlannedFamily
+    for (
         model::gemma_4::forward::facts::Gemma4Facts,
         model::gemma_4::forward::facts::Gemma4CudaFacts,
-    ),
+    )
+{
+    fn trace(&self, class: model_compiler::trace::FireClass) -> model_compiler::trace::ForwardPlan {
+        model::gemma_4::forward::gemma4_cuda(&self.0, &self.1, class)
+    }
+    fn layers(&self) -> u32 {
+        self.0.layers
+    }
+    fn head_dim_of(&self, l: u32, _uniform: u32) -> u32 {
+        self.0.head_dim_of(l)
+    }
+    fn kv_source(&self, l: u32) -> Option<u32> {
+        self.0.kv_source(l)
+    }
+    fn window_by_layer(&self, sliding_window: i32) -> Vec<i32> {
+        (0..self.0.layers)
+            .map(|l| if self.0.is_full_attn(l) { -1 } else { sliding_window.max(0) })
+            .collect()
+    }
+    fn sm_scale(&self, _head_dim: u32) -> f32 {
+        // The q/k norms carry the scaling.
+        1.0
+    }
+    fn decode_plan_head_dims(&self) -> Option<(u32, u32)> {
+        Some((self.0.head_dim, self.0.global_head_dim))
+    }
+    fn planless_prefill(&self) -> bool {
+        true
+    }
+    fn pins_attention_values(&self) -> bool {
+        // Both attention forms state [q, o] as SSA args.
+        false
+    }
+    fn tables(&self, model: &LoadedModel) -> FamilyTables {
+        let (facts, hf) = (&self.0, &model.hf);
+        let theta: Vec<f32> = (0..facts.layers as usize)
+            .map(|l| {
+                hf.gemma_per_layer_rope_theta.get(l).copied().unwrap_or({
+                    // The C++ parse fallback: full layers (and configs
+                    // without a local base) ride `rope_theta`.
+                    if facts.is_full_attn(l as u32) || hf.gemma3n_rope_local_base_freq <= 0.0 {
+                        hf.rope_theta
+                    } else {
+                        hf.gemma3n_rope_local_base_freq
+                    }
+                })
+            })
+            .collect();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let rotary: Vec<u32> = (0..facts.layers)
+            .map(|l| {
+                let f = hf
+                    .gemma_per_layer_partial_rotary_factor
+                    .get(l as usize)
+                    .copied()
+                    .unwrap_or(1.0);
+                let d = facts.head_dim_of(l) as f32;
+                2u32.max(2 * (0.5 * f * d) as u32)
+            })
+            .collect();
+        let mut scales = std::collections::BTreeMap::new();
+        let hidden = facts.hidden as f32;
+        scales.insert("sqrt_hidden".into(), hidden.sqrt());
+        scales.insert("sqrt_ple_dim".into(), (facts.ple_dim as f32).sqrt());
+        scales.insert("rsqrt_hidden".into(), 1.0 / hidden.sqrt());
+        scales.insert("rsqrt_2".into(), 1.0 / 2f32.sqrt());
+        for (n, sc) in model.gemma_layer_scalars.iter().enumerate() {
+            scales.insert(format!("layer.{n}.ple_norm"), *sc);
+        }
+        FamilyTables {
+            theta_by_layer: theta,
+            rotary_by_layer: rotary,
+            softcap: facts.logit_softcap,
+            ple_dim: facts.ple_dim as i32,
+            scales,
+        }
+    }
 }
 
 /// gemma-4's facts off the checkpoint's config — the layer schedule
@@ -1143,7 +1390,7 @@ enum FamilyFacts {
 /// double-wide-MLP and KV-shared counts as stated. The E2B anchor's
 /// legs only: `k_eq_v` (26B-A4B's V-from-K mode) and the MoE block
 /// refuse until a deployment anchors them.
-fn gemma4_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
+fn gemma4_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
     use model::gemma_4::forward::facts::{Gemma4CudaFacts, Gemma4Facts};
     let hf = &model.hf;
     let interval = u32::try_from(
@@ -1206,7 +1453,7 @@ fn gemma4_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
             .map(|l| if facts.is_full_attn(l) { -1 } else { hf.sliding_window.max(0) })
             .collect(),
     };
-    Ok(FamilyFacts::Gemma4(facts, cuda))
+    Ok(Box::new((facts, cuda)))
 }
 
 /// The qwen3_5 hybrid's facts, read off the checkpoint's own config —
@@ -1215,7 +1462,7 @@ fn gemma4_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
 /// from the `linear_*` fields, the rotary width by the driver's
 /// `max(2, 2·int(0.5·factor·head_dim))` derivation. Dense MLP only —
 /// a MoE config refuses until a MoE deployment anchors that leg.
-fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
+fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
     use model::qwen_3_5::forward::facts::{
         Qwen35CudaFacts, Qwen35FullAttnFacts, Qwen35GdnFacts, Qwen35HybridFacts, Qwen35MlpKind,
     };
@@ -1287,7 +1534,7 @@ fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
         proj_repr: model_compiler::dsl::WeightRepr::Bf16,
         window_left: Vec::new(),
     };
-    Ok(FamilyFacts::Qwen35(facts, cuda))
+    Ok(Box::new((facts, cuda)))
 }
 
 /// The loaded model's facts, family-dispatched: the qwen3_5 hybrid by
@@ -1315,7 +1562,7 @@ fn supergraph_enabled() -> bool {
 }
 
 /// What a row dispatches to: this family's facts, off the checkpoint.
-type FactsFrom = fn(&LoadedModel) -> Result<FamilyFacts, i32>;
+type FactsFrom = fn(&LoadedModel) -> Result<Box<dyn PlannedFamily>, i32>;
 
 /// One row per `model_type` this shell can OPEN.
 ///
@@ -1458,7 +1705,7 @@ pub fn fire_class_of(
 }
 
 /// The facts for a loaded checkpoint, by the model type it declares.
-fn facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
+fn facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
     let model_type = model.hf.model_type.as_str();
     match FACTS_ROWS.iter().find(|(k, _)| *k == model_type) {
         Some((_, derive)) => derive(model),
@@ -1474,7 +1721,7 @@ fn facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
 }
 
 /// The llama lineage's facts, off the checkpoint's own config.
-fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
+fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
     use model::families::llama_like::forward::facts::{
         LlamaLikeCudaFacts, LlamaLikeFacts, NormPlacement, QkNorm,
     };
@@ -1594,7 +1841,7 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
         window_left: Vec::new(),
         all_reduce_p2p_max_rows: 0,
     };
-    Ok(FamilyFacts::LlamaLike(facts, cuda))
+    Ok(Box::new((facts, cuda)))
 }
 
 /// Replay this fire's bucket if it is captured, and capture it if not.
@@ -1801,9 +2048,7 @@ fn step_impl(
     // and a panic crossing the C ABI aborts the process instead of
     // returning the status this call has a slot for. Only the MTP family
     // composes those passes.
-    if !matches!(class, FireClass::Decode | FireClass::Prefill)
-        && !matches!(&family, FamilyFacts::Qwen35(..))
-    {
+    if !matches!(class, FireClass::Decode | FireClass::Prefill) && !family.recurrent() {
         eprintln!(
             "[driver-cuda-new] launch: {class:?} is an MTP service pass and \
              this family declares no trace for it"
@@ -1812,17 +2057,7 @@ fn step_impl(
     }
 
     // ── The lowering. ──
-    let plan = match &family {
-        FamilyFacts::LlamaLike(facts, cuda) => {
-            model::families::llama_like::forward::llama_like_cuda(facts, cuda, class)
-        }
-        FamilyFacts::Qwen35(facts, cuda) => {
-            model::qwen_3_5::forward::qwen3_5_hybrid_cuda(facts, cuda, class)
-        }
-        FamilyFacts::Gemma4(facts, cuda) => {
-            model::gemma_4::forward::gemma4_cuda(facts, cuda, class)
-        }
-    };
+    let plan = family.trace(class);
     let fire_rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; rows];
     // THE SUPERGRAPH GATE, off unless asked. `Union` keeps every guard so
     // the arms can be recorded into conditional bodies and decided at
@@ -1846,7 +2081,7 @@ fn step_impl(
     // state the fire declines to build, and now recurrent state. What
     // cannot be replayed stays eager.
     let mut union =
-        supergraph_enabled() && !matches!(&family, FamilyFacts::Qwen35(..));
+        supergraph_enabled() && !family.recurrent();
     let lower_as = |g: GuardMode| {
         lower_with(&plan, &fire_rows, Fire { captures_across_splits: false }, g).map_err(|e| {
             eprintln!("[driver-cuda-new] launch: uncovered: {e:?}");
@@ -1917,21 +2152,21 @@ fn step_impl(
     let page_size: i32 = 16;
     let (kv_heads_i, head_dim_i) =
         (model.hf.num_key_value_heads, model.hf.head_dim_kernel.max(model.hf.head_dim));
+    let head_dim_u = u32::try_from(head_dim_i).unwrap_or(0);
     // Per-layer pool geometry, family-decided: gemma-4's two layer kinds
     // disagree on head dim and its trailing layers own NO pool (they
     // attend through their source's pages — the load-time decision). A
     // `None` row is a shared layer; its VIEW mirrors the source below.
-    let layer_geom: Vec<Option<(i32, u32)>> = match &family {
-        FamilyFacts::Gemma4(facts, _) => (0..facts.layers)
-            .map(|l| {
-                (!facts.is_kv_shared(l))
-                    .then(|| (facts.head_dim_of(l) as i32, l))
-            })
-            .collect(),
-        _ => (0..u32::try_from(model.hf.num_hidden_layers).unwrap_or(0))
-            .map(|l| Some((head_dim_i, l)))
-            .collect(),
-    };
+    let layer_geom: Vec<Option<(i32, u32)>> = (0..family.layers())
+        .map(|l| {
+            // A layer that attends through another's pages owns no pool;
+            // its VIEW mirrors the source below.
+            family
+                .kv_source(l)
+                .is_none()
+                .then(|| (family.head_dim_of(l, head_dim_u) as i32, l))
+        })
+        .collect();
     let grow = !matches!(&state.kv, Some(kv) if kv.num_pages >= need_pages);
     if grow {
         let mut pools = Vec::new();
@@ -1958,12 +2193,7 @@ fn step_impl(
     }
     let kv = state.kv.as_ref().expect("just ensured");
     let kv_source_of = |i: usize| -> usize {
-        match &family {
-            FamilyFacts::Gemma4(facts, _) => facts
-                .kv_source(u32::try_from(i).unwrap_or(0))
-                .map_or(i, |s| s as usize),
-            _ => i,
-        }
+        family.kv_source(u32::try_from(i).unwrap_or(0)).map_or(i, |s| s as usize)
     };
     let layers: Vec<crate::launch::KvCacheLayerView> = (0..kv.pools.len())
         .map(|i| {
@@ -1972,12 +2202,7 @@ fn step_impl(
                 (core::ptr::null_mut(), core::ptr::null_mut()),
                 |(k, v)| (k.as_ptr(), v.as_ptr()),
             );
-            let d = match &family {
-                FamilyFacts::Gemma4(facts, _) => {
-                    facts.head_dim_of(u32::try_from(i).unwrap_or(0)) as i32
-                }
-                _ => head_dim_i,
-            };
+            let d = family.head_dim_of(u32::try_from(i).unwrap_or(0), head_dim_u) as i32;
             crate::launch::KvCacheLayerView {
                 layer: i as i32,
                 source_layer: src as i32,
@@ -2074,7 +2299,7 @@ fn step_impl(
         .iter()
         .any(|k| k == "attn::dispatch_attention_flashinfer_decode");
     ws.begin_plan_update(&mut sops).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-    let decode_plan_full_ptr = if let FamilyFacts::Gemma4(facts, _) = &family {
+    let decode_plan_full_ptr = if let Some((d_sliding, d_full)) = family.decode_plan_head_dims() {
         if states_decode_dispatch {
             // TWO decode plans, one per layer kind — the C++'s
             // `decode_plan_sliding` / `decode_plan_full` pair, because
@@ -2083,7 +2308,7 @@ fn step_impl(
                 kv_indptr,
                 model.hf.num_attention_heads,
                 kv_heads_i,
-                facts.head_dim as i32,
+                d_sliding as i32,
                 page_size,
                 ws.view(),
                 raw_stream,
@@ -2095,7 +2320,7 @@ fn step_impl(
                 kv_indptr,
                 model.hf.num_attention_heads,
                 kv_heads_i,
-                facts.global_head_dim as i32,
+                d_full as i32,
                 page_size,
                 ws.view(),
                 raw_stream,
@@ -2188,17 +2413,14 @@ fn step_impl(
     // ── The hybrid's GDN context: driver-owned slabs, instance slots. ──
     let mut gdn_ctx: Option<GdnCtx> = None;
     let mut _slot_ids_buf: Option<crate::cuda::DeviceBuffer> = None;
-    if let FamilyFacts::Qwen35(facts, cuda) = &family {
-        let conv_stride = (facts.gdn.conv_kernel * facts.gdn.conv_dim()) as usize;
-        let state_stride = (facts.gdn.value_heads
-            * facts.gdn.key_head_dim
-            * facts.gdn.value_head_dim) as usize;
-        let state_elem = if cuda.state_bf16 { 2 } else { 4 };
+    if let Some(shape) = family.gdn_shape() {
+        let (conv_stride, state_stride, state_elem) =
+            (shape.conv_stride, shape.state_stride, shape.state_elem);
         const GDN_SLOTS: u32 = 8;
         if state.gdn.is_none() {
             let mut slabs = Vec::new();
-            for l in 0..facts.layers {
-                if facts.is_full_attn(l) {
+            for l in 0..shape.layers {
+                if !shape.linear_layers.contains(&l) {
                     slabs.push(None);
                     continue;
                 }
@@ -2270,13 +2492,14 @@ fn step_impl(
         sbuf.copy_from_host(&bytes, stream.as_ref())
             .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
         let to_i32 = |v: u32| i32::try_from(v).unwrap_or(0);
+        let _ = to_i32;
         gdn_ctx = Some(GdnCtx {
-            k_h: to_i32(facts.gdn.key_heads),
-            v_h: to_i32(facts.gdn.value_heads),
-            k_d: to_i32(facts.gdn.key_head_dim),
-            v_d: to_i32(facts.gdn.value_head_dim),
-            conv_dim: to_i32(facts.gdn.conv_dim()),
-            conv_k: to_i32(facts.gdn.conv_kernel),
+            k_h: shape.k_h,
+            v_h: shape.v_h,
+            k_d: shape.k_d,
+            v_d: shape.v_d,
+            conv_dim: shape.conv_dim,
+            conv_k: shape.conv_k,
             n_groups: 0,
             conv_state: gdn_state
                 .slabs
@@ -2303,7 +2526,7 @@ fn step_impl(
     // The guard-owned attention values, discovered from the lowering as
     // the smokes discovered them. gemma-4 has NONE: both its attention
     // forms state [q, o] as SSA args, so the pins stay null.
-    let (q_pin, o_off) = if matches!(&family, FamilyFacts::Gemma4(..)) {
+    let (q_pin, o_off) = if !family.pins_attention_values() {
         (None, None)
     } else {
         let dispatch_name = if states_decode_dispatch {
@@ -2385,18 +2608,9 @@ fn step_impl(
     // q/k norms carry the scaling), per-layer windows (sliding at
     // `sliding_window`, full unbounded), and needs the HOST CSR mirrors
     // for its planless prefill.
-    let (sm_scale, window_by_layer, is_gemma4) = match &family {
-        FamilyFacts::Gemma4(facts, _) => (
-            1.0,
-            (0..facts.layers)
-                .map(|l| {
-                    if facts.is_full_attn(l) { -1 } else { model.hf.sliding_window.max(0) }
-                })
-                .collect(),
-            true,
-        ),
-        _ => (1.0 / (model.hf.head_dim as f32).sqrt(), Vec::new(), false),
-    };
+    let sm_scale = family.sm_scale(u32::try_from(model.hf.head_dim).unwrap_or(1));
+    let window_by_layer = family.window_by_layer(model.hf.sliding_window);
+    let is_gemma4 = family.planless_prefill();
     let attn = AttnCtx {
         decode_plan: decode_plan.as_ptr(),
         decode_plan_full: decode_plan_full_ptr,
@@ -2435,52 +2649,13 @@ fn step_impl(
     let mut cublas_ops = crate::cuda::cublas::LiveCublas;
     let mut cublas = crate::cuda::cublas::CublasHandle::create(&mut cublas_ops, raw_stream)
         .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-    // gemma-4's per-layer tables and named constants — the C++ parse-time
-    // vectors (`per_layer_rope_theta`, `rotary_of`) and the prologue's
-    // four `scale.*` values plus the load-read layer scalars.
-    let (theta_by_layer, rotary_by_layer, softcap, ple_dim, scales) = match &family {
-        FamilyFacts::Gemma4(facts, _) => {
-            let hf = &model.hf;
-            let theta: Vec<f32> = (0..facts.layers as usize)
-                .map(|l| {
-                    hf.gemma_per_layer_rope_theta.get(l).copied().unwrap_or({
-                        // The C++ parse fallback: full layers (and configs
-                        // without a local base) ride `rope_theta`.
-                        if facts.is_full_attn(l as u32)
-                            || hf.gemma3n_rope_local_base_freq <= 0.0
-                        {
-                            hf.rope_theta
-                        } else {
-                            hf.gemma3n_rope_local_base_freq
-                        }
-                    })
-                })
-                .collect();
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let rotary: Vec<u32> = (0..facts.layers)
-                .map(|l| {
-                    let f = hf
-                        .gemma_per_layer_partial_rotary_factor
-                        .get(l as usize)
-                        .copied()
-                        .unwrap_or(1.0);
-                    let d = facts.head_dim_of(l) as f32;
-                    2u32.max(2 * (0.5 * f * d) as u32)
-                })
-                .collect();
-            let mut scales = std::collections::BTreeMap::new();
-            let hidden = facts.hidden as f32;
-            scales.insert("sqrt_hidden".into(), hidden.sqrt());
-            scales.insert("sqrt_ple_dim".into(), (facts.ple_dim as f32).sqrt());
-            scales.insert("rsqrt_hidden".into(), 1.0 / hidden.sqrt());
-            scales.insert("rsqrt_2".into(), 1.0 / 2f32.sqrt());
-            for (n, s) in model.gemma_layer_scalars.iter().enumerate() {
-                scales.insert(format!("layer.{n}.ple_norm"), *s);
-            }
-            (theta, rotary, facts.logit_softcap, facts.ple_dim as i32, scales)
-        }
-        _ => (Vec::new(), Vec::new(), 0.0, 0, std::collections::BTreeMap::new()),
-    };
+    // The family's per-layer tables and named constants — the C++
+    // parse-time vectors (`per_layer_rope_theta`, `rotary_of`) and the
+    // prologue's `scale.*` values plus the load-read layer scalars. A
+    // family whose rope is one theta and whose epilogue caps nothing
+    // answers with empties.
+    let FamilyTables { theta_by_layer, rotary_by_layer, softcap, ple_dim, scales } =
+        family.tables(model);
     // The peel window word, uploaded before the walk so a tail region's
     // `_devwin` launch reads a split rather than whatever was there. The
     // engine does not yet mark rows, so the window is the whole fire —
