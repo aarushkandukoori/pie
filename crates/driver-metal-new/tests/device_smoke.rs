@@ -2485,3 +2485,106 @@ fn the_gemma4_assembly_decodes_the_reference_tokens() {
         );
     }
 }
+
+/// The engine decodes ACROSS fires: a prefill fire writes the KV pages,
+/// and the decode fires that follow read them — the continuity no
+/// single-fire smoke can prove, and the whole reason the pages live in
+/// the storage rather than the steps.
+#[test]
+fn the_llama_engine_decodes_across_fires() {
+    let Some(snapshot) = std::env::var_os("PIE_METAL_SMOKE_LLAMA_CHECKPOINT") else {
+        eprintln!("SKIP: set PIE_METAL_SMOKE_LLAMA_CHECKPOINT to a llama-family MLX snapshot");
+        return;
+    };
+    let snapshot = PathBuf::from(snapshot);
+    let config = std::fs::read_to_string(snapshot.join("config.json"))
+        .expect("the snapshot has a config.json");
+    let root: serde_json::Value = serde_json::from_str(&config).expect("config.json parses");
+    let descriptor = model::config::descriptor(&root, snapshot.to_str().expect("utf8 path"))
+        .expect("the config converts to a descriptor");
+    let descriptor_json = descriptor.to_string();
+    let facts = ModelFacts::from_descriptor(&descriptor_json)
+        .expect("the driver's facts read the descriptor");
+    let mut geometry =
+        driver_metal_new::batch::llama_geometry_from_facts(&facts).expect("a llama shape");
+    let prompt: Vec<u32> = vec![
+        128000, 791, 4062, 14198, 39935, 35308, 927, 279, 16053, 5679, 11, 323, 279, 6864, 315,
+        9822, 374,
+    ];
+    geometry.max_tokens = driver_metal_new::batch::llama_qmm_pool_rows(prompt.len() as u32);
+    geometry.max_requests = 1;
+    geometry.paged_kv_enabled = true;
+    geometry.kv_page_size = 32;
+    geometry.total_pages = 128;
+
+    let target = metal_storage_target();
+    let (plan, _moe) = compile_load_plan(&snapshot, &target, &descriptor_json)
+        .expect("the plan compiles and its files exist");
+    let context = Context::new().expect("a Metal device answers");
+    let compiler = Compiler::new(&context).expect("the shader compiler starts");
+    let mut engine = driver_metal_new::metal::LlamaEngine::new(
+        &context,
+        &compiler,
+        &kernels_dir(),
+        &plan,
+        &snapshot,
+        geometry.clone(),
+        Tuning::default(),
+        4096,
+    )
+    .expect("the engine stages and compiles");
+    engine.reset().expect("a fresh sequence");
+
+    let mut stepper = Stepper::new(&context).expect("a stepper");
+    let vocab = geometry.vocab as usize;
+    let argmax_of = |engine: &driver_metal_new::metal::LlamaEngine| -> u32 {
+        let logits = engine.logits().expect("paged logits");
+        // SAFETY: the fire retired.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(logits.contents().cast::<u8>().as_ptr(), vocab * 2)
+        };
+        let mut best = (0usize, f32::NEG_INFINITY);
+        for (i, pair) in bytes.chunks_exact(2).enumerate() {
+            let v = f32::from_bits(u32::from(u16::from_le_bytes([pair[0], pair[1]])) << 16);
+            if v.is_finite() && v > best.1 {
+                best = (i, v);
+            }
+        }
+        best.0 as u32
+    };
+
+    // The prefill fire writes positions 0..17 into the pages…
+    let prefill = driver_metal_new::batch::FireCsr::prefill(
+        prompt.clone(),
+        geometry.kv_page_size,
+        geometry.total_pages,
+    );
+    engine
+        .fire(&context, &mut stepper, &prefill)
+        .expect("the prefill fire retires");
+    let mut next = argmax_of(&engine);
+    assert_eq!(next, 12366, "the prefill answers ' Paris'");
+
+    // …and the decode fires that follow READ them: each is a 1-row fire
+    // whose attention walks the history every earlier fire appended.
+    // mlx_lm's greedy continuation of this prompt is
+    // [12366, 13, 4314, 527] (' Paris', '.', ' These', ' are').
+    let mut produced = vec![next];
+    let mut position = prompt.len() as u32;
+    for _ in 0..3 {
+        let decode =
+            driver_metal_new::batch::FireCsr::decode(next, position, geometry.kv_page_size);
+        engine
+            .fire(&context, &mut stepper, &decode)
+            .expect("the decode fire retires");
+        next = argmax_of(&engine);
+        produced.push(next);
+        position += 1;
+    }
+    eprintln!("engine produced {produced:?}");
+    assert_eq!(
+        produced,
+        vec![12366, 13, 4314, 527],
+        "the decode fires must read the KV the prefill wrote"
+    );
+}

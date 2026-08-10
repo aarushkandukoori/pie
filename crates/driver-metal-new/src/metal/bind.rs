@@ -837,7 +837,7 @@ pub fn bind_decode_consts(
 }
 
 /// The M=1 PSO table: one pipeline per kind, plus the residual-fused GEMV.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StepPsos {
     /// Indexed by `Kernel::index()`.
     pub by_kind: HashMap<Kernel, Pso>,

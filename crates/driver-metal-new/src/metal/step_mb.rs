@@ -37,7 +37,7 @@ use super::tables::Tables;
 use super::timing::Timing;
 
 /// The compiled multibatch pipelines, by slot.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct MbPsos {
     /// Slot → pipeline; array slots carry their rung indices in the key.
     pub by_slot: HashMap<MbSlot, Pso>,

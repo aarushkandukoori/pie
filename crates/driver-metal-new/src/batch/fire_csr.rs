@@ -191,6 +191,27 @@ impl FireCsr {
             token_ids,
         }
     }
+
+    /// One decode row: `token` at absolute `position`, request 0, the
+    /// page list covering its whole history, sampling its one row.
+    #[must_use]
+    pub fn decode(token: u32, position: u32, page_size: u32) -> FireCsr {
+        let ps = page_size.max(1);
+        let pages = (position + 1).div_ceil(ps);
+        FireCsr {
+            token_ids: vec![token],
+            position_ids: vec![position],
+            req_of_token: vec![0],
+            w_page: vec![position / ps],
+            w_off: vec![position % ps],
+            qo_indptr: vec![0, 1],
+            kv_page_indices: (0..pages).collect(),
+            kv_page_indptr: vec![0, pages],
+            kv_last_page_lens: vec![(position % ps) + 1],
+            sample_rows: vec![0],
+            run_argmax: false,
+        }
+    }
 }
 
 #[cfg(test)]
