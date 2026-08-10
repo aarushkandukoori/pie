@@ -117,6 +117,21 @@ pub struct BucketKey {
     /// Which loaded model this graph addresses. Two deployments' captures
     /// share no buffer, so they may not share a key.
     pub model: u64,
+    /// The staged LoRA's GROUP SHAPE, or zero for a fire with no adapters.
+    ///
+    /// In the key, and it is the one axis here that had to be argued for
+    /// rather than assumed. Everything else a `GuardPred` names is a
+    /// boolean the conditional folds; LoRA is not. Its capture-safe
+    /// (grouped) form still reaches the launcher with the member count and
+    /// the `m` vector as ARGUMENTS, so a capture bakes them — and a fire
+    /// with no adapters bakes the absence, recording no lora launches at
+    /// all.
+    ///
+    /// Keying on the shape is what makes both of those correct rather than
+    /// merely quiet: a bucket contains only fires whose lora launches have
+    /// the shape the exec recorded, so "record nothing" is right for the
+    /// zero bucket and a differently-shaped fire lands in a different one.
+    pub lora_shape: u64,
 }
 
 impl BucketKey {
@@ -128,7 +143,14 @@ impl BucketKey {
         fire: model_compiler::trace::FireClass,
         model: u64,
     ) -> Self {
-        Self { requests, tokens, fire: fire as u8, model }
+        Self { requests, tokens, fire: fire as u8, model, lora_shape: 0 }
+    }
+
+    /// The same key for a fire that staged adapters.
+    #[must_use]
+    pub const fn with_lora(mut self, shape: u64) -> Self {
+        self.lora_shape = shape;
+        self
     }
 }
 
@@ -304,6 +326,9 @@ mod tests {
     use model_compiler::trace::FireClass;
     #[test]
     fn variant_bits_are_not_in_the_key() {
+        // With ONE stated exception, argued at the field: the lora group
+        // shape, which a capture bakes as launcher arguments rather than
+        // folding as a predicate.
         // There is no field for them to occupy. This test is a shape
         // assertion, not a behaviour one: it fails to COMPILE if someone
         // adds a mask or lora bit to the key, which is the review this
@@ -320,6 +345,7 @@ mod tests {
         assert_ne!(base, BucketKey::new(4, 8, FireClass::Decode, 7));
         assert_ne!(base, BucketKey::new(4, 4, FireClass::Prefill, 7));
         assert_ne!(base, BucketKey::new(4, 4, FireClass::Decode, 8));
+        assert_ne!(base, base.with_lora(1), "the lora group shape is an axis");
     }
 
     #[test]

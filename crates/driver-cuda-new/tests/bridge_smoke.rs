@@ -540,14 +540,27 @@ fn the_union_capture_needs_every_arm_issuable() {
     use driver_cuda_new::model::executor::{RunRefusalKind, DispatchRefusal};
 
     /// Arms that cannot yet be issued with their predicate false.
-    const NOT_YET_ISSUABLE: &[&str] = &["pie_lora_qkv_correction"];
+    ///
+    /// `pie_lora_qkv_correction` LEFT this list on 2026-08-10, by
+    /// answering instead of refusing: no adapters staged means no
+    /// correction, which is a result and not a missing capability. The
+    /// bucket key is what makes that safe rather than merely quiet —
+    /// `lora_shape` is zero for a fire with none, so an exec recorded that
+    /// way serves only fires that also have none.
+    ///
+    /// What it revealed underneath is the WRITE-DESCRIPTOR axis. A fire
+    /// that steers a graph replay states `attn::write_kv_explicit_bf16`,
+    /// and nothing serves it — the probe finds these one at a time because
+    /// each guard axis has its own, which is the same lesson `UNARMED`
+    /// learned this morning from the other direction.
+    const NOT_YET_ISSUABLE: &[&str] = &["attn::write_kv_explicit_bf16"];
 
-    let refusal = union_walk_refusal();
-    let Some((kernel, why)) = refusal else {
-        panic!(
-            "every arm is issuable now -- delete NOT_YET_ISSUABLE and \
-             capture the union in `a_resolved_walk_captures_and_replays`"
+    let Some((kernel, why)) = union_walk_refusal() else {
+        assert!(
+            NOT_YET_ISSUABLE.is_empty(),
+            "every arm is issuable, but NOT_YET_ISSUABLE still names some"
         );
+        return;
     };
     assert!(
         NOT_YET_ISSUABLE.contains(&kernel.as_str()),

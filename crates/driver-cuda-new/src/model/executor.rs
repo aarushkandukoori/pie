@@ -2615,10 +2615,25 @@ pub fn dispatch<R: Resolver>(
         // C++'s first live A/B caught.
         "pie_lora_qkv_correction" => {
             need(2)?;
+            // NO ADAPTERS STAGED IS AN ANSWER, not a refusal, and this
+            // line is the one that lets a union capture record the arm at
+            // all.
+            //
+            // Under `GuardMode::Resolve` the case is unreachable — the
+            // `HasLora` guard removes the arm when no row carries an
+            // adapter. Under `Union` every arm lowers and the conditional
+            // decides at replay, so the arm has to be ISSUABLE with its
+            // predicate false. Doing nothing is what the correction means
+            // for a fire with nothing to correct.
+            //
+            // What makes that safe rather than merely quiet is the bucket
+            // key: `BucketKey::lora_shape` is zero for a fire with no
+            // adapters, so an exec recorded here serves only fires that
+            // also have none. A fire that stages adapters has a different
+            // shape and lands in a different bucket, where the arm records
+            // its grouped launches. See `model::supergraph`.
             let Some((state, scratch)) = ctx.lora else {
-                return Err(DispatchRefusal::NoArm(
-                    "pie_lora_qkv_correction: stated but the fire staged no lora".into(),
-                ));
+                return Ok(());
             };
             let x = aux_slot(0, resolver)?;
             let (q, v) = (bound.args[0], bound.args[1]);

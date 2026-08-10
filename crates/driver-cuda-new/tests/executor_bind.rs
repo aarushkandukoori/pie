@@ -872,6 +872,32 @@ fn hooked_lowered(rows: usize) -> Lowered {
     lower(&plan, &r, Fire { captures_across_splits: false }).expect("a hooked fire lowers")
 }
 
+/// EVERY REMAINING ROW MARK AT ONCE.
+///
+/// The mask and hook axes get their own lowerings because they PEEL, and
+/// a peel is a row split whose regions have to be looked at separately.
+/// The rest — `write_desc`, `wants_scores`, `lora` — are plain guards: an
+/// arm appears or it does not, and nothing about the rectangle changes.
+/// So one fire carrying all of them covers all of them, and covering them
+/// is the point: a `GuardPred` no row satisfies removes its arm before
+/// the kernel list is built, so an axis with no fire in this corpus is an
+/// axis whose symbols are outside the closed set entirely.
+fn every_mark_lowered(rows: usize) -> Lowered {
+    let plan = plan_of(FireClass::Decode);
+    let r: Vec<Row> = vec![
+        Row {
+            samples: true,
+            write_desc: true,
+            wants_scores: true,
+            lora: true,
+            ..Row::default()
+        };
+        rows
+    ];
+    lower(&plan, &r, Fire { captures_across_splits: false })
+        .expect("a fire carrying every mark lowers")
+}
+
 #[test]
 fn every_lowered_symbol_has_an_arm() {
     let src = std::fs::read_to_string(
@@ -890,7 +916,13 @@ fn every_lowered_symbol_has_an_arm() {
             continue;
         }
         for part in line.split('"').skip(1).step_by(2) {
-            if part.contains("::") && !part.contains(char::is_whitespace) {
+            // `family::symbol` is the usual spelling, but the driver's own
+            // launchers have no family — `pie_lora_qkv_correction` is a
+            // whole symbol. The `::` test alone reported it unarmed the
+            // moment a fire in the corpus finally carried an adapter,
+            // which is a defect in the SCAN and not in the executor.
+            let named = part.contains("::") || part.starts_with("pie_");
+            if named && !part.contains(char::is_whitespace) {
                 armed.insert(part.to_string());
             }
         }
@@ -957,6 +989,7 @@ fn every_lowered_symbol_has_an_arm() {
         // the peel's tail region, and nothing anywhere serves it.
         masked_lowered(4),
         hooked_lowered(4),
+        every_mark_lowered(4),
     ] {
         every.extend(l.kernels.iter().cloned());
     }
@@ -1025,6 +1058,16 @@ fn every_lowered_symbol_has_an_arm() {
         //    windowed rectangle and every arm binds base pointers plus a
         //    count. See `bridge_smoke`'s ignored peel gate.
         "attn::dispatch_attention_flashinfer_prefill_custom",
+        // ── The WRITE-DESCRIPTOR axis: what a fire states when it steers
+        //    a graph replay, so its KV write takes explicit descriptors
+        //    instead of deriving them. Note the second one — the trace
+        //    already knows there is a `_capture` spelling of the decode
+        //    dispatch, and the executor does not. These joined when the
+        //    corpus gained a fire carrying every row mark; before that,
+        //    `write_desc` had no fire and its symbols were outside the
+        //    closed set rather than inside it as gaps.
+        "attn::dispatch_attention_flashinfer_decode_capture",
+        "attn::write_kv_explicit_bf16",
         // ── kimi_k3: KDA, the per-key-channel delta rule ──────────────
         //
         // `ssm::bf16_to_fp32` left this list without an arm being
