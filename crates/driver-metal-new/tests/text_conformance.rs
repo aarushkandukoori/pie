@@ -254,3 +254,139 @@ fn the_harness_covers_every_family_that_has_a_text() {
          checked."
     );
 }
+
+/// How many buffers a shader's entry point declares.
+///
+/// # Why this is parsed rather than declared
+///
+/// `KernelSig` has an `operands` field and the CUDA table uses it, but **no
+/// Metal row declares one**: the C++ shell bound by hand from tables that are
+/// retiring, so nothing ever needed the arity written down. Until the rows
+/// carry it, the shader is the only statement of how many buffers a kernel
+/// takes — so this reads the shader.
+///
+/// The parse is deliberately crude and *conservative*: find the template body
+/// by its stem, take its parameter list, and count distinct `[[buffer(N)]]`
+/// indices. A kernel it cannot find contributes nothing, so this never invents
+/// a gap.
+fn declared_buffers(root: &std::path::Path, file: &str, stem: &str) -> Option<usize> {
+    let src = std::fs::read_to_string(root.join(file)).ok()?;
+    let at = src.find(&format!("void {stem}("))?;
+    let open = src[at..].find('(')? + at;
+    // Depth-counted, because a parameter list is full of parentheses:
+    // `[[buffer(0)]]` closes one the signature did not open, and stopping at
+    // the first `)` finds a list of one operand for every kernel there is.
+    let mut depth = 0i32;
+    let mut close = None;
+    for (i, c) in src[open..].char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(open + i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let params = &src[open..close?];
+    let mut seen = BTreeSet::new();
+    let mut rest = params;
+    while let Some(i) = rest.find("[[buffer(") {
+        rest = &rest[i + 9..];
+        if let Some(j) = rest.find(')')
+            && let Ok(n) = rest[..j].trim().parse::<usize>()
+        {
+            seen.insert(n);
+        }
+    }
+    (!seen.is_empty()).then_some(seen.len())
+}
+
+/// The gap between what a text STATES and what its kernels TAKE.
+///
+/// **This is a measurement, not a pass/fail**, and the number it prints is the
+/// distance between "the fire executes" and "the fire is right".
+/// `tests/device_text_fire.rs` proves the first: every launch compiles, every
+/// grid is legal, the command buffer completes. It cannot prove the second,
+/// and this says why in one number.
+///
+/// A kernel whose statement binds fewer buffers than it declares reads the
+/// slots nobody bound — which on this backend is whatever the last dispatch
+/// left there. It does not fault and it does not report. It answers.
+///
+/// The known gaps are listed rather than tolerated silently, exactly as the
+/// `split_qkv` row was before it closed. **Shrinking this list is the work
+/// between here and token-exactness.**
+#[test]
+fn the_distance_between_a_fire_that_runs_and_a_fire_that_is_right() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates/")
+        .join("kernels-metal/kernels");
+
+    let mut short: Vec<String> = Vec::new();
+    for text in texts() {
+        for (_, low) in fires(&text) {
+            let mut seen = BTreeSet::new();
+            for launch in &low.launches {
+                let symbol = &low.kernels[launch.kernel as usize];
+                if !seen.insert(symbol.clone()) {
+                    continue;
+                }
+                let Some(sig) = kernels::sig_in(kernels_metal::KERNELS, symbol) else {
+                    continue;
+                };
+                let Some(file) = sig.file else { continue };
+                let Some(declared) = declared_buffers(&root, file, sig.symbol) else {
+                    continue;
+                };
+                let stated = (launch.args.end - launch.args.start) as usize
+                    + usize::from(launch.params.end > launch.params.start);
+                if stated < declared {
+                    short.push(format!("  {symbol}: states {stated}, takes {declared}"));
+                }
+            }
+        }
+    }
+    short.sort();
+    short.dedup();
+
+    // Pinned, so the number moves only when someone means it to. Every entry
+    // is a kernel reading buffers nobody bound.
+    eprintln!(
+        "{} statement(s) bind fewer buffers than their kernel declares:\n{}",
+        short.len(),
+        short.join("\n")
+    );
+    // NINE, measured 2026-08-10, and every one is a real hole:
+    //
+    //   sdpa_paged_decode   states  2, takes 17
+    //   sdpa_vector_decode  states  2, takes 11
+    //   kv_append_paged     states  2, takes 10
+    //   kv_append           states  2, takes  8
+    //   affine_qmv_fast     states  5, takes  7
+    //   ...
+    //
+    // The attention pair is the loud case and the shape of the problem: the
+    // statement gives the query and the output, and the kernel wants the keys,
+    // the values, six strides, a scale, a window and two row pitches. Those
+    // are the KV cache and the geometry — things the trace knows as `Kv` state
+    // and the fire's shape, and that `dsl::metal::sdpa` does not yet spell as
+    // operands.
+    //
+    // So this number is the honest distance between `device_text_fire.rs`
+    // (every launch compiles, every grid is legal, the command buffer
+    // completes) and a model that answers. **Shrinking it is the work between
+    // here and token-exactness**, and it may only shrink.
+    assert!(
+        short.len() <= 9,
+        "the gap GREW to {}. Every entry is a kernel reading whatever the last \
+         dispatch left in the slots nobody bound — it does not fault, it does \
+         not report, it answers.\n{}",
+        short.len(),
+        short.join("\n")
+    );
+}

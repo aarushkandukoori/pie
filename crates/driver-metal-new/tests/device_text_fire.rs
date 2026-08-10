@@ -7,15 +7,24 @@
 //! reaches the device, and nothing in the driver names a family, a kernel or a
 //! model on the way.
 //!
-//! What it does NOT prove is that the numbers are right. The weights are
-//! sentinels, not a checkpoint, so this is an execution proof — every symbol
-//! compiles, every grid is legal, every operand is in bounds, and the fire
-//! completes. Token-exactness is `device_smoke.rs`'s job and needs
-//! `PIE_METAL_SMOKE_CHECKPOINT`.
+//! What it does NOT prove is that the numbers are right, and there are **two**
+//! reasons, of which only the first is obvious:
 //!
-//! The distinction is worth keeping sharp: a fire that runs and answers
-//! nonsense is exactly the failure this crate was built to make impossible to
-//! miss, so "it ran" is a milestone and not a result.
+//! 1. the weights are sentinels, not a checkpoint;
+//! 2. **nine of this text's statements bind fewer buffers than their kernel
+//!    declares.** `sdpa_paged_decode` states two operands and takes
+//!    seventeen. The slots nobody bound are read anyway — on this backend
+//!    that is whatever the last dispatch left there — and the dispatch does
+//!    not fault, does not report, and completes.
+//!
+//! `tests/text_conformance.rs` measures the second and pins the number so it
+//! can only shrink. That number is the honest distance between this file and
+//! a model that answers, and shrinking it is the work between here and
+//! token-exactness.
+//!
+//! So "it ran" is a milestone and not a result — and this is exactly the
+//! failure this crate was built to make impossible to miss, arriving in its
+//! own executor.
 
 #![cfg(target_vendor = "apple")]
 
