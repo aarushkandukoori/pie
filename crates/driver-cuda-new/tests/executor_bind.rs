@@ -1017,8 +1017,14 @@ fn every_lowered_symbol_has_an_arm() {
         //    NoArm today, which is the honest failure and not a silent
         //    one — but it does mean `HasCustomMask` and `HasStageHooks`
         //    are declared axes that no fire can currently take.
+        //    `attn::split_qkv_bf16_devwin` LEFT this list on 2026-08-10:
+        //    it has an arm now, and a peel window word
+        //    (`cuda::PeelWindowWord`) for it to read. The custom dispatch
+        //    is still unserved, and a hooked fire still cannot run — not
+        //    for want of this arm but because the tail's ATTENTION takes a
+        //    windowed rectangle and every arm binds base pointers plus a
+        //    count. See `bridge_smoke`'s ignored peel gate.
         "attn::dispatch_attention_flashinfer_prefill_custom",
-        "attn::split_qkv_bf16_devwin",
         // ── kimi_k3: KDA, the per-key-channel delta rule ──────────────
         //
         // `ssm::bf16_to_fp32` left this list without an arm being

@@ -719,6 +719,16 @@ pub struct DispatchCtx {
     /// derivation from the config (the C++ computes it per layer at fire
     /// time); empty means the deployment states no sparse layer.
     pub altup_std_mult_by_layer: Vec<f32>,
+    /// The fire's PEEL WINDOW, device-resident: `[start, count]`, or null
+    /// when this fire has no row split. The `_devwin` statements in a
+    /// peel's tail read it — their grid spans every lane and out-of-window
+    /// rows early-out, which is what lets one capture replay across
+    /// different splits. See [`crate::cuda::PeelWindowWord`].
+    pub peel_window: *const u32,
+    /// The fire's FULL row count, which a `_devwin` launch spans
+    /// regardless of how many rows its own region serves. `Launch::rows`
+    /// gives the region; this gives the lane space it sits in.
+    pub rows_total: i32,
     /// The fire's STAGED LoRA state and its xAᵀ scratch (`ws.gate` in
     /// the C++) — what a stated `pie_lora_qkv_correction` launch
     /// applies. Null/None on adapter-free fires. A raw pointer because
@@ -1316,6 +1326,43 @@ pub fn dispatch<R: Resolver>(
         }
         // args: [packed, q_raw, k_raw, v] — one input, then the op's THREE
         // outputs stated as args (SplitQkv's outputs are values).
+        // args: [packed, q, k, v] — the same four the host-window form
+        // takes, and the SAME base pointers. The difference is where the
+        // row window comes from: a peel's tail addresses rows at absolute
+        // offsets in a full-N buffer, so the split rides in device memory
+        // and the grid spans every lane, out-of-window rows early-outing
+        // on `win[0]`/`win[1]`. That is what makes the launch replayable
+        // across splits, which is the whole reason the region asks for
+        // this kernel instead of choosing it.
+        //
+        // Note the operands are NOT windowed by the caller here, and that
+        // is the kernel's stated contract ("Buffers are BASE pointers")
+        // rather than an oversight — the binder's base-resolving
+        // behaviour, which §4's fourth decline-rule works around for the
+        // host-window form, is exactly right for this one.
+        "attn::split_qkv_bf16_devwin" => {
+            need(4)?;
+            let (packed, q, k, v) =
+                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
+            if ctx.peel_window.is_null() {
+                return Err(DispatchRefusal::NoArm(
+                    "attn::split_qkv_bf16_devwin: the fire published no peel window".into(),
+                ));
+            }
+            unsafe {
+                ffi::pie_k_attn_split_qkv_bf16_devwin(
+                    packed.ptr,
+                    q.ptr,
+                    k.ptr,
+                    v.ptr,
+                    ctx.peel_window,
+                    ctx.rows_total,
+                    i32::try_from(q.width).expect("q width"),
+                    i32::try_from(k.width).expect("kv width"),
+                    ctx.stream,
+                );
+            }
+        }
         "attn::split_qkv_bf16" => {
             need(4)?;
             let (packed, q, k, v) =

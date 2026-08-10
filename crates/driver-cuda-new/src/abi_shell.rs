@@ -1961,6 +1961,16 @@ fn step_impl(
         }
         _ => (Vec::new(), Vec::new(), 0.0, 0, std::collections::BTreeMap::new()),
     };
+    // The peel window word, uploaded before the walk so a tail region's
+    // `_devwin` launch reads a split rather than whatever was there. The
+    // engine does not yet mark rows, so the window is the whole fire —
+    // which is what an unpeeled fire means and what the lowering's own
+    // prefix/tail split degenerates to.
+    let mut peel_win =
+        crate::cuda::PeelWindowWord::new(&alloc).map_err(|_| PIE_STATUS_EXHAUSTED)?;
+    peel_win.set(0, u32::try_from(rows).unwrap_or(0));
+    peel_win.upload(stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+
     let ctx = DispatchCtx {
         stream: raw_stream,
         cublas: cublas.handle().expect("created").cast(),
@@ -1992,6 +2002,13 @@ fn step_impl(
         altup_active: 0,
         altup_std_mult_by_layer: Vec::new(),
         lora: None,
+        // The fire's peel window, published so a `_devwin` statement in a
+        // tail region can early-out per lane. The prefix is the rows that
+        // do NOT carry the axis's mark, so the tail begins where the
+        // marked suffix does; with no marked rows there is no split and
+        // the word says the whole fire.
+        peel_window: peel_win.device_ptr(),
+        rows_total: i32::try_from(rows).unwrap_or(0),
     };
 
     let mut resolver = LiveResolver { model, named: &named_bufs };

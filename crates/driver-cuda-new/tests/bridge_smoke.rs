@@ -331,6 +331,8 @@ fn the_executor_prefix_runs_the_anchor_decode_on_device() {
         altup_active: 0,
         altup_std_mult_by_layer: Vec::new(),
         lora: None,
+        peel_window: std::ptr::null(),
+        rows_total: 0,
     };
     let dplan = DispatchPlan::new(&plan, &l);
 
@@ -452,6 +454,52 @@ fn the_full_zero_weight_decode_walks_every_launch() {
     zero_weight_decode(Leg::Eager);
 }
 
+/// The same decode over a fire whose last two rows carry attached
+/// programs — the only leg that exercises a PEEL.
+///
+/// `lower` splits a hooked fire on the hook axis, and the tail region
+/// addresses rows at absolute offsets in a full-N buffer, so its
+/// statements take `_devwin` kernels that read the split from device
+/// memory instead of taking a row count. Until this leg existed nothing
+/// in the tree ran one: every other lowering uses plain rows, so the peel
+/// path had no fire, `attn::split_qkv_bf16_devwin` had no arm, and the
+/// symbol was not even in `UNARMED` because it was never lowered.
+///
+/// No programs are actually attached, so both regions compute what the
+/// unpeeled fire computes. That is what makes it a gate rather than a
+/// smoke test: the residual and logit invariants must come out
+/// bit-identical, and a devwin launch reading the wrong window would move
+/// them.
+///
+/// # Why this is `ignore`d, and what un-ignoring it needs
+///
+/// It does not pass, and what it fails on is worth having written down.
+/// The devwin arm and the peel window word are enough for the SPLIT; the
+/// attention is not. A peel's tail region hands its attention launch a
+/// windowed rectangle (`rows.start == 2`), and every arm binds BASE
+/// pointers plus a row COUNT — so the tail's attention runs over rows
+/// 0..2 instead of 2..4, disagrees with the KV plan, and faults inside
+/// FlashInfer.
+///
+/// That is §4's fourth decline-rule, met head-on rather than declined
+/// around: the generated branches guard on `rows.start == 0` precisely
+/// because a base-bound launch writes the prefix's rows, and the hand
+/// arms have the same bug without the guard. Nothing noticed until now
+/// because nothing had ever run a peel.
+///
+/// So un-ignoring this needs the windowed rectangle solved, which
+/// `cuda.md` §4 records as needing a stride the operand vocabulary does
+/// not carry — `Arg::Arena { at, width }` gives elements per row and no
+/// dtype. Either `Arg` learns the operand's dtype (which the lowering
+/// knows and does not say) or the lowering emits already-windowed
+/// offsets. It is one of the four decline-rules and the only one whose
+/// removal has a fire waiting for it.
+#[test]
+#[ignore = "the peel's tail hands attention a windowed rectangle; see the doc comment"]
+fn a_hooked_fire_peels_and_still_lands_the_same_numbers() {
+    zero_weight_decode(Leg::Hooked);
+}
+
 /// The SAME walk, captured and replayed.
 ///
 /// This is the gate `run_captured` was written for and the one thing its
@@ -535,6 +583,16 @@ enum Leg {
     /// Keep the guards and walk eagerly, reporting the first arm that
     /// cannot be issued with its predicate false. Asserts nothing.
     UnionProbe,
+    /// A fire whose LAST TWO ROWS carry attached programs, which makes
+    /// `lower` split it on the hook axis. The tail region then addresses
+    /// rows at absolute offsets and takes `_devwin` statements, so this is
+    /// the only leg that exercises a peel at all.
+    ///
+    /// No programs are actually attached, so the two regions compute the
+    /// same thing the unpeeled fire does — which is exactly why it is a
+    /// good gate: the invariants below must come out unchanged, and a
+    /// devwin launch that read the wrong window would change them.
+    Hooked,
 }
 
 fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::executor::RunRefusalKind)> {
@@ -577,7 +635,13 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
         &LlamaLikeCudaFacts::qwen3_0_6b_l40s(),
         FireClass::Decode,
     );
-    let rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; ROWS];
+    let mut rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; ROWS];
+    if leg == Leg::Hooked {
+        // A contiguous SUFFIX; `lower.rs::split_at` refuses anything else.
+        for r in rows.iter_mut().skip(ROWS - 2) {
+            r.hooked = true;
+        }
+    }
     // The captured leg KEEPS every guard: that is what makes one capture
     // able to serve fires that differ in their variant bits.
     let mode = if leg == Leg::UnionProbe { GuardMode::Union } else { GuardMode::Resolve };
@@ -764,6 +828,18 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
 
     let mut cublas_ops = LiveCublas;
     let mut cublas = CublasHandle::create(&mut cublas_ops, raw_stream).expect("cublas");
+    let mut peel_win =
+        driver_cuda_new::cuda::PeelWindowWord::new(&alloc).expect("peel window word");
+    // The window is the TAIL's, not the fire's. `_devwin` statements only
+    // occur in a peel's tail region, and the word is what tells them which
+    // absolute rows are theirs — publishing the whole fire makes the tail
+    // write the prefix's rows too, which is an out-of-bounds store into
+    // buffers the lowering sized for the region.
+    let split = rows.iter().position(|r| r.hooked).unwrap_or(0) as u32;
+    peel_win.set(split, ROWS as u32 - split);
+    peel_win.upload(stream.as_ref()).expect("publish the peel window");
+    stream.as_ref().synchronize().expect("the window lands");
+
     let ctx = DispatchCtx {
         stream: raw_stream,
         cublas: cublas.handle().expect("created").cast(),
@@ -795,6 +871,12 @@ fn zero_weight_decode(leg: Leg) -> Option<(String, driver_cuda_new::model::execu
         altup_active: 0,
         altup_std_mult_by_layer: Vec::new(),
         lora: None,
+        // The peel's tail begins where the marked suffix does. The word is
+        // what a `_devwin` launch early-outs on, and publishing the WHOLE
+        // fire here is right for both legs: the unpeeled one has no split,
+        // and the hooked one's regions between them cover every row.
+        peel_window: peel_win.device_ptr(),
+        rows_total: ROWS as i32,
     };
 
     // ── The walk: every launch, no refusals allowed. ──
@@ -1174,6 +1256,8 @@ fn the_full_zero_weight_prefill_walks_every_launch() {
         altup_active: 0,
         altup_std_mult_by_layer: Vec::new(),
         lora: None,
+        peel_window: std::ptr::null(),
+        rows_total: 0,
     };
 
     let mut embed_out = None;
@@ -1636,6 +1720,8 @@ fn the_hybrid_zero_weight_decode_walks_every_launch() {
         altup_active: 0,
         altup_std_mult_by_layer: Vec::new(),
         lora: None,
+        peel_window: std::ptr::null(),
+        rows_total: 0,
     };
 
     // ── The walk. ──
@@ -2087,6 +2173,8 @@ fn the_hybrid_zero_weight_prefill_walks_every_launch() {
         altup_active: 0,
         altup_std_mult_by_layer: Vec::new(),
         lora: None,
+        peel_window: std::ptr::null(),
+        rows_total: 0,
     };
 
     let mut resolver = Live {
@@ -2476,6 +2564,8 @@ fn the_nemotron_zero_weight_decode_walks_every_launch() {
         altup_active: 0,
         altup_std_mult_by_layer: Vec::new(),
         lora: None,
+        peel_window: std::ptr::null(),
+        rows_total: 0,
     };
 
     let mut resolver = Live {
@@ -3484,6 +3574,8 @@ fn the_gemma3n_zero_weight_decode_walks_every_launch() {
         // something; the sparse layers are the first two.
         altup_std_mult_by_layer: vec![1.6449, 1.6449, 0.0, 0.0],
         lora: None,
+        peel_window: std::ptr::null(),
+        rows_total: 0,
     };
 
     // Launch by launch, syncing after each: a wrong dimension read from
@@ -3795,6 +3887,8 @@ fn the_gpt_oss_zero_weight_decode_walks_every_launch() {
         altup_active: 0,
         altup_std_mult_by_layer: Vec::new(),
         lora: None,
+        peel_window: std::ptr::null(),
+        rows_total: 0,
     };
 
     let mut resolver = Live {

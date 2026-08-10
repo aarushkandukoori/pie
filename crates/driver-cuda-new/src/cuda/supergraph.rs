@@ -155,6 +155,70 @@ impl PredicateWord {
     }
 }
 
+/// A peel's row split, device-resident: `[start, count]`.
+///
+/// The predicate word's sibling, and for the same reason. A peel's TAIL
+/// region addresses rows at ABSOLUTE offsets in a full-N buffer, so the
+/// statements there take `_devwin` kernels whose grid spans every lane and
+/// whose out-of-window rows early-out on this word — which is what lets a
+/// captured fire replay across a different split without recapturing.
+/// `split_qkv_devwin_kernel` reads exactly `win[0]` and `win[1]`.
+///
+/// [`PredicateWord`] already reserves the two Peel ENDPOINT slots
+/// ([`SLOT_PEEL_ALL_FAST`], [`SLOT_PEEL_ALL_HOOKED`]); those say whether a
+/// fire is all-fast or all-hooked. This says where the split IS, which is
+/// the fact the endpoints do not carry.
+#[derive(Debug)]
+pub struct PeelWindowWord {
+    device: DeviceBuffer,
+    host: [u32; 2],
+}
+
+impl PeelWindowWord {
+    /// Allocate the word. The window starts empty, which reads as "no
+    /// rows" rather than "all rows" — a kernel that runs before the host
+    /// has said anything must do nothing.
+    ///
+    /// # Errors
+    ///
+    /// If the allocation fails.
+    pub fn new(alloc: &Allocator) -> Result<Self> {
+        let device = alloc.alloc(std::mem::size_of::<u32>() * 2)?;
+        Ok(Self { device, host: [0, 0] })
+    }
+
+    /// Set the window in the host mirror. [`Self::upload`] is what the
+    /// device sees.
+    pub const fn set(&mut self, start: u32, count: u32) {
+        self.host = [start, count];
+    }
+
+    /// The window as the host currently believes it.
+    pub const fn get(&self) -> (u32, u32) {
+        (self.host[0], self.host[1])
+    }
+
+    /// Push the host mirror to the device, ordered on `stream`.
+    ///
+    /// # Errors
+    ///
+    /// If the copy fails.
+    pub fn upload(&mut self, stream: StreamRef<'_>) -> Result<()> {
+        let bytes: [u8; 8] = {
+            let mut b = [0u8; 8];
+            b[..4].copy_from_slice(&self.host[0].to_ne_bytes());
+            b[4..].copy_from_slice(&self.host[1].to_ne_bytes());
+            b
+        };
+        self.device.copy_from_host(&bytes, stream)
+    }
+
+    /// The device address a `_devwin` launcher takes as `win_d`.
+    pub const fn device_ptr(&self) -> *const u32 {
+        self.device.as_ptr().cast_const().cast::<u32>()
+    }
+}
+
 #[cfg(feature = "bridge")]
 unsafe extern "C" {
     /// See `csrc/supergraph.cu`. Returns a `cudaError_t` as an int.
