@@ -9,6 +9,17 @@
 // hand-written switch needed; this needs none, and the symbol
 // is what the statement carries anyway.
 
+if (sym == "attn::attention_sink_rescale_bf16" && ins.size >= 2 && outs.size >= 1 && aux.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::attn::attention_sink_rescale_bf16(
+        c.arm.values.slot(outs[0]),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        c.wb.require(c.arm.plan.name(aux[0])).data(),
+        c.arm.rows,
+        c.num_q_heads,
+        c.head_dim,
+        c.arm.stream);
+    return true;
+}
 if (sym == "layout::split_bf16_rows" && ins.size >= 1 && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::layout::split_bf16_rows(
         c.arm.values.slot(ins[0]),

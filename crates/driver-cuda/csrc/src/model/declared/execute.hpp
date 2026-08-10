@@ -56,6 +56,7 @@
 
 #include "attention_workspace.hpp"
 #include "attn/attention_flashinfer.hpp"
+#include "attn/attn_sink.hpp"
 #include "attn/head_dim_pad.hpp"
 #include "attn/kv_paged.hpp"
 #include "gemm/gemm.hpp"
