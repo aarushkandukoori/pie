@@ -1,5 +1,11 @@
 # Direction: the model-compiler path, and what it retires
 
+> The planning map above this document is `.wiki/new-driver/metal.md`: the
+> north star in full (general-purpose executor, tart-level supergraph
+> polymorphism, no hardwired model definitions, end-to-end function), where
+> Metal stands against each, and the remaining tasks in dependency order. This
+> file stays the decision record for the ones already taken.
+
 Decided 2026-08-10. **Read this before picking work out of `PARITY-BATCH.md`
 or `CUTOVER.md`** — both were written against the older plan and describe work
 that is no longer worth doing.
