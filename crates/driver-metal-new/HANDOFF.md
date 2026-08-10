@@ -76,6 +76,11 @@ crates/driver-metal-new/
     real_kernels.rs
   PARITY.md         ledger for csrc/src/mtl4_context.hpp  (the shell)
   PARITY-M1.md      ledger for csrc/src/pipeline/m1_runtime.cpp
+  PARITY-INTERP.md  ledger for csrc/src/pipeline/interp.hpp
+  PARITY-BATCH.md   ledger for csrc/src/batch/ and the families
+  PARITY-LOADER.md  ledger for csrc/src/loader/
+  PARITY-STORE.md   ledger for csrc/src/store/
+  CUTOVER.md        how this crate replaces driver-metal, and the gate
 ```
 
 The portable half is not a convenience. It is the half that can be tested
@@ -198,13 +203,13 @@ each is one commit.
 slice updates its `PARITY-*.md` row in the same commit, so the ledgers are
 never more than one commit behind; this table is refreshed by hand and has
 twice been read as current when it was a day old. Trust
-`PARITY.md`, `PARITY-M1.md`, `PARITY-BATCH.md`, `PARITY-LOADER.md` and
-`PARITY-STORE.md` over anything written here. Last refreshed **2026-08-09,
-after `9a2b5f363`**.
+`PARITY.md`, `PARITY-M1.md`, `PARITY-INTERP.md`, `PARITY-BATCH.md`,
+`PARITY-LOADER.md` and `PARITY-STORE.md` over anything written here. Last
+refreshed **2026-08-09, after `9a2b5f363`**.
 
 | subsystem | state |
 |---|---|
-| `pipeline/` | done. `PARITY-M1.md` is closed out; the one `missing` entry, `m1_singleton_fallback_inputs`, is a `batch/` field copy |
+| `pipeline/` | done, and it is two C++ files, not one. `PARITY-M1.md` (`m1_runtime.cpp`) is closed out but for `m1_singleton_fallback_inputs`, a `batch/` field copy; `PARITY-INTERP.md` (`interp.hpp`, the channel-plane interpreter) is closed out with nothing missing |
 | `batch/` | done through the multibatch layer and all four families: independent surface, DAG builders (M=1 and MB), dataflow walk, PSO plans, binds tables, golden taps |
 | `loader/` portable | done; `transcode.hpp` dropped with receipts |
 | `metal/` step + runner | done: storage staging (arena mode), the four bind passes, MB binds, PSO loaders, DecodeStep/MbStep, `decoder.rs`, and a per-family engine — `llama_engine.rs`, `gptoss_engine.rs`, `gemma4_engine.rs` beside the qwen path |
@@ -228,7 +233,7 @@ attribution. `BatchStepInputs` is its marshaling container.
 | `expert_paging.hpp` (195) | `PARITY-BATCH.md` — `fire` needs `ExpertSlab` |
 | `load_multibatch_psos` / `MultiBatchPsos` | `PARITY-BATCH.md` — qmm tile grammar + tuning constants |
 | `KvPagePool` (SlotHandles + counters) | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
-| the CPU reference interpreter (`interp.hpp`, 1.7k) | `CUTOVER.md` — **gate item 4; port before the flip** |
+| the oracle harness — diff a fire through `metal::fire` against `pipeline::step` | `CUTOVER.md` gate item 4. The interpreter itself is **done** (`PARITY-INTERP.md`); only the harness is missing |
 | registry (`registry.cpp` 452 + `descriptor_resolve.hpp` 400), ring registry, `copy_kv`/`copy_state`/`resize_pool`, `store/`+`model/` glue (~375) | `CUTOVER.md` prerequisites |
 
 Deferred on purpose, each with its reason in the ledger: split-K; FP16
@@ -260,8 +265,9 @@ smoke needs a `qwen3_moe` checkpoint (Qwen3.6-35B-A3B turned out to be
   interpreter oracle, soak, the panic regressions) authorises the flip.
   Of the six, item 1 (suite green on device) holds and item 3 (token-exact
   decode) has run its N ≥ 1000 horizon; its one open leg is the bit-identical
-  comparison against the OLD driver, which shares these kernels. Items 2, 4,
-  5 and 6 are untouched, and item 4 needs the interpreter ported first.
+  comparison against the OLD driver, which shares these kernels. Items 2, 5
+  and 6 are untouched. Item 4 needs only its harness — the interpreter it was
+  recorded as waiting on has been in `src/pipeline/` all along.
 
 ## How to work on this
 

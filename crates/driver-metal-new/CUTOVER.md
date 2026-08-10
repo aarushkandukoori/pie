@@ -44,7 +44,7 @@ the twelve entry points need beyond it, and where each lands:
 | `register_program` / `bind_instance` | program/instance registry | `pipeline/registry.cpp` (452) + `descriptor_resolve.hpp` (400) |
 | `register_channel` / `close_channel` | ring registry over [`Ring`] | small; `Ring` exists, the registry is bookkeeping |
 | `copy_kv` / `copy_state` / `resize_pool` | K/V plumbing over `Elastic` | with `batch/` |
-| (verification, not serving) | the CPU reference interpreter | `pipeline/interp.hpp` (1.7k) — a test oracle, port before the gate |
+| (verification, not serving) | the CPU reference interpreter | **already ported** — `interp.hpp` (1.7k) is `src/pipeline/`, ledgered in `PARITY-INTERP.md`. What is missing is the harness that diffs it against the device, not the interpreter |
 | `store/`, `model/` | small glue | ~375 |
 
 Nothing else blocks assembly: the compile, the three execute paths, the
@@ -83,10 +83,21 @@ The flip is authorised when all of the following hold, and not before:
    BIT-identical standard this item states applies to the comparison
    against the OLD driver, which shares these kernels and remains the
    one open leg.
-4. **The interpreter agrees.** The same fires replayed through the ported
-   CPU reference interpreter (`interp.hpp`'s Rust) match the device results
-   within its stated tolerance — the oracle the C++ never had wired to
-   Metal.
+4. **The interpreter agrees.** The same fires replayed through the CPU
+   reference interpreter match the device results within its stated
+   tolerance — the oracle the C++ never had wired to Metal.
+
+   *Correction (2026-08-09):* this item was recorded as blocked on porting
+   `interp.hpp`. It is not — the interpreter is `src/pipeline/`, closed out
+   in `PARITY-INTERP.md`, and `adopt_launch_package` → `make_instance` →
+   `step` runs today. The open work is the **harness**: nothing in `tests/`
+   references `pipeline::step`, so no fire has ever been run both ways and
+   compared. Settle there which interpreter is the oracle — this crate's
+   copy proves self-consistency, `tensor_compiler::eval::interp` (a
+   dev-dependency, as `pipeline/status.rs` already does for the fault table)
+   proves agreement with the original golden model. `interp.hpp` itself
+   records that it is a copy "minus the per-layer taps", which is the reason
+   the stronger check is worth writing.
 5. **Soak without growth.** A sustained decode (hours, not minutes) with
    `PoolStats`, `Memory`, and ring counts sampled: no monotone growth, no
    working-set creep. This is the leak class `release_standalone_buffer`
