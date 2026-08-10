@@ -91,3 +91,68 @@ pub fn rope_theta_at(list: &[f32], l: u32) -> f32 {
         n => list[(l as usize).min(n - 1)],
     }
 }
+
+/// Whether layer `l` runs FULL attention, on a family whose layer kinds
+/// repeat with period `interval`.
+///
+/// THE SCHEDULE, said once. Three families wrote this predicate — gemma-4,
+/// qwen3.5 and kimi-k3 — and gemma-4's own doc admits it: *"the same
+/// predicate `Qwen35HybridFacts::is_full_attn` states, because the two
+/// families schedule their layer kinds the same way."* A fact repeated in
+/// three places is a fact three places can disagree about, and these did.
+///
+/// The core is identical: the LAST layer of each period is the full one,
+/// which `(l + 1) % interval == 0` and `l % interval == interval - 1`
+/// both spell. The disagreement was at `interval == 0`. gemma-4 and
+/// qwen3.5 wrote `interval <= 1 || …`, making a zero mean EVERY layer;
+/// kimi-k3 wrote `interval > 0 && …`, making it mean NONE.
+///
+/// Zero means NONE here, because zero is what a config with no
+/// `full_attention` entry produces and "no periodic full layer" is what
+/// that says. It costs those two families nothing: both derivations
+/// refuse an interval of zero before any fact is built (gemma-4's
+/// `regular` check requires `interval > 0`), so the value they disagreed
+/// about is one neither can hold. An interval of ONE still means every
+/// layer, which `(l + 1) % 1 == 0` gives without a special case.
+#[must_use]
+pub fn full_attn_at(interval: u32, l: u32) -> bool {
+    interval > 0 && (l + 1) % interval == 0
+}
+
+#[cfg(test)]
+mod schedule {
+    use super::full_attn_at;
+
+    /// The LAST layer of each period is the full one, which is what all
+    /// three families' spellings meant.
+    #[test]
+    fn the_last_layer_of_each_period_is_the_full_one() {
+        // gemma-4 E4B: interval 6, full at 5, 11, …, 41.
+        let full: Vec<u32> = (0..42).filter(|&l| full_attn_at(6, l)).collect();
+        assert_eq!(full, vec![5, 11, 17, 23, 29, 35, 41]);
+        // E2B: interval 5 over 35 layers, which the interval does not divide.
+        let full: Vec<u32> = (0..35).filter(|&l| full_attn_at(5, l)).collect();
+        assert_eq!(full, vec![4, 9, 14, 19, 24, 29, 34]);
+    }
+
+    /// An interval of ONE is every layer, with no special case: `(l + 1) %
+    /// 1` is always zero. Two of the three families wrote `interval <= 1`
+    /// to get this and did not need to.
+    #[test]
+    fn an_interval_of_one_is_every_layer() {
+        assert!((0..8).all(|l| full_attn_at(1, l)));
+    }
+
+    /// THE EDGE THE THREE DISAGREED ABOUT. gemma-4 and qwen3.5 wrote
+    /// `interval <= 1 || …`, so a zero meant EVERY layer; kimi-k3 wrote
+    /// `interval > 0 && …`, so it meant NONE.
+    ///
+    /// None wins: zero is what a config with no `full_attention` entry
+    /// produces, and "no periodic full layer" is what that says. It costs
+    /// the other two nothing — their derivations refuse an interval of
+    /// zero before any fact is built, so it is a value neither can hold.
+    #[test]
+    fn an_interval_of_zero_is_no_layer() {
+        assert!((0..8).all(|l| !full_attn_at(0, l)));
+    }
+}
