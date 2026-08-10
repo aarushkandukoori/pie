@@ -15,6 +15,9 @@
 //! * [`grid`] — the launch arithmetic itself, moved out of the retiring
 //!   `batch/dispatch.rs` because a kernel's thread-position contract is
 //!   backend knowledge that survives the DAG builder beside it.
+//! * [`resolve`] — the map from the names a text states to the tensors a
+//!   checkpoint holds. The one per-family piece, and a map rather than a
+//!   switch: it chooses nothing, it translates a spelling.
 //! * [`encode`] — the one half that needs a GPU: compile the symbols, bind the
 //!   addresses, dispatch. Apple-only.
 
@@ -25,8 +28,10 @@ pub mod executor;
 pub mod frame;
 pub mod geometry;
 pub mod grid;
+pub mod resolve;
 
 pub use dispatch::{Dispatch, Geometry, Undispatchable, plan as plan_dispatches};
 pub use executor::{BindRefusal, BoundArg, BoundLaunch, Frame, Resolver, Slice, bind, resolve_arg};
 pub use frame::{Step, Unbridged, Unbridgeable, fire_class, lower_step, rows_of};
 pub use geometry::{Dims, Rule, Ungeometric, eval as eval_launch};
+pub use resolve::{Names, Store};

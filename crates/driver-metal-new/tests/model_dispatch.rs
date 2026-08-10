@@ -390,3 +390,70 @@ mod from_a_frame {
         );
     }
 }
+
+/// The resolver's map, against the whole of what the text asks for.
+///
+/// `model_bind.rs` proves the names reach *a* resolver. This proves the real
+/// one knows all of them — which is the difference between a map that exists
+/// and a map that is complete.
+mod the_map {
+    use std::collections::HashMap;
+
+    use driver_metal_new::model::resolve::{Names, Store};
+
+    use super::*;
+
+    #[test]
+    fn every_name_the_text_states_has_a_checkpoint_spelling() {
+        let names = Names::mlx();
+        let (tensors, named) = (HashMap::new(), HashMap::new());
+        let store = Store::new(names, &tensors, &named);
+
+        let mut unknown: BTreeSet<String> = BTreeSet::new();
+        for (class, rows) in [(FireClass::Decode, 1), (FireClass::Prefill, 8)] {
+            let low = lowered(class, rows);
+            for arg in &low.args {
+                if let model_compiler::lower::Arg::Weight(name) = arg {
+                    // A `scale.` marker is a constant riding the weight slot,
+                    // not a tensor; the binder never looks it up.
+                    if name.starts_with("scale.") {
+                        continue;
+                    }
+                    if store.checkpoint_name(name).is_none() {
+                        unknown.insert(name.clone());
+                    }
+                }
+            }
+        }
+        assert!(
+            unknown.is_empty(),
+            "the text states {} name(s) the map cannot spell: {unknown:?}\n\
+             Add the role to `Names::mlx`, or the name is drift.",
+            unknown.len()
+        );
+    }
+
+    #[test]
+    fn an_affine_projection_asks_for_all_three_of_its_tensors() {
+        // The property the `proj_repr` fact buys. A text that left its
+        // projections dense would name ONE tensor where `affine_qmv_fast`
+        // reads three, and the driver would have had to derive the other two
+        // from a naming convention nobody told it.
+        let low = lowered(FireClass::Decode, 1);
+        let qkv = low
+            .launches
+            .iter()
+            .find(|l| low.kernels[l.kernel as usize] == "affine_qmv_fast")
+            .expect("the text states a quantized projection");
+        let weights: Vec<&str> = low.args[qkv.args.start as usize..qkv.args.end as usize]
+            .iter()
+            .filter_map(|a| match a {
+                model_compiler::lower::Arg::Weight(n) => Some(n.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(weights.len(), 3, "packed weight, scales, zero point");
+        assert!(weights[1].ends_with(".scales"));
+        assert!(weights[2].ends_with(".zeros"));
+    }
+}

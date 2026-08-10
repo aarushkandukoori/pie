@@ -269,7 +269,16 @@ fn llama_like_metal_text(
     // decode step) and M>1 (the multi-batch lane). `FireClass` is the
     // same instantiation index it is on CUDA.
     let multi_batch = class != FireClass::Decode;
-    dsl::trace_metal("llama_like", &facts.shape(), class, |m| {
+    // The namespace, with the deployment's WEIGHT REPRESENTATION on it, for
+    // the reason `llama_like_cuda` states at length: `facts.shape()` answers
+    // `Bf16` because the semantic facts carry no backend, and every handle
+    // `m.layer(l)` hands out is built from this one answer — which is why no
+    // projection below spells a repr and none can spell a different one.
+    let shape = dsl::ModelShape {
+        proj_repr: metal.proj_repr,
+        ..facts.shape()
+    };
+    dsl::trace_metal("llama_like", &shape, class, |m| {
         // The depth axis, and it is stated unconditionally here where the
         // CUDA text gates it on deployment facts. The gate exists there
         // because a padded deployment stages q/k at PHYSICAL width while a
@@ -318,7 +327,7 @@ fn llama_like_metal_text(
         };
         let paged = multi_batch && metal.paged_multi_batch;
 
-        let mut y = dsl::metal::embed_gather(m.trace(), "embed", f.hidden, multi_batch);
+        let mut y = dsl::metal::embed_gather(m.trace(), "embed", f.hidden, multi_batch, metal.proj_repr);
 
         for l in 0..f.layers {
             let w = m.layer(l);
@@ -369,7 +378,7 @@ fn llama_like_metal_text(
 
         let normed = dsl::metal::rms_norm(&y, &m.final_norm());
         let head = if f.tied_embeddings { "embed" } else { "lm_head" };
-        dsl::metal::lm_head(&normed, head, f.vocab);
+        dsl::metal::lm_head(&normed, head, f.vocab, metal.proj_repr);
     })
 }
 

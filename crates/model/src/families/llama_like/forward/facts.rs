@@ -447,6 +447,23 @@ pub struct LlamaLikeMetalFacts {
     /// (`affine_qmm_t`) instead of the GEMV — the driver's
     /// `kQmmMinBatch` gate, as a load-time fact of the deployment.
     pub qmm_multi_batch: bool,
+    /// How this deployment's projections are STORED.
+    ///
+    /// Same role `LlamaLikeCudaFacts::proj_repr` plays and for the same
+    /// reason: `LlamaLikeFacts::shape()` answers `Bf16` because the semantic
+    /// facts carry no backend, and a trace with no backend cannot name the
+    /// kernel a scaled weight needs. The backend facts do carry one, so this
+    /// is where the representation reaches the namespace.
+    ///
+    /// It is load-bearing beyond the kernel name: an affine kernel reads
+    /// THREE tensors, and `MatW::scale_names` is what makes the statement say
+    /// so. A text that left this dense named `affine_qmv_fast` while stating
+    /// one weight, and the driver would have had to derive the other two from
+    /// a naming convention it was never told.
+    ///
+    /// Serde-defaulted, so a fixture written before this field reads as it did.
+    #[serde(default)]
+    pub proj_repr: model_compiler::dsl::WeightRepr,
 }
 
 impl LlamaLikeMetalFacts {
@@ -457,6 +474,17 @@ impl LlamaLikeMetalFacts {
             fuse_residual_gemv: true,
             paged_multi_batch: true,
             qmm_multi_batch: true,
+            // The symbols this text names are the affine ones
+            // (`affine_qmv_fast`, `embed_gather_4bit`), so the deployment
+            // they describe is a quantized checkpoint. MLX stores the pair
+            // beside the packed weight as `.scales` and `.biases`, which is
+            // a zero-point layout.
+            proj_repr: model_compiler::dsl::WeightRepr::Scaled {
+                layout: model_compiler::dsl::ScaleLayout::PerGroup,
+                group: 64,
+                axis: 0,
+                zero_point: true,
+            },
         }
     }
 }

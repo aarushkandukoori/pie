@@ -1663,7 +1663,13 @@ pub mod metal {
 
     /// `embed_gather.metal::embed_gather_4bit` (M=1) /
     /// `embed_gather_mb_4bit` (M>1).
-    pub fn embed_gather(t: &Trace, weight: &str, hidden: u32, multi_batch: bool) -> Val {
+    pub fn embed_gather(
+        t: &Trace,
+        weight: &str,
+        hidden: u32,
+        multi_batch: bool,
+        repr: WeightRepr,
+    ) -> Val {
         let kernel = if multi_batch {
             "embed_gather_mb_4bit"
         } else {
@@ -1673,7 +1679,7 @@ pub mod metal {
             t,
             None,
             kernel,
-            vec![weight.to_string()],
+            quant_table(weight, repr),
             None,
             vec![],
             Some((Shape(vec![Dim::Tokens, Dim::Const(hidden)]), DType::BF16)),
@@ -1698,6 +1704,37 @@ pub mod metal {
         .expect("a norm produces its value")
     }
 
+    /// The tensors a quantized projection reads: the packed weight, then
+    /// its scales and zero point.
+    ///
+    /// An affine kernel takes THREE buffers and the statements here used to
+    /// name one, which left the driver to derive the other two from a naming
+    /// convention it had to know. `dsl::matmul` already states the triplet
+    /// for the same reason its own doc gives — *"the driver never sees a
+    /// descriptor and never routes: it binds the names the statement gives it
+    /// and calls the symbol the statement names"* — and the Metal statements
+    /// now say the same thing.
+    fn quant_weights(w: &MatW) -> Vec<String> {
+        let mut out = vec![w.name.clone()];
+        out.extend(w.scale_names());
+        out
+    }
+
+    /// The same triplet for a table the text names by STRING rather than
+    /// through a [`MatW`] handle — the embedding and the readout.
+    ///
+    /// They take a `repr` for the same reason a projection does: the symbols
+    /// are `embed_gather_4bit` and `affine_qmv_fast`, both affine, both
+    /// reading three tensors.
+    fn quant_table(name: &str, repr: WeightRepr) -> Vec<String> {
+        quant_weights(&MatW {
+            name: name.to_string(),
+            width: 0,
+            layer: None,
+            repr,
+        })
+    }
+
     /// `quantized_qmv.metal::affine_qmv_fast` — the projection GEMV,
     /// M=1. The driver fans every projection kind onto it.
     pub fn qmv(x: &Val, w: &MatW) -> Val {
@@ -1705,7 +1742,7 @@ pub mod metal {
             &x.t,
             w.layer,
             "affine_qmv_fast",
-            vec![w.name.clone()],
+            quant_weights(w),
             None,
             vec![x.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
@@ -1721,7 +1758,7 @@ pub mod metal {
             &x.t,
             w.layer,
             "affine_qmv_fast_residual",
-            vec![w.name.clone()],
+            quant_weights(w),
             None,
             vec![x.id, residual.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
@@ -1736,7 +1773,7 @@ pub mod metal {
             &x.t,
             w.layer,
             "affine_qmm_t",
-            vec![w.name.clone()],
+            quant_weights(w),
             None,
             vec![x.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
@@ -1750,7 +1787,7 @@ pub mod metal {
             &x.t,
             w.layer,
             "affine_qmm_t_residual",
-            vec![w.name.clone()],
+            quant_weights(w),
             None,
             vec![x.id, residual.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(w.width)]), DType::BF16)),
@@ -1909,12 +1946,12 @@ pub mod metal {
 
     /// `quantized_qmv.metal::affine_qmv_fast` against the lm head — the
     /// readout, `[Requests, vocab]` f32 like every family's.
-    pub fn lm_head(x: &Val, weight: &str, vocab: u32) -> Val {
+    pub fn lm_head(x: &Val, weight: &str, vocab: u32, repr: WeightRepr) -> Val {
         record(
             &x.t,
             None,
             "affine_qmv_fast",
-            vec![weight.to_string()],
+            quant_table(weight, repr),
             None,
             vec![x.id],
             Some((Shape(vec![Dim::Requests, Dim::Const(vocab)]), DType::F32)),
