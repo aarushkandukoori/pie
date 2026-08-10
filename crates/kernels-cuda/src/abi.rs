@@ -430,6 +430,8 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
         kernels::Ty::I64s => format!("static_cast<const ::std::int64_t*>({e})"),
         kernels::Ty::U32sMut => format!("static_cast<::std::uint32_t*>({e})"),
         kernels::Ty::U8sMut => format!("static_cast<::std::uint8_t*>({e})"),
+        kernels::Ty::U16s => format!("static_cast<const ::std::uint16_t*>({e})"),
+        kernels::Ty::U16sMut => format!("static_cast<::std::uint16_t*>({e})"),
         kernels::Ty::F32sMut => format!("static_cast<float*>({e})"),
         kernels::Ty::F32s => format!("static_cast<const float*>({e})"),
         _ => e,

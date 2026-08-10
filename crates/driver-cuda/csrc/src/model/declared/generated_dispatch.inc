@@ -30,6 +30,16 @@ if (sym == "layout::split_qwen_gdn_ba_bf16" && ins.size >= 1 && outs.size >= 2 &
         c.arm.stream);
     return true;
 }
+if (sym == "layout::transpose_bf16_nld_to_lnd" && ins.size >= 1 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::layout::transpose_bf16_nld_to_lnd(
+        static_cast<const ::std::uint16_t*>(c.arm.values.slot(ins[0])),
+        static_cast<::std::uint16_t*>(c.arm.values.slot(outs[0])),
+        c.arm.rows,
+        static_cast<int>(c.arm.plan.value(outs[0]).dims[0].value),
+        static_cast<int>(c.arm.plan.value(outs[0]).dims[2].value),
+        c.arm.stream);
+    return true;
+}
 if (sym == "mlp::chunked_swiglu_bf16" && ins.size >= 1 && outs.size >= 1) {
     ::pie_cuda_driver::kernels::mlp::chunked_swiglu_bf16(
         c.arm.values.slot(ins[0]),

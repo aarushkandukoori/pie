@@ -60,6 +60,7 @@
 #include "attn/kv_paged.hpp"
 #include "gemm/gemm.hpp"
 #include "layout/deinterleave.hpp"
+#include "layout/gather_rows.hpp"
 #include "norm/residual_add.hpp"
 #include "norm/rmsnorm.hpp"
 // Headers the GENERATED half calls into. A row that states its sources

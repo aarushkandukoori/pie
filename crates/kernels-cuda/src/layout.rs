@@ -98,14 +98,21 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     // The PLE relay: [N, L, D] -> [L, N, D], so a layer reads a
     // contiguous slice. Addressing, not arithmetic.
+    // The relay's three extents, off the RESULT. It is `[L, Tokens,
+    // ple_dim]` -- the layer axis leads, which is the whole reason this
+    // statement exists -- so the layer count and the per-layer width are
+    // its own dims and the token count is the fire's. The arm read all
+    // three from config, on the reading that `Tokens` being off the
+    // leading axis left it with nothing to derive from; the leading axis
+    // is exactly what carries two of them.
     kernel!(transpose_nld_to_lnd "layout::transpose_bf16_nld_to_lnd",
         operands = operands![
-            src: U16s,
-            dst: U16sMut,
-            n: I32,
-            layers: I32,
-            dim: I32,
-            stream: Stream,
+            src: U16s <- Source::In(0),
+            dst: U16sMut <- Source::Out(0),
+            n: I32 <- Source::Rows,
+            layers: I32 <- Source::OutDim(0, 0),
+            dim: I32 <- Source::OutDim(0, 2),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(verify_stash_store "qwen35_verify_stash_store"),
     kernel!(verify_stash_load "qwen35_verify_stash_load"),
