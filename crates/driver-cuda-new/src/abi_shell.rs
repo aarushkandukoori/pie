@@ -96,6 +96,24 @@ struct Shell {
     /// first launch. This is also what the 711-fire soak enforced: the
     /// per-fire version leaked its 48 MB workspace every fire.
     scratch: Option<FireScratch>,
+    /// The PTIR plane: what a registered program adopted to, and what its
+    /// generated regions compiled to.
+    ///
+    /// Two fields rather than one because they have different lifetimes.
+    /// [`crate::ptir::Runtime`] is the CACHE — it outlives any one program
+    /// and is what makes the second registration of a shared stage free —
+    /// while `ptir_programs` is this shell's OWNERSHIP of the compiled
+    /// modules, so closing the last user of a program can drop its
+    /// `CUmodule`s at a point the shell chose.
+    ptir: crate::ptir::Runtime,
+    /// The compiled form of each registered program, by program id.
+    ptir_programs: crate::ptir::Programs,
+    /// The adopted plans, by program id. Separate from the compiled
+    /// modules because a program can be adopted and REJECTED — an
+    /// unexecutable plan is still a plan, and the reason it was rejected
+    /// is what the launch that needs it has to report — while a
+    /// compilation only exists for a program that got that far.
+    ptir_plans: std::collections::BTreeMap<u64, driver_pipeline::ExecPlan>,
 }
 
 /// Driver-lifetime fire scratch.
@@ -456,6 +474,9 @@ pub extern "C" fn pie_cuda_create(
         channels: std::collections::BTreeMap::new(),
         swap: None,
         scratch: None,
+        ptir: crate::ptir::Runtime::default(),
+        ptir_programs: crate::ptir::Programs::new(),
+        ptir_plans: std::collections::BTreeMap::new(),
     });
     let raw = Box::into_raw(boxed);
     if let Some(out) = unsafe { caps.as_mut() } {
@@ -881,10 +902,36 @@ fn alias_qwen3_5(
     Ok(())
 }
 
-/// Register a program: the id lifecycle, with the C3 hash as the dedup
-/// key — re-registering answers the existing id. The launch PACKAGE is
-/// not yet copied; it is deep-copied when the `launch` arm lands and has
-/// a reader for it.
+/// Register a program: adopt its launch package, compile its generated
+/// regions, and answer an id.
+///
+/// The C3 hash is the dedup key — re-registering answers the existing id
+/// without recompiling — which is what makes a program that is bound a
+/// thousand times compiled once.
+///
+/// # What a failure here means, and why it is not always one
+///
+/// Four outcomes, and only two of them are errors:
+///
+/// * The descriptor carries NO launch package — an empty stage list. That
+///   is a forward-only deployment: the model runs and the logits come
+///   back through the instance's reader channel, with no user program
+///   around the fire. An id is issued and nothing is adopted. `OK`.
+/// * The package adopts and every generated region compiles. `OK`.
+/// * The package adopts and the plan is UNEXECUTABLE — a per-layer tap
+///   stage, an op this driver does not implement. That is not a driver
+///   failure and not a registration failure either: the plan is recorded
+///   with its reason, and the refusal surfaces at the launch that needs
+///   it, where the caller can see which fire it lost.
+/// * A region NVRTC rejects, or an emitted table with a hole in it.
+///   `UNSUPPORTED`, and remembered: this driver carries no emitter, so a
+///   generated region with no host source has no slower path to fall
+///   back to.
+///
+/// A compile needs a device — the architecture comes from the GPU that
+/// will run the code, never a guess — so a shell with no model loaded has
+/// not bound one yet and defers the compile to the first launch rather
+/// than compiling for an architecture it made up.
 #[unsafe(no_mangle)]
 pub extern "C" fn pie_cuda_register_program(
     driver: *mut PieDriver,
@@ -900,28 +947,148 @@ pub extern "C" fn pie_cuda_register_program(
     if desc.abi_version != PIE_DRIVER_ABI_VERSION {
         return PIE_STATUS_INVALID_ARGUMENT;
     }
-    let existing = state
+    if let Some(id) = state
         .programs
         .iter()
         .find(|(_, p)| p.program_hash == desc.program_hash)
-        .map(|(&id, _)| id);
-    let id = existing.unwrap_or_else(|| {
-        let id = state.next_id;
-        state.next_id += 1;
-        state.programs.insert(
-            id,
-            ProgramEntry {
-                program_hash: desc.program_hash,
-                emitter_version: desc.emitter_version,
-            },
-        );
-        id
-    });
+        .map(|(&id, _)| id)
+    {
+        if let Some(out) = unsafe { program_id.as_mut() } {
+            *out = id;
+        }
+        return PIE_STATUS_OK;
+    }
+
+    // SAFETY: the engine's contract for `register_program` is that every
+    // array reachable from the descriptor is live for the duration of the
+    // call. Adoption COPIES, so nothing here outlives that window --
+    // which is the reason it is done now rather than by holding the
+    // descriptor: `PieProgramDesc` is the caller's transient memory.
+    let package = unsafe { driver_abi::adopt_package(&desc.launch) };
+    let kernels = unsafe { driver_abi::adopt_emitted_kernels(desc.emitted_kernels) };
+
+    let id = state.next_id;
+    state.next_id += 1;
+
+    // A package with NO STAGES is not a malformed program; it is the
+    // absence of one. The engine registers such a descriptor for a
+    // forward-only deployment — the model runs, the logits come back
+    // through the instance's reader channel, and no user program sits
+    // around the fire. `adopt_launch_package` refuses an empty stage list
+    // because an ExecPlan with nothing to execute is not a plan, and it is
+    // right to; the judgement that this is not an ERROR belongs here,
+    // where the difference between "the host sent a broken program" and
+    // "the host sent no program" is visible.
+    if !package.stages.is_empty() {
+        if let Err(code) = adopt_and_compile(state, id, desc, package, &kernels) {
+            return code;
+        }
+    }
+
+    state.programs.insert(
+        id,
+        ProgramEntry {
+            program_hash: desc.program_hash,
+            emitter_version: desc.emitter_version,
+        },
+    );
     if let Some(out) = unsafe { program_id.as_mut() } {
         *out = id;
     }
     PIE_STATUS_OK
 }
+
+/// Adopt one non-empty launch package and compile what it generates.
+///
+/// Split out so the id lifecycle above reads as the lifecycle: the empty
+/// case, the dedup case and the id assignment are all one paragraph, and
+/// the thing that can fail is one call.
+fn adopt_and_compile(
+    state: &mut Shell,
+    id: u64,
+    desc: &PieProgramDesc,
+    package: driver_pipeline::driver_abi::plan::LaunchPackage,
+    kernels: &[driver_pipeline::EmittedKernel],
+) -> Result<(), i32> {
+    let plan = match driver_pipeline::adopt_launch_package(package) {
+        Ok(plan) => plan,
+        Err(error) => {
+            eprintln!("[driver-cuda-new] register_program: {error}");
+            return Err(PIE_STATUS_UNSUPPORTED);
+        }
+    };
+
+    // The compile, when there is a device to compile FOR. `load_model`
+    // binds it; a registration that arrives first is not an error, and
+    // guessing an architecture would produce a cubin for the wrong GPU
+    // rather than a diagnostic.
+    if plan.executable && state.model.is_some() {
+        let target = ptir_target()?;
+        let versions = driver_pipeline::Versions::mirrored(desc.emitter_version);
+        match state
+            .ptir
+            .compile(desc.program_hash, &plan, kernels, versions, target)
+        {
+            Ok(compiled) => state.ptir_programs.insert(id, compiled),
+            Err(failure) => {
+                eprintln!(
+                    "[driver-cuda-new] register_program: cannot compile program \
+                     {:#018x}: {}",
+                    desc.program_hash,
+                    failure.reason()
+                );
+                return Err(PIE_STATUS_UNSUPPORTED);
+            }
+        }
+    } else if !plan.executable {
+        // Recorded rather than refused: an unexecutable plan is a fact
+        // about the program that the launch needing it must be able to
+        // report, and losing the reason here would leave that launch with
+        // nothing to say.
+        eprintln!(
+            "[driver-cuda-new] register_program: program {:#018x} adopted but is \
+             not executable by this driver: {}",
+            desc.program_hash,
+            plan.reject_reason.as_deref().unwrap_or("no reason given")
+        );
+    }
+
+    state.ptir_plans.insert(id, plan);
+    Ok(())
+}
+
+/// What the compile cache needs to know about the GPU it is compiling for.
+///
+/// Read per registration rather than cached on the shell because the two
+/// numbers that matter are cheap and the one that is not — the NVRTC
+/// version — is a `dlopen`'d call the loader has already resolved by the
+/// second registration. Caching it would trade nothing for a field that
+/// can go stale against a runtime swap.
+fn ptir_target() -> Result<crate::ptir::Target, i32> {
+    let device = crate::cuda::Device::bind(0).map_err(|error| {
+        eprintln!("[driver-cuda-new] register_program: no device to compile for: {error}");
+        PIE_STATUS_DRIVER_ERROR
+    })?;
+    let (major, minor) = device.compute_capability().map_err(|error| {
+        eprintln!("[driver-cuda-new] register_program: {error}");
+        PIE_STATUS_DRIVER_ERROR
+    })?;
+    let nvrtc = crate::ptir::nvrtc::version().map_err(|error| {
+        eprintln!("[driver-cuda-new] register_program: {error}");
+        PIE_STATUS_DRIVER_ERROR
+    })?;
+    Ok(crate::ptir::Target {
+        major,
+        minor,
+        // The ordinal, widened. A stable per-GPU id is what the identity
+        // wants and what stops one machine's cache answering for another
+        // family; with one device bound per process the ordinal IS that
+        // id, and it is the number the C++ used.
+        device: u64::try_from(device.ordinal()).unwrap_or(0),
+        nvrtc,
+    })
+}
+
 
 /// Register a channel endpoint: the C++ registry's binding contract —
 /// a pinned host MIRROR of `(capacity + 1)` wire cells and four pinned
