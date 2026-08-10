@@ -139,6 +139,73 @@ pub fn after_dense_prefix(dense_layers: u32, l: u32) -> bool {
     l >= dense_layers
 }
 
+/// The MLA attention block's dims — the LATENT-CACHE geometry, said once.
+///
+/// glm5, kimi-k2 and kimi-k3 each carried a struct with these fields, and
+/// the first two were field-identical; k3's added `output_gate` alone.
+/// Three structs for one geometry is three places a family can disagree
+/// about what MLA is.
+///
+/// `qk_nope_head_dim + qk_rope_head_dim` is the query width per head; the
+/// CACHE stores the latent plus the rope half, so
+/// `kv_lora_rank + qk_rope_head_dim` is its own number and not derivable
+/// from the query's. That distinction is the whole reason MLA is not a
+/// head count — the driver's pool geometry reads the second, and every
+/// `PlannedFamily::head_dim_of` in the MLA lineage answers with it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MlaFacts {
+    pub hidden: u32,
+    pub heads: u32,
+    pub q_lora_rank: u32,
+    pub kv_lora_rank: u32,
+    pub qk_nope_head_dim: u32,
+    pub qk_rope_head_dim: u32,
+    pub v_head_dim: u32,
+    /// kimi-k3 gates the MLA output; the others do not. Serde-defaulted
+    /// so the two families that never had the field read back unchanged.
+    #[serde(default)]
+    pub output_gate: bool,
+}
+
+impl MlaFacts {
+    /// The per-head query width the `q_b` projection produces.
+    #[must_use]
+    pub const fn qk_head_dim(&self) -> u32 {
+        self.qk_nope_head_dim + self.qk_rope_head_dim
+    }
+
+    /// The width `q_b_proj` writes: every head's nope+rope halves.
+    #[must_use]
+    pub const fn q_b_width(&self) -> u32 {
+        self.heads * self.qk_head_dim()
+    }
+
+    /// The width `kv_a_proj_with_mqa` writes: the latent plus ONE shared
+    /// rope half. Also one page row of the compressed cache, which is
+    /// what a driver allocates per token and what every MLA family's
+    /// `PlannedFamily::head_dim_of` answers with.
+    ///
+    /// A method rather than a stored fact, because a stored sum is a
+    /// second thing to keep in step with its addends.
+    #[must_use]
+    pub const fn kv_a_width(&self) -> u32 {
+        self.kv_lora_rank + self.qk_rope_head_dim
+    }
+
+    /// Every head's value half.
+    #[must_use]
+    pub const fn v_width(&self) -> u32 {
+        self.heads * self.v_head_dim
+    }
+
+    /// The FUSED `q_kv_a` projection's width, for a deployment whose load
+    /// joined the query's and the KV's latents into one bank.
+    #[must_use]
+    pub const fn q_kv_a_width(&self) -> u32 {
+        self.q_lora_rank + self.kv_a_width()
+    }
+}
+
 #[cfg(test)]
 mod schedule {
     use super::full_attn_at;

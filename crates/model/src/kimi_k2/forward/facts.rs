@@ -7,39 +7,13 @@
 
 use serde::{Deserialize, Serialize};
 
-/// kimi's MLA dims. Same vocabulary glm5's uses; see
-/// [`crate::glm5::forward::facts::Glm5MlaFacts`] for why `kv_a_width` is
-/// its own number.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KimiMlaFacts {
-    pub hidden: u32,
-    pub heads: u32,
-    pub q_lora_rank: u32,
-    pub kv_lora_rank: u32,
-    pub qk_nope_head_dim: u32,
-    pub qk_rope_head_dim: u32,
-    pub v_head_dim: u32,
-}
+/// This family's MLA geometry IS the shared one — see
+/// [`model_compiler::facts::MlaFacts`]. Three families carried
+/// field-identical copies of it; the alias keeps every existing spelling
+/// working while there is only one definition to disagree with.
+pub type KimiMlaFacts = model_compiler::facts::MlaFacts;
 
-impl KimiMlaFacts {
-    pub fn qk_head_dim(&self) -> u32 {
-        self.qk_nope_head_dim + self.qk_rope_head_dim
-    }
-    pub fn q_b_width(&self) -> u32 {
-        self.heads * self.qk_head_dim()
-    }
-    pub fn kv_a_width(&self) -> u32 {
-        self.kv_lora_rank + self.qk_rope_head_dim
-    }
-    pub fn v_width(&self) -> u32 {
-        self.heads * self.v_head_dim
-    }
-    /// The FUSED `q_kv_a` projection's width: `[q_lora | kv_lora | rope]`
-    /// in one row-major buffer, which is why both consumers take a pitch.
-    pub fn q_kv_a_width(&self) -> u32 {
-        self.q_lora_rank + self.kv_lora_rank + self.qk_rope_head_dim
-    }
-}
+
 
 /// The MoE block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +73,8 @@ impl KimiFacts {
                 qk_nope_head_dim: 128,
                 qk_rope_head_dim: 64,
                 v_head_dim: 128,
+                // This family does not gate the MLA output; kimi-k3 does.
+                output_gate: false,
             },
             moe: KimiMoeFacts {
                 num_experts: 384,

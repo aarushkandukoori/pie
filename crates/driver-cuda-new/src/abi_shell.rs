@@ -1264,9 +1264,10 @@ impl PlannedFamily for model::glm5::forward::facts::Glm5Facts {
         self.layers
     }
     fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
-        // MLA's pages hold the LATENT, not a head-split key: one row per
-        // token of `kv_lora_rank + qk_rope_head_dim`.
-        self.attn.kv_lora_rank + self.attn.qk_rope_head_dim
+        // MLA's pages hold the LATENT, not a head-split key, and
+        // `kv_a_width` is that row — the shared `MlaFacts` says it once
+        // for every family in this lineage.
+        self.attn.kv_a_width()
     }
 }
 
@@ -1283,7 +1284,7 @@ impl PlannedFamily
         self.0.layers
     }
     fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
-        self.0.attn.kv_lora_rank + self.0.attn.qk_rope_head_dim
+        self.0.attn.kv_a_width()
     }
 }
 
@@ -1295,7 +1296,7 @@ impl PlannedFamily for model::kimi_k3::forward::facts::KimiK3Facts {
         self.layers
     }
     fn head_dim_of(&self, _l: u32, _uniform: u32) -> u32 {
-        self.attn.kv_lora_rank + self.attn.qk_rope_head_dim
+        self.attn.kv_a_width()
     }
     fn recurrent(&self) -> bool {
         // KDA carries per-request recurrent state, so a fire of this
@@ -2017,6 +2018,8 @@ fn glm5_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32
             qk_nope_head_dim: u(hf.qk_nope_head_dim),
             qk_rope_head_dim: u(hf.qk_rope_head_dim),
             v_head_dim: u(hf.v_head_dim),
+            // Only kimi-k3 gates the MLA output.
+            output_gate: false,
         },
         dsa: Glm5DsaFacts {
             index_n_heads: u(hf.dsv4_index_n_heads),
@@ -2053,6 +2056,8 @@ fn kimi_k2_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, 
             qk_nope_head_dim: u(hf.qk_nope_head_dim),
             qk_rope_head_dim: u(hf.qk_rope_head_dim),
             v_head_dim: u(hf.v_head_dim),
+            // Only kimi-k3 gates the MLA output.
+            output_gate: false,
         },
         moe: KimiMoeFacts {
             num_experts: u(hf.num_experts),
