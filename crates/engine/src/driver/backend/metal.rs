@@ -846,16 +846,20 @@ fn read_logits(
             span,
         )
     };
-    let values = raw
-        .chunks_exact(r.bytes as usize)
-        .map(|c| {
-            if r.bytes == 4 {
-                f32::from_le_bytes([c[0], c[1], c[2], c[3]])
-            } else {
-                f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16)
-            }
-        })
-        .collect();
+    let values: Vec<f32> = if r.bytes == 4 {
+        raw.chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    } else {
+        // `batch::widen`, not a fourth hand-rolled shift-and-cast. The
+        // conversion is one line either way; having ONE of it is how a change
+        // to the rounding reaches every reader.
+        let halves: Vec<u16> = raw
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        driver_metal_new::batch::widen(&halves)
+    };
     Some((values, r.rows, r.vocab))
 }
 
