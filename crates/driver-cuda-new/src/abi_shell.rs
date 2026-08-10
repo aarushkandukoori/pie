@@ -187,6 +187,8 @@ impl ChannelState {
 struct FireArrays {
     arena: Option<crate::cuda::DeviceBuffer>,
     named: std::collections::BTreeMap<model_compiler::trace::ValueId, crate::cuda::DeviceBuffer>,
+    /// The small per-fire u32 descriptor arrays, by slot.
+    slots: Vec<Option<crate::cuda::DeviceBuffer>>,
     epoch: u64,
 }
 
@@ -202,6 +204,37 @@ impl FireArrays {
             self.epoch += 1;
         }
         Ok(self.arena.as_ref().expect("just ensured").as_ptr())
+    }
+
+    /// One per-fire u32 descriptor array, by SLOT.
+    ///
+    /// The same discipline the arena gets, for the small arrays: the
+    /// buffer is kept and its CONTENTS refreshed, so a capture that
+    /// recorded the address keeps addressing something real. Slots are
+    /// positional because these are a fixed list — see the constants
+    /// beside the call site.
+    ///
+    /// Returns the device pointer rather than the buffer, so a caller
+    /// holds no borrow and the next slot can be uploaded on the next line.
+    fn upload_u32(
+        &mut self,
+        alloc: &crate::cuda::Allocator,
+        slot: usize,
+        vals: &[u32],
+        stream: crate::cuda::StreamRef<'_>,
+    ) -> Result<*const u32, i32> {
+        if self.slots.len() <= slot {
+            self.slots.resize_with(slot + 1, || None);
+        }
+        let bytes: Vec<u8> = vals.iter().flat_map(|x| x.to_le_bytes()).collect();
+        let need = bytes.len().max(4);
+        if self.slots[slot].as_ref().is_none_or(|b| b.len() < need) {
+            self.slots[slot] = Some(alloc.alloc(need).map_err(|_| PIE_STATUS_EXHAUSTED)?);
+            self.epoch += 1;
+        }
+        let b = self.slots[slot].as_mut().expect("just ensured");
+        b.copy_from_host(&bytes, stream).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+        Ok(b.as_ptr().cast_const().cast::<u32>())
     }
 
     /// One named seam buffer, at least `bytes` wide, zeroed.
@@ -1621,18 +1654,27 @@ fn step_impl(
         })
         .collect();
 
-    let up_u32 = |vals: &[u32]| -> Result<crate::cuda::DeviceBuffer, i32> {
-        let bytes: Vec<u8> = vals.iter().flat_map(|x| x.to_le_bytes()).collect();
-        let mut b = alloc.alloc(bytes.len().max(4)).map_err(|_| PIE_STATUS_EXHAUSTED)?;
-        b.copy_from_host(&bytes, stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        Ok(b)
-    };
-    let d_ids = up_u32(token_ids)?;
-    let d_pos = up_u32(position_ids)?;
-    let d_kv_indices = up_u32(kv_indices)?;
-    let d_kv_indptr = up_u32(kv_indptr)?;
-    let d_kv_lens = up_u32(kv_lens)?;
-    let d_qo = up_u32(qo_indptr)?;
+    // The fire's descriptor arrays, POOLED like the arena and for the same
+    // reason: a capture bakes an address, so the buffer has to be the same
+    // one next fire with only its contents refreshed. Slots are positional
+    // and this is the whole list of them.
+    const S_IDS: usize = 0;
+    const S_POS: usize = 1;
+    const S_KV_INDICES: usize = 2;
+    const S_KV_INDPTR: usize = 3;
+    const S_KV_LENS: usize = 4;
+    const S_QO: usize = 5;
+    const S_W_PAGE: usize = 6;
+    const S_W_OFF: usize = 7;
+    let d_ids = state.fire_arrays.upload_u32(&alloc, S_IDS, token_ids, stream.as_ref())?;
+    let d_pos = state.fire_arrays.upload_u32(&alloc, S_POS, position_ids, stream.as_ref())?;
+    let d_kv_indices =
+        state.fire_arrays.upload_u32(&alloc, S_KV_INDICES, kv_indices, stream.as_ref())?;
+    let d_kv_indptr =
+        state.fire_arrays.upload_u32(&alloc, S_KV_INDPTR, kv_indptr, stream.as_ref())?;
+    let d_kv_lens =
+        state.fire_arrays.upload_u32(&alloc, S_KV_LENS, kv_lens, stream.as_ref())?;
+    let d_qo = state.fire_arrays.upload_u32(&alloc, S_QO, qo_indptr, stream.as_ref())?;
 
     // Write targets: each request appends its NEW tokens at the CSR tail.
     // Decode appends one token at `len - 1`; prefill appends its whole
@@ -1649,8 +1691,8 @@ fn step_impl(
             w_off.push(pos % page_size as u32);
         }
     }
-    let d_w_page = up_u32(&w_page)?;
-    let d_w_off = up_u32(&w_off)?;
+    let d_w_page = state.fire_arrays.upload_u32(&alloc, S_W_PAGE, &w_page, stream.as_ref())?;
+    let d_w_off = state.fire_arrays.upload_u32(&alloc, S_W_OFF, &w_off, stream.as_ref())?;
     let mut d_valid = alloc.alloc(rows).map_err(|_| PIE_STATUS_EXHAUSTED)?;
     d_valid
         .copy_from_host(&vec![1u8; rows], stream.as_ref())
@@ -1965,17 +2007,17 @@ fn step_impl(
                 arena_ptr.cast::<u8>().add(off)
             }
             .cast()),
-        kv_page_indices_d: d_kv_indices.as_ptr().cast(),
-        kv_page_indptr_d: d_kv_indptr.as_ptr().cast(),
-        kv_last_page_lens_d: d_kv_lens.as_ptr().cast(),
-        qo_indptr_d: d_qo.as_ptr().cast(),
+        kv_page_indices_d: d_kv_indices.cast(),
+        kv_page_indptr_d: d_kv_indptr.cast(),
+        kv_last_page_lens_d: d_kv_lens.cast(),
+        qo_indptr_d: d_qo.cast(),
         qo_indptr_h: if is_gemma4 { qo_indptr.as_ptr() } else { core::ptr::null() },
         kv_page_indptr_h: if is_gemma4 { kv_indptr.as_ptr() } else { core::ptr::null() },
         num_requests: requests as i32,
         num_pages_in_batch: kv_indices.len() as i32,
         first_token: 0,
-        w_page_d: d_w_page.as_ptr().cast(),
-        w_off_d: d_w_off.as_ptr().cast(),
+        w_page_d: d_w_page.cast(),
+        w_off_d: d_w_off.cast(),
         row_valid_d: d_valid.as_ptr().cast(),
         lse_out_d: lse.as_ptr().cast(),
         window_left: -1,
@@ -2056,8 +2098,8 @@ fn step_impl(
         vocab: model.hf.vocab_size,
         gate_second: false,
         rope_interleaved: false,
-        token_ids: d_ids.as_ptr(),
-        positions: d_pos.as_ptr(),
+        token_ids: d_ids.cast_mut().cast(),
+        positions: d_pos.cast_mut().cast(),
         final_logit_softcap: softcap,
         ple_dim,
         scales,
