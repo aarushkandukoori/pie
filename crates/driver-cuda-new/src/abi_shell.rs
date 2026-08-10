@@ -66,6 +66,9 @@ struct Shell {
     /// The per-fire device arrays, pooled so a capture can outlive the
     /// fire that recorded it. See [`FireArrays`].
     fire_arrays: FireArrays,
+    /// The unionized supergraph's instantiated graphs, one per (R, N)
+    /// bucket. Empty unless `PIE_CUDA_SUPERGRAPH` armed it.
+    supergraph: crate::model::supergraph::SupergraphCache,
     /// The driver-owned KV pools, allocated on first launch and grown on
     /// demand — decode continuity across launches lives here.
     kv: Option<KvState>,
@@ -436,6 +439,7 @@ pub extern "C" fn pie_cuda_create(
         notify: desc.runtime.notify,
         notify_ctx: desc.runtime.ctx,
         fire_arrays: FireArrays::default(),
+        supergraph: crate::model::supergraph::SupergraphCache::new(),
         kv: None,
         gdn: None,
         channels: std::collections::BTreeMap::new(),
@@ -1279,6 +1283,17 @@ fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
 /// its `linear_*` geometry + layer schedule, else the llama-like
 /// mapping. Only the qwen3-family pre-norm shape is claimed on the
 /// llama-like side; anything else refuses rather than mis-executes.
+/// Is the unionized supergraph armed for this process?
+///
+/// `PIE_CUDA_SUPERGRAPH=1`. Off by default and deliberately so: every A/B
+/// in this tree pins the EAGER leg, and a capture is an optimisation that
+/// has to prove itself against that rather than replace it silently. The
+/// same shape as `decode_fused_post` and the lora grouping gate.
+fn supergraph_enabled() -> bool {
+    std::env::var_os("PIE_CUDA_SUPERGRAPH")
+        .is_some_and(|v| v == "1" || v == "true" || v == "on")
+}
+
 /// What a row dispatches to: this family's facts, off the checkpoint.
 type FactsFrom = fn(&LoadedModel) -> Result<FamilyFacts, i32>;
 
@@ -1477,6 +1492,126 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
     Ok(FamilyFacts::LlamaLike(facts, cuda))
 }
 
+/// Replay this fire's bucket if it is captured, and capture it if not.
+///
+/// The whole supergraph arc, at its one live call site. What it does, in
+/// the order the pieces were built:
+///
+/// 1. **Eligibility.** A fire whose staged LoRA did not group cannot be
+///    recorded at all — `apply`'s solo path is a host loop whose launch
+///    count follows the adapter set. Ineligible means eager, which is the
+///    C++ arc's own device for what cannot be replayed.
+/// 2. **The bucket.** `(R, N, fire class, model)` plus the lora group
+///    shape. Every `GuardPred` axis is deliberately absent: those are what
+///    the conditionals fold.
+/// 3. **The epoch.** `FireArrays` bumps it whenever a pool grew, because
+///    growth moves a base address out from under a recorded launch. A
+///    stale exec is dropped and recaptured rather than replayed.
+/// 4. **Dual-prepare.** A capture must be taken warm — a launcher that
+///    allocates on first use cannot do so inside a capture — and a warm-up
+///    must walk a VALID program, so warm once per variant with its own
+///    resolved lowering. A union records arms no single valid program
+///    takes, which is why one warm fire is not enough.
+/// 5. **The predicates**, uploaded before every launch: this is the fire's
+///    own shape, and the only thing that differs between two replays of
+///    one exec.
+#[allow(clippy::too_many_arguments)]
+fn capture_or_replay<R: crate::model::executor::Resolver>(
+    cache: &mut crate::model::supergraph::SupergraphCache,
+    epoch: u64,
+    model_id: u64,
+    plan: &model_compiler::trace::ForwardPlan,
+    rows_desc: &[model_compiler::lower::Row],
+    lowered: &model_compiler::lower::Lowered,
+    dplan: &crate::model::executor::DispatchPlan,
+    frame: crate::model::executor::Frame,
+    resolver: &mut R,
+    ctx: &crate::model::executor::DispatchCtx,
+    regions: crate::model::executor::AttnRegions<'_>,
+    gdn: Option<&crate::model::executor::GdnCtx>,
+    alloc: &crate::cuda::Allocator,
+    stream: crate::cuda::StreamRef<'_>,
+    requests: usize,
+    rows: usize,
+    class: model_compiler::trace::FireClass,
+) -> Result<usize, crate::model::executor::RunRefusal> {
+    use crate::model::executor::{DispatchPlan, run};
+    use crate::model::supergraph::{BucketKey, fire_predicates, union_eligibility};
+
+    let eligibility = union_eligibility(None);
+    let key = BucketKey::new(
+        u32::try_from(requests).unwrap_or(0),
+        u32::try_from(rows).unwrap_or(0),
+        class,
+        model_id,
+    );
+
+    // The fire's own bits, and the only thing that differs between two
+    // replays of one exec.
+    let mut preds = match crate::cuda::PredicateWord::new(alloc) {
+        Ok(p) => p,
+        Err(_) => return run(lowered, dplan, frame, resolver, ctx, regions, gdn),
+    };
+    if fire_predicates(rows_desc, &lowered.conds, &mut preds).is_err()
+        || preds.upload(stream).is_err()
+        || stream.synchronize().is_err()
+    {
+        return run(lowered, dplan, frame, resolver, ctx, regions, gdn);
+    }
+
+    if cache.replay(key, epoch, stream).unwrap_or(false) {
+        return Ok(lowered.launches.len());
+    }
+
+    // DUAL-PREPARE: one warm fire per variant, each a resolved program.
+    for marks in [
+        model_compiler::lower::Row { samples: true, ..Default::default() },
+        model_compiler::lower::Row { samples: true, wants_scores: true, ..Default::default() },
+        model_compiler::lower::Row { samples: true, write_desc: true, ..Default::default() },
+    ] {
+        let warm_rows = vec![marks; rows];
+        let Ok(warm) = model_compiler::lower::lower_with(
+            plan,
+            &warm_rows,
+            model_compiler::lower::Fire { captures_across_splits: false },
+            model_compiler::lower::GuardMode::Resolve,
+        ) else {
+            return run(lowered, dplan, frame, resolver, ctx, regions, gdn);
+        };
+        let warm_dplan = DispatchPlan::new(plan, &warm);
+        run(&warm, &warm_dplan, frame, resolver, ctx, regions, gdn)?;
+        let _ = stream.synchronize();
+    }
+
+    let captured = {
+        let mut a = crate::cuda::Allocator::new();
+        let Ok(scope) = a.begin_capture(stream) else {
+            return run(lowered, dplan, frame, resolver, ctx, regions, gdn);
+        };
+        let mut b = crate::cuda::SupergraphBuilder::new(scope.stream(), &preds);
+        let ran = crate::model::executor::run_captured(
+            lowered, dplan, frame, resolver, ctx, regions, gdn, &mut b,
+        );
+        drop(b);
+        match (ran, scope.end()) {
+            (Ok(n), Ok(g)) => Some((n, g)),
+            (Err(e), _) => return Err(e),
+            (_, Err(_)) => None,
+        }
+    };
+    let Some((ran, graph)) = captured else {
+        return run(lowered, dplan, frame, resolver, ctx, regions, gdn);
+    };
+    let Ok(exec) = graph.instantiate() else {
+        return run(lowered, dplan, frame, resolver, ctx, regions, gdn);
+    };
+    if exec.launch(stream).is_err() {
+        return run(lowered, dplan, frame, resolver, ctx, regions, gdn);
+    }
+    let _ = cache.insert(key, exec, epoch, eligibility);
+    Ok(ran)
+}
+
 /// The fire itself. Everything here is the proven smoke assembly, run
 /// against the shell's own state.
 #[allow(clippy::too_many_lines)]
@@ -1507,7 +1642,7 @@ fn step_impl(
         AttnCtx, AttnRegions, DecodePlan, DispatchCtx, DispatchPlan, Frame, GdnCtx, PrefillPlan, Resolver,
         run,
     };
-    use model_compiler::lower::{Arg, Fire, Row, lower};
+    use model_compiler::lower::{Arg, Fire, GuardMode, Row, lower_with};
     use model_compiler::trace::{FireClass, ValueId};
 
     let sub_batches = slice_of(step.sub_batch_indptr.ptr, step.sub_batch_indptr.len);
@@ -1551,11 +1686,19 @@ fn step_impl(
         }
     };
     let fire_rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; rows];
-    let lowered = lower(&plan, &fire_rows, Fire { captures_across_splits: false })
-        .map_err(|e| {
-            eprintln!("[driver-cuda-new] launch: uncovered: {e:?}");
-            PIE_STATUS_UNSUPPORTED
-        })?;
+    // THE SUPERGRAPH GATE, off unless asked. `Union` keeps every guard so
+    // the arms can be recorded into conditional bodies and decided at
+    // replay; `Resolve` answers them here and produces one program. Off by
+    // default because the eager leg is what every A/B in the tree pins,
+    // and a capture is an optimisation that must prove itself against it.
+    let union = supergraph_enabled();
+    let guards = if union { GuardMode::Union } else { GuardMode::Resolve };
+    let lowered =
+        lower_with(&plan, &fire_rows, Fire { captures_across_splits: false }, guards)
+            .map_err(|e| {
+                eprintln!("[driver-cuda-new] launch: uncovered: {e:?}");
+                PIE_STATUS_UNSUPPORTED
+            })?;
     let dplan = DispatchPlan::new(&plan, &lowered);
 
     // ── Device state: KV pools (persistent), fire arrays (per launch). ──
@@ -2126,8 +2269,18 @@ fn step_impl(
     };
 
     let mut resolver = LiveResolver { model, named: &named_bufs };
-    let result =
-        run(&lowered, &dplan, exec_frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), gdn_ctx.as_ref());
+    let regions = AttnRegions::whole(Some(&attn));
+    let result = if union {
+        capture_or_replay(
+            &mut state.supergraph,
+            state.fire_arrays.epoch,
+            u64::from(model.hf.num_hidden_layers.unsigned_abs()),
+            &plan, &fire_rows, &lowered, &dplan, exec_frame, &mut resolver, &ctx,
+            regions, gdn_ctx.as_ref(), &alloc, stream.as_ref(), requests, rows, class,
+        )
+    } else {
+        run(&lowered, &dplan, exec_frame, &mut resolver, &ctx, regions, gdn_ctx.as_ref())
+    };
     let sync = stream.as_ref().synchronize();
     cublas.release(&mut cublas_ops);
     match (result, sync) {
