@@ -435,7 +435,12 @@ stdout/stderr by policy.
 
 Five timing tests plus the abi name test; the monotonic guard (a clock
 wrap attributes zero, not a negative share) is kept and tested.
-| `expert_paging.hpp` | 195 | missing — `fire` needs `ExpertSlab` (loader) |
+| `expert_paging.hpp` (195): `ExpertPaging::plan` | `batch::plan_paging` → `PagingPlan` | ported; a rejected plan is not a value — the C++ assigns `slab_`, `cuts_` and both counts BEFORE validating, so a `plan` that returns false leaves `cuts_` non-empty and `active()` answering **true**, and a caller that trusts `active()` fires a shape that was refused |
+| `ExpertPaging::fire` | `metal::fire_paged` | ported; drives `Stepper::run_segments`, pins back before the page-in |
+| the in-place id rewrite | `batch::renumber_routing` | ported; refuses `ShortIds` before touching a byte, where the C++ walks `rows` rows at a trusted stride with no bound on the buffer |
+| `ids_row_stride_bytes = 0` (defaulted `size_t`) | `IdsLayout` | ported; the packed/strided distinction the C++ spends 22 comment lines on — "fluent wrong text rather than an error" — carried in a named struct beside the two counts it has to agree with, rather than in a defaulted integer |
+| `Cut::ids` (a handle per cut, tail cut holds a null one) | `fire_paged`'s `ids: &[Handle]` against `PagingPlan::mixture_layers` | ported; "the tail has no ids" becomes a length that cannot be wrong |
+| the `fprintf` on the success path | — | dropped: a successful plan printed a line to stderr unconditionally |
 | `scratch.cpp` / `scratch.hpp` / `scratch_color.hpp` (650) | `batch/color.rs` + `batch/sizing.rs` + `metal/bind.rs` | ported: `Use`/`Coloring`/`color_live_ranges` and `build_scratch_schedule` → `schedule_scratch`; `scratch_widest_elems`/`scratch_slot_elems` → `batch::sizing`; `bind_scratch` → `metal::bind`. `ScratchDispatch` is dropped — the C++'s per-dispatch struct is one row of `ScratchSchedule::per_dispatch`, and a struct holding one vector is a name for a row |
 | `batch_schedule.hpp` (done above) | — | — |
 | — | — | — (`decode_psos`'s M=1 half ported below) |

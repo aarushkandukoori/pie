@@ -69,6 +69,19 @@ impl PagingPlan {
         begins.zip(self.ends.iter().copied())
     }
 
+    /// How many mixture layers the step pages for — one fewer than the
+    /// segment count, because the tail routes nothing.
+    ///
+    /// A caller supplying one routing buffer per layer checks its slice
+    /// against this. The C++ instead carried the handle inside its `Cut` and
+    /// appended a tail cut holding a null one, so "the tail has no ids" was a
+    /// value to remember at every use rather than a length that cannot be
+    /// wrong.
+    #[must_use]
+    pub fn mixture_layers(&self) -> usize {
+        self.ends.len().saturating_sub(1)
+    }
+
     /// How many segments the step runs (mixture layers plus the tail).
     #[must_use]
     pub fn len(&self) -> usize {
@@ -241,6 +254,24 @@ pub enum RenumberRefused<E> {
     Resident(E),
 }
 
+/// How one layer's routing readback is laid out in its buffer.
+///
+/// Three integers that must agree with each other and with the fire. They
+/// travel together because passing them positionally is how `rows` and
+/// `experts_per_token` come to be swapped at a call site: both are small
+/// counts, both are `usize`, and the swap compiles. `PARITY-LOADER.md`
+/// records the same defect in `plan_heap`'s two adjacent `int` widths.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IdsLayout {
+    /// Rows the fire routes.
+    pub rows: usize,
+    /// Routing decisions per row.
+    pub experts_per_token: usize,
+    /// Bytes between two rows' decisions; `0` means packed. See
+    /// [`renumber_routing`] for why the distinction is not cosmetic.
+    pub row_stride_bytes: usize,
+}
+
 /// Rewrite one layer's routing decisions in place, expert numbers to slot
 /// numbers.
 ///
@@ -326,6 +357,18 @@ mod tests {
         assert_eq!(segments, [(0, 4), (4, 9), (9, 15), (15, 20)]);
         assert_eq!(plan.len(), 4);
         assert_eq!(plan.worst_case_experts(), 32, "8 rows x 4 slots");
+    }
+
+    #[test]
+    fn the_tail_is_not_a_mixture_layer_so_the_routing_buffers_are_one_fewer() {
+        // The count a caller checks its per-layer routing buffers against. The
+        // off-by-one it prevents is not an error at the boundary: an extra
+        // buffer would be paired with the tail, which routes nothing, and the
+        // host would rewrite ids no segment reads.
+        let cuts = [Cut { end: 4 }, Cut { end: 9 }, Cut { end: 15 }];
+        let plan = plan_paging(&cuts, 20, shape(), 128, 4, 8).expect("a sound shape plans");
+        assert_eq!(plan.len(), 4, "three mixture layers plus the tail");
+        assert_eq!(plan.mixture_layers(), 3);
     }
 
     #[test]

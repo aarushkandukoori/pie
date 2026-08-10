@@ -116,7 +116,8 @@ pub use llama::{LlamaGeometry, llama_decode_geometry, llama_geometry_from_facts,
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
 pub use paging::{
-    Cut, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging, renumber_routing,
+    Cut, IdsLayout, PagingPlan, PagingRefused, RenumberRefused, SlabShape, plan_paging,
+    renumber_routing,
 };
 pub use psos::{DecodePsoPlan, EntryNames, Features as PsoFeatures, PsoRequest, plan_decode_psos};
 pub use psos_gemma4::{gemma4_mb_plan, gemma4_step_plan};
