@@ -35,7 +35,7 @@ use core::ops::Range;
 use kernels::KernelSig;
 use model_compiler::lower::{Arg, Launch, Lowered};
 
-use super::executor::{BindRefusal, BoundArg, Frame, Resolver, bind};
+use super::executor::{BindRefusal, BoundArg, FireTable, Frame, Resolver, bind};
 use super::geometry::{Dims, Ungeometric, eval};
 
 /// The fire-invariant half of [`Dims`]: what every launch of one fire shares.
@@ -434,6 +434,17 @@ fn reorder<S: Resolver>(
             kernels::Source::KvValues => resolver
                 .kv(layer, true)
                 .map_or(nothing, |slice| BoundArg { slice, width: 0 }),
+            // The fire's own tables. The row names which; this forwards the
+            // name and never reads what it means.
+            kernels::Source::TokenIds => fire(resolver, FireTable::TokenIds),
+            kernels::Source::Positions => fire(resolver, FireTable::Positions),
+            kernels::Source::RequestOfToken => fire(resolver, FireTable::RequestOfToken),
+            kernels::Source::KvPageIndices => fire(resolver, FireTable::KvPageIndices),
+            kernels::Source::KvPageIndptr => fire(resolver, FireTable::KvPageIndptr),
+            kernels::Source::AttentionMask => fire(resolver, FireTable::AttentionMask),
+            kernels::Source::AttentionMaskEnabled => {
+                fire(resolver, FireTable::AttentionMaskEnabled)
+            }
             // A scalar does not come out of the operand list at all — it rides
             // `Dispatch::params`, bound at the slot the row placed it — so its
             // slot here addresses nothing and the encoder's binding is what
@@ -486,6 +497,20 @@ fn param_layout(sig: &'static KernelSig, operands: usize) -> Vec<ParamSlot> {
         at += bytes;
     }
     out
+}
+
+/// One of the fire's tables, or a region addressing nothing.
+fn fire<S: Resolver>(resolver: &mut S, table: FireTable) -> BoundArg {
+    resolver.fire(table).map_or(
+        BoundArg {
+            slice: crate::model::executor::Slice {
+                address: 0,
+                bytes: 0,
+            },
+            width: 0,
+        },
+        |slice| BoundArg { slice, width: 0 },
+    )
 }
 
 /// The bound operand at `at`, or one that addresses nothing.

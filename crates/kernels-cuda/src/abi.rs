@@ -497,6 +497,15 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         // states these is not one this emitter can generate — and saying so
         // is better than emitting a call that binds the wrong thing.
         Source::KvKeys | Source::KvValues => return None,
+        // The fire's own tables, likewise a Metal spelling: CUDA's launchers
+        // take them through a plan cache or a `KvCacheLayerView` rather than
+        // as loose pointers.
+        Source::TokenIds
+        | Source::RequestOfToken
+        | Source::KvPageIndices
+        | Source::KvPageIndptr
+        | Source::AttentionMask
+        | Source::AttentionMaskEnabled => return None,
         Source::Ctx(f) | Source::CtxNonZero(f) => format!("ctx.{f}"),
         // A NULL is returned fully typed and skips the cast step below:
         // that step turns a slot into the row's pointee, and a null has

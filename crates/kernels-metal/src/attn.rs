@@ -85,10 +85,10 @@ pub static KERNELS: &[KernelSig] = &[
     // declaration says so instead of a C++ throw discovering it.
     // Seventeen buffers, and the row is the only place they are written down.
     // Six are the FIRE's tables — the positions, which request owns each
-    // token, the page CSR, the mask and its enable — and the text states them
-    // all now (`dsl::metal::sdpa`'s paged arm). `sinks` stays a gap: gpt-oss
-    // reads it and `llama_like` does not, so the row keeps the slot and no
-    // statement fills it until a text that has sinks does.
+    // token, the page CSR, the mask and its enable — and the ROW names which,
+    // because a text cannot state this fire's data. `sinks` stays a gap:
+    // gpt-oss reads it and `llama_like` has none, so the row keeps the slot
+    // and no statement fills it until a text that has sinks does.
     kernel!(sdpa_paged_decode "sdpa_paged_decode", file = Some("attn/sdpa_paged.metal"),
     launch = kernels::LaunchRule::SdpaVector,
     operands = kernels::operands![
@@ -97,16 +97,16 @@ pub static KERNELS: &[KernelSig] = &[
         v_pages: Buf <- kernels::Source::KvValues,
         out: BufMut <- kernels::Source::Out(0),
         gqa_factor: I32 <- kernels::Source::Param(0),
-        position_ids: I32s <- kernels::Source::In(1),
-        req_of_token: I32s <- kernels::Source::In(2),
-        kv_page_indices: U32s <- kernels::Source::In(3),
-        kv_page_indptr: U32s <- kernels::Source::In(4),
+        position_ids: I32s <- kernels::Source::Positions,
+        req_of_token: I32s <- kernels::Source::RequestOfToken,
+        kv_page_indices: U32s <- kernels::Source::KvPageIndices,
+        kv_page_indptr: U32s <- kernels::Source::KvPageIndptr,
         page_size: I32 <- kernels::Source::Param(1),
         n_kv_heads: I32 <- kernels::Source::Param(2),
         scale: F32 <- kernels::Source::ParamF32(3),
-        attention_mask: U8s <- kernels::Source::In(5),
+        attention_mask: U8s <- kernels::Source::AttentionMask,
         attention_mask_stride: U32 <- kernels::Source::Param(5),
-        attention_mask_enabled: U8s <- kernels::Source::In(6),
+        attention_mask_enabled: U8s <- kernels::Source::AttentionMaskEnabled,
         window: I32 <- kernels::Source::Param(4),
         sinks: Buf,
     ],

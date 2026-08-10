@@ -86,6 +86,46 @@ pub trait Resolver {
     fn kv(&mut self, _layer: u16, _values: bool) -> Option<Slice> {
         None
     }
+
+    /// One of the FIRE's own tables.
+    ///
+    /// The token ids a gather reads, the positions a rope reads, the page CSR
+    /// an attention walks. A text cannot state these — they are this fire's
+    /// data, not this model's structure — so the ROW names which table a slot
+    /// wants and this answers.
+    ///
+    /// That division is the point rather than a convenience. A kernel wanting
+    /// the positions and a driver that KNEW to bind them is the hand-written
+    /// arm this crate exists to remove; a row that names the table is the same
+    /// fact, stated once, where a reader looks.
+    ///
+    /// Defaulted to `None` for the same reason [`Resolver::kv`] is: a
+    /// resolver with no fire has no answer to a question it never faces.
+    fn fire(&mut self, _table: FireTable) -> Option<Slice> {
+        None
+    }
+}
+
+/// Which of the fire's tables a slot wants.
+///
+/// Mirrors the `kernels::Source` variants that name one, so the driver never
+/// matches on the table's meaning — it forwards a name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FireTable {
+    /// The tokens this fire runs.
+    TokenIds,
+    /// Each token's absolute position.
+    Positions,
+    /// Which request owns each token.
+    RequestOfToken,
+    /// The KV page translation.
+    KvPageIndices,
+    /// Its per-request CSR.
+    KvPageIndptr,
+    /// The custom attention mask.
+    AttentionMask,
+    /// The per-lane byte saying whether the mask applies.
+    AttentionMaskEnabled,
 }
 
 /// Where an operand is: a device address and the bytes it may address.

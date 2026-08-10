@@ -525,6 +525,60 @@ impl MetalDriver {
                 n_experts: 0,
                 experts_per_token: 0,
             };
+            // The fire's own tables, staged into one device region. The row
+            // names which a slot wants and this answers — the driver never
+            // reads what a table MEANS, only where the frame put it.
+            //
+            // `i32` throughout: the shader reads some as `uint` and some as
+            // `uchar`, and a `u32` written little-endian is the same first
+            // byte. The narrowing is the kernel's and the width is the
+            // frame's, which is the direction that is safe.
+            let mut blob: Vec<u32> = Vec::new();
+            let mut spans: Vec<(usize, usize)> = Vec::new();
+            for table in [
+                step.plan.token_ids.as_slice(),
+                step.plan.position_ids.as_slice(),
+                // Which request owns each token, expanded from the qo CSR:
+                // the scheduler states the boundaries and the kernel wants it
+                // per token.
+                &req_of_token(&step.plan.qo_indptr),
+                step.plan.kv_page_indices.as_slice(),
+                step.plan.kv_page_indptr.as_slice(),
+            ] {
+                spans.push((blob.len(), table.len()));
+                blob.extend_from_slice(table);
+            }
+            let staged = driver_metal_new::metal::allocate(
+                &self.context,
+                ((blob.len() * 4).max(4)) as u64,
+                "fire tables",
+            )
+            .map_err(|e| anyhow!("fire tables: {e:?}"))?;
+            // SAFETY: freshly allocated and not yet encoded against.
+            unsafe {
+                use driver_metal_new::region::Region as _;
+                let raw = core::slice::from_raw_parts(blob.as_ptr().cast::<u8>(), blob.len() * 4);
+                staged.write(0, raw).map_err(|e| anyhow!("fire tables: {e:?}"))?;
+            }
+            let tables = |which: driver_metal_new::model::executor::FireTable| {
+                use driver_metal_new::model::executor::FireTable as F;
+                let i = match which {
+                    F::TokenIds => 0,
+                    F::Positions => 1,
+                    F::RequestOfToken => 2,
+                    F::KvPageIndices => 3,
+                    F::KvPageIndptr => 4,
+                    // No custom mask on this path yet; a slot nobody fills is
+                    // better than one filled with the wrong table.
+                    F::AttentionMask | F::AttentionMaskEnabled => return None,
+                };
+                let (at, len) = spans[i];
+                (len > 0).then(|| driver_metal_new::model::executor::Slice {
+                    address: staged.gpu_address() + (at * 4) as u64,
+                    bytes: (len * 4) as u64,
+                })
+            };
+
             let names = driver_metal_new::model::resolve::Names::mlx();
             // The KV pages a statement's state reference resolves through. A
             // closure, because the map is portable and the pool is not.
@@ -539,7 +593,8 @@ impl MetalDriver {
             };
             let mut store =
                 driver_metal_new::model::resolve::Store::new(names, &model.tensors, &named)
-                    .with_kv(&pages);
+                    .with_kv(&pages)
+                    .with_fire(&tables);
             driver_metal_new::model::run::run(
                 &self.context,
                 &self.compiler,
@@ -693,4 +748,20 @@ fn shader_tree() -> std::path::PathBuf {
                 .map(|crates| crates.join("kernels-metal/kernels"))
                 .unwrap_or_default()
         })
+}
+
+/// Which request owns each token, from the qo CSR.
+///
+/// The scheduler states the boundaries — request `r` owns rows
+/// `[qo_indptr[r], qo_indptr[r+1])` — and `sdpa_paged_decode` wants the
+/// inverse, one entry a token. Expanded here rather than asked of the
+/// scheduler, because it is a restatement of what the CSR already says and a
+/// second field would be a second chance to disagree with it.
+fn req_of_token(qo_indptr: &[u32]) -> Vec<u32> {
+    let mut out = Vec::new();
+    for r in 0..qo_indptr.len().saturating_sub(1) {
+        let (start, end) = (qo_indptr[r], qo_indptr[r + 1]);
+        out.resize(out.len() + (end - start) as usize, r as u32);
+    }
+    out
 }

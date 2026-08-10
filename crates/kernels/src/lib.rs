@@ -552,6 +552,20 @@ pub enum Source {
     /// The VALUE pages of the layer this statement runs in. See
     /// [`Source::KvKeys`].
     KvValues,
+    /// The token ids this fire gathers embeddings for.
+    TokenIds,
+    /// Which request owns each token — the paged attention's causal bound.
+    RequestOfToken,
+    /// The fire's KV page translation, and the CSR that partitions it by
+    /// request.
+    KvPageIndices,
+    /// See [`Source::KvPageIndices`].
+    KvPageIndptr,
+    /// The custom attention mask, and the per-lane byte saying whether it
+    /// applies.
+    AttentionMask,
+    /// See [`Source::AttentionMask`].
+    AttentionMaskEnabled,
     /// The same slot read as a FLOAT.
     ///
     /// The param channel is untyped `u32` — "what each slot means is the

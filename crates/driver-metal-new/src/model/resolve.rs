@@ -173,6 +173,8 @@ pub struct Store<'a> {
     /// which is why [`Resolver::kv`] defaults to `None` rather than being
     /// required.
     kv: Option<&'a dyn Fn(u16, bool) -> Option<Slice>>,
+    /// The fire's own tables, when this store has a fire behind it.
+    fire: Option<&'a dyn Fn(super::executor::FireTable) -> Option<Slice>>,
     /// Every traced name this store could not answer, in ask order.
     ///
     /// Collected rather than logged: a fire that cannot bind is diagnosed by
@@ -194,6 +196,7 @@ impl<'a> Store<'a> {
             tensors,
             named,
             kv: None,
+            fire: None,
             missed: Vec::new(),
         }
     }
@@ -206,6 +209,16 @@ impl<'a> Store<'a> {
     #[must_use]
     pub fn with_kv(mut self, pages: &'a dyn Fn(u16, bool) -> Option<Slice>) -> Self {
         self.kv = Some(pages);
+        self
+    }
+
+    /// The same store, answering the FIRE's tables through `tables`.
+    #[must_use]
+    pub fn with_fire(
+        mut self,
+        tables: &'a dyn Fn(super::executor::FireTable) -> Option<Slice>,
+    ) -> Self {
+        self.fire = Some(tables);
         self
     }
 
@@ -254,6 +267,10 @@ impl Resolver for Store<'_> {
 
     fn kv(&mut self, layer: u16, values: bool) -> Option<Slice> {
         self.kv.and_then(|pages| pages(layer, values))
+    }
+
+    fn fire(&mut self, table: super::executor::FireTable) -> Option<Slice> {
+        self.fire.and_then(|tables| tables(table))
     }
 }
 

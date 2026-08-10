@@ -537,6 +537,42 @@ mod state {
     }
 
     #[test]
+    fn a_rope_binds_the_fires_positions_because_its_row_names_them() {
+        // A text cannot state the positions — they are this fire's data, not
+        // this model's structure — so the ROW names which table and the
+        // resolver answers. A kernel wanting them and a driver that KNEW to
+        // bind them is the hand-written arm this crate removes.
+        use driver_metal_new::model::executor::FireTable;
+
+        let low = lowered(FireClass::Decode, 1);
+        let (tensors, named) = (HashMap::new(), HashMap::new());
+        let tables = |t: FireTable| {
+            (t == FireTable::Positions).then_some(Slice {
+                address: 0x5150_0000,
+                bytes: 64,
+            })
+        };
+        let mut store = Store::new(Names::mlx(), &tensors, &named).with_fire(&tables);
+        let launch = low
+            .launches
+            .iter()
+            .find(|l| low.kernels[l.kernel as usize].starts_with("neox"))
+            .expect("the text rotates");
+        let d = plan_one(
+            &low,
+            launch,
+            kernels_metal::KERNELS,
+            frame(&low),
+            geometry(),
+            &mut store,
+        )
+        .expect("a rotation plans");
+        // Buffer 1 is `position`, which the row says and this reads back.
+        assert_eq!(d.args[1].slice.address, 0x5150_0000);
+        assert_eq!(d.args.len(), 5, "x, position, and three scalars");
+    }
+
+    #[test]
     fn a_resolver_with_no_pool_binds_a_region_that_addresses_nothing() {
         // The default. A binder's own tests have no pool and must not need
         // one, and a statement that asks and gets nothing binds a region
