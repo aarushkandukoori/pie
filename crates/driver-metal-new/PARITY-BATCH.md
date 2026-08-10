@@ -41,7 +41,8 @@ kept deliberately pure — and shipped without a checked build.
 | `validate_paged_batch_capacity` | `validate_capacity` | ported |
 | `BatchSchedule::m1` | `BatchSchedule::single` | ported |
 | `kRsFlagReset` | `driver_abi::local::PIE_RS_FLAG_RESET` | dropped |
-| `BatchStepInputs` | — | missing: the marshaling container belongs to the forward port |
+| `BatchStepInputs` (the container) | — | missing: the concatenated step arrays, with the forward port's encode walk |
+| `run_paged_batch_forward`'s per-member admission + span derivation | `batch::marshal_fleet` / `plan_member` → `RequestPlan` | ported; the portable half of the marshaling |
 
 The build/validate split survives — the geometry gate needs fire-time
 arrays the build does not — but the build stops trusting its inputs:
