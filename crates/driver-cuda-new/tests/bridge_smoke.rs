@@ -565,7 +565,6 @@ fn a_resolved_walk_captures_and_replays() {
 /// of those were the answers to the previous two attempts, and both are
 /// now done.
 #[test]
-#[ignore = "a union capture must warm every arm it records; see the doc comment"]
 fn the_union_captures_and_replays_the_same_decode() {
     zero_weight_decode(Leg::CapturedUnion);
 }
@@ -1011,15 +1010,40 @@ fn zero_weight_decode(leg: Leg) {
         preds.upload(stream.as_ref()).expect("upload");
         stream.as_ref().synchronize().expect("the word lands before the capture");
 
-        // WARM UP FIRST, and this is not a test convenience -- it is a
-        // property of the layer. cuBLAS and several launchers allocate a
-        // workspace on first use, and an allocation inside a capture is
-        // refused; the C++ wrapper turns that refusal into a `throw`,
-        // which crosses `extern "C"` and aborts the process without a
-        // Rust panic to read. So a real driver captures a WARM fire, and
-        // so does this. (The C++ arc calls the same thing dual-prepare.)
-        run(&l, &dplan, frame, &mut resolver, &ctx, AttnRegions::whole(Some(&attn)), None)
-            .unwrap_or_else(|e| panic!("the warm-up walk refused: {e:?}"));
+        // DUAL-PREPARE: warm each VARIANT, not just this fire.
+        //
+        // A capture must be taken warm, because a launcher that allocates
+        // its workspace on first use cannot do so inside a capture -- the
+        // refusal becomes a C++ `throw` crossing the C ABI, which aborts
+        // the process. A warm-up must walk a VALID program, because
+        // walking a union eagerly runs both sides of every guard over the
+        // same rows. And a union records arms that no single valid program
+        // takes.
+        //
+        // So warm once per variant, each with its own RESOLVED lowering --
+        // every one a real program -- and let the union of their arms
+        // cover the union lowering's. The numbers they produce are
+        // discarded: the arena is wiped below, and what survives is the
+        // allocation each launcher did on its first call. This is what the
+        // C++ arc calls dual-prepare.
+        for marks in [
+            Row { samples: true, ..Row::default() },
+            Row { samples: true, wants_scores: true, ..Row::default() },
+            Row { samples: true, write_desc: true, ..Row::default() },
+        ] {
+            let warm_rows: Vec<Row> = vec![marks; ROWS];
+            let warm = lower_with(
+                &plan,
+                &warm_rows,
+                Fire { captures_across_splits: false },
+                GuardMode::Resolve,
+            )
+            .expect("the warm-up lowers");
+            let warm_dplan = DispatchPlan::new(&plan, &warm);
+            run(&warm, &warm_dplan, frame, &mut resolver, &ctx, regions, None)
+                .unwrap_or_else(|e| panic!("the warm-up walk refused: {e:?}"));
+            stream.as_ref().synchronize().expect("the warm-up retires");
+        }
         stream.as_ref().synchronize().expect("the warm-up retires");
 
         // Wipe what the warm-up computed, so that what the invariants

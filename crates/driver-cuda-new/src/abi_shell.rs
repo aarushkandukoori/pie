@@ -1338,6 +1338,14 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
         q_heads: to_u32(hf.num_attention_heads),
         kv_heads: to_u32(hf.num_key_value_heads),
         head_dim: to_u32(hf.head_dim),
+        // A ROUTED FFN is a fact, not a family (the `LlamaLikeFacts` doc's
+        // own argument), so these come off the checkpoint like every other
+        // width. Zero throughout is a dense deployment, which is what the
+        // fields mean rather than a stand-in for "unknown".
+        n_experts: to_u32(hf.num_experts),
+        experts_per_token: to_u32(hf.num_experts_per_tok),
+        moe_intermediate: to_u32(hf.moe_intermediate_size),
+        shared_intermediate: to_u32(hf.shared_expert_intermediate_size),
         intermediate: to_u32(hf.intermediate_size),
         vocab: to_u32(hf.vocab_size),
         rope: RopeKind::Standard,
