@@ -1372,6 +1372,91 @@ pub fn openable_model_types() -> Vec<&'static str> {
     FACTS_ROWS.iter().map(|(k, _)| *k).collect()
 }
 
+/// The fire's CLASS, read off the descriptor rather than guessed from its
+/// shape.
+///
+/// The shape alone answers only the first question — one row per request
+/// is a decode, anything else is prefill-shaped. The MTP service passes
+/// are not shapes at all: they are *what the pass is for*, and the wire
+/// has said so since v23 in the recurrent-state flags. The C++ driver
+/// read exactly these bits into `RsExecutionMode`
+/// (`pipeline/batch_compose.hpp`) and this is that derivation, with the
+/// mode's name replaced by the class it selects:
+///
+/// | rows                                   | C++ mode      | class           |
+/// |----------------------------------------|---------------|-----------------|
+/// | every row replays buffered tokens      | `BufferFold`  | `CommitAdvance` |
+/// | some row writes buffered slabs         | `BufferWrite` | `FrozenVerify`  |
+/// | recurrent, no readout rows             | `Forward`     | `StateOnly`     |
+/// | otherwise                              | `Forward`     | shape decides   |
+///
+/// The mixed case is REFUSED for the same reason the C++ composer
+/// refuses it: a replay row gathers its activations out of the slabs and
+/// a computing row does not, so the two cannot share one op list. That is
+/// a property of the pass, so it is answered here, once, rather than by
+/// every arm that would otherwise find half a fire.
+pub fn fire_class_of(
+    step: &driver_abi::local::PieStepDesc,
+    rows: usize,
+    requests: usize,
+) -> Result<model_compiler::trace::FireClass, i32> {
+    use driver_abi::local::{PIE_RS_FLAG_BUFFER_WRITE, PIE_RS_FLAG_FOLD};
+    use model_compiler::trace::FireClass;
+
+    let flags = slice_of(step.rs_slot_flags.ptr, step.rs_slot_flags.len);
+    let buf_indptr = slice_of(step.rs_buffer_slot_indptr.ptr, step.rs_buffer_slot_indptr.len);
+    // A row's buffer span, and 0 when the fire carries no CSR at all.
+    let span = |r: usize| -> u32 {
+        match (buf_indptr.get(r + 1), buf_indptr.get(r)) {
+            (Some(&hi), Some(&lo)) => hi.saturating_sub(lo),
+            _ => 0,
+        }
+    };
+    let mut any_buffer = false;
+    let mut any_replay = false;
+    let mut all_replay = requests > 0;
+    for r in 0..requests {
+        let f = flags.get(r).copied().unwrap_or(0);
+        let buffered = span(r) > 0;
+        // `BUFFER_WRITE` marks a row that writes AND folds; a pure replay
+        // folds without writing.
+        let replays = buffered && f & PIE_RS_FLAG_FOLD != 0 && f & PIE_RS_FLAG_BUFFER_WRITE == 0;
+        any_buffer |= buffered;
+        any_replay |= replays;
+        all_replay &= replays;
+    }
+    if any_replay && !all_replay {
+        eprintln!(
+            "[driver-cuda-new] launch: a row that only replays buffered tokens \
+             cannot share a fire with one that computes new ones"
+        );
+        return Err(PIE_STATUS_INVALID_ARGUMENT);
+    }
+    if all_replay {
+        return Ok(FireClass::CommitAdvance);
+    }
+    if any_buffer {
+        return Ok(FireClass::FrozenVerify);
+    }
+    // `StateOnly` — the backbone with the epilogue cut off — is the one
+    // class this function CANNOT yet read, and the reason is worth
+    // stating rather than working around.
+    //
+    // Its wire signal is "no readout rows", i.e. an empty
+    // `sampling_indices`. But the shell below does not read that field at
+    // all: it builds `Row { samples: true }` for every row, unconditionally.
+    // So the field is empty on every fire that reaches here, and keying a
+    // class on it would classify every hybrid prefill as a service pass —
+    // which is exactly what it did, and the hybrid's logits went missing.
+    //
+    // Reading a fact off where a statement SITS rather than what it SAYS
+    // is the defect this port keeps re-finding. `sampling_indices` will
+    // say it once the readout rows are plumbed through to `Row::samples`;
+    // until then the shape answers, and `StateOnly` is reachable only
+    // through the lowering tests.
+    Ok(if rows == requests { FireClass::Decode } else { FireClass::Prefill })
+}
+
 /// The facts for a loaded checkpoint, by the model type it declares.
 fn facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
     let model_type = model.hf.model_type.as_str();
@@ -1709,7 +1794,22 @@ fn step_impl(
     }
     let rows = token_ids.len();
     let requests = kv_lens.len();
-    let class = if rows == requests { FireClass::Decode } else { FireClass::Prefill };
+    let class = fire_class_of(step, rows, requests)?;
+
+    // A family that does not DECLARE a service class must be turned away
+    // rather than traced: its text answers the three with `unreachable!`,
+    // and a panic crossing the C ABI aborts the process instead of
+    // returning the status this call has a slot for. Only the MTP family
+    // composes those passes.
+    if !matches!(class, FireClass::Decode | FireClass::Prefill)
+        && !matches!(&family, FamilyFacts::Qwen35(..))
+    {
+        eprintln!(
+            "[driver-cuda-new] launch: {class:?} is an MTP service pass and \
+             this family declares no trace for it"
+        );
+        return Err(PIE_STATUS_UNSUPPORTED);
+    }
 
     // ── The lowering. ──
     let plan = match &family {

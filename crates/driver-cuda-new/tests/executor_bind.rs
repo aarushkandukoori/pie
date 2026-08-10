@@ -317,6 +317,31 @@ fn print_the_gemma4_vocabulary() {
 /// own name.
 const RENAMED_AT_THE_ABI: &[(&str, &str)] = &[("gemm::act_x_w", "gemm::act_x_wt_bf16")];
 
+/// The two PSEUDO-SYMBOLS of the frozen-verify pair, and the one thing
+/// they still need.
+///
+/// Both name an OPERATION rather than a `__global__` entry point — a
+/// `cudaMemcpyAsync` trio moving a linear layer's in-proj triple
+/// (`mixed_qkv`, `a`, `b`) between the workspace and that layer's verify
+/// stash. `dsl::cuda::verify_stash_load`'s own doc says so, and a driver
+/// arm is the right shape for them: three memcpys, no launcher.
+///
+/// What is missing is not the arm but the SLAB it copies to. The stash is
+/// a per-(layer, slot, token) pool, and the new driver's
+/// `RecurrentStateLayout` allocates three: conv state, recurrent state,
+/// and the one-row-per-slot MTP pending hidden. None of them is this. So
+/// the pair is listed rather than armed, because an arm writing into a
+/// pool nobody allocated is worse than a refusal — it is the same trade
+/// `NOT_YET_OPENABLE` and `UNARMED` make, and for the same reason: a gap
+/// stated in a commit beats a gap discovered by a fire.
+///
+/// Everything else about both service classes is live. `FrozenVerify` and
+/// `CommitAdvance` lower, and every launch of both BINDS
+/// (`every_launch_of_the_hybrid_deployment_binds` runs the full
+/// [`HYBRID_CORPUS`]) — these two symbols are what a fire would refuse.
+const AWAITING_THE_VERIFY_STASH_POOL: &[&str] =
+    &["qwen35_verify_stash_load", "qwen35_verify_stash_store"];
+
 fn bridged_symbols() -> BTreeSet<&'static str> {
     let rows: BTreeSet<&'static str> = kernels_cuda::KERNELS
         .iter()
@@ -325,6 +350,7 @@ fn bridged_symbols() -> BTreeSet<&'static str> {
         .map(|k| k.symbol)
         .collect();
     let mut reachable = rows.clone();
+    reachable.extend(AWAITING_THE_VERIFY_STASH_POOL);
     for (lowered, row) in RENAMED_AT_THE_ABI {
         // The exception buys nothing if its TARGET is imaginary: a
         // rename is only reachable when the row it renames to is.
@@ -372,7 +398,7 @@ fn every_launch_of_the_anchor_deployment_binds() {
 /// (StateOnly, CommitAdvance) join when spec-decode does.
 #[test]
 fn every_launch_of_the_hybrid_deployment_binds() {
-    for (class, rows) in [(FireClass::Decode, 4), (FireClass::Prefill, 7)] {
+    for &(class, rows) in HYBRID_CORPUS {
         let l = qwen35_lowered(class, rows);
         assert!(!l.launches.is_empty(), "{class:?} lowered to nothing");
         let frame = Frame { arena: 0x10000 as *mut c_void, arena_bytes: l.arena_bytes };
@@ -390,13 +416,35 @@ fn every_launch_of_the_hybrid_deployment_binds() {
     }
 }
 
+/// The hybrid's fire classes, all five of them.
+///
+/// The two SHAPES are what any family serves. The other three are the MTP
+/// service passes, and they are here because the hybrid is the only
+/// family that declares them: `CommitAdvance` replays the confirmed
+/// prefix through the linear layers alone, `FrozenVerify` is the prefill
+/// body plus a verify-stash store, and `StateOnly` is the whole backbone
+/// with the epilogue cut off.
+///
+/// They were declared in the text and unreachable from the driver, which
+/// is the failure this file exists to catch: a trace nobody lowers is a
+/// trace nobody can tell is broken. Listing them here means a service
+/// pass that stops binding, or that names a kernel with no bridge row,
+/// fails the same way a decode would.
+const HYBRID_CORPUS: &[(FireClass, usize)] = &[
+    (FireClass::Decode, 4),
+    (FireClass::Prefill, 7),
+    (FireClass::CommitAdvance, 7),
+    (FireClass::StateOnly, 7),
+    (FireClass::FrozenVerify, 7),
+];
+
 /// The hybrid's dispatchability claim — same as the anchor's, separate
 /// test so a missing row names the family that needs it.
 #[test]
 fn every_lowered_hybrid_kernel_has_a_bridge_row() {
     let bridged = bridged_symbols();
     let mut unreachable = BTreeSet::new();
-    for (class, rows) in [(FireClass::Decode, 4), (FireClass::Prefill, 7)] {
+    for &(class, rows) in HYBRID_CORPUS {
         for symbol in &qwen35_lowered(class, rows).kernels {
             if !bridged.contains(symbol.as_str()) {
                 unreachable.insert(symbol.clone());
