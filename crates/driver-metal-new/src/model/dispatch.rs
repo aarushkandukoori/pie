@@ -627,6 +627,9 @@ mod tests {
     /// One launch of `symbol` over `rows`, with the args given.
     fn one(symbol: &str, rows: u32, args: Vec<Arg>) -> Lowered {
         Lowered {
+            // One request: these fixtures state one row.
+            n_requests: 1,
+
             launches: vec![Launch {
                 kernel: 0,
                 rows: 0..rows,

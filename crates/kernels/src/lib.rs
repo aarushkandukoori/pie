@@ -588,6 +588,14 @@ pub enum Source {
     KvWritePage,
     /// Per token: the row within [`Source::KvWritePage`]'s page.
     KvWriteOffset,
+    /// HOW MANY rows the fire samples, one per request.
+    ///
+    /// A number and not an address, so it rides the scalar channel beside the
+    /// statement's own — the same shape as the KV pool's strides, and for the
+    /// same reason: the driver knows it and no text can state it. `Lowered`
+    /// publishes it because it is `rows` filtered two ways and maxed, not
+    /// `rows.len()`.
+    RequestCount,
     /// Which ROWS the fire samples, one per request.
     ///
     /// A prefill's readout is one distribution per request and its stream is

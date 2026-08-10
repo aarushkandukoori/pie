@@ -512,7 +512,8 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         | Source::KvWritePage
         | Source::KvWriteOffset
         | Source::RopeFrequencies
-        | Source::SamplingIndices => return None,
+        | Source::SamplingIndices
+        | Source::RequestCount => return None,
         Source::Ctx(f) | Source::CtxNonZero(f) => format!("ctx.{f}"),
         // A NULL is returned fully typed and skips the cast step below:
         // that step turns a slot into the row's pointee, and a null has

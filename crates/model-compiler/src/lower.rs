@@ -416,6 +416,13 @@ pub struct Lowered {
     /// indexes it. Flat for the same reason [`Lowered::args`] is: the whole
     /// frame stays two arrays and a table.
     pub params: Vec<u32>,
+    /// Rows the fire SAMPLES — one distribution per request, and the number
+    /// `Dim::Requests` already sizes every epilogue value by.
+    ///
+    /// Published because a driver needs it and cannot recompute it: it is
+    /// `rows` filtered two ways and maxed, not `rows.len()`, and a text cannot
+    /// state it at all. `Source::RequestCount` is how a row asks.
+    pub n_requests: u32,
     /// The guard tree, when the lowering kept it ([`GuardMode::Union`]).
     ///
     /// Empty under [`GuardMode::Resolve`], where every guard was
@@ -493,6 +500,7 @@ pub fn lower_with(
     let arena_bytes = out.buffers.bytes;
     let value_offset = out.buffers.offset.clone();
     let epilogue_gather = out.buffers.epilogue_gather;
+    let n_requests = out.buffers.n_requests;
     let epilogue_norm = out.buffers.epilogue_norm;
     let value_owner = alias_owners(plan);
     out.region(0..plan.ops.len(), 0..n)?;
@@ -505,6 +513,7 @@ pub fn lower_with(
         value_owner,
         epilogue_gather,
         epilogue_norm,
+        n_requests,
         args: out.args,
         params: out.params,
         structural: out.structural,
@@ -1334,6 +1343,8 @@ pub struct Buffers {
     /// because the flat list handed all three rectangles the same
     /// operand run: `(activation, logits)`, which is true of the GEMM
     /// and of neither of the others.
+    /// Rows the fire samples — see [`Lowered::n_requests`].
+    pub n_requests: u32,
     pub epilogue_gather: usize,
     pub epilogue_norm: usize,
 }
@@ -1342,6 +1353,7 @@ impl Buffers {
     /// `offset[v]` for a value whose bytes are a named buffer's.
     pub const NAMED: usize = usize::MAX;
 
+    #[allow(clippy::too_many_lines)]
     pub fn assign(plan: &ForwardPlan, rows: &[Row]) -> Buffers {
         let n_tokens = rows.len();
         // `Dim::Requests` sizes the epilogue's values, so it must bound
@@ -1568,6 +1580,8 @@ impl Buffers {
         }
 
         Buffers {
+            n_requests: u32::try_from(n_requests).unwrap_or(u32::MAX),
+
             offset,
             bytes: used,
             pinned,
