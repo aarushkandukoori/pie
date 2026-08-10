@@ -10,7 +10,7 @@
 //!
 //! Having the mechanism is not the same as using it: a text has to state
 //! guards on those axes. This file used to record that the Metal text stated
-//! **none** — 367 launches, every one covering the whole fire, on every row set
+//! **none** — every launch covering the whole fire, on every row set
 //! tried, including sets the CUDA lowering refuses outright.
 //!
 //! **That changed when the text declared its depth axis.** `m.depth_window()`
@@ -19,7 +19,8 @@
 //!
 //! * rows truncating at different layers produce **narrowing rectangles**
 //!   rather than one rectangle per op — the shared prefix executes once, which
-//!   is the supergraph claim;
+//!   is the supergraph claim. Measured when it landed: row-work 2936 → 1688,
+//!   −42%, at an unchanged launch count;
 //! * and the text now imposes the **seriation contract**, refusing a row order
 //!   whose depth runs are not contiguous with `Discontiguous { axis: "depth" }`
 //!   — the same refusal the CUDA text makes, and the reason the frame bridge

@@ -1849,22 +1849,42 @@ pub mod metal {
     /// `neox_mb_bfloat16` (M>1). One dispatch for q and k together,
     /// as the plan states it (`declared_dag.hpp`'s `Kind::Rope`).
     pub fn rope(q: &Val, k: &Val, multi_batch: bool) -> (Val, Val) {
+        (
+            rope_one(q, multi_batch),
+            rope_one(k, multi_batch),
+        )
+    }
+
+    /// One tensor's rotation — which is what the kernel does.
+    ///
+    /// `rope_neox_decode` takes ONE `device T* x` and rotates it in place.
+    /// This helper used to state a single launch carrying q and k, two inputs
+    /// and two results, on the strength of a comment saying the DAG spells it
+    /// as one `Kind::Rope`. The DAG spells one KIND and dispatches it twice;
+    /// the trace stated one LAUNCH, so the second tensor was never rotated.
+    ///
+    /// Nothing could see it until the rows carried their operands: a statement
+    /// whose shape disagrees with its kernel's is invisible to every check
+    /// that only asks whether the symbol exists.
+    ///
+    /// In place, so the result is the operand: the row states `x` as its
+    /// `Out(0)` and the same buffer is read and written.
+    fn rope_one(x: &Val, multi_batch: bool) -> Val {
         let kernel = if multi_batch {
             "neox_mb_bfloat16"
         } else {
             "neox_decode_bfloat16"
         };
-        let q_sh = same_shape(q);
-        let k_sh = same_shape(k);
-        let ids = q.t.with(q.layer, |b| {
-            b.launch(kernel, vec![], None, vec![q.id, k.id], vec![q_sh, k_sh])
-        });
-        let mk = |id| Val {
-            t: q.t.clone(),
-            id,
-            layer: q.layer,
-        };
-        (mk(ids[0]), mk(ids[1]))
+        record(
+            &x.t,
+            x.layer,
+            kernel,
+            vec![],
+            None,
+            vec![x.id],
+            Some(same_shape(x)),
+        )
+        .expect("a rotation produces its value")
     }
 
     /// `attn/split_qkv.metal::split_qkv_bf16`: deinterleave the packed QKV

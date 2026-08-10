@@ -3,7 +3,7 @@
 //! This is the north star's fourth property with the checkpoint taken out: a
 //! sealed frame's step becomes rows, the rows become rectangles, the
 //! rectangles become grids, the grids become a command buffer, and the command
-//! buffer runs. Every one of the 367 launches of `llama_like`'s Metal text
+//! buffer runs. Every one of the 423 launches of `llama_like`'s Metal text
 //! reaches the device, and nothing in the driver names a family, a kernel or a
 //! model on the way.
 //!
@@ -11,17 +11,14 @@
 //! reasons, of which only the first is obvious:
 //!
 //! 1. the weights are sentinels, not a checkpoint;
-//! 2. **not one of the 367 launches binds its operands where its kernel reads
-//!    them.** Two measurements say so, and the second is the worse one:
-//!    nine statements bind FEWER buffers than their kernel declares
-//!    (`sdpa_paged_decode` states two and takes seventeen), and nine — every
-//!    statement whose shader could be found — bind them in the wrong ORDER.
-//!    `affine_qmv_fast` declares `w, scales, biases, x, y`; the trace states
-//!    `x, y, w, scales, zeros`. The activation goes where the packed weight
-//!    belongs.
+//! 2. the text still does not state everything its kernels read. Every row
+//!    it names states its operands now — `tests/text_conformance.rs` holds
+//!    that at zero — so no launch is bound positionally any more. What the
+//!    rows still carry as `Unbound` is the gap: the gathers' token ids and
+//!    the paged attention's six fire tables are values no statement supplies.
 //!
-//!    It completes because Metal does not validate a binding. The answer is
-//!    whatever the arena held.
+//!    A slot nobody bound is read anyway, and Metal does not validate a
+//!    binding, so the answer is whatever the arena held.
 //!
 //! `tests/text_conformance.rs` measures the second and pins the number so it
 //! can only shrink. That number is the honest distance between this file and
