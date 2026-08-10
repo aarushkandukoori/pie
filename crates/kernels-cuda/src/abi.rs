@@ -528,6 +528,25 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
          match b.kernel {\n",
     );
     for k in stated(tables) {
+        // AN IN-PLACE ROW NEEDS ITS STAGING, and a generated branch has
+        // none.
+        //
+        // `in_place = &[(0, 0)]` says output 0 aliases input 0 — a fact
+        // about the KERNEL, which reads and writes one buffer. The
+        // lowering honours it where it can, and where it cannot (the
+        // input is live elsewhere) it assigns distinct buffers and the
+        // arm copies before launching. The generated branch binds
+        // `Out(0)` and calls, so the destination holds whatever was
+        // there.
+        //
+        // This is what the qwen3_5 A/B caught and gemma-4's did not:
+        // `norm::residual_add_bf16` is in every layer of both, and the
+        // difference was only whether that fire's buffer assignment
+        // happened to alias. A bug whose reproduction depends on an
+        // allocator is exactly the kind to refuse rather than to test.
+        if !k.in_place.is_empty() {
+            continue;
+        }
         let binds: Option<Vec<String>> =
             k.operands.iter().map(rust_bind_expr).collect();
         let Some(binds) = binds else { continue };
