@@ -104,10 +104,20 @@ The flip is authorised when all of the following hold, and not before:
    device test may diff against the local interpreter and still be claiming
    agreement with the golden model.
 
-   What is left for this item: the device half — one fire through
-   `metal::fire`, the same fire through `pipeline::step`, compared. Stated
-   boundary: per-layer tap stages, which both the C++ and this crate reject
-   at classification and which are therefore outside the claim.
+   *Done (2026-08-09):* the device half is `tests/device_oracle.rs`, running
+   the compiler's **real emitted MSL** against the interpreter on one trace.
+   **The tolerance this item names is one ulp, and only transcendentals
+   spend it.** Plain arithmetic, the width-32 pairwise reduction and the
+   argmax tie-break are all exact on device; `exp` differs by one ulp
+   (`exp(0.5)` is `1.6487212` in Rust and `1.6487213` in Metal — two libms,
+   both within half an ulp of the truth). The tolerance is compared only
+   against float magnitudes: index, integer and boolean lanes are exact
+   whatever it is set to, so it can never quietly accept a different argmax.
+
+   Stated boundary for both halves: per-layer tap stages, which the C++ and
+   this crate both reject at classification and which are therefore outside
+   the claim. The cases are arithmetic-contract probes rather than coverage;
+   broadening them is ordinary work now that the construction exists.
 5. **Soak without growth.** A sustained decode (hours, not minutes) with
    `PoolStats`, `Memory`, and ring counts sampled: no monotone growth, no
    working-set creep. This is the leak class `release_standalone_buffer`

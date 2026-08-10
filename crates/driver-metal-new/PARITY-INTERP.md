@@ -279,16 +279,53 @@ at the places the C++'s "minus the per-layer taps" comment suggested one might
 be. `matmul` on both sides is the same k-outer accumulation with the same
 zero-skip, down to the guard.
 
+## The harness — device half landed
+
+`tests/device_oracle.rs` runs the same construction on real silicon. One trace
+produces both sides: `codegen::launch::build` for the package the driver
+adopts, and `codegen::program::emit_program(Backend::Metal, …)` for the **real
+generated MSL** — not `device_fire.rs`'s hand-written stand-ins, which are the
+right fixture for the readiness/regions/commit protocol and the wrong one for
+arithmetic. The fire runs `compile` → `prepare` → `execute`, and the committed
+ring cells are decoded back through the same `decode_wire` the interpreter uses.
+
+`Versions` is read from `tensor_compiler`'s own constants rather than written
+as a literal, because a literal here is precisely the `kMetalM1EmitterVersion =
+23` bug this ledger's sibling records.
+
+### What it found: one ulp, and only on transcendentals
+
+| subject | device vs interpreter |
+|---|---|
+| plain arithmetic (`mul`, `sub`) | **exact** |
+| `reduce_sum` (the width-32 pairwise tree) | **exact** |
+| `reduce_argmax` tie-break | **exact** |
+| `exp` | **1 ulp** — `exp(0.5)` is `1.6487212` in Rust and `1.6487213` in Metal |
+
+Both `exp` answers are within half an ulp of the true value; neither is wrong.
+Two libms rounded a transcendental differently, and nothing this crate does
+closes it. That is why `CUTOVER.md`'s item 4 says "within its stated tolerance"
+where item 3 says bit-identical — the interpreter oracle crosses a libm
+boundary and the token-exactness gate does not.
+
+The tolerance is stated in one constant, claimed by the `exp` case alone, and
+the arithmetic case exists to prove the bound means something: if everything
+drifted by an ulp, allowing one would be a shrug.
+
+**The tolerance never reaches a decision.** `same_within` compares integer,
+index and boolean lanes exactly whatever it is set to, so the reduction and
+tie-break cases run at zero and widening the constant cannot reach them. A
+magnitude may be a hair off and still be the same answer; an argmax index is
+either the same decision or a different token.
+
 ## What is still open
 
-The device half. `tests/oracle_interp.rs` is CPU-to-CPU and runs on any host;
-it does not yet fire anything on Metal. The remaining step is a device test
-that runs a fire through `metal::fire` and diffs it against `pipeline::step`.
-Because this file now pins `pipeline::step` to the original golden model, that
-device test can diff against the cheap local interpreter and still be making
-the strong claim — which is what makes the split worth having.
+Nothing in this file's scope. The stated boundary of both harnesses is
+per-layer tap stages: the C++ and this crate's `step` both reject them at
+classification, so a trace containing one is not a case where the two are
+expected to agree. Every case is an epilogue program, which is what the
+channel-plane interpreter exists to run.
 
-The comparison's stated boundary is per-layer tap stages: both the C++ and this
-crate's `step` reject them at classification, so a trace containing one is not
-a case where the two are expected to agree. Every case here is an epilogue
-program, which is what the channel-plane interpreter exists to run.
+The cases are small by design — they are arithmetic-contract probes, not
+coverage. Broadening them (more ops, multi-stage programs, capacity > 1 rings)
+is worthwhile and is ordinary work now that the construction exists.

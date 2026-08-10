@@ -233,7 +233,7 @@ attribution. `BatchStepInputs` is its marshaling container.
 | `expert_paging.hpp` (195) | `PARITY-BATCH.md` — `fire` needs `ExpertSlab` |
 | `load_multibatch_psos` / `MultiBatchPsos` | `PARITY-BATCH.md` — qmm tile grammar + tuning constants |
 | `KvPagePool` (SlotHandles + counters) | `PARITY-STORE.md` — device state, with the Metal kv-pool binding |
-| the oracle harness, **device half** — one fire through `metal::fire`, the same through `pipeline::step`, compared | `CUTOVER.md` gate item 4. The interpreter is done and its CPU half is done: `tests/oracle_interp.rs` pins `pipeline::step` bit-for-bit against `tensor_compiler::eval::interp`, so the device test may diff the cheap local copy and still claim the golden model (`PARITY-INTERP.md`) |
+| ~~the oracle harness~~ | **done** — `tests/oracle_interp.rs` (CPU, pins `pipeline::step` bit-for-bit against `tensor_compiler::eval::interp`) and `tests/device_oracle.rs` (device, real emitted MSL). Gate item 4's tolerance is now measured: one ulp, spent only on transcendentals (`PARITY-INTERP.md`) |
 | registry (`registry.cpp` 452 + `descriptor_resolve.hpp` 400), ring registry, `copy_kv`/`copy_state`/`resize_pool`, `store/`+`model/` glue (~375) | `CUTOVER.md` prerequisites |
 
 Deferred on purpose, each with its reason in the ledger: split-K; FP16
@@ -265,11 +265,11 @@ smoke needs a `qwen3_moe` checkpoint (Qwen3.6-35B-A3B turned out to be
   interpreter oracle, soak, the panic regressions) authorises the flip.
   Of the six, item 1 (suite green on device) holds and item 3 (token-exact
   decode) has run its N ≥ 1000 horizon; its one open leg is the bit-identical
-  comparison against the OLD driver, which shares these kernels. Item 4 is
-  half done — the interpreter it was recorded as waiting on has been in
-  `src/pipeline/` all along, and `tests/oracle_interp.rs` now pins it against
-  the original golden model; only the device diff is left. Items 2, 5 and 6
-  are untouched.
+  comparison against the OLD driver, which shares these kernels. **Item 4
+  holds** — the interpreter it was recorded as waiting on had been in
+  `src/pipeline/` all along, and both halves of its harness now exist; its
+  tolerance is measured at one ulp, spent only on transcendentals, and never
+  applied to an index. Items 2, 5 and 6 are untouched.
 
 ## How to work on this
 
