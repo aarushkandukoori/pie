@@ -592,10 +592,45 @@ fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
     let mut weights = std::collections::BTreeMap::new();
     let mut host = Vec::new();
     for t in meta.weights() {
+        // WHAT A LOAD CAN HAND THE KERNELS, and nothing else.
+        //
+        // Two answers, and the difference is whether the driver has to
+        // change the bytes.
+        //
+        // RAW bf16/f32 is what most of a checkpoint is. (f32 is the GDN
+        // parameter side of the `gdn_fp32_parameters` contract — `A_log`,
+        // the gate norm — consumed as f32 by its kernels.)
+        //
+        // A BYTE PAYLOAD is also loadable, and finding out why took
+        // reading the file. gpt-oss's MXFP4 expert banks are not a
+        // `Quant` encoding at all — safetensors stores them as `U8`
+        // tensors (`…experts.down_proj_blocks`, `U8 [32, 2880, 90, 16]`,
+        // beside a `_scales` companion), and the MXFP4 MEANING lives in
+        // the checkpoint's `quantization_config`, which the contract
+        // reads. The tensor's dtype says only "bytes".
+        //
+        // That is the right division and it makes the load's job small:
+        // get the bytes on the device unchanged. What they MEAN is the
+        // binder's business, and `quant::mxfp4_moe_gate_up_decode_bf16`
+        // indexes the stored layout directly.
+        //
+        // What still refuses is an encoding whose kernels want a
+        // DIFFERENT layout than the file has — a Marlin repack, an FP8
+        // re-encode, a GGUF block unpack. That is `transcode_engine`'s
+        // work in the retired C++ tree and it is not ported, so a
+        // checkpoint needing it is turned away at load rather than
+        // mis-bound at launch.
         match &t.encoding {
-            Encoding::Raw(d) if matches!(format!("{d:?}").as_str(), "BF16" | "F32") => {}
+            Encoding::Raw(d)
+                if matches!(format!("{d:?}").as_str(), "BF16" | "F32" | "U8") => {}
+            Encoding::Quant(spec) if reads_its_stored_form(spec.scheme) => {}
             other => {
-                eprintln!("[driver-cuda-new] load_model: {}: unsupported encoding {other:?}", t.name);
+                eprintln!(
+                    "[driver-cuda-new] load_model: {}: unsupported encoding {other:?}. \
+                     Raw bf16/f32 and packed schemes the kernels read as stored \
+                     load; anything needing a transcode does not.",
+                    t.name
+                );
                 return Err(PIE_STATUS_UNSUPPORTED);
             }
         }
@@ -2410,6 +2445,31 @@ fn gemma3n_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, 
             })
             .collect(),
     }))
+}
+
+/// Whether a quantized scheme's STORED bytes are what its kernels read.
+///
+/// The dividing line for what a load can accept without a transcode
+/// engine. A scheme here is uploaded verbatim; anything else needs its
+/// layout changed on the way in, which is `transcode_engine.hpp`'s job in
+/// the retired C++ tree and is not ported.
+///
+/// Note this is the arm for a checkpoint that DECLARES its scheme in the
+/// tensor encoding. gpt-oss does not — its MXFP4 banks arrive as plain
+/// `U8` and the scheme is in `quantization_config` — so the live MXFP4
+/// path is the `Raw(U8)` arm above. This one is for the encodings the
+/// loader does tag, and it is a MATCH rather than a default-allow for the
+/// same reason: a scheme nobody has checked should refuse, because
+/// guessing hands a kernel a layout it was not compiled for, which is not
+/// a crash but wrong numbers.
+///
+/// Deliberately a MATCH rather than a default-allow: a scheme nobody has
+/// checked should refuse, because the failure mode of guessing is a
+/// kernel reading a layout it was not compiled for — which is not a
+/// crash, it is wrong numbers.
+const fn reads_its_stored_form(scheme: model_loader::types::QuantScheme) -> bool {
+    use model_loader::types::QuantScheme as Q;
+    matches!(scheme, Q::Mxfp4E2M1E8M0 | Q::MlxAffineU4)
 }
 
 /// THE GQA RATIO, refused at LOAD rather than discovered at launch.
