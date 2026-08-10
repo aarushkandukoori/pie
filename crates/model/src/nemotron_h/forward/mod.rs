@@ -90,8 +90,7 @@ pub fn nemotron_h_cuda(facts: &NemotronHFacts, class: FireClass) -> ForwardPlan 
     let mb = facts.mamba.clone();
     let _at = facts.attn.clone();
     dsl::trace_named(&family, |t| {
-        dsl::seam(t, &dsl::seam::IN, &[], None);
-        let mut y = dsl::embed_with(t, "embed", facts.hidden);
+        let mut y = dsl::embedded_prologue(t, facts.hidden);
 
         for l in 0..facts.layers() {
             // THIS LAYER's sliding window, `-1` for none — a

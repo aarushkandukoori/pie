@@ -92,8 +92,7 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
     );
     let a = facts.attn.clone();
     dsl::trace_named(&family, |t| {
-        dsl::seam(t, &dsl::seam::IN, &[], None);
-        let mut y = dsl::embed_with(t, "embed", facts.hidden);
+        let mut y = dsl::embedded_prologue(t, facts.hidden);
 
         for l in 0..facts.layers {
             let w = KimiLayerW::new(l, facts);

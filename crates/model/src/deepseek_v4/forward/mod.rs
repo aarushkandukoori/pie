@@ -93,8 +93,7 @@ pub fn dsv4_cuda(facts: &Dsv4Facts, class: FireClass) -> ForwardPlan {
     let a = facts.attn.clone();
     let k = facts.hc.mult;
     dsl::trace_named(&family, |t| {
-        dsl::seam(t, &dsl::seam::IN, &[], None);
-        let embedded = dsl::embed_with(t, "embed", facts.hidden);
+        let embedded = dsl::embedded_prologue(t, facts.hidden);
         // The rank-K residual opens here and stays open to `hc_head`.
         let mut streams = dsl::cuda::hc_expand(&embedded, k, facts.hidden);
 

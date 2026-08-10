@@ -86,8 +86,7 @@ pub fn gemma2_cuda(facts: &Gemma2Facts, class: FireClass) -> ForwardPlan {
     );
     let a = facts.attn.clone();
     dsl::trace_named(&family, |t| {
-        dsl::seam(t, &dsl::seam::IN, &[], None);
-        let embedded = dsl::embed_with(t, "embed", facts.hidden);
+        let embedded = dsl::embedded_prologue(t, facts.hidden);
         // `sqrt(hidden)` on the embedding — a launch, not a fold.
         let mut y = dsl::cuda::scalar_mul(
             &embedded,

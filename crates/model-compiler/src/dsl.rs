@@ -773,6 +773,22 @@ pub fn rope(q: &Val, k: &Val, kind: RopeKind) -> (Val, Val) {
     (mk(qo), mk(ko))
 }
 
+/// THE PROLOGUE: the entry seam, then the token embedding.
+///
+/// Two lines, written identically by every family that has no per-layer
+/// embedding table to build first. It is shared for the reason the
+/// epilogue's exit seam is inside its block: the ORDER is the contract.
+/// The seam is where attached programs bind their inputs, so a family
+/// that embedded before seaming would hand them a value they were
+/// supposed to be able to influence.
+///
+/// Nothing enforces that order but this function, and nothing needs to
+/// once every caller is this function.
+pub fn embedded_prologue(t: &Trace, hidden: u32) -> Val {
+    seam(t, &seam::IN, &[], None);
+    embed_with(t, "embed", hidden)
+}
+
 /// THE EPILOGUE, and the three facts that vary in it.
 ///
 /// Five families wrote this: final norm, readout, an optional logit

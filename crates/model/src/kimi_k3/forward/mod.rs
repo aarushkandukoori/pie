@@ -118,8 +118,7 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
     let a = facts.attn.clone();
     let kd = facts.kda.clone();
     dsl::trace_named(&family, |t| {
-        dsl::seam(t, &dsl::seam::IN, &[], None);
-        let mut y = dsl::embed_with(t, "embed", facts.hidden);
+        let mut y = dsl::embedded_prologue(t, facts.hidden);
 
         for l in 0..facts.layers {
             let w = K3LayerW::new(l, facts);
