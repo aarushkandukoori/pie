@@ -242,11 +242,17 @@ pub fn facts_from(
         // Asked of the TENSORS: a sink is a weight, and a checkpoint that
         // ships one is a deployment that has them.
         attn_sinks: has_tensor("layers.0.self_attn.sinks"),
-        // gpt-oss's activation, when the geometry states its two constants.
-        // A limit of zero is "this deployment is not gpt-oss" and not a clamp
-        // at zero, which would zero the gate branch entirely.
-        swiglu: (geometry.swiglu_limit > 0.0)
-            .then_some((geometry.swiglu_limit, geometry.swiglu_alpha)),
+        // WHICH activation. A swiglu limit of zero is "this deployment is not
+        // gpt-oss" and not a clamp at zero, which would zero the gate branch
+        // entirely. `Geglu` is gemma's and reaches here when a gemma text does.
+        activation: if geometry.swiglu_limit > 0.0 {
+            model::families::llama_like::forward::facts::Activation::SwiGlu {
+                limit: geometry.swiglu_limit,
+                alpha: geometry.swiglu_alpha,
+            }
+        } else {
+            model::families::llama_like::forward::facts::Activation::SiluMul
+        },
         // Empty is every layer attending the whole context, which is what a
         // llama-like deployment does. `DecodeGeometry` carries no window at
         // all, so this is the honest answer and not a default: the families

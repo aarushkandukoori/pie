@@ -2257,6 +2257,29 @@ pub mod metal {
         .expect("the activation produces its value")
     }
 
+    /// `mlp/gated.metal::geglu_tanh` — gemma's activation.
+    ///
+    /// `gelu_tanh(gate) * up`, and the gelu is the TANH approximation rather
+    /// than the erf one. A third symbol beside `silu_mul` and
+    /// `gptoss_swiglu`, and which a deployment takes is a load-time fact.
+    pub fn geglu(gate: &Val, up: &Val, intermediate: u32) -> Val {
+        with_params(
+            &gate.t,
+            gate.layer,
+            "geglu_tanh_bfloat16",
+            vec![],
+            None,
+            // `GegluParams`: the element count.
+            vec![intermediate],
+            vec![gate.id, up.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the activation produces its value")
+    }
+
     /// `mlp/gated.metal::gptoss_swiglu` — gpt-oss's activation.
     ///
     /// Not `silu_mul` with parameters. The gate is clamped ABOVE only, the

@@ -10,7 +10,19 @@ use crate::axes::*;
 
 pub static KERNELS: &[KernelSig] = &[
     // 1 in geglu_tanh.metal
-    kernel!(geglu_tanh "geglu_tanh", axes = &[BF16]),
+    // gemma's activation: `gelu_tanh(gate) * up`, where the gelu is the tanh
+    // approximation and not the erf one. A third symbol beside `silu_mul` and
+    // `gptoss_swiglu`, and a text names which.
+    kernel!(geglu_tanh "geglu_tanh", file = Some("mlp/gated.metal"),
+        launch = kernels::LaunchRule::Elementwise,
+        operands = kernels::operands![
+            gate: Buf <- kernels::Source::In(0),
+            up: Buf <- kernels::Source::In(1),
+            out: BufMut <- kernels::Source::Out(0),
+            // `GegluParams`: the element count, packed.
+            params: Buf <- kernels::Source::Param(0),
+        ],
+        axes = &[BF16]),
     // 1 in geglu_tanh.metal
     kernel!(geglu_tanh_strided "geglu_tanh_strided", axes = &[BF16]),
     // 1 in gptoss.metal

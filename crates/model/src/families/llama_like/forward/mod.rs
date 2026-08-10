@@ -8,6 +8,7 @@ pub mod emit;
 pub mod facts;
 
 use self::facts::{
+    Activation,
     LlamaLikeCudaFacts, LlamaLikeFacts, LlamaLikeMetalFacts, NormPlacement, QkNorm,
 };
 use model_compiler::dsl::{
@@ -438,9 +439,12 @@ fn llama_like_metal_text(
             // gpt-oss clamps the gate above only, clamps the linear branch
             // both ways and adds one to it, and dropping either produces a
             // model that runs and is wrong.
-            let activate = |gate: &Val, up: &Val, width: u32| match metal.swiglu {
-                Some((limit, alpha)) => dsl::metal::swiglu(gate, up, width, limit, alpha),
-                None => dsl::metal::silu_mul(gate, up, width),
+            let activate = |gate: &Val, up: &Val, width: u32| match metal.activation {
+                Activation::SiluMul => dsl::metal::silu_mul(gate, up, width),
+                Activation::SwiGlu { limit, alpha } => {
+                    dsl::metal::swiglu(gate, up, width, limit, alpha)
+                }
+                Activation::Geglu => dsl::metal::geglu(gate, up, width),
             };
             if f.n_experts == 0 {
                 return activate(

@@ -560,6 +560,26 @@ pub struct LlamaLikeCudaFacts {
 /// rather than measured. `.wiki/tart/macos.md` records the ladder; the
 /// precedent for refusing to call an unmeasured fact set measured is
 /// [`Qwen35CudaFacts::qwen3_5_0_8b_synthetic`].
+/// WHICH gated activation a deployment takes. See
+/// [`LlamaLikeMetalFacts::activation`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub enum Activation {
+    /// `silu_mul` — `silu(gate) * up`, every llama-like deployment's.
+    #[default]
+    SiluMul,
+    /// `gptoss_swiglu` — the gate clamped ABOVE only, the linear branch
+    /// clamped both ways and carrying a `+1`.
+    SwiGlu {
+        /// The clamp.
+        limit: f32,
+        /// The sigmoid's slope. NOT from a config: it is part of the
+        /// activation the way `silu`'s sigmoid is.
+        alpha: f32,
+    },
+    /// `geglu_tanh` — gemma's, and the gelu is the TANH approximation.
+    Geglu,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LlamaLikeMetalFacts {
     /// The projection GEMV folds the block residual in its epilogue
@@ -664,18 +684,19 @@ pub struct LlamaLikeMetalFacts {
     /// gpt-oss's; asked of the TENSORS, like the other binding facts.
     #[serde(default)]
     pub attn_sinks: bool,
-    /// gpt-oss's SwiGLU, as `(limit, alpha)`, or `None` for `silu_mul`.
+    /// WHICH gated activation this deployment takes.
     ///
-    /// Not a parameterization of `silu_mul`: the gate is clamped ABOVE only,
-    /// the linear branch is clamped both ways and carries a `+1`, and dropping
-    /// either produces a model that runs and is wrong. Which activation a
-    /// deployment takes is therefore a SYMBOL choice, and this is the fact
-    /// that makes it.
+    /// Three symbols, not one with flags, and the difference is not
+    /// cosmetic: gpt-oss clamps the gate ABOVE only, clamps the linear branch
+    /// both ways and adds one to it; gemma's gelu is the TANH approximation
+    /// rather than the erf one. Dropping any of that produces a model that
+    /// runs and is wrong, which is why a text names a symbol and a fact
+    /// chooses.
     ///
-    /// Serde-defaulted (append-only discipline); `None` is every llama-like
-    /// deployment.
+    /// Serde-defaulted (append-only discipline); the default is `silu_mul`,
+    /// every llama-like deployment's.
     #[serde(default)]
-    pub swiglu: Option<(f32, f32)>,
+    pub activation: Activation,
     /// Whether this deployment's rotary frequencies come from a TABLE.
     ///
     /// True for a config that rescales its ladder -- llama-3's `rope_scaling`
@@ -710,7 +731,10 @@ impl LlamaLikeMetalFacts {
             // Every layer carries one learned logit per head.
             attn_sinks: true,
             // `swiglu_limit: 7.0`, and alpha is the activation's own constant.
-            swiglu: Some((7.0, 1.702)),
+            activation: Activation::SwiGlu {
+                limit: 7.0,
+                alpha: 1.702,
+            },
             // `rope_theta: 150000`, a plain geometric ladder.
             rope_theta: 150_000.0,
             rope_freq_table: false,
@@ -762,7 +786,7 @@ impl LlamaLikeMetalFacts {
             rope_theta: 1_000_000.0,
             // qwen3 has no attention sinks and the plain gated activation.
             attn_sinks: false,
-            swiglu: None,
+            activation: Activation::SiluMul,
             // qwen3's ladder is a plain geometric series in `rope_theta`.
             rope_freq_table: false,
             // qwen3 attends over the whole context at every layer.
