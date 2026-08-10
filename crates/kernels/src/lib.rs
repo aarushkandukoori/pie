@@ -185,6 +185,13 @@ pub enum Ty {
     /// entries are packed nibbles and block scales, and a `void*` row
     /// would let a bf16 bank through.
     U8Array,
+    /// A read-only device array of `u16`. Two launchers spell their
+    /// bf16 buffers this way rather than as `void*`, and the pilot will
+    /// not let a `Buf` row stand in: the pointer types differ, so the
+    /// forward is a conversion C++ refuses.
+    U16s,
+    /// A device array of `u16` the launcher WRITES.
+    U16sMut,
     /// The element type a buffer is stored in — `DType`, a
     /// `std::uint8_t`-backed enum class.
     ///
@@ -280,6 +287,8 @@ impl Ty {
             Ty::BufArrayOut => "const void**",
             Ty::BufArrayOutMut => "void**",
             Ty::U8Array => "const ::std::uint8_t* const*",
+            Ty::U16s => "const ::std::uint16_t*",
+            Ty::U16sMut => "::std::uint16_t*",
             Ty::Dtype => "::pie_cuda_driver::DType",
             Ty::I64 => "long long",
             Ty::U32s => "const ::std::uint32_t*",
@@ -324,6 +333,8 @@ impl Ty {
             Ty::BufArrayOut => "*mut *const ::core::ffi::c_void",
             Ty::BufArrayOutMut => "*mut *mut ::core::ffi::c_void",
             Ty::U8Array => "*const *const u8",
+            Ty::U16s => "*const u16",
+            Ty::U16sMut => "*mut u16",
             Ty::Dtype => "u8",
             Ty::I64 => "::core::ffi::c_longlong",
             Ty::U32s => "*const u32",
@@ -447,6 +458,24 @@ pub struct KernelSig {
     /// caller that is not C++ cannot omit one — and because a default is a
     /// choice the table should be able to see.
     pub operands: &'static [Operand],
+    /// What the launcher RETURNS, spelled as C++ spells it.
+    ///
+    /// `""` — the default — means `void`, which is what a launcher is
+    /// nearly always. Three are not: `gemv3_bf16`, `rmsnorm_bf16_tuned`
+    /// and `lm_head_argmax_chunked` return `bool`, and the bool means
+    /// "did the fused/tuned form run" rather than "did it succeed".
+    ///
+    /// It is on the ROW rather than inferred because the shim has to
+    /// declare the forwarding pointer's full type: a `void` forward to a
+    /// `bool` launcher is a conversion C++ refuses, which is how these
+    /// three were found. Stating it is also the honest reading — a
+    /// launcher that answers something is a different contract from one
+    /// that only acts, and a table that could not tell them apart was
+    /// describing the second and meaning the first.
+    ///
+    /// The generated entry point returns the same type; a caller that
+    /// ignores it is doing what the C++ call sites already do.
+    pub returns: &'static str,
     /// The axes `symbol` is instantiated over, if it names a FAMILY of
     /// entrypoints rather than one.
     ///
@@ -576,6 +605,7 @@ macro_rules! kernel {
                 in_place: &[],
                 depth_prefix_plan: false,
                 operands: &[],
+                returns: "",
                 axes: &[],
             }
         }

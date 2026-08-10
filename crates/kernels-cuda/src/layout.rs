@@ -97,7 +97,15 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     // The PLE relay: [N, L, D] -> [L, N, D], so a layer reads a
     // contiguous slice. Addressing, not arithmetic.
-    kernel!(transpose_nld_to_lnd "layout::transpose_bf16_nld_to_lnd"),
+    kernel!(transpose_nld_to_lnd "layout::transpose_bf16_nld_to_lnd",
+        operands = operands![
+            src: U16s,
+            dst: U16sMut,
+            n: I32,
+            layers: I32,
+            dim: I32,
+            stream: Stream,
+        ]),
     kernel!(verify_stash_store "qwen35_verify_stash_store"),
     kernel!(verify_stash_load "qwen35_verify_stash_load"),
 ];

@@ -237,6 +237,7 @@ fn the_stated_quant_layout_gemm_and_moe_rows_describe_their_launchers() {
         "gemm/gemv.hpp",
         "moe/dsv4_routing.hpp",
         "moe/moe_dispatch.hpp",
+        "moe/moe_grouped_gemm.hpp",
         "moe/topk_sigmoid.hpp",
         "moe/topk_softmax.hpp",
     ];
@@ -627,6 +628,7 @@ fn a_wrong_row_does_not_compile() {
             in_place: base.in_place,
             depth_prefix_plan: base.depth_prefix_plan,
             operands: leaked,
+            returns: base.returns,
             axes: base.axes,
         }]);
         assert!(
@@ -669,6 +671,7 @@ fn renaming_an_operand_is_not_a_mistake() {
         in_place: base.in_place,
         depth_prefix_plan: base.depth_prefix_plan,
         operands: renamed,
+        returns: base.returns,
         axes: base.axes,
     }]);
     if let Err(err) = compile(&rope_shim(row)) {

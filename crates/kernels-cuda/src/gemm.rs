@@ -188,14 +188,19 @@ pub static KERNELS: &[KernelSig] = &[
             k: I32,
             beta: F32,
         ]),
-    // UNSTATED, and the reason is a gap in the TABLE rather than in this
-    // row: `gemv3_bf16` returns `bool` -- "did the fused triple run" --
-    // and `KernelSig` has no vocabulary for a return type, so the shim
-    // emits a `void` forward and the compiler refuses it. Three rows are
-    // in this shape (`rmsnorm_bf16_tuned`, `lm_head_argmax_chunked`),
-    // which is the size of the work: one field on the row, one line in
-    // the emitter.
-    kernel!(gemv3 "gemm::gemv3_bf16"),
+    // The fused Q/K/V triple, and the first row to state a RETURN: the
+    // bool answers "did the fused form run", so a caller that ignores it
+    // has fired nothing.
+    kernel!(gemv3 "gemm::gemv3_bf16",
+        returns = "bool",
+        operands = operands![
+            w0: Buf, w1: Buf, w2: Buf,
+            b0: Buf, b1: Buf, b2: Buf,
+            o0: BufMut, o1: BufMut, o2: BufMut,
+            act: Buf,
+            n0: I32, n1: I32, n2: I32, k: I32,
+            stream: Stream,
+        ]),
     // The sink rescale, and the fp32 LSE it eats. The LSE has no row of
     // its own: it is a second OUTPUT of the decode dispatch, requested
     // by an argument, so the kernel that changes is none.
