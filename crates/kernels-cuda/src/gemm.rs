@@ -78,7 +78,18 @@ pub static KERNELS: &[KernelSig] = &[
     // same reason `gemm_grouped` is -- the batch is addressed through
     // device pointer arrays built for the WHOLE fire, so a row window
     // would leave them pointing at rows the window does not own.
-    kernel!(gemm_batched_xwt "gemm::batched_act_x_wt_bf16", whole = true),
+    kernel!(gemm_batched_xwt "gemm::batched_act_x_wt_bf16", whole = true,
+        operands = operands![
+            handle: CublasHandle,
+            act_ptrs_dev: BufArray,
+            w_ptrs_dev: BufArray,
+            y_ptrs_dev: BufArrayMut,
+            m: I32,
+            n: I32,
+            k: I32,
+            batch_count: I32,
+            beta: F32,
+        ]),
     kernel!(gemm_cublas "gemm::act_x_wt_bf16_cublas",
         operands = operands![
             handle: CublasHandle,
@@ -102,7 +113,18 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     // The group boundaries (`M_array`) are fire-global, so a row window would
     // cut a group in half.
-    kernel!(gemm_grouped "gemm::grouped_act_x_wt_bf16", whole = true),
+    kernel!(gemm_grouped "gemm::grouped_act_x_wt_bf16", whole = true,
+        operands = operands![
+            handle: CublasHandle,
+            act_ptrs_host: BufArray,
+            w_ptrs_host: BufArray,
+            y_ptrs_host: BufArrayMut,
+            m_array_host: I32s,
+            group_count: I32,
+            n: I32,
+            k: I32,
+            beta: F32,
+        ]),
     kernel!(gemv3 "gemm::gemv3_bf16"),
     // The sink rescale, and the fp32 LSE it eats. The LSE has no row of
     // its own: it is a second OUTPUT of the decode dispatch, requested

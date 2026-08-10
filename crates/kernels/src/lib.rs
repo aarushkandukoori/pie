@@ -149,6 +149,42 @@ pub enum Ty {
     /// `std::uint32_t`, and a mirror that guessed `i32` would be a silent
     /// sign bug on any value above 2^31 rather than a compile error.
     U32,
+    /// ── POINTER ARRAYS ────────────────────────────────────────────
+    ///
+    /// A batched or grouped launch is handed an ARRAY of buffers rather
+    /// than one, and two independent things can be const about it: the
+    /// array itself, and what its entries point at. Four kinds, because
+    /// all four combinations are live and C++ will silently accept
+    /// three of them where a fourth was meant.
+    ///
+    /// Naming reads outside-in — `BufArray` is the array the launcher
+    /// READS of buffers it READS; `Mut` on the end means the BUFFERS are
+    /// writable; `Out` in the middle means the ARRAY is.
+    ///
+    /// The distinction is not pedantry. `gemm::batched_act_x_wt_bf16`
+    /// takes its destination array as `void* const*` — it writes the
+    /// buffers and reads the array — while the nemotron pointer
+    /// BUILDERS take `void**`, because building the array is what they
+    /// do. A row that swapped them would compile as `-fpermissive` and
+    /// hand a builder an array it must not write.
+
+    /// `const void* const*` — an array the launcher reads, of buffers it
+    /// reads.
+    BufArray,
+    /// `void* const*` — an array the launcher reads, of buffers it
+    /// writes. Every batched GEMM's destination list.
+    BufArrayMut,
+    /// `const void**` — an array the launcher WRITES, of buffers to be
+    /// read. What a pointer builder fills for a later batched call.
+    BufArrayOut,
+    /// `void**` — an array the launcher writes, of buffers to be
+    /// written. The destination half of the same builder.
+    BufArrayOutMut,
+    /// `const std::uint8_t* const*` — the same shape as [`Ty::BufArray`]
+    /// with the element type spelled, which the MXFP4 banks need: their
+    /// entries are packed nibbles and block scales, and a `void*` row
+    /// would let a bf16 bank through.
+    U8Array,
     /// A host scalar spelled `long long` — the recurrent state's slot
     /// stride, which is an ELEMENT count into a multi-gigabyte arena and
     /// so was widened deliberately. Its own kind for `Ty::U32`'s reason:
@@ -223,6 +259,11 @@ impl Ty {
             Ty::Buf => "const void*",
             Ty::I32s => "const ::std::int32_t*",
             Ty::I64s => "const ::std::int64_t*",
+            Ty::BufArray => "const void* const*",
+            Ty::BufArrayMut => "void* const*",
+            Ty::BufArrayOut => "const void**",
+            Ty::BufArrayOutMut => "void**",
+            Ty::U8Array => "const ::std::uint8_t* const*",
             Ty::I64 => "long long",
             Ty::U32s => "const ::std::uint32_t*",
             Ty::U8s => "const ::std::uint8_t*",
@@ -261,6 +302,11 @@ impl Ty {
             Ty::Buf => "*const ::core::ffi::c_void",
             Ty::I32s => "*const i32",
             Ty::I64s => "*const i64",
+            Ty::BufArray => "*const *const ::core::ffi::c_void",
+            Ty::BufArrayMut => "*const *mut ::core::ffi::c_void",
+            Ty::BufArrayOut => "*mut *const ::core::ffi::c_void",
+            Ty::BufArrayOutMut => "*mut *mut ::core::ffi::c_void",
+            Ty::U8Array => "*const *const u8",
             Ty::I64 => "::core::ffi::c_longlong",
             Ty::U32s => "*const u32",
             Ty::U8s => "*const u8",
