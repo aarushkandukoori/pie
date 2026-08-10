@@ -227,7 +227,10 @@ first arm of `forward.cpp`'s orchestration exists as `metal/decoder.rs`.
 | slotted GDN / paged KV / paged SDPA const arms | `metal/bind.rs` | ported — found by the paged bisect after being omitted (an unbound constant is zero output, not a fault) |
 | `ab_*` A/B levers, `PIE_METAL_PAGING_TRACE` | — | dropped: crate policy denies prints; the smoke's env levers are the equivalents |
 | `forward.cpp`: fire loop, page/slot assignment, conv orientation | `metal/decoder.rs` | ported in first form: per-width step cache, per-token prefill streams, fleet fires, per-slot orientation with the join copy |
-| `forward.cpp`: elastic KV resize, EOS/argmax loop, copy_state/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
+| `ensure_elastic_storage`'s sizing arithmetic | `batch::sizing::{kv_pool_target_bytes, ring_target_bytes, conv_state_target_bytes, recurrent_state_target_bytes, row_scaled_target_bytes}` + `Target` | ported; the clamp is a value, not a silent `min` |
+| `kv_pool_row_bytes`, and its inline second spelling in `ensure_elastic_storage` | `batch::sizing::kv_pool_row_bytes` | ported, one spelling |
+| `ensure_elastic_buffers_atomically` (the commit itself) | `metal::Elastic` | ported |
+| `forward.cpp`: the EOS/argmax loop, `copy_state`/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
 
 Verified on device (Qwen3.6-27B, `tests/device_smoke.rs`): the M=1 ring
 decode, the paged sequential and per-row-stream prefills, the equal

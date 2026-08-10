@@ -140,8 +140,10 @@ pub use schedule::{
     find_request, validate_capacity, validate_paged,
 };
 pub use sizing::{
-    RoutedProjection, RowAxis, ValueExtent, moe_sorted_rows, pool_colour_elems, scratch_slot_elems,
-    scratch_widest_elems, sorted_rows,
+    RoutedProjection, RowAxis, Target, ValueExtent, conv_state_target_bytes, kv_pool_row_bytes,
+    kv_pool_target_bytes, moe_sorted_rows, pool_colour_elems, recurrent_state_target_bytes,
+    ring_target_bytes, row_scaled_target_bytes, scratch_slot_elems, scratch_widest_elems,
+    sorted_rows,
 };
 pub use tickets::{ChannelTicket, MemberChannels, TicketRefused, compose_tickets};
 pub use timing::{

@@ -166,9 +166,201 @@ pub fn scratch_slot_elems(geometry: &DecodeGeometry, tuning: &Tuning, max_tokens
     elems
 }
 
+// ─────────────────── the elastic step demand ────────────────────────────────
+
+/// One paged-pool row's byte size: `[n_kv_heads, head_dim]` at bf16, which is
+/// what `kv_append.metal` and `kv_append_paged.metal` both instantiate.
+///
+/// The C++ has this twice: once as `kv_pool_row_bytes(g)` and once inlined
+/// eighty lines away inside `ensure_elastic_storage`, as
+/// `page_size * n_kv_heads * head_dim * 2u`. Two spellings of one row width is
+/// how a pool comes to be committed at a size its writer does not use.
+#[must_use]
+pub const fn kv_pool_row_bytes(geometry: &DecodeGeometry) -> u64 {
+    geometry.n_kv_heads as u64 * geometry.head_dim as u64 * 2
+}
+
+/// A byte target for one elastic slot, and whether the slot could meet it.
+///
+/// The C++ takes `min(bytes, slot.size)` and returns nothing, so a demand
+/// larger than the slot is answered by committing the whole slot and saying it
+/// worked. The caller then runs against a buffer that is *not* the size it
+/// asked for, and the first thing that notices is the arithmetic downstream.
+/// [`Target::clamped`] is that fact, kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Target {
+    /// Bytes to commit — never more than the slot holds.
+    pub bytes: u64,
+    /// The demand exceeded the slot and was cut down to it.
+    pub clamped: bool,
+}
+
+impl Target {
+    /// Clamp `want` to `slot_bytes`, remembering whether it had to.
+    #[must_use]
+    pub const fn of(want: u64, slot_bytes: u64) -> Self {
+        if want > slot_bytes {
+            Target {
+                bytes: slot_bytes,
+                clamped: true,
+            }
+        } else {
+            Target {
+                bytes: want,
+                clamped: false,
+            }
+        }
+    }
+}
+
+/// The M=1 ring's per-layer target: the fraction of the layer's full context
+/// this fire actually addresses.
+///
+/// `max_ctx` is the slot's full extent, so the ratio is exact rather than a
+/// guess — but it is taken as `slot_bytes * min(tokens, max_ctx) / max_ctx`,
+/// multiply before divide, so a context that is not a divisor of the byte size
+/// still lands on the right side of the boundary.
+#[must_use]
+pub fn ring_target_bytes(slot_bytes: u64, ring_tokens: u32, max_ctx: u32) -> Target {
+    let ctx = u64::from(max_ctx.max(1));
+    let want = slot_bytes * u64::from(ring_tokens).min(ctx) / ctx;
+    Target::of(want, slot_bytes)
+}
+
+/// The paged pool's per-layer target for `kv_pages` pages.
+#[must_use]
+pub fn kv_pool_target_bytes(
+    geometry: &DecodeGeometry,
+    page_size: u32,
+    kv_pages: u32,
+    slot_bytes: u64,
+) -> Target {
+    let page_bytes = u64::from(page_size) * kv_pool_row_bytes(geometry);
+    Target::of(u64::from(kv_pages) * page_bytes, slot_bytes)
+}
+
+/// A GDN layer's convolution-state target for `state_slots` slots.
+#[must_use]
+pub fn conv_state_target_bytes(
+    geometry: &DecodeGeometry,
+    state_slots: u32,
+    slot_bytes: u64,
+) -> Target {
+    Target::of(
+        u64::from(state_slots) * geometry.gdn_conv_stride_bytes(),
+        slot_bytes,
+    )
+}
+
+/// A GDN layer's recurrent-state target for `state_slots` slots.
+#[must_use]
+pub fn recurrent_state_target_bytes(
+    geometry: &DecodeGeometry,
+    state_slots: u32,
+    slot_bytes: u64,
+) -> Target {
+    Target::of(
+        u64::from(state_slots) * geometry.gdn_recurrent_stride_bytes(),
+        slot_bytes,
+    )
+}
+
+/// A row-scaled slot's target: the pool and scratch buffers, whose size is a
+/// function of how many token rows the fire actually carries.
+///
+/// Rounded **up**: a fire of one row out of a 512-row capacity still needs the
+/// whole of whatever a single row touches, and rounding down would commit a
+/// buffer one byte short of the row it is for. The C++'s
+/// `(size * min(rows, cap) + cap - 1) / cap` is the same ceiling and is kept.
+#[must_use]
+pub fn row_scaled_target_bytes(slot_bytes: u64, token_rows: u32, max_tokens: u32) -> Target {
+    let capacity = u64::from(max_tokens.max(1));
+    let rows = u64::from(token_rows.max(1)).min(capacity);
+    Target::of(
+        slot_bytes.saturating_mul(rows).div_ceil(capacity),
+        slot_bytes,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn kv_geometry() -> DecodeGeometry {
+        DecodeGeometry {
+            n_kv_heads: 8,
+            head_dim: 128,
+            gdn_conv_dim: 64,
+            gdn_conv_k: 4,
+            gdn_v_heads: 2,
+            gdn_v_dim: 16,
+            gdn_k_dim: 16,
+            ..DecodeGeometry::default()
+        }
+    }
+
+    #[test]
+    fn a_pool_page_is_the_row_width_times_the_page_size_and_the_row_width_has_one_spelling() {
+        let g = kv_geometry();
+        assert_eq!(kv_pool_row_bytes(&g), 8 * 128 * 2);
+        // The whole point of the shared helper: the page target IS
+        // `page_size * row_bytes`, not a second product that happens to agree.
+        let t = kv_pool_target_bytes(&g, 32, 4, u64::MAX);
+        assert_eq!(t.bytes, 4 * 32 * kv_pool_row_bytes(&g));
+        assert!(!t.clamped);
+    }
+
+    #[test]
+    fn a_demand_larger_than_its_slot_says_so_instead_of_quietly_becoming_the_slot() {
+        // The C++ takes `min(bytes, slot.size)` and returns nothing, so the
+        // caller runs against a buffer that is not the size it asked for.
+        let g = kv_geometry();
+        let slot = 1024;
+        let t = kv_pool_target_bytes(&g, 32, 1000, slot);
+        assert_eq!(t.bytes, slot);
+        assert!(t.clamped, "the demand did not fit and the caller must know");
+    }
+
+    #[test]
+    fn the_ring_target_is_the_fraction_of_the_context_this_fire_addresses() {
+        // A quarter of the context is a quarter of the bytes.
+        assert_eq!(ring_target_bytes(4096, 512, 2048).bytes, 1024);
+        // And a fire longer than the context is the whole of it, not more.
+        let t = ring_target_bytes(4096, 9000, 2048);
+        assert_eq!(t.bytes, 4096);
+        assert!(!t.clamped, "min against max_ctx already bounded it");
+    }
+
+    #[test]
+    fn a_row_scaled_slot_rounds_up_so_a_single_row_is_never_a_byte_short() {
+        // 100 bytes over 8 rows: one row needs 12.5, and 12 would be short.
+        assert_eq!(row_scaled_target_bytes(100, 1, 8).bytes, 13);
+        assert_eq!(row_scaled_target_bytes(100, 8, 8).bytes, 100);
+        // More rows than the capacity is the capacity, not an overrun.
+        assert_eq!(row_scaled_target_bytes(100, 99, 8).bytes, 100);
+        // A zero row count is one row: a fire always carries something.
+        assert_eq!(row_scaled_target_bytes(100, 0, 8).bytes, 13);
+    }
+
+    #[test]
+    fn a_zero_capacity_cannot_divide_by_zero() {
+        // Both clamps the C++ writes as `max(1, ...)`, kept and pinned.
+        assert_eq!(row_scaled_target_bytes(64, 4, 0).bytes, 64);
+        assert_eq!(ring_target_bytes(64, 4, 0).bytes, 64);
+    }
+
+    #[test]
+    fn the_two_gdn_state_targets_scale_by_their_own_strides() {
+        let g = kv_geometry();
+        let conv = conv_state_target_bytes(&g, 3, u64::MAX);
+        let rec = recurrent_state_target_bytes(&g, 3, u64::MAX);
+        assert_eq!(conv.bytes, 3 * g.gdn_conv_stride_bytes());
+        assert_eq!(rec.bytes, 3 * g.gdn_recurrent_stride_bytes());
+        assert_ne!(
+            conv.bytes, rec.bytes,
+            "the conv and recurrent states are different shapes and must not share a formula"
+        );
+    }
 
     fn moe_geometry() -> DecodeGeometry {
         DecodeGeometry {
