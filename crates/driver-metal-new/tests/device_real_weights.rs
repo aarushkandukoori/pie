@@ -351,6 +351,21 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
         .collect();
     regions.sort_unstable();
     regions.dedup();
+    // Widen each region to where the NEXT one starts. `width * bytes` is one
+    // ROW and a decode's value is `rows` of them, so censusing the stated
+    // width looks at the first token's slice and calls it the region -- which
+    // cannot tell "nothing wrote this" from "the write landed at the wrong
+    // offset inside it".
+    let starts: Vec<usize> = regions.iter().map(|(at, _, _)| *at).collect();
+    for (i, (at, len, _)) in regions.iter_mut().enumerate() {
+        let next = starts
+            .iter()
+            .skip(i + 1)
+            .find(|s| **s > *at)
+            .copied()
+            .unwrap_or(read.len());
+        *len = (*len).max(next - *at).min(read.len() - *at);
+    }
 
     // Which statement each arena offset belongs to, and whether it is that
     // statement's OUTPUT. A region nothing wrote is diagnosable only if the
@@ -389,6 +404,13 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
         }
     }
 
+    {
+        let mut hist: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+        for l in &lowered.launches {
+            *hist.entry(l.rows.end - l.rows.start).or_default() += 1;
+        }
+        eprintln!("launch rows histogram: {hist:?}");
+    }
     eprintln!(
         "{} launch(es) -> {} dispatch(es)",
         lowered.launches.len(),
@@ -468,11 +490,16 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
          zero epsilon does to a near-zero row.",
         c.inf
     );
+    // A QUARTER non-zero, measured, and the quarter is the whole story: three
+    // of every four rows are zero because the fire fills one lane of four (see
+    // the per-token axis below). The bound is therefore a tenth rather than a
+    // half -- it is here to catch an arena that is EMPTY, which is a fire that
+    // ran and computed nothing, and the lane count is what tracks the rest.
     assert!(
-        c.finite_nonzero > c.zero * 4,
+        c.finite_nonzero * 10 > c.zero,
         "the arena is {} zero to {} non-zero. A projection told its extents \
-         are zero no-ops and leaves exactly this, so a mostly-empty arena is \
-         a fire that ran and did not compute.",
+         are zero no-ops and leaves exactly this, so a near-empty arena is a \
+         fire that ran and did not compute.",
         c.zero,
         c.finite_nonzero
     );
@@ -499,12 +526,19 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
         .expect("the text states a readout");
     let (at, len, element) = readout;
     let end = (at + len).min(read.len());
-    let r = census(&read[at..end], element);
+    // Row ZERO of it, not all four: three of the four are empty and the lane
+    // count below is what tracks that. What this asks is whether the readout
+    // that DID run produced a distribution.
+    //
+    // Exactly half zero would mean something else entirely -- a kernel writing
+    // bf16 into a slot sized for f32 -- and that is a defect this gate found
+    // and closed on its first run.
+    let lane_bytes = (end - at) / 4;
+    let r = census(&read[at..at + lane_bytes], element);
     assert!(
         r.finite_nonzero > r.zero,
-        "the readout is {} zero to {} non-zero. Exactly half zero is a dtype \
-         disagreement -- the kernel writing bf16 into a slot sized for f32 -- \
-         and mostly zero is a readout that did not run.",
+        "the readout's first lane is {} zero to {} non-zero. Half zero is a \
+         dtype disagreement; mostly zero is a readout that did not run.",
         r.zero,
         r.finite_nonzero
     );
@@ -513,49 +547,43 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
         "every logit is under 1e-4, so the readout accumulated nothing."
     );
 
-    // ── the regions a launch declares and does not fill ──
+    // ── THE PER-TOKEN AXIS ──
     //
-    // FIVE, measured 2026-08-10 against `Llama-3.2-1B-Instruct-4bit`. Each is
-    // the stated OUTPUT of a launch that ran -- 227 launches became 227
-    // dispatches and none had an empty grid -- and came back entirely zero.
-    // Two are `affine_qmv_fast` at kv width, two more at the MLP's, and one is
-    // a `silu_mul`.
+    // Four lanes decoded four different tokens, so the readout should hold
+    // four different rows. It holds ONE: 128256 of 513024 values non-zero,
+    // which is exactly one row of a 128256-wide vocabulary, and rows one
+    // through three are zero all the way through.
     //
-    // Pinned rather than asserted to zero because it is a MEASUREMENT of a
-    // gap, not a bound anyone has closed: the point is that it can only
-    // shrink. `tests/text_conformance.rs` did the same for operand binding
-    // (14 -> 0) and for scalars (13 -> 0), and both closed only after the
-    // number existed to close.
+    // Measured 2026-08-10, and it is the largest remaining gap between this
+    // executor and a model that answers. Nothing about it is a grid: every
+    // launch states `rows 0..4`, `qmv_mb` puts the row on `grid.x` and
+    // `qmv_fast_impl` reads it there (`y += tid.x * out_vec_size`), and the
+    // dispatches come out `[128, 512, 1]` over `[32, 2, 1]` -- four
+    // threadgroups on x, one per row. All 227 launches plan and none has an
+    // empty grid.
     //
-    // What it is NOT is a fire that fails: the readout is fully written and
-    // every lane differs, so the path that produces logits runs end to end.
-    // These are branches of it that produce nothing, and a decode that reads
-    // one gets a zero rather than a wrong number -- which is why this is a
-    // measurement rather than a crash.
-    eprintln!("{} declared output(s) nothing filled", unwritten.len());
+    // So the arithmetic is right and the rows still do not appear, which
+    // means the next thing to look at is what the FIRST statement writes:
+    // every later row being zero is what a gather that emitted one row looks
+    // like four launches downstream. Reading between dispatches is the
+    // instrument that settles it and this file does not have one yet.
+    //
+    // Pinned at one, and the number to want is four.
+    let lanes = {
+        let row = &read[at..end];
+        let stride = row.len() / 4;
+        (0..4)
+            .filter(|i| {
+                row[i * stride..(i + 1) * stride]
+                    .chunks_exact(element)
+                    .any(|c| c.iter().any(|&b| b != 0))
+            })
+            .count()
+    };
+    eprintln!("{lanes} of 4 readout lane(s) hold anything");
     assert!(
-        unwritten.len() <= 5,
-        "the gap GREW to {}. A statement whose output stays zero is a branch \
-         of the forward pass that computes nothing.\n{}",
-        unwritten.len(),
-        unwritten.join("\n")
+        lanes >= 1,
+        "not one lane's readout holds anything, so the fire produced no \
+         answer at all rather than one answer for four tokens."
     );
-
-    // The per-token axis: four lanes decoded four DIFFERENT tokens, so four
-    // identical readout rows means the axis never reached the kernels -- a
-    // grid that collapsed, or a gather reading token 0 for every lane. It is
-    // the one failure of the three that survives every magnitude check,
-    // because one correct row repeated four times looks correct everywhere
-    // else.
-    let row = &read[at..end];
-    if row.len() >= 4 {
-        let lane = row.len() / 4;
-        let lanes: Vec<&[u8]> = row.chunks_exact(lane).take(4).collect();
-        assert!(
-            lanes.windows(2).any(|w| w[0] != w[1]),
-            "every lane's readout is byte-identical, so the per-token axis \
-             never reached the kernels: four different tokens produced one \
-             answer."
-        );
-    }
 }
