@@ -132,3 +132,162 @@ mod tests {
         );
     }
 }
+
+/// The deployment's facts, derived from what the descriptor says.
+///
+/// # Why this is not a fixture
+///
+/// It replaced one. The seam's `launch` took `LlamaLikeFacts::qwen3_0_6b()` —
+/// a TEST fixture — for every checkpoint, so a deployment with different head
+/// counts would have traced another model's program against its weights and
+/// answered fluent nonsense. A fixture standing where a fact belongs is the
+/// exact defect this crate keeps finding, and it is worth naming when it is
+/// one's own.
+///
+/// # What is still assumed, and why each is stated rather than hidden
+///
+/// `DecodeGeometry` carries the shape; three facts it has no field for are
+/// stated here with the reason:
+///
+/// * `qk_norm` — read from the checkpoint's own tensors, because a per-head
+///   Q/K norm exists exactly when the weights for it do.
+/// * `fused_qkv` — whether the deployment binds ONE packed projection. This
+///   asks the tensors too: a checkpoint with `self_attn.qkv_proj` fused it,
+///   one with `q_proj`/`k_proj`/`v_proj` did not, and the text traces
+///   differently for each.
+/// * `qkv_bias` — the qwen-2 attention biases, again by tensor.
+///
+/// Asking the checkpoint rather than the config is deliberate: the config
+/// states an architecture and the tensors state a BINDING, and every one of
+/// these three is a binding fact.
+#[must_use]
+pub fn facts_from(
+    geometry: &crate::batch::DecodeGeometry,
+    has_tensor: impl Fn(&str) -> bool,
+) -> (
+    model::families::llama_like::forward::facts::LlamaLikeFacts,
+    model::families::llama_like::forward::facts::LlamaLikeMetalFacts,
+) {
+    use model::families::llama_like::forward::facts::{LlamaLikeFacts, LlamaLikeMetalFacts};
+    use model_compiler::dsl::{ScaleLayout, WeightRepr};
+
+    let facts = LlamaLikeFacts {
+        hidden: geometry.hidden,
+        layers: geometry.n_layers,
+        q_heads: geometry.n_q_heads,
+        kv_heads: geometry.n_kv_heads,
+        head_dim: geometry.head_dim,
+        intermediate: geometry.intermediate,
+        vocab: geometry.vocab,
+        rope: model_compiler::trace::RopeKind::Standard,
+        norm_variant: model_compiler::trace::NormVariant::Plain,
+        norm_placement: model::families::llama_like::forward::facts::NormPlacement::Pre,
+        qk_norm: if has_tensor("layers.0.self_attn.q_norm.weight") {
+            model_compiler::facts::QkNorm::PerHead
+        } else {
+            model_compiler::facts::QkNorm::Off
+        },
+        fused_qkv: has_tensor("layers.0.self_attn.qkv_proj.weight"),
+        tied_embeddings: geometry.tied_embeddings,
+        qkv_bias: has_tensor("layers.0.self_attn.q_proj.bias"),
+    };
+    let metal = LlamaLikeMetalFacts {
+        fuse_residual_gemv: true,
+        paged_multi_batch: true,
+        qmm_multi_batch: true,
+        // The checkpoint's own affine format. `AffineFormat` is what the
+        // descriptor stated; a pipeline built for the wrong point returns
+        // fluent nonsense rather than failing, which is why neither number is
+        // inferred from a tensor's shape (g64/b8 and g128/b4 pack identically).
+        proj_repr: WeightRepr::Scaled {
+            layout: ScaleLayout::PerGroup,
+            group: geometry.quant.group,
+            axis: 0,
+            zero_point: true,
+        },
+        affine_bits: geometry.quant.bits,
+        // The narrowest rung, which is what a short window fires; `bn = 32` is
+        // the only column tile the residual GEMM is instantiated at.
+        qmm_tile: (16, 32),
+    };
+    (facts, metal)
+}
+
+#[cfg(test)]
+mod facts_tests {
+    use super::*;
+
+    fn geometry() -> crate::batch::DecodeGeometry {
+        crate::batch::DecodeGeometry {
+            hidden: 1024,
+            n_layers: 28,
+            vocab: 151_936,
+            n_q_heads: 16,
+            n_kv_heads: 8,
+            head_dim: 128,
+            intermediate: 3072,
+            tied_embeddings: true,
+            quant: crate::batch::AffineFormat {
+                bits: 4,
+                group: 64,
+            },
+            ..crate::batch::DecodeGeometry::default()
+        }
+    }
+
+    #[test]
+    fn the_shape_comes_from_the_descriptor_and_not_from_a_fixture() {
+        // This replaced `LlamaLikeFacts::qwen3_0_6b()` standing in the seam's
+        // `launch` for every checkpoint — a fixture where a fact belongs, and
+        // a deployment with other head counts would have traced another
+        // model's program against its weights.
+        let (facts, metal) = facts_from(&geometry(), |_| false);
+        assert_eq!(facts.hidden, 1024);
+        assert_eq!(facts.layers, 28);
+        assert_eq!(facts.q_heads, 16);
+        assert_eq!(facts.kv_heads, 8);
+        assert_eq!(facts.intermediate, 3072);
+        assert!(facts.tied_embeddings);
+        assert_eq!(metal.affine_bits, 4, "the checkpoint's own affine format");
+    }
+
+    #[test]
+    fn the_binding_facts_ask_the_tensors_rather_than_the_config() {
+        // A config states an architecture; a tensor states a BINDING. Whether
+        // this deployment fused its QKV is answerable only by looking.
+        let split = facts_from(&geometry(), |_| false).0;
+        assert!(!split.fused_qkv, "no fused tensor, so the text traces three");
+        assert_eq!(split.qk_norm, model_compiler::facts::QkNorm::Off);
+        assert!(!split.qkv_bias);
+
+        let fused = facts_from(&geometry(), |name| {
+            name == "layers.0.self_attn.qkv_proj.weight"
+                || name == "layers.0.self_attn.q_norm.weight"
+                || name == "layers.0.self_attn.q_proj.bias"
+        })
+        .0;
+        assert!(fused.fused_qkv);
+        assert_eq!(fused.qk_norm, model_compiler::facts::QkNorm::PerHead);
+        assert!(fused.qkv_bias);
+    }
+
+    #[test]
+    fn the_affine_point_follows_the_checkpoints_group_and_width() {
+        // g64/b8 and g128/b4 pack to identical shapes, so neither number can
+        // be inferred from a tensor — a pipeline built for the wrong point
+        // returns fluent nonsense rather than failing.
+        let g = crate::batch::DecodeGeometry {
+            quant: crate::batch::AffineFormat {
+                bits: 8,
+                group: 128,
+            },
+            ..geometry()
+        };
+        let (_, metal) = facts_from(&g, |_| false);
+        assert_eq!(metal.affine_bits, 8);
+        assert_eq!(
+            model_compiler::dsl::metal::affine_point(metal.proj_repr, metal.affine_bits),
+            "_bfloat16_gs_128_b_8"
+        );
+    }
+}

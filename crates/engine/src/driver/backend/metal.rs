@@ -49,6 +49,14 @@ pub struct MetalDriver {
     arch: String,
     /// The paged KV pool, allocated at load.
     pool: Option<driver_metal_new::model::kv::Pool>,
+    /// The deployment's facts, derived at load from the descriptor.
+    ///
+    /// Held rather than re-derived per fire: they come from a file, and a
+    /// second reading is a second chance to disagree with the first.
+    deployment: Option<(
+        model::families::llama_like::forward::facts::LlamaLikeFacts,
+        model::families::llama_like::forward::facts::LlamaLikeMetalFacts,
+    )>,
     /// The runtime shader compiler, and the pipelines a fire's symbols have
     /// compiled to. Held across fires: a model's symbol set is bounded by its
     /// text, so a driver that recompiled per fire would spend more time in the
@@ -106,6 +114,7 @@ impl MetalDriver {
                 model: None,
                 arch: String::new(),
                 pool: None,
+                deployment: None,
                 compiler,
                 pipelines: driver_metal_new::model::encode::Pipelines::new(shader_tree()),
                 broker: CompletionBroker::new(),
@@ -158,11 +167,21 @@ impl MetalDriver {
                 descs.len()
             );
         };
-        // The descriptor the load plan is authored from is the checkpoint's
-        // own `config.json`. The driver does not synthesize one: a descriptor
-        // that disagreed with the weights beside it would be believed.
-        let descriptor = std::fs::read_to_string(desc.snapshot_dir.join("config.json"))
+        // The load plan is authored from a DESCRIPTOR, and a descriptor is not
+        // a `config.json` — it is what `model::config::descriptor` makes of
+        // one. The driver does not synthesize either: a descriptor that
+        // disagreed with the weights beside it would simply be believed.
+        let config = std::fs::read_to_string(desc.snapshot_dir.join("config.json"))
             .map_err(|e| anyhow!("{}: config.json: {e}", desc.snapshot_dir.display()))?;
+        let root: serde_json::Value =
+            serde_json::from_str(&config).map_err(|e| anyhow!("config.json does not parse: {e}"))?;
+        let dir = desc
+            .snapshot_dir
+            .to_str()
+            .ok_or_else(|| anyhow!("the snapshot path is not utf-8"))?;
+        let descriptor = model::config::descriptor(&root, dir)
+            .map_err(|e| anyhow!("config.json does not convert to a descriptor: {e}"))?
+            .to_string();
         let loaded = driver_metal_new::model::load::load(
             &self.context,
             &desc.snapshot_dir,
@@ -171,7 +190,6 @@ impl MetalDriver {
         .map_err(|e| anyhow!("metal load: {e:?}"))?;
         let facts = driver_metal_new::facts::ModelFacts::from_descriptor(&descriptor)
             .ok_or_else(|| anyhow!("the descriptor does not parse as model facts"))?;
-        self.model = Some(loaded);
         self.arch = facts.arch_name.clone();
         if !driver_metal_new::model::text::serves(&self.arch) {
             bail!(
@@ -189,10 +207,31 @@ impl MetalDriver {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(1024);
+        // The geometry, DERIVED from the descriptor rather than guessed.
+        //
+        // `ModelFacts`'s `go_*` fields are gpt-oss's alone — their own docs say
+        // a non-zero layer count marks "this config was read as gpt-oss" — so
+        // reading them for a llama checkpoint allocates a pool of no layers.
+        // `geometry_from_facts` is the general derivation and refuses rather
+        // than defaulting. It answers a `DecodeGeometry`, which is on the
+        // retirement list; when it goes, this reads the descriptor directly.
+        // What is borrowed here is arithmetic over the config, not a model
+        // definition.
+        let geometry = driver_metal_new::batch::geometry_from_facts(&facts)
+            .map_err(|why| anyhow!("the descriptor does not describe a servable family: {why:?}"))?;
+
+        // The deployment's facts, from the geometry the descriptor states and
+        // the tensors the checkpoint actually shipped. The three binding facts
+        // — qk-norm, fused QKV, attention bias — ask the TENSORS, because a
+        // config states an architecture and a tensor states a binding.
+        self.deployment = Some(driver_metal_new::model::text::facts_from(&geometry, |name| {
+            loaded.tensors.contains_key(name)
+        }));
+        self.model = Some(loaded);
         let shape = driver_metal_new::model::kv::Shape {
-            layers: u32::try_from(facts.go_num_hidden_layers).unwrap_or(0),
-            kv_heads: u32::try_from(facts.go_num_key_value_heads).unwrap_or(0),
-            head_dim: u32::try_from(facts.go_head_dim).unwrap_or(0),
+            layers: geometry.n_layers,
+            kv_heads: geometry.n_kv_heads,
+            head_dim: geometry.head_dim,
             page_size: self.device_facts.page_size,
             pages,
             element_bytes: 2,
@@ -201,6 +240,7 @@ impl MetalDriver {
             driver_metal_new::model::kv::Pool::allocate(&self.context, shape)
                 .map_err(|e| anyhow!("kv pool: {e:?}"))?,
         );
+
 
         // What the checkpoint states, and what the pool states.
         //
@@ -242,7 +282,7 @@ impl MetalDriver {
             vocab_size: facts.vocab_size,
             max_model_len: facts.max_model_len,
             activation_dtype: "bf16".to_string(),
-            hidden_size: u32::try_from(facts.go_hidden_size).unwrap_or(0),
+            hidden_size: geometry.hidden,
             supports_media_encode: false,
             snapshot_dir: desc.snapshot_dir.display().to_string(),
             kv_handle: None,
@@ -323,8 +363,10 @@ impl MetalDriver {
             .map_err(|why| anyhow!("frame kv translation: {why:?}"))?;
         }
 
-        let facts = model::families::llama_like::forward::facts::LlamaLikeFacts::qwen3_0_6b();
-        let metal = model::families::llama_like::forward::facts::LlamaLikeMetalFacts::synthetic();
+        let (facts, metal) = self
+            .deployment
+            .clone()
+            .ok_or_else(|| anyhow!("driver-metal-new: launch before load_model"))?;
         let named = std::collections::HashMap::new();
 
         for step in &frame.steps {
