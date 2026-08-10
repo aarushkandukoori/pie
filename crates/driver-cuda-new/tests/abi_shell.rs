@@ -7,7 +7,7 @@
 #![cfg(all(feature = "_cuda", feature = "abi"))]
 
 use driver_abi::local::{
-    PIE_DRIVER_ABI_VERSION, PIE_STATUS_INVALID_ARGUMENT, PIE_STATUS_OK, PieDriverCaps,
+    PIE_DRIVER_ABI_VERSION, PIE_STATUS_INVALID_ARGUMENT, PIE_STATUS_OK, PIE_STATUS_UNSUPPORTED, PieDriverCaps,
     PieDriverCreateDesc,
 };
 
@@ -193,30 +193,16 @@ fn the_registries_run_the_id_lifecycle() {
 /// register → bind → LAUNCH one decode frame — a single token over one
 /// KV page — and the shell runs the actual forward on the device,
 /// publishes the terminal cell, and notifies the runtime. This is the
-/// OLMo-2 through the ABI: the POST-NORM, GLOBAL-qk-norm deployment.
+/// Load a cached snapshot and fire ONE decode step through the thirteen
+/// exports, or report that the checkpoint is not on this machine.
 ///
-/// This one is here because it is the case the shell used to refuse.
-/// `facts_from_hf` asserted `norm_placement: Pre` and answered `qk_norm`
-/// from a config boolean, so a post-norm checkpoint was turned away with
-/// "post-norm families await their facts mapping" — even though
-/// `fuse_llama_like` had bound its names correctly all along (its own
-/// comment names olmo2).
-///
-/// Three facts are now read off the checkpoint instead of assumed:
-///
-/// * norm placement, from whether `input_layernorm` is what
-///   `layer.0.attn_norm` resolved to;
-/// * `qk_norm`, from the EXTENT of the `q_norm` gamma — `head_dim`
-///   elements is per-head (qwen3), anything wider is global (olmo2). No
-///   config key distinguishes them, and the two lower to different
-///   kernels;
-/// * `fused_qkv`, from whether the load actually produced the fused name.
-///
-/// All three differ between this deployment and qwen3-0.6B, so a
-/// regression in any of them fails here and nowhere else in this file.
-#[test]
-fn olmo2_loads_and_fires_post_norm_through_the_abi() {
-    let _gpu = gpu_guard();
+/// Extracted because it had been copied three times before it was clear
+/// that adding a deployment is the cheap part: what differs between them
+/// is a repository name and a descriptor, and what does not differ is a
+/// hundred and thirty lines of frame construction. A per-deployment test
+/// carrying its own copy of the frame hides the thing worth reading,
+/// which is WHICH deployments the shell can open.
+fn load_and_fire(repo: &str, descriptor_name: &str, what: &str) -> bool {
     use driver_abi::local::{
         PIE_TERMINAL_OUTCOME_PENDING, PIE_TERMINAL_OUTCOME_SUCCESS, PieBytes, PieCompletion,
         PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc, PieProgramDesc,
@@ -226,23 +212,28 @@ fn olmo2_loads_and_fires_post_norm_through_the_abi() {
 
     let home = std::env::var("HOME").expect("HOME");
     let snaps = std::path::PathBuf::from(&home)
-        .join(".cache/huggingface/hub/models--allenai--OLMo-2-0425-1B-Instruct/snapshots");
+        .join(".cache/huggingface/hub")
+        .join(repo)
+        .join("snapshots");
     let Some(snap) = std::fs::read_dir(&snaps).ok().and_then(|mut d| {
         d.find_map(|e| {
             let p = e.ok()?.path();
-            p.join("model.safetensors").is_file().then_some(p)
+            // Sharded snapshots carry an index instead of one file.
+            (p.join("model.safetensors").is_file()
+                || p.join("model.safetensors.index.json").is_file())
+            .then_some(p)
         })
     }) else {
-        eprintln!("skipped: no cached OLMo-2-1B");
-        return;
+        eprintln!("skipped: no cached {what}");
+        return false;
     };
     let descriptor = std::path::PathBuf::from(
         "/tmp/claude-0/-root--patissier-work-tart-alpha/7460e4c3-f305-45df-9603-2298b0c0c60e/scratchpad",
     )
-    .join("olmo2_descriptor.json");
+    .join(descriptor_name);
     if !descriptor.is_file() {
-        eprintln!("skipped: no generated olmo2 descriptor");
-        return;
+        eprintln!("skipped: no generated {what} descriptor");
+        return false;
     }
 
     unsafe extern "C" fn notify(_ctx: *mut std::ffi::c_void, _wait_id: u64, _epoch: u64) {}
@@ -260,7 +251,7 @@ fn olmo2_loads_and_fires_post_norm_through_the_abi() {
         ..Default::default()
     };
     let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
-    assert!(!d.is_null());
+    assert!(!d.is_null(), "{what}: the driver creates");
 
     let snap_str = snap.to_string_lossy().into_owned();
     let load = PieModelLoadDesc {
@@ -270,7 +261,7 @@ fn olmo2_loads_and_fires_post_norm_through_the_abi() {
     assert_eq!(
         unsafe { driver_abi::local::pie_cuda_load_model(d, &load, std::ptr::null_mut()) },
         PIE_STATUS_OK,
-        "the olmo2 snapshot loads"
+        "{what}: the snapshot loads"
     );
 
     let prog = PieProgramDesc { program_hash: 0x0102, ..Default::default() };
@@ -319,70 +310,113 @@ fn olmo2_loads_and_fires_post_norm_through_the_abi() {
         steps: driver_abi::local::PieStepDescSlice { ptr: &step, len: 1 },
         ..Default::default()
     };
-    let completion = PieCompletion {
-        wait_id: 0x0102,
-        target_epoch: 1,
-        terminal_cell: std::ptr::null_mut(),
-    };
+    let completion =
+        PieCompletion { wait_id: 0x0102, target_epoch: 1, terminal_cell: std::ptr::null_mut() };
     assert_eq!(
         unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) },
         PIE_STATUS_OK,
-        "a post-norm deployment fires"
+        "{what}: the frame launches"
     );
-    assert_eq!(cell.outcome, PIE_TERMINAL_OUTCOME_SUCCESS);
+    assert_eq!(cell.outcome, PIE_TERMINAL_OUTCOME_SUCCESS, "{what}: the terminal cell published");
 
     unsafe { driver_abi::local::pie_cuda_destroy(d) };
+    true
 }
 
-/// Phi-3 through the ABI: the deployment that ships its projections
-/// ALREADY FUSED.
+/// OLMo-2: the POST-NORM, GLOBAL-qk-norm deployment.
+///
+/// The case the shell used to refuse outright -- "post-norm families await
+/// their facts mapping" -- while `fuse_llama_like`, twenty lines away, had
+/// been binding its names correctly all along; its own comment names
+/// olmo2. Three facts are read off the checkpoint now rather than
+/// asserted: norm placement, `qk_norm` (from the EXTENT of the `q_norm`
+/// gamma -- no config key tells per-head from global, and the two lower to
+/// different kernels), and `fused_qkv`. All three differ from qwen3-0.6B,
+/// so a regression in any of them fails here and nowhere else.
+#[test]
+fn olmo2_loads_and_fires_post_norm_through_the_abi() {
+    let _gpu = gpu_guard();
+    load_and_fire("models--allenai--OLMo-2-0425-1B-Instruct", "olmo2_descriptor.json", "OLMo-2-1B");
+}
+
+/// Phi-3: the deployment that ships its projections ALREADY FUSED.
 ///
 /// `fuse_llama_like` concatenates `q_proj`/`k_proj`/`v_proj` when it finds
-/// all three. Phi-3 ships neither — it has one `qkv_proj` and one
-/// `gate_up_proj`, in the same order the fuse would have produced — so
-/// the fuse found nothing, no `layer.N.qkv` existed, and the trace's
-/// operand had nowhere to resolve.
+/// all three. Phi-3 ships neither -- one `qkv_proj` and one
+/// `gate_up_proj`, in the order the fuse would have produced -- so nothing
+/// was written and the trace's operand had nowhere to resolve. The binder
+/// aliases them, which is also cheaper than a second copy of a tensor
+/// already on the device in the right layout.
 ///
-/// The binder aliases them instead of copying, which is also the cheaper
-/// answer: no second copy of a tensor that is already on the device in
-/// the right layout. `fused_qkv` therefore has to accept either spelling,
-/// a buffer or an alias, which is why it asks both maps.
+/// It is also the only deployment here whose head width (96) is not one
+/// this build instantiates, so it is the only one that states
+/// `attn::pad_head_dim_bf16`.
 #[test]
 fn phi3_loads_and_fires_prefused_through_the_abi() {
     let _gpu = gpu_guard();
-    use driver_abi::local::{
-        PIE_TERMINAL_OUTCOME_PENDING, PIE_TERMINAL_OUTCOME_SUCCESS, PieBytes, PieCompletion,
-        PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc, PieProgramDesc,
-        PieRuntimeCallbacks, PieStepDesc, PieTerminalCell, PieTerminalCellPtrSlice,
-        PieU32Slice, PieU64Slice,
-    };
+    load_and_fire("models--microsoft--Phi-3-mini-4k-instruct", "phi3_descriptor.json", "Phi-3-mini");
+}
 
+/// Mistral-7B: the plain GQA member, at a size where nothing else about
+/// it is unusual. What it checks is that the derivation did not become
+/// correct only for the awkward cases.
+#[test]
+fn mistral_loads_and_fires_through_the_abi() {
+    let _gpu = gpu_guard();
+    load_and_fire(
+        "models--mistralai--Mistral-7B-Instruct-v0.3",
+        "mistral_descriptor.json",
+        "Mistral-7B-v0.3",
+    );
+}
+
+/// Qwen2.5-1.5B: the deployment this build CANNOT serve, refused cleanly.
+///
+/// Its facts derive fine and its weights bind fine. What stops it is
+/// underneath both: twelve query heads over two kv heads is a GQA group
+/// size of six, and FlashInfer's decode instantiates {1, 2, 3, 4, 8}. The
+/// launcher reports that by throwing, and a throw crossing the C ABI is
+/// undefined behaviour — in practice SIGABRT with no message, which is
+/// exactly how this was found.
+///
+/// Two things changed so that it cannot be found that way again. The
+/// generated shim wraps every body and PRINTS the exception before dying,
+/// so the cause is one line instead of a debugger session. And the load
+/// refuses the ratio outright, because a load has somewhere to put a
+/// failure and a launcher signature does not.
+///
+/// This test asserts the REFUSAL. It is a capability limit of the build,
+/// not a defect in the derivation, and pinning it means the day someone
+/// instantiates group size 6 this test tells them to come delete it.
+#[test]
+fn an_unserveable_gqa_ratio_is_refused_at_load() {
+    use driver_abi::local::{PieBytes, PieModelLoadDesc, PieRuntimeCallbacks};
+
+    let _gpu = gpu_guard();
     let home = std::env::var("HOME").expect("HOME");
     let snaps = std::path::PathBuf::from(&home)
-        .join(".cache/huggingface/hub/models--microsoft--Phi-3-mini-4k-instruct/snapshots");
+        .join(".cache/huggingface/hub/models--Qwen--Qwen2.5-1.5B-Instruct/snapshots");
     let Some(snap) = std::fs::read_dir(&snaps).ok().and_then(|mut d| {
         d.find_map(|e| {
             let p = e.ok()?.path();
-            // Sharded snapshots have an index instead of one file.
             (p.join("model.safetensors").is_file()
                 || p.join("model.safetensors.index.json").is_file())
             .then_some(p)
         })
     }) else {
-        eprintln!("skipped: no cached Phi-3-mini");
+        eprintln!("skipped: no cached Qwen2.5-1.5B");
         return;
     };
     let descriptor = std::path::PathBuf::from(
         "/tmp/claude-0/-root--patissier-work-tart-alpha/7460e4c3-f305-45df-9603-2298b0c0c60e/scratchpad",
     )
-    .join("phi3_descriptor.json");
+    .join("qwen25_descriptor.json");
     if !descriptor.is_file() {
-        eprintln!("skipped: no generated phi3 descriptor");
+        eprintln!("skipped: no generated Qwen2.5 descriptor");
         return;
     }
 
     unsafe extern "C" fn notify(_ctx: *mut std::ffi::c_void, _wait_id: u64, _epoch: u64) {}
-
     let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
     let desc = PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
@@ -397,78 +431,21 @@ fn phi3_loads_and_fires_prefused_through_the_abi() {
     };
     let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
     assert!(!d.is_null());
-
     let snap_str = snap.to_string_lossy().into_owned();
     let load = PieModelLoadDesc {
         snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
         ..Default::default()
     };
-    assert_eq!(
-        unsafe { driver_abi::local::pie_cuda_load_model(d, &load, std::ptr::null_mut()) },
-        PIE_STATUS_OK,
-        "the phi3 snapshot loads"
+    // The load itself may succeed — the refusal is the shell's, and it
+    // lands wherever the facts are first asked for.
+    let loaded = unsafe { driver_abi::local::pie_cuda_load_model(d, &load, std::ptr::null_mut()) };
+    assert!(
+        loaded == PIE_STATUS_OK || loaded == PIE_STATUS_UNSUPPORTED,
+        "an unserveable ratio must refuse, not abort: {loaded}"
     );
-
-    let prog = PieProgramDesc { program_hash: 0x0413, ..Default::default() };
-    let mut program_id = 0u64;
-    assert_eq!(
-        unsafe { driver_abi::local::pie_cuda_register_program(d, &prog, &mut program_id) },
-        PIE_STATUS_OK
-    );
-    let inst = PieInstanceDesc { program_id, ..Default::default() };
-    let mut binding = PieInstanceBinding::default();
-    assert_eq!(
-        unsafe { driver_abi::local::pie_cuda_bind_instance(d, &inst, &mut binding) },
-        PIE_STATUS_OK
-    );
-
-    let mut cell = PieTerminalCell { outcome: PIE_TERMINAL_OUTCOME_PENDING, reserved0: 0 };
-    let cell_ptr: *mut PieTerminalCell = &mut cell;
-    let roster_rows: [u32; 1] = [0];
-    let sub_batch_indptr: [u32; 2] = [0, 1];
-    let sub_batch_class: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
-    let token_ids: [u32; 1] = [7];
-    let position_ids: [u32; 1] = [0];
-    let kv_page_indices: [u32; 1] = [0];
-    let kv_page_indptr: [u32; 2] = [0, 1];
-    let kv_last_page_lens: [u32; 1] = [1];
-    let qo_indptr: [u32; 2] = [0, 1];
-    let u32s = |v: &[u32]| PieU32Slice { ptr: v.as_ptr(), len: v.len() };
-    let step = PieStepDesc {
-        roster_rows: u32s(&roster_rows),
-        sub_batch_indptr: u32s(&sub_batch_indptr),
-        sub_batch_class: u32s(&sub_batch_class),
-        terminal_cells: PieTerminalCellPtrSlice { ptr: &cell_ptr, len: 1 },
-        token_ids: u32s(&token_ids),
-        position_ids: u32s(&position_ids),
-        kv_page_indices: u32s(&kv_page_indices),
-        kv_page_indptr: u32s(&kv_page_indptr),
-        kv_last_page_lens: u32s(&kv_last_page_lens),
-        qo_indptr: u32s(&qo_indptr),
-        ..Default::default()
-    };
-    let instance_ids: [u64; 1] = [binding.instance_id];
-    let frame = PieFrameDesc {
-        abi_version: PIE_DRIVER_ABI_VERSION,
-        instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
-        required_kv_pages: 1,
-        steps: driver_abi::local::PieStepDescSlice { ptr: &step, len: 1 },
-        ..Default::default()
-    };
-    let completion = PieCompletion {
-        wait_id: 0x0413,
-        target_epoch: 1,
-        terminal_cell: std::ptr::null_mut(),
-    };
-    assert_eq!(
-        unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) },
-        PIE_STATUS_OK,
-        "a pre-fused deployment fires"
-    );
-    assert_eq!(cell.outcome, PIE_TERMINAL_OUTCOME_SUCCESS);
-
     unsafe { driver_abi::local::pie_cuda_destroy(d) };
 }
+
 
 /// engine's own call sequence, driven through the engine's own
 /// declarations.

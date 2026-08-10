@@ -1266,6 +1266,33 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
         eprintln!("[driver-cuda-new] launch: only HF llama-like checkpoints execute today");
         return Err(PIE_STATUS_UNSUPPORTED);
     }
+    // THE GQA RATIO, refused here rather than discovered at launch.
+    //
+    // FlashInfer's decode instantiates group sizes {1, 2, 3, 4, 8} and
+    // reports anything else by THROWING. A throw crossing the C ABI is
+    // undefined behaviour; the generated shim now prints the message
+    // before it dies, but printing is all it can do — the launcher
+    // signatures have nowhere to put a failure. A load DOES: it returns a
+    // status code.
+    //
+    // So a deployment whose q/kv ratio this build cannot serve is turned
+    // away while turning it away is still cheap. Qwen2.5-1.5B is the live
+    // example — twelve query heads over two kv heads is a group size of
+    // six, and six is not in the list.
+    let kv_heads = hf.num_key_value_heads.max(1);
+    let group_size = hf.num_attention_heads / kv_heads;
+    if hf.num_attention_heads % kv_heads != 0
+        || !matches!(group_size, 1 | 2 | 3 | 4 | 8)
+    {
+        eprintln!(
+            "[driver-cuda-new] load: this build's decode does not instantiate \
+             GQA group size {group_size} ({} q heads over {kv_heads} kv heads); \
+             the supported set is 1, 2, 3, 4, 8",
+            hf.num_attention_heads
+        );
+        return Err(PIE_STATUS_UNSUPPORTED);
+    }
+
     // NORM PLACEMENT, off the checkpoint. `input_layernorm`'s presence IS
     // the placement, which is the same fact `fuse_llama_like` already
     // binds on: pre-norm ships it, post-norm (olmo2) ships
