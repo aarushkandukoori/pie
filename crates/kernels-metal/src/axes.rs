@@ -21,7 +21,10 @@ use kernels::Axis;
 /// suffix is the sole record of an operand type the `void*` ABI drops, so it
 /// must stay authored. Here the macro pastes it, so it is a coordinate — and a
 /// second activation dtype becomes one more point instead of 470 new names.
-pub const BF16: Axis = Axis { what: "activation dtype", points: &["_bfloat16"] };
+pub const BF16: Axis = Axis {
+    what: "activation dtype",
+    points: &["_bfloat16"],
+};
 
 /// The affine group size. Not inferable from the tensors — g64/b8 and g128/b4
 /// pack to identical shapes — so the checkpoint's `config.json` is the only
@@ -34,19 +37,34 @@ pub const GROUP: Axis = Axis {
 
 /// One group size, for the kernels compiled at g64 alone. That this differs
 /// from [`GROUP`] is the coverage gap, stated.
-pub const GROUP_64: Axis = Axis { what: "affine group size", points: &["_gs_64"] };
+pub const GROUP_64: Axis = Axis {
+    what: "affine group size",
+    points: &["_gs_64"],
+};
 
 /// g32 alone.
-pub const GROUP_32: Axis = Axis { what: "affine group size", points: &["_gs_32"] };
+pub const GROUP_32: Axis = Axis {
+    what: "affine group size",
+    points: &["_gs_32"],
+};
 
 /// The affine bit width.
-pub const BITS: Axis = Axis { what: "affine bit width", points: &["_b_4", "_b_8"] };
+pub const BITS: Axis = Axis {
+    what: "affine bit width",
+    points: &["_b_4", "_b_8"],
+};
 
 /// 4-bit alone.
-pub const BITS_4: Axis = Axis { what: "affine bit width", points: &["_b_4"] };
+pub const BITS_4: Axis = Axis {
+    what: "affine bit width",
+    points: &["_b_4"],
+};
 
 /// 8-bit alone.
-pub const BITS_8: Axis = Axis { what: "affine bit width", points: &["_b_8"] };
+pub const BITS_8: Axis = Axis {
+    what: "affine bit width",
+    points: &["_b_8"],
+};
 
 /// The routed GEMM's row tile. `moe_tile_rows` picks one from the batch shape
 /// and the sort pads to it, so the two must agree — which is why all three are
@@ -63,4 +81,7 @@ pub const TILE_N: Axis = Axis {
 };
 
 /// One column tile, for the kernels compiled at bn=32 alone.
-pub const TILE_N_32: Axis = Axis { what: "GEMM column tile", points: &["_bn_32"] };
+pub const TILE_N_32: Axis = Axis {
+    what: "GEMM column tile",
+    points: &["_bn_32"],
+};

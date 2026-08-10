@@ -12,4 +12,4 @@ pub mod executor;
 pub mod geometry;
 
 pub use executor::{BindRefusal, BoundArg, BoundLaunch, Frame, Resolver, Slice, bind, resolve_arg};
-pub use geometry::{Dims, Rule, Ungeometric};
+pub use geometry::{Dims, Rule, Ungeometric, eval as eval_launch};

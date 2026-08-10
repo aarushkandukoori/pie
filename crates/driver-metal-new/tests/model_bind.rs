@@ -179,6 +179,35 @@ fn every_symbol_the_lowering_names_has_a_row_in_the_metal_table() {
 }
 
 #[test]
+fn every_symbol_the_lowering_names_states_the_file_that_defines_it() {
+    // Metal compiles at run time from `(path, entry name)`, so a symbol whose
+    // row does not say which file defines it cannot be dispatched — and the
+    // only things that knew the file were the per-family plans that retire.
+    // Demand-driven: a row gets its `file` when a text names it, and this is
+    // what asks.
+    let mut unstated: BTreeSet<String> = BTreeSet::new();
+    for (class, rows) in [(FireClass::Decode, 1), (FireClass::Prefill, 8)] {
+        for symbol in &lowered(class, rows).kernels {
+            match kernels::sig_in(kernels_metal::KERNELS, symbol) {
+                Some(sig) if sig.file.is_some() => {}
+                // The known gap has no row at all; `every_symbol_..._row`
+                // owns it.
+                None => {}
+                Some(_) => {
+                    unstated.insert(symbol.clone());
+                }
+            }
+        }
+    }
+    assert!(
+        unstated.is_empty(),
+        "{} symbol(s) the metal text names have a row that states no file: {unstated:?}\n\
+         Add `file = Some(\"dir/file.metal\")` to the row.",
+        unstated.len()
+    );
+}
+
+#[test]
 fn the_text_states_weights_by_concrete_layer_rather_than_by_template() {
     // The trace is layer-unrolled, so a weight name is `layer.3.q_proj` and
     // never a template the driver would have to expand. If that stopped

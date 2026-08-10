@@ -15,25 +15,25 @@ use kernels::{Axis, KernelSig, kernel};
 use crate::axes::*;
 
 pub static KERNELS: &[KernelSig] = &[
-    kernel!(cast_qmm_input_bfloat16_to_float16 "cast_qmm_input_bfloat16_to_float16"),  // quantized_qmm_t.metal
-    kernel!(cast_qmm_input_strided_bfloat16_to_float16 "cast_qmm_input_strided_bfloat16_to_float16"),  // quantized_qmm_t.metal
-    kernel!(encode_u4_bf16 "affine_encode_u4_bf16"),  // transcode.metal
-    kernel!(encode_u4_f32 "affine_encode_u4_f32"),  // transcode.metal
-    kernel!(mxfp4_dequant_bf16 "mxfp4_dequant_bf16"),  // transcode.metal
+    kernel!(cast_qmm_input_bfloat16_to_float16 "cast_qmm_input_bfloat16_to_float16"), // quantized_qmm_t.metal
+    kernel!(cast_qmm_input_strided_bfloat16_to_float16 "cast_qmm_input_strided_bfloat16_to_float16"), // quantized_qmm_t.metal
+    kernel!(encode_u4_bf16 "affine_encode_u4_bf16"), // transcode.metal
+    kernel!(encode_u4_f32 "affine_encode_u4_f32"),   // transcode.metal
+    kernel!(mxfp4_dequant_bf16 "mxfp4_dequant_bf16"), // transcode.metal
     // 1 in quantized_qmm_t.metal
     kernel!(qmm_splitk_reduce "qmm_splitk_reduce", axes = &[BF16]),
     // 1 in quantized_qmm_t.metal
     kernel!(qmm_splitk_reduce_f32 "qmm_splitk_reduce_f32", axes = &[BF16]),
     // 54 in quantized_qmm_t.metal
-    kernel!(qmm_t "affine_qmm_t", axes = &[BF16, GROUP, BITS, TILE_M, TILE_N]),
+    kernel!(qmm_t "affine_qmm_t", file = Some("quant/qmm_t.metal"), axes = &[BF16, GROUP, BITS, TILE_M, TILE_N]),
     // `affine_qmm_t_aligned` has no row: it is the TEMPLATE the two below are
     // stamped from, and the census counted it as an entrypoint until the
     // template guard learned that a parameter list wraps.
-    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_128_bn_32_wm_4 "affine_qmm_t_bfloat16_gs_64_b_4_bm_128_bn_32_wm_4"),  // quantized_qmm_t.metal
-    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_32_bn_32_wm_1_wn_2 "affine_qmm_t_bfloat16_gs_64_b_4_bm_32_bn_32_wm_1_wn_2"),  // quantized_qmm_t.metal
-    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_64_bn_32_wm_1_wn_2 "affine_qmm_t_bfloat16_gs_64_b_4_bm_64_bn_32_wm_1_wn_2"),  // quantized_qmm_t.metal
-    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_64_bn_32_wm_2_wn_1 "affine_qmm_t_bfloat16_gs_64_b_4_bm_64_bn_32_wm_2_wn_1"),  // quantized_qmm_t.metal
-    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_64_bn_64_wn_4 "affine_qmm_t_bfloat16_gs_64_b_4_bm_64_bn_64_wn_4"),  // quantized_qmm_t.metal
+    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_128_bn_32_wm_4 "affine_qmm_t_bfloat16_gs_64_b_4_bm_128_bn_32_wm_4"), // quantized_qmm_t.metal
+    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_32_bn_32_wm_1_wn_2 "affine_qmm_t_bfloat16_gs_64_b_4_bm_32_bn_32_wm_1_wn_2"), // quantized_qmm_t.metal
+    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_64_bn_32_wm_1_wn_2 "affine_qmm_t_bfloat16_gs_64_b_4_bm_64_bn_32_wm_1_wn_2"), // quantized_qmm_t.metal
+    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_64_bn_32_wm_2_wn_1 "affine_qmm_t_bfloat16_gs_64_b_4_bm_64_bn_32_wm_2_wn_1"), // quantized_qmm_t.metal
+    kernel!(qmm_t_bfloat16_gs_64_b_4_bm_64_bn_64_wn_4 "affine_qmm_t_bfloat16_gs_64_b_4_bm_64_bn_64_wn_4"), // quantized_qmm_t.metal
     // 54 in quantized_qmm_t.metal
     kernel!(qmm_t_bias "affine_qmm_t_bias", axes = &[BF16, GROUP, BITS, TILE_M, TILE_N]),
     // 9 in quantized_qmm_t.metal
@@ -43,7 +43,7 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(qmm_t_fp16_precast "affine_qmm_t_fp16_precast",
         axes = &[BF16, GROUP_64, BITS_4, TILE_M, TILE_N]),
     // 54 in quantized_qmm_t.metal
-    kernel!(qmm_t_residual "affine_qmm_t_residual", axes = &[BF16, GROUP, BITS, TILE_M, TILE_N]),
+    kernel!(qmm_t_residual "affine_qmm_t_residual", file = Some("quant/qmm_t.metal"), axes = &[BF16, GROUP, BITS, TILE_M, TILE_N]),
     // 9 in quantized_qmm_t.metal
     kernel!(qmm_t_residual_fp16_precast "affine_qmm_t_residual_fp16_precast",
         axes = &[BF16, GROUP_64, BITS_4, TILE_M, TILE_N]),
@@ -70,9 +70,9 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(qmm_t_strided_residual "affine_qmm_t_strided_residual",
         axes = &[BF16, GROUP, BITS, TILE_M, TILE_N_32]),
     // 6 in quantized_qmv.metal
-    kernel!(qmv_fast "affine_qmv_fast", axes = &[BF16, GROUP, BITS]),
+    kernel!(qmv_fast "affine_qmv_fast", file = Some("quant/qmv.metal"), launch = kernels::LaunchRule::Qmv, axes = &[BF16, GROUP, BITS]),
     // 6 in quantized_qmv.metal
-    kernel!(qmv_fast_residual "affine_qmv_fast_residual", axes = &[BF16, GROUP, BITS]),
+    kernel!(qmv_fast_residual "affine_qmv_fast_residual", file = Some("quant/qmv.metal"), launch = kernels::LaunchRule::Qmv, axes = &[BF16, GROUP, BITS]),
     // 2 in quantized_qmv.metal
     kernel!(qmv_tail "affine_qmv_tail", axes = &[BF16, GROUP_64, BITS]),
     // 2 in quantized_qmv.metal
