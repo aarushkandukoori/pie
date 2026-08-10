@@ -152,6 +152,15 @@ pub enum MemberRejected {
         /// Pages the pool holds.
         total_pages: u32,
     },
+    /// A readout index points past its own request's token span.
+    ReadoutPastSpan {
+        /// The member-local request index.
+        request: u32,
+        /// The offending readout index, request-local.
+        readout: u32,
+        /// Tokens the request has.
+        query_count: u32,
+    },
     /// Another member in this fire already writes that slot.
     SlotAlreadyOwned {
         /// The member-local request index.
@@ -374,9 +383,193 @@ pub fn plan_member(
                 total_pages: facts.total_pages,
             });
         }
+        // Every readout row must land inside its own request's tokens. The
+        // concatenation below rebases these to fleet rows by adding the
+        // request's token base, and this is what makes that addition safe --
+        // which is why `concat_fleet` needs no bound of its own.
+        let query_count = plan.q1 - plan.q0;
+        if let Some(&readout) = desc.readout_local_indices[plan.s0 as usize..plan.s1 as usize]
+            .iter()
+            .find(|&&r| r >= query_count)
+        {
+            return Err(MemberRejected::ReadoutPastSpan {
+                request: r,
+                readout,
+                query_count,
+            });
+        }
         plans.push(plan);
     }
     Ok(plans)
+}
+
+/// One step's concatenated inputs: every accepted member's arrays laid end to
+/// end, with each member's request-local indices rebased onto the fire.
+///
+/// The C++'s `BatchStepInputs`, filled. What it is *for* is that the kernels
+/// see one batch: a fleet of five conversations is one token array, one page
+/// array and one CSR over both, so nothing downstream has to know a member
+/// existed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StepInputs {
+    /// Every accepted request's tokens, in fleet order.
+    pub token_ids: Vec<u32>,
+    /// Their positions, parallel to `token_ids`.
+    pub position_ids: Vec<u32>,
+    /// Token CSR over the fleet's requests; closed, so `requests + 1` long.
+    pub qo_indptr: Vec<u32>,
+    /// Page CSR over the fleet's requests; closed the same way.
+    pub kv_page_indptr: Vec<u32>,
+    /// Every accepted request's pages, in fleet order.
+    pub kv_page_indices: Vec<u32>,
+    /// Rows used in each request's last page.
+    pub kv_last_page_lens: Vec<u32>,
+    /// Each request's recurrent-state slot.
+    pub rs_slot_ids: Vec<u32>,
+    /// Each request's flags byte; bit 0 is reset.
+    pub rs_slot_flags: Vec<u8>,
+    /// Per token: the page its K/V is written into.
+    pub w_page: Vec<u32>,
+    /// Per token: the row within that page.
+    pub w_off: Vec<u32>,
+    /// Dense mask rows, `attention_mask_stride` bytes each, or empty.
+    pub attention_mask: Vec<u8>,
+    /// Per token: whether that row's mask is meaningful. Empty with the mask.
+    pub attention_mask_enabled: Vec<u8>,
+    /// Bytes per mask row.
+    pub attention_mask_stride: u32,
+    /// Per token: whether anything reads that row's logits.
+    pub row_needs_logits: Vec<u8>,
+}
+
+/// Where one member's readout rows landed in the fleet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemberRows {
+    /// The member's index in the input slice.
+    pub member: usize,
+    /// Its readout rows, as fleet-global token rows.
+    pub rows: Vec<u32>,
+}
+
+/// Lay every accepted member end to end.
+///
+/// `mask_stride` is the dense mask's pitch in bytes, a property of the
+/// decoder's geometry rather than of any member.
+///
+/// # Why the mask arrays are usually empty
+///
+/// A dense mask is one byte per addressable KV token per row. Materialising it
+/// costs `rows * stride` of zero-fill and the same again copying it to the IO
+/// slot — and because a non-empty `attention_mask_enabled` is what tells the
+/// step "this batch is masked", pushing a zero per token made **every** batch
+/// pay both for a buffer no kernel reads. The C++ records the bill: 8.4 MB of
+/// memory traffic per step at 32 lanes, growing linearly with lane count. So
+/// the arrays stay empty unless some member actually carries a mask, and that
+/// decision is taken once for the fleet rather than per member.
+#[must_use]
+pub fn concat_fleet(
+    descs: &[ForwardDesc],
+    fleet: &Fleet,
+    facts: PoolFacts,
+    mask_stride: u32,
+) -> (StepInputs, Vec<MemberRows>) {
+    let accepted = || {
+        descs
+            .iter()
+            .zip(&fleet.members)
+            .enumerate()
+            .filter_map(|(i, (d, a))| match a {
+                Admission::Accepted(plans) => Some((i, d, plans)),
+                Admission::Rejected(_) => None,
+            })
+    };
+    let masked = accepted().any(|(_, d, _)| !d.attention_mask.is_empty());
+
+    let mut step = StepInputs {
+        attention_mask_stride: mask_stride,
+        ..StepInputs::default()
+    };
+    let mut per_member = Vec::new();
+
+    for (index, desc, plans) in accepted() {
+        let mut rows = Vec::new();
+        for plan in plans {
+            let token_base = u32::try_from(step.token_ids.len()).unwrap_or(u32::MAX);
+            step.qo_indptr.push(token_base);
+            step.kv_page_indptr
+                .push(u32::try_from(step.kv_page_indices.len()).unwrap_or(u32::MAX));
+
+            let (q0, q1) = (plan.q0 as usize, plan.q1 as usize);
+            let (k0, k1) = (plan.k0 as usize, plan.k1 as usize);
+            step.token_ids.extend_from_slice(&desc.token_ids[q0..q1]);
+            step.position_ids
+                .extend_from_slice(&desc.position_ids[q0..q1]);
+            step.kv_page_indices
+                .extend_from_slice(&desc.kv_pages[k0..k1]);
+            step.kv_last_page_lens.push(plan.last_page_len);
+            step.rs_slot_ids.push(plan.slot);
+            step.rs_slot_flags.push(u8::from(plan.reset));
+
+            for token in q0..q1 {
+                let position = desc.position_ids[token];
+                if desc.has_write_desc {
+                    step.w_page.push(desc.w_page[token]);
+                    step.w_off.push(desc.w_off[token]);
+                } else {
+                    // Derived from the request's own page list. The index is in
+                    // range because `plan_member` proved every position is under
+                    // the request's extent: `position / page_size <= k1 - k0 - 1`
+                    // follows from it, and nothing else does.
+                    let page = k0 + (position / facts.page_size) as usize;
+                    step.w_page.push(desc.kv_pages[page]);
+                    step.w_off.push(position % facts.page_size);
+                }
+                if masked {
+                    let has = !desc.attention_mask.is_empty();
+                    step.attention_mask_enabled.push(u8::from(has));
+                    let base = step.attention_mask.len();
+                    step.attention_mask.resize(base + mask_stride as usize, 0);
+                    if has {
+                        let stride = desc.attention_mask_stride as usize;
+                        let from = token * stride;
+                        let take = stride.min(mask_stride as usize);
+                        step.attention_mask[base..base + take]
+                            .copy_from_slice(&desc.attention_mask[from..from + take]);
+                    }
+                }
+            }
+
+            // Request-local readout indices become fleet rows. Safe without a
+            // bound because `plan_member` refused any index past its request's
+            // token span -- see `MemberRejected::ReadoutPastSpan`.
+            let (s0, s1) = (plan.s0 as usize, plan.s1 as usize);
+            rows.extend(
+                desc.readout_local_indices[s0..s1]
+                    .iter()
+                    .map(|&local| token_base + local),
+            );
+        }
+        per_member.push(MemberRows {
+            member: index,
+            rows,
+        });
+    }
+
+    // Close both CSRs. A partition of N spans has N+1 entries and the last one
+    // is the total; the C++ pushes these after the loop for the same reason.
+    step.qo_indptr
+        .push(u32::try_from(step.token_ids.len()).unwrap_or(u32::MAX));
+    step.kv_page_indptr
+        .push(u32::try_from(step.kv_page_indices.len()).unwrap_or(u32::MAX));
+
+    step.row_needs_logits = vec![0; step.token_ids.len()];
+    for member in &per_member {
+        for &row in &member.rows {
+            step.row_needs_logits[row as usize] = 1;
+        }
+    }
+
+    (step, per_member)
 }
 
 #[cfg(test)]
@@ -570,6 +763,115 @@ mod tests {
                 which: "sampling_indptr"
             })
         );
+    }
+
+    #[test]
+    fn a_readout_past_its_own_requests_tokens_is_refused_so_the_rebase_needs_no_bound() {
+        let mut d = member(16, 1, 0);
+        d.readout_local_indices = vec![16];
+        assert_eq!(
+            plan_member(&d, facts()),
+            Err(MemberRejected::ReadoutPastSpan {
+                request: 0,
+                readout: 16,
+                query_count: 16
+            })
+        );
+    }
+
+    #[test]
+    fn two_members_concatenate_into_one_batch_with_both_csrs_closed() {
+        let descs = [member(4, 1, 0), member(6, 2, 1)];
+        let fleet = marshal_fleet(&descs, facts());
+        let (step, rows) = concat_fleet(&descs, &fleet, facts(), 8);
+
+        assert_eq!(step.token_ids.len(), 10, "4 + 6 tokens");
+        assert_eq!(step.kv_page_indices.len(), 3, "1 + 2 pages");
+        assert_eq!(step.qo_indptr, [0, 4, 10], "two spans, closed");
+        assert_eq!(step.kv_page_indptr, [0, 1, 3], "two spans, closed");
+        assert_eq!(step.rs_slot_ids, [0, 1]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].rows, [3], "member 0's last token, fleet row 3");
+        assert_eq!(
+            rows[1].rows,
+            [9],
+            "member 1's last token, rebased past member 0"
+        );
+    }
+
+    #[test]
+    fn a_rejected_member_contributes_nothing_and_does_not_shift_the_others() {
+        let mut bad = member(4, 1, 0);
+        bad.kv_pages = vec![99]; // out of the pool
+        let descs = [bad, member(6, 1, 1)];
+        let fleet = marshal_fleet(&descs, facts());
+        let (step, rows) = concat_fleet(&descs, &fleet, facts(), 8);
+
+        assert_eq!(step.token_ids.len(), 6, "only the accepted member");
+        assert_eq!(step.qo_indptr, [0, 6]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].member, 1, "the surviving member keeps its index");
+        assert_eq!(rows[0].rows, [5], "rebased from zero, not from four");
+    }
+
+    #[test]
+    fn a_write_target_without_a_write_descriptor_is_derived_from_the_requests_own_pages() {
+        // Page 7 then page 9; page_size 16. Token at position 20 lands in the
+        // request's SECOND page (20 / 16 == 1) at row 4.
+        let mut d = member(21, 2, 0);
+        d.kv_pages = vec![7, 9];
+        d.kv_last_page_lens = vec![5];
+        d.position_ids = (0..21).collect();
+        let descs = [d];
+        let fleet = marshal_fleet(&descs, facts());
+        assert!(matches!(fleet.members[0], Admission::Accepted(_)));
+        let (step, _) = concat_fleet(&descs, &fleet, facts(), 8);
+
+        assert_eq!(step.w_page[0], 7, "position 0 is in the first page");
+        assert_eq!(step.w_off[0], 0);
+        assert_eq!(step.w_page[20], 9, "position 20 is in the second");
+        assert_eq!(step.w_off[20], 4);
+    }
+
+    #[test]
+    fn only_the_readout_rows_need_logits_and_the_rest_never_project() {
+        // The point of the byte: on a prefill this is one row out of N, and
+        // the other N-1 never pay for the lm_head projection.
+        let descs = [member(8, 1, 0)];
+        let fleet = marshal_fleet(&descs, facts());
+        let (step, _) = concat_fleet(&descs, &fleet, facts(), 8);
+
+        assert_eq!(step.row_needs_logits.len(), 8);
+        assert_eq!(step.row_needs_logits, [0, 0, 0, 0, 0, 0, 0, 1]);
+    }
+
+    #[test]
+    fn an_unmasked_fleet_materialises_no_mask_at_all() {
+        // The 8.4 MB per step the C++ records. A zero pushed per token would
+        // make `attention_mask_enabled` non-empty, which is itself what tells
+        // the step the batch is masked.
+        let descs = [member(8, 1, 0), member(8, 1, 1)];
+        let fleet = marshal_fleet(&descs, facts());
+        let (step, _) = concat_fleet(&descs, &fleet, facts(), 4096);
+
+        assert!(step.attention_mask.is_empty());
+        assert!(step.attention_mask_enabled.is_empty());
+    }
+
+    #[test]
+    fn one_masked_member_makes_the_fleet_masked_and_the_others_rows_are_zero() {
+        let mut masked = member(2, 1, 0);
+        masked.attention_mask = vec![1, 1, 1, 1, 2, 2, 2, 2];
+        masked.attention_mask_stride = 4;
+        let descs = [masked, member(2, 1, 1)];
+        let fleet = marshal_fleet(&descs, facts());
+        let (step, _) = concat_fleet(&descs, &fleet, facts(), 4);
+
+        assert_eq!(step.attention_mask_enabled, [1, 1, 0, 0]);
+        assert_eq!(step.attention_mask.len(), 16, "four rows of four bytes");
+        assert_eq!(&step.attention_mask[0..4], [1, 1, 1, 1]);
+        assert_eq!(&step.attention_mask[4..8], [2, 2, 2, 2]);
+        assert_eq!(&step.attention_mask[8..16], [0; 8], "the unmasked member");
     }
 
     #[test]

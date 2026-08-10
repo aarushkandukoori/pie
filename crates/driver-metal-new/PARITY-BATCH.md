@@ -41,7 +41,8 @@ kept deliberately pure — and shipped without a checked build.
 | `validate_paged_batch_capacity` | `validate_capacity` | ported |
 | `BatchSchedule::m1` | `BatchSchedule::single` | ported |
 | `kRsFlagReset` | `driver_abi::local::PIE_RS_FLAG_RESET` | dropped |
-| `BatchStepInputs` (the container) | — | missing: the concatenated step arrays, with the forward port's encode walk |
+| `BatchStepInputs` | `batch::StepInputs` | ported |
+| the fleet concatenation (`forward.cpp` 3844-3930) | `batch::concat_fleet` | ported; request-local indices rebased onto the fire, both CSRs closed, the mask materialised only when a member carries one |
 | `run_paged_batch_forward`'s per-member admission + span derivation | `batch::marshal_fleet` / `plan_member` → `RequestPlan` | ported; the portable half of the marshaling |
 
 The build/validate split survives — the geometry gate needs fire-time

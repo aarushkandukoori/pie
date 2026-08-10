@@ -116,7 +116,8 @@ pub use heap_budget::{
 };
 pub use llama::{LlamaGeometry, llama_decode_geometry, llama_geometry_from_facts, llama_qmv_kn};
 pub use marshal::{
-    Admission, Fleet, MemberRejected, PoolFacts, RequestPlan, marshal_fleet, plan_member,
+    Admission, Fleet, MemberRejected, MemberRows, PoolFacts, RequestPlan, StepInputs, concat_fleet,
+    marshal_fleet, plan_member,
 };
 pub use mask::{Disagreement, causal_prefix_lengths, kv_len_disagreement};
 pub use member::{BuildError, ForwardDesc, ResolvedGeometry, build_member_desc};
