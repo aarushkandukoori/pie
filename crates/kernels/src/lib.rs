@@ -192,6 +192,21 @@ pub enum Ty {
     U16s,
     /// A device array of `u16` the launcher WRITES.
     U16sMut,
+    /// A read-only device array of `i8` — an int8 LM head's weights.
+    I8s,
+    /// `const std::int32_t* const*` — an array of int32 buffers the
+    /// launcher reads. The WNA16 expert banks are packed as `int32`
+    /// words rather than opaque bytes, and a `BufArray` row would hand
+    /// their kernel a void array it dereferences as int32.
+    I32Array,
+    /// `MoeActivation` — which activation a fused MoE leg runs. A
+    /// caller-stated enum like [`Ty::Dtype`], and for the same reason:
+    /// the declaration knows which, and a driver that inferred it from
+    /// a config would be choosing.
+    MoeActivation,
+    /// `Mxfp4RowSelect` — which half of an interleaved MXFP4 bank a
+    /// repack reads.
+    Mxfp4RowSelect,
     /// The NVLink P2P all-reduce instance a fused collective is issued
     /// through — `kernels::comm::CustomAllReduce*`.
     ///
@@ -298,6 +313,12 @@ impl Ty {
             Ty::U8Array => "const ::std::uint8_t* const*",
             Ty::CustomAllReduce =>
                 "::pie_cuda_driver::kernels::comm::CustomAllReduce*",
+            Ty::I8s => "const ::std::int8_t*",
+            Ty::I32Array => "const ::std::int32_t* const*",
+            Ty::MoeActivation =>
+                "::pie_cuda_driver::kernels::moe::MoeActivation",
+            Ty::Mxfp4RowSelect =>
+                "::pie_cuda_driver::kernels::quant::Mxfp4RowSelect",
             Ty::U16s => "const ::std::uint16_t*",
             Ty::U16sMut => "::std::uint16_t*",
             Ty::Dtype => "::pie_cuda_driver::DType",
@@ -345,6 +366,10 @@ impl Ty {
             Ty::BufArrayOutMut => "*mut *mut ::core::ffi::c_void",
             Ty::U8Array => "*const *const u8",
             Ty::CustomAllReduce => "*mut ::core::ffi::c_void",
+            Ty::I8s => "*const i8",
+            Ty::I32Array => "*const *const i32",
+            Ty::MoeActivation => "u32",
+            Ty::Mxfp4RowSelect => "i32",
             Ty::U16s => "*const u16",
             Ty::U16sMut => "*mut u16",
             Ty::Dtype => "u8",

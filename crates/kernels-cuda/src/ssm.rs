@@ -12,7 +12,27 @@ use kernels::KernelSig;
 pub static KERNELS: &[KernelSig] = &[
     // The other mamba scan: nemotron_h takes FlashInfer's SSU on sm90+ and
     // its own batched kernel elsewhere.
-    kernel!(flashinfer_mamba_ssu "ssm::flashinfer_mamba_ssu_bf16", whole = true),
+    kernel!(flashinfer_mamba_ssu "ssm::flashinfer_mamba_ssu_bf16", whole = true,
+        returns = "bool",
+        operands = operands![
+            conv_out: U16s,
+            dt: U16s,
+            a: F32s,
+            d: U16s,
+            dt_bias: U16s,
+            state_base: U16sMut,
+            slot_ids: I32s,
+            y: U16sMut,
+            batch: I32,
+            num_heads: I32,
+            head_dim: I32,
+            state_size: I32,
+            num_groups: I32,
+            conv_dim: I32,
+            intermediate: I32,
+            state_cache_size: I32,
+            stream: Stream,
+        ]),
     // Unbatched twins of the `_batched` forms below -- a legacy parity
     // entrypoint and a single-request fast path. Not `whole`, for the reason
     // the batched ones are not: their `B` is the batch, not a window into it.

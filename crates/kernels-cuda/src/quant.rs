@@ -30,7 +30,21 @@ pub static KERNELS: &[KernelSig] = &[
             n: Usize,
             stream: Stream,
         ]),
-    kernel!(mxfp4_scales_to_marlin "quant::mxfp4_scales_to_marlin_e8m0"),
+    kernel!(mxfp4_scales_to_marlin "quant::mxfp4_scales_to_marlin_e8m0",
+        operands = operands![
+            raw_e8m0: Buf,
+            marlin_e8m0: BufMut,
+            source_rows: I32,
+            source_row_offset: I32,
+            selected_rows: I32,
+            valid_rows: I32,
+            source_stride_groups: I32,
+            source_group_offset: I32,
+            source_groups: I32,
+            target_groups: I32,
+            row_select: Mxfp4RowSelect,
+            stream: Stream,
+        ]),
     // Three fp8 forms because the SCALE's shape differs -- per tensor, per
     // output channel, per group along K. A property of the checkpoint, so the
     // declaration states which; a driver that guessed would dequantize
