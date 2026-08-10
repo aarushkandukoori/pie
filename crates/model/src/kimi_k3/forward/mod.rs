@@ -164,6 +164,8 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
                     &kv_b,
                     a.heads,
                     a.kv_lora_rank,
+                    a.v_head_dim,
+                    a.qk_nope_head_dim,
                 );
                 let attn_latent =
                     dsl::cuda::attention_mla(&q_latent, &q_pe, l, a.heads, a.kv_lora_rank);
@@ -172,6 +174,8 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
                     &kv_b,
                     a.heads,
                     a.v_head_dim,
+                    a.qk_nope_head_dim,
+                    a.kv_lora_rank,
                 );
                 // The MLA output gate is NOT stated, and refuses rather
                 // than approximating. `SigmoidGateMul` is a SEMANTIC op
@@ -254,6 +258,8 @@ pub fn kimi_k3_cuda(facts: &KimiK3Facts, class: FireClass) -> ForwardPlan {
                     &g,
                     &w.kda_o_norm.name,
                     kd.width(),
+                    kd.value_heads,
+                    kd.value_head_dim,
                 );
                 dsl::seam(o.trace(), &dsl::seam::ATTN_OUT, &[&o], Some(l));
                 y += matmul(&o, &w.kda_o);

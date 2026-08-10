@@ -3076,10 +3076,19 @@ pub mod cuda {
     /// A cuBLAS op, not a raw launch -- and that is why the vocabulary audit
     /// missed it twice: a launcher is anything that issues DEVICE work, and
     /// there are two ways to do that here.
-    pub fn mla_absorb_q_to_latent(q_nope: &Val, w: &str, heads: u32, kv_lora_rank: u32) -> Val {
-        record(
+    /// `v_head_dim` rides the PARAM channel: the bank is sliced by it and
+    /// this direction's result does not carry it.
+    pub fn mla_absorb_q_to_latent(
+        q_nope: &Val,
+        w: &str,
+        heads: u32,
+        kv_lora_rank: u32,
+        v_head_dim: u32,
+        qk_nope_dim: u32,
+    ) -> Val {
+        record_with_params(
             &q_nope.t, q_nope.layer, "gemm::mla_absorb_q_to_latent_bf16",
-            vec![w.to_string()], None, vec![q_nope.id],
+            vec![w.to_string()], None, vec![heads, qk_nope_dim, v_head_dim, kv_lora_rank], vec![q_nope.id],
             Some((
                 Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(kv_lora_rank)]),
                 DType::BF16,
@@ -3090,10 +3099,17 @@ pub mod cuda {
 
     /// `kernels::gemm::mla_absorb_latent_to_v_bf16`: project the latent attention
     /// output back to the value space.
-    pub fn mla_absorb_latent_to_v(latent: &Val, w: &str, heads: u32, v_head_dim: u32) -> Val {
-        record(
+    pub fn mla_absorb_latent_to_v(
+        latent: &Val,
+        w: &str,
+        heads: u32,
+        v_head_dim: u32,
+        qk_nope_dim: u32,
+        kv_lora_rank: u32,
+    ) -> Val {
+        record_with_params(
             &latent.t, latent.layer, "gemm::mla_absorb_latent_to_v_bf16",
-            vec![w.to_string()], None, vec![latent.id],
+            vec![w.to_string()], None, vec![heads, qk_nope_dim, v_head_dim, kv_lora_rank], vec![latent.id],
             Some((
                 Shape(vec![Dim::Tokens, Dim::Const(heads), Dim::Const(v_head_dim)]),
                 DType::BF16,
@@ -4469,11 +4485,12 @@ pub mod cuda {
         heads: u32,
         head_dim: u32,
     ) -> (Val, Val) {
-        let outs = record_many(
+        let outs = record_many_with_params(
             &o1.t,
             o1.layer,
             "attn::combine_attn_outputs_bf16",
             vec![],
+            vec![heads, head_dim],
             vec![o1.id, lse1.id, o2.id, lse2.id],
             vec![
                 (
@@ -5007,11 +5024,14 @@ pub mod cuda {
         heads: u32,
         head_dim: u32,
     ) -> (Val, Val) {
-        let outs = record_many(
+        let outs = record_many_with_params(
             &raw_g.t,
             raw_g.layer,
             "ssm::kda_gate_beta_bf16",
             vec![a_log.to_string(), dt_bias.to_string()],
+            // `head_dim`: the gate result is `[Tokens, heads * head_dim]`
+            // and only the product is a shape, so the row reads `d` here.
+            vec![head_dim],
             vec![raw_g.id, raw_beta.id],
             vec![
                 (
@@ -5105,13 +5125,23 @@ pub mod cuda {
     }
 
     /// `kernels::ssm::kda_o_norm_gated_bf16`: the output norm and gate.
-    pub fn kda_o_norm_gated(x: &Val, gate: &Val, weight: &str, width: u32) -> Val {
-        record(
+    /// `heads` and `head_dim` ride the PARAM channel: the result is
+    /// `[Tokens, heads * head_dim]` and only their product is a shape.
+    pub fn kda_o_norm_gated(
+        x: &Val,
+        gate: &Val,
+        weight: &str,
+        width: u32,
+        heads: u32,
+        head_dim: u32,
+    ) -> Val {
+        record_with_params(
             &x.t,
             x.layer,
             "ssm::kda_o_norm_gated_bf16",
             vec![weight.to_string()],
             None,
+            vec![heads, head_dim],
             vec![x.id, gate.id],
             Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16))
         )
@@ -5325,11 +5355,12 @@ pub mod cuda {
         qk_nope_dim: u32,
         qk_rope_dim: u32,
     ) -> (Val, Val) {
-        let outs = record_many(
+        let outs = record_many_with_params(
             &q_b.t,
             q_b.layer,
             "attn::kimi_split_q_b_bf16",
             vec![],
+            vec![heads, qk_nope_dim, qk_rope_dim],
             vec![q_b.id],
             vec![
                 (
@@ -5418,13 +5449,24 @@ pub mod cuda {
     /// `logit[i,j] = Σ_h relu(idx_q[i,h,·] · idx_k[j,·]) · idx_w[i,h]`, then
     /// the mask is 1 for the top-`k` of `j <= i`. The output is `[T, T]`, and
     /// it is what MLA's `index_mask` consumes.
-    pub fn dsa_index_topk_mask(idx_q: &Val, idx_k: &Val, idx_w: &Val) -> Val {
-        record(
+    /// `top_k` rides the PARAM channel: it is a load-time number and no
+    /// operand shape carries it — the same reading `moe_align` and the
+    /// aligned gather already use.
+    pub fn dsa_index_topk_mask(
+        idx_q: &Val,
+        idx_k: &Val,
+        idx_w: &Val,
+        n_heads: u32,
+        head_dim: u32,
+        top_k: u32,
+    ) -> Val {
+        record_with_params(
             &idx_q.t,
             idx_q.layer,
             "attn::dsa_index_topk_mask",
             vec![],
             None,
+            vec![n_heads, head_dim, top_k],
             vec![idx_q.id, idx_k.id, idx_w.id],
             Some((Shape(vec![Dim::Tokens, Dim::Tokens]), DType::I32)),
         )

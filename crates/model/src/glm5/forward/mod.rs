@@ -136,7 +136,7 @@ pub fn glm5_cuda(facts: &Glm5Facts, class: FireClass) -> ForwardPlan {
                 facts.dsa.index_n_heads,
                 facts.dsa.index_head_dim,
             );
-            dsl::cuda::dsa_index_topk_mask(&idx_q, &idx_k, &idx_w);
+            dsl::cuda::dsa_index_topk_mask(&idx_q, &idx_k, &idx_w, facts.dsa.index_n_heads, facts.dsa.index_head_dim, facts.dsa.index_topk);
 
             // ── MLA ──────────────────────────────────────────────────
             let (_kv_c, _k_pe, q_nope, q_pe) = dsl::cuda::mla_prepare(
@@ -149,7 +149,7 @@ pub fn glm5_cuda(facts: &Glm5Facts, class: FireClass) -> ForwardPlan {
             );
             let kv_b = format!("layer.{l}.kv_b_proj");
             let q_latent =
-                dsl::cuda::mla_absorb_q_to_latent(&q_nope, &kv_b, a.heads, a.kv_lora_rank);
+                dsl::cuda::mla_absorb_q_to_latent(&q_nope, &kv_b, a.heads, a.kv_lora_rank, a.v_head_dim, a.qk_nope_head_dim);
             let attn_latent =
                 dsl::cuda::attention_mla(&q_latent, &q_pe, l, a.heads, a.kv_lora_rank);
             let attn_v = dsl::cuda::mla_absorb_latent_to_v(
@@ -157,6 +157,8 @@ pub fn glm5_cuda(facts: &Glm5Facts, class: FireClass) -> ForwardPlan {
                 &kv_b,
                 a.heads,
                 a.v_head_dim,
+                a.qk_nope_head_dim,
+                a.kv_lora_rank,
             );
             // The OnAttn site: after the core, before `o_proj` — the
             // hand-written invoke's position.

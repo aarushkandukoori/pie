@@ -127,11 +127,11 @@ pub fn kimi_cuda(facts: &KimiFacts, cuda: &KimiCudaFacts, class: FireClass) -> F
             );
             let kv_b = format!("layer.{l}.kv_b_proj");
             let q_latent =
-                dsl::cuda::mla_absorb_q_to_latent(&q_nope, &kv_b, a.heads, a.kv_lora_rank);
+                dsl::cuda::mla_absorb_q_to_latent(&q_nope, &kv_b, a.heads, a.kv_lora_rank, a.v_head_dim, a.qk_nope_head_dim);
             let attn_latent =
                 dsl::cuda::attention_mla(&q_latent, &q_pe, l, a.heads, a.kv_lora_rank);
             let attn_v =
-                dsl::cuda::mla_absorb_latent_to_v(&attn_latent, &kv_b, a.heads, a.v_head_dim);
+                dsl::cuda::mla_absorb_latent_to_v(&attn_latent, &kv_b, a.heads, a.v_head_dim, a.qk_nope_head_dim, a.kv_lora_rank);
             dsl::seam(attn_v.trace(), &dsl::seam::ATTN_OUT, &[&attn_v], Some(l));
             y += matmul(&attn_v, &w.o_proj);
 

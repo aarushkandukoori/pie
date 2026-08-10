@@ -2589,6 +2589,9 @@
           "weights": [
             "layer.0.kda_a_log",
             "layer.0.kda_dt_bias"
+          ],
+          "params": [
+            128
           ]
         }
       },
@@ -2687,6 +2690,10 @@
           "kernel": "ssm::kda_o_norm_gated_bf16",
           "weights": [
             "layer.0.kda_o_norm"
+          ],
+          "params": [
+            16,
+            128
           ]
         }
       },
@@ -2982,6 +2989,9 @@
           "weights": [
             "layer.1.kda_a_log",
             "layer.1.kda_dt_bias"
+          ],
+          "params": [
+            128
           ]
         }
       },
@@ -3080,6 +3090,10 @@
           "kernel": "ssm::kda_o_norm_gated_bf16",
           "weights": [
             "layer.1.kda_o_norm"
+          ],
+          "params": [
+            16,
+            128
           ]
         }
       },
@@ -3500,6 +3514,9 @@
           "weights": [
             "layer.2.kda_a_log",
             "layer.2.kda_dt_bias"
+          ],
+          "params": [
+            128
           ]
         }
       },
@@ -3598,6 +3615,10 @@
           "kernel": "ssm::kda_o_norm_gated_bf16",
           "weights": [
             "layer.2.kda_o_norm"
+          ],
+          "params": [
+            16,
+            128
           ]
         }
       },
@@ -3941,7 +3962,12 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "attn::kimi_split_q_b_bf16"
+          "kernel": "attn::kimi_split_q_b_bf16",
+          "params": [
+            16,
+            128,
+            64
+          ]
         }
       },
       "inputs": [
@@ -3976,6 +4002,12 @@
           "kernel": "gemm::mla_absorb_q_to_latent_bf16",
           "weights": [
             "layer.3.kv_b_proj"
+          ],
+          "params": [
+            16,
+            128,
+            128,
+            256
           ]
         }
       },
@@ -4012,6 +4044,12 @@
           "kernel": "gemm::mla_absorb_latent_to_v_bf16",
           "weights": [
             "layer.3.kv_b_proj"
+          ],
+          "params": [
+            16,
+            128,
+            128,
+            256
           ]
         }
       },
@@ -4450,6 +4488,9 @@
           "weights": [
             "layer.4.kda_a_log",
             "layer.4.kda_dt_bias"
+          ],
+          "params": [
+            128
           ]
         }
       },
@@ -4548,6 +4589,10 @@
           "kernel": "ssm::kda_o_norm_gated_bf16",
           "weights": [
             "layer.4.kda_o_norm"
+          ],
+          "params": [
+            16,
+            128
           ]
         }
       },
@@ -4968,6 +5013,9 @@
           "weights": [
             "layer.5.kda_a_log",
             "layer.5.kda_dt_bias"
+          ],
+          "params": [
+            128
           ]
         }
       },
@@ -5066,6 +5114,10 @@
           "kernel": "ssm::kda_o_norm_gated_bf16",
           "weights": [
             "layer.5.kda_o_norm"
+          ],
+          "params": [
+            16,
+            128
           ]
         }
       },
@@ -5486,6 +5538,9 @@
           "weights": [
             "layer.6.kda_a_log",
             "layer.6.kda_dt_bias"
+          ],
+          "params": [
+            128
           ]
         }
       },
@@ -5584,6 +5639,10 @@
           "kernel": "ssm::kda_o_norm_gated_bf16",
           "weights": [
             "layer.6.kda_o_norm"
+          ],
+          "params": [
+            16,
+            128
           ]
         }
       },
@@ -5927,7 +5986,12 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "attn::kimi_split_q_b_bf16"
+          "kernel": "attn::kimi_split_q_b_bf16",
+          "params": [
+            16,
+            128,
+            64
+          ]
         }
       },
       "inputs": [
@@ -5962,6 +6026,12 @@
           "kernel": "gemm::mla_absorb_q_to_latent_bf16",
           "weights": [
             "layer.7.kv_b_proj"
+          ],
+          "params": [
+            16,
+            128,
+            128,
+            256
           ]
         }
       },
@@ -5998,6 +6068,12 @@
           "kernel": "gemm::mla_absorb_latent_to_v_bf16",
           "weights": [
             "layer.7.kv_b_proj"
+          ],
+          "params": [
+            16,
+            128,
+            128,
+            256
           ]
         }
       },
