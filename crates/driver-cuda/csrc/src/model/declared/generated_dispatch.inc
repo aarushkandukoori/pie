@@ -49,6 +49,14 @@ if (sym == "mlp::swiglu_bf16" && ins.size >= 2 && outs.size >= 1) {
         c.arm.stream);
     return true;
 }
+if (sym == "mlp::relu2_bf16" && ins.size >= 1 && outs.size >= 1) {
+    ::pie_cuda_driver::kernels::mlp::relu2_bf16(
+        c.arm.values.slot(ins[0]),
+        c.arm.values.slot(outs[0]),
+        static_cast<::std::size_t>(c.arm.rows) * static_cast<::std::size_t>(row_width(c.arm.plan, outs[0])),
+        c.arm.stream);
+    return true;
+}
 if (sym == "moe::topk_softmax_bf16" && ins.size >= 1 && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::moe::topk_softmax_bf16(
         c.arm.values.slot(ins[0]),
@@ -105,11 +113,49 @@ if (sym == "norm::residual_add_rmsnorm_bf16" && ins.size >= 2 && outs.size >= 1 
         c.arm.stream);
     return true;
 }
+if (sym == "norm::compute_rms_bf16" && ins.size >= 1 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::norm::compute_rms_bf16(
+        c.arm.values.slot(ins[0]),
+        static_cast<float*>(c.arm.values.slot(outs[0])),
+        c.arm.rows,
+        row_width(c.arm.plan, ins[0]),
+        c.eps,
+        c.arm.stream);
+    return true;
+}
+if (sym == "norm::magnitude_rescale_bf16" && ins.size >= 2 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::norm::magnitude_rescale_bf16(
+        c.arm.values.slot(outs[0]),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        c.arm.rows,
+        row_width(c.arm.plan, outs[0]),
+        c.eps,
+        c.arm.stream);
+    return true;
+}
 if (sym == "norm::residual_add_bf16" && ins.size >= 2 && outs.size >= 1) {
     ::pie_cuda_driver::kernels::norm::residual_add_bf16(
         c.arm.values.slot(outs[0]),
         c.arm.values.slot(ins[1]),
         static_cast<::std::size_t>(c.arm.rows) * static_cast<::std::size_t>(row_width(c.arm.plan, outs[0])),
+        c.arm.stream);
+    return true;
+}
+if (sym == "norm::tanh_bf16" && outs.size >= 1) {
+    ::pie_cuda_driver::kernels::norm::tanh_bf16(
+        c.arm.values.slot(outs[0]),
+        static_cast<::std::size_t>(c.arm.rows) * static_cast<::std::size_t>(row_width(c.arm.plan, outs[0])),
+        c.arm.stream);
+    return true;
+}
+if (sym == "norm::attn_sink_correction_bf16" && ins.size >= 2 && outs.size >= 1 && aux.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::norm::attn_sink_correction_bf16(
+        c.arm.values.slot(outs[0]),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        static_cast<const float*>(c.wb.require(c.arm.plan.name(aux[0])).data()),
+        c.arm.rows,
+        static_cast<int>(c.arm.plan.value(outs[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(outs[0]).dims[2].value),
         c.arm.stream);
     return true;
 }
@@ -146,6 +192,22 @@ if (sym == "rope::rope_partial_bf16" && outs.size >= 2 && ps.size >= 1 && c.arm.
         c.head_dim,
         static_cast<int>(ps[0]),
         c.rope_theta,
+        c.arm.stream);
+    return true;
+}
+if (sym == "ssm::bf16_to_fp32" && ins.size >= 1 && outs.size >= 1) {
+    ::pie_cuda_driver::kernels::ssm::bf16_to_fp32(
+        c.arm.values.slot(ins[0]),
+        static_cast<float*>(c.arm.values.slot(outs[0])),
+        static_cast<::std::size_t>(c.arm.rows) * static_cast<::std::size_t>(row_width(c.arm.plan, outs[0])),
+        c.arm.stream);
+    return true;
+}
+if (sym == "ssm::fp32_to_bf16" && ins.size >= 1 && outs.size >= 1) {
+    ::pie_cuda_driver::kernels::ssm::fp32_to_bf16(
+        static_cast<const float*>(c.arm.values.slot(ins[0])),
+        c.arm.values.slot(outs[0]),
+        static_cast<::std::size_t>(c.arm.rows) * static_cast<::std::size_t>(row_width(c.arm.plan, outs[0])),
         c.arm.stream);
     return true;
 }

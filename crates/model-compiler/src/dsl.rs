@@ -5028,7 +5028,19 @@ pub mod cuda {
     ///
     /// HF computes this in fp32 and casts back; the kernel folds both, so
     /// the trace states one op where the reference states three.
-    pub fn tanh(x: &Val, width: u32) -> Val {
+    /// The result is the OPERAND's shape, read off the trace rather than
+    /// respelled: this kernel takes one pointer and rewrites it, so the
+    /// two are one buffer and a second spelling can only disagree.
+    ///
+    /// It did. `[Tokens, width]` was the spelling, and gemma-3n's altup
+    /// coefficients run over a `Select`ed stream slice whose leading dim
+    /// is the STREAM count, not the fire's tokens — so the operand was
+    /// `[4, 4]` and the result claimed `[Tokens, 4]`. Nothing compared
+    /// them until the row said in place, at which point the arena put
+    /// one buffer where two shapes disagreed and
+    /// `an_alias_lands_inside_its_owner` refused it.
+    pub fn tanh(x: &Val) -> Val {
+        let out = (x.t.inner.borrow().value_shape(x.id), DType::BF16);
         record(
             &x.t,
             x.layer,
@@ -5036,7 +5048,7 @@ pub mod cuda {
             vec![],
             None,
             vec![x.id],
-            Some((Shape(vec![Dim::Tokens, Dim::Const(width)]), DType::BF16)),
+            Some(out),
         )
         .expect("the activation produces its value")
     }

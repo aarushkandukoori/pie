@@ -78,10 +78,10 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     kernel!(relu2 "mlp::relu2_bf16",
         operands = operands![
-            x: Buf,
-            y: BufMut,
-            num_elements: I32,
-            stream: Stream,
+            x: Buf <- Source::In(0),
+            y: BufMut <- Source::Out(0),
+            num_elements: I32 <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // SiTU is not a swiglu variant: the tanh saturates far enough out that a
     // bf16 intermediate loses the distinction the gate exists to make.

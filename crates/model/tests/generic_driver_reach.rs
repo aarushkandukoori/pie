@@ -42,6 +42,33 @@ fn arms() -> BTreeSet<String> {
         !out.is_empty(),
         "the registry stopped being literal compares"
     );
+
+    // AND the GENERATED dispatch, which needs no registry entry: it is
+    // keyed by the symbol the statement carries, so the enum a
+    // hand-written switch wanted never enters the path.
+    //
+    // A branch there is a STRONGER claim than a registry entry. An entry
+    // says some executor may have an arm; a branch says the shared
+    // switch fires this symbol for every family that states it, from a
+    // row that named where each argument comes from. Counting only the
+    // registry made a symbol whose row is fully stated read as unserved.
+    let dispatch = format!(
+        "{}/../driver-cuda/csrc/src/model/declared/generated_dispatch.inc",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let emitted = std::fs::read_to_string(&dispatch)
+        .unwrap_or_else(|e| panic!("cannot read {dispatch}: {e}"));
+    let mut generated = 0usize;
+    for (i, _) in emitted.match_indices("if (sym == \"") {
+        if let Some(end) = emitted[i + 12..].find('"') {
+            out.insert(emitted[i + 12..i + 12 + end].to_string());
+            generated += 1;
+        }
+    }
+    assert!(
+        generated > 0,
+        "the generated dispatch stopped emitting symbol compares"
+    );
     out
 }
 
@@ -159,7 +186,7 @@ fn how_many_symbols_the_undriven_families_still_owe() {
 
     let mut owed_all: BTreeSet<String> = BTreeSet::new();
     println!(
-        "symbol-keyed arms across the four existing executors: {}",
+        "symbol-keyed arms — registry entries plus generated branches: {}",
         have.len()
     );
     println!(

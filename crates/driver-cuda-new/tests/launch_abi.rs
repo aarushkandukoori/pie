@@ -935,3 +935,98 @@ fn without_the_binding_a_dropped_field_would_go_unnoticed() {
         panic!("sizeof/offsetof already caught it, so the binding is ceremony:\n{err}");
     }
 }
+
+/// Every launcher the GENERATED dispatch calls is declared by a header
+/// `execute.hpp` includes.
+///
+/// The generator emits a CALL and nothing else. Whether that call has a
+/// declaration in scope is the including file's business, and the
+/// including file is one: `model/declared/execute.hpp`, which pulls the
+/// `.inc` in mid-function. So a row that starts generating drags a
+/// header requirement with it, and until this test existed the only
+/// thing that noticed was a CUDA build — which this crate's CI job does
+/// not run.
+///
+/// It checks DIRECT includes, deliberately. A launcher reachable only
+/// through some other header's include is a build that works by
+/// accident, and the fix for a failure here is one line either way.
+#[test]
+fn every_generated_call_has_its_header_in_scope() {
+    let dispatch = kernels_cuda::abi::emit_dispatch(
+        &[
+            kernels_cuda::attn::KERNELS,
+            kernels_cuda::gemm::KERNELS,
+            kernels_cuda::layout::KERNELS,
+            kernels_cuda::mlp::KERNELS,
+            kernels_cuda::moe::KERNELS,
+            kernels_cuda::norm::KERNELS,
+            kernels_cuda::quant::KERNELS,
+            kernels_cuda::rope::KERNELS,
+            kernels_cuda::sample::KERNELS,
+            kernels_cuda::ssm::KERNELS,
+        ],
+        "c",
+    );
+
+    let execute = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../driver-cuda/csrc/src/model/declared/execute.hpp");
+    let included = std::fs::read_to_string(&execute)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", execute.display()));
+
+    // Every header under `kernels-cuda/csrc/src`, by the text it holds.
+    let mut headers: Vec<(String, String)> = Vec::new();
+    let mut stack = vec![csrc()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "hpp") {
+                let rel = p
+                    .strip_prefix(csrc())
+                    .expect("under csrc")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    headers.push((rel, text));
+                }
+            }
+        }
+    }
+
+    let mut missing: Vec<String> = Vec::new();
+    for line in dispatch.lines() {
+        let Some(at) = line.find("::pie_cuda_driver::kernels::") else { continue };
+        let call = &line[at..];
+        let Some(open) = call.find('(') else { continue };
+        let path = &call[..open];
+        let Some(name) = path.rsplit("::").next() else { continue };
+        // A header DECLARES it if the name appears as a call-shaped
+        // token; a header is IN SCOPE if `execute.hpp` includes it.
+        let declared_in: Vec<&str> = headers
+            .iter()
+            .filter(|(_, text)| text.contains(&format!("{name}(")))
+            .map(|(rel, _)| rel.as_str())
+            .collect();
+        if declared_in.is_empty() {
+            // No header declares it at all — a different failure, and
+            // the shim compile is what catches that one.
+            continue;
+        }
+        if !declared_in
+            .iter()
+            .any(|rel| included.contains(&format!("#include \"{rel}\"")))
+        {
+            missing.push(format!("  {name} — declared in {declared_in:?}"));
+        }
+    }
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "the generated dispatch calls launchers `execute.hpp` has no \
+         declaration for; add the header(s):\n{}",
+        missing.join("\n")
+    );
+}

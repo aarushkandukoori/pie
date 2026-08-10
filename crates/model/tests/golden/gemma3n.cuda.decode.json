@@ -68,7 +68,9 @@
     },
     {
       "shape": [
-        "Tokens",
+        {
+          "Const": 4
+        },
         {
           "Const": 4
         }
@@ -77,7 +79,9 @@
     },
     {
       "shape": [
-        "Tokens",
+        {
+          "Const": 4
+        },
         {
           "Const": 16
         }

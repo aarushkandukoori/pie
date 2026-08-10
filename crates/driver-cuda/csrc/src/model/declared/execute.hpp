@@ -34,6 +34,13 @@
 #include "layout/deinterleave.hpp"
 #include "norm/residual_add.hpp"
 #include "norm/rmsnorm.hpp"
+// Headers the GENERATED half calls into. A row that states its sources
+// puts a call here, and the launcher has to be declared for it — which
+// is how this list grows and why it is not a curated one: the compiler
+// names the header the moment a row starts generating without it.
+#include "norm/altup_aux.hpp"
+#include "norm/dsv4_hc.hpp"
+#include "ssm/gated_delta_net.hpp"
 #include "mlp/swiglu.hpp"
 #include "moe/moe_dispatch.hpp"
 #include "moe/topk_softmax.hpp"
