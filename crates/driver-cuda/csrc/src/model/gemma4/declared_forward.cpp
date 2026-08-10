@@ -751,17 +751,9 @@ bool gemma4_forward_declared(
             // answered above `execute_shared` now (`decode_plan_for`).
             // The pre-scaled query rides `sm_scale = 1.0f` in the
             // context, where it already was.
-            case declared::Kernel::ChunkedGegluTanh:
-                {
-                    const auto ins = plan.inputs(op);
-                    const auto outs = plan.outputs(op);
-                    need(ins, 1, "chunked geglu inputs");
-                    need(outs, 1, "chunked geglu outputs");
-                    kernels::mlp::chunked_geglu_tanh_bf16(
-                        values.slot(ins[0]), values.slot(outs[0]), N,
-                        row_width(outs[0]), stream);
-                }
-                break;
+            // The chunked geglu GENERATES: its row states one operand,
+            // one result, the fire's rows and the result's width, which
+            // is the whole call.
             case declared::Kernel::GegluTanh: {
                 // TWO sites for one kernel, told apart by the WIDTH the
                 // op declares — not by a counter. The PLE gate is

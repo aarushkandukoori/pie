@@ -1877,24 +1877,11 @@ case PieForwardOpKind::Launch: {
                     R, K_h, V_h, K_d, V_d, stream, write_state,
                     commit_lens);
                 break;
-            case declared::Kernel::RepeatInterleave: {
-                // ISLAND (value arena), BOTH ENDS. The destination was
-                // `la.q_norm`/`la.k_norm` picked by a `repeat_next_is_k`
-                // toggle -- a launch's meaning read off the ORDER it
-                // arrived in, which is the one thing a walk over a plan
-                // should never have to do. The repeat declares its
-                // result now, so the id says which it is and the
-                // recurrence below takes the same id as its operand.
-                const auto rins = plan.inputs(op);
-                const auto routs = plan.outputs(op);
-                need(rins, 1, "repeat inputs");
-                need(routs, 1, "repeat outputs");
-                kernels::ssm::repeat_interleave_heads_fp32(
-                    static_cast<const float*>(values.slot(rins[0])),
-                    static_cast<float*>(values.slot(routs[0])),
-                    N, K_h, V_h, K_d, stream);
-                break;
-            }
+            // The head repeat GENERATES, which it could not while it
+            // was output-less: all three counts are dims of the two
+            // values -- `[Tokens, key_heads, key_dim]` in, `[Tokens,
+            // value_heads, key_dim]` out -- so the row names them and
+            // the arm derives.
             case declared::Kernel::VerifyStashLoad:
             case declared::Kernel::VerifyStashStore: {
                 // The pseudo-symbols name an OPERATION the driver
