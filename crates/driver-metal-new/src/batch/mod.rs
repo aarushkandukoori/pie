@@ -44,6 +44,7 @@ mod psos_gptoss;
 mod psos_llama;
 mod psos_mb;
 mod schedule;
+mod sequence;
 mod sizing;
 mod tickets;
 mod timing;
@@ -140,6 +141,10 @@ pub use psos_mb::{
 pub use schedule::{
     BatchSchedule, DEFAULT_PAGE_SIZE, Malformed, Rejected, RequestSpan, build_schedule,
     find_request, validate_capacity, validate_paged,
+};
+pub use sequence::{
+    Backing, Continuation, SequenceRefused, SequenceState, close as close_sequence,
+    validate_continuation,
 };
 pub use sizing::{
     RoutedProjection, RowAxis, Target, ValueExtent, conv_state_target_bytes, kv_pool_row_bytes,

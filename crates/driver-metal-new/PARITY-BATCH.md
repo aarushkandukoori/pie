@@ -66,6 +66,25 @@ and tested.
 Ten tests, portable, including the write-descriptor formula held exactly and
 both wrap refusals.
 
+### `close_linear_sequence` cannot close what `copy_state` created
+
+The C++ clears a slot only when
+
+```cpp
+state.has_resident && (state.ring_backed || state.paged_backed) &&
+    state.resident_sequence_id == sequence_id
+```
+
+and `copy_state` produces precisely the excluded state: it copies a source
+slot's bookkeeping to a destination and sets `ring_backed = false`, so a copy
+taken from a **ring-backed** source has neither flag while `has_resident` stays
+true. That slot can then never be closed. Its metadata outlives every
+`close_sequence` the caller issues, and the entry becomes a permanent resident
+in the table the close exists to keep clean.
+
+The backing describes *how* a sequence is resident, not *whether* it is, so it
+has no business in the predicate. `close_sequence` matches on the id alone.
+
 ## The wire mask — `src/batch/mask.rs`
 
 From `wire_mask.hpp` (142 lines): whether a wire attention mask says
@@ -233,6 +252,9 @@ first arm of `forward.cpp`'s orchestration exists as `metal/decoder.rs`.
 | `logits_convert.hpp` (30) | `batch/logits.rs` | ported; one spelling of the widening, which `batch/golden.rs` now calls instead of carrying its own |
 | the EOS substrate: `ArgmaxParams` (vocab + `n_eos` + 8 ids), the `eos_flag` buffer, `bind::Argmax::{Params, EosFlag}` | `batch::ArgmaxParams` (size-asserted at 40), `metal::storage`'s `eos_flag`, the family bind walks, `Decoder::greedy` | ported |
 | the "resident loop" the C++ comments describe | — | **there is nothing to port**: `heap_bind.cpp` sets `n_eos = 0` and says "executor/resident loop rewrites vocab+eos per gen", and `mtl4_context.hpp` calls it the shippable fix it does not have. It is an aspiration in comments, not code |
+| `LinearSequenceState` | `batch::SequenceState` + `Backing` | ported; the two `*_backed` bools become one enum, because a slot is ring-backed **or** paged **or** neither and the pair could spell a fourth thing |
+| `validate_linear_sequence_geometry` | `batch::validate_continuation` | ported; the nine refusals kept one for one, each a fire that would otherwise answer with someone else's history |
+| `close_linear_sequence` | `batch::close_sequence` | ported, defect fixed — see below |
 | `forward.cpp`: `copy_state`/reset ABI arms, logits views, PTIR hooks, timing attribution wiring | — | missing: the engine-facing surface; lands with the cutover wiring |
 
 Verified on device (Qwen3.6-27B, `tests/device_smoke.rs`): the M=1 ring
@@ -529,7 +551,7 @@ panic resume + survival, contained post panics, drop-as-barrier.
 | the gpt-oss engine | `metal/gptoss_engine.rs` | ported; the llama assembly plus the family's one load-time difference — the trio is SOLVED off the staged heap before a single pipeline is planned, inside `new()`, because the plan's entry names depend on the answer. `the_gptoss_engine_decodes_across_fires` cross-validates the PAGED KV path against the ring: the same eight-token greedy chain the M=1 smoke produced through the contiguous ring, reproduced through pages |
 | the gemma4 MB path + engine | `dispatch_gemma4.rs::build_gemma4_dag_mb` + `psos_gemma4.rs::gemma4_mb_plan` + `metal/gemma4_step.rs::Gemma4MbStep` + `metal/gemma4_engine.rs` | ported and verified: the decide-once MB DAG at per-layer widths, ONE `SdpaPaged` kind whose instantiation the step resolves from the layer (d256 sliding / d512 full — missing refuses: the d256 pipeline over 512-wide heads strides past every head), the strided PLE geglu claimed by kind, the alt-quant probe inside `new()`. `the_gemma4_engine_decodes_across_fires` lands the ring's exact chain through pages, first run — all four families now have engines, three with ring↔page cross-validation |
 | the multi-request fleet contract | `tests/device_smoke.rs::the_llama_engine_isolates_two_requests` | verified: two conversations share every fire — disjoint physical pages (request 1 at page 64 under logical positions 0..17, so the indirection itself is under test), per-request page walks, a 2-row decode fleet — and each continues ITS chain token-exact, same first token and different second, so contamination would show immediately |
-| the M=1 ring engine surface; split-K/fp16/tiled rungs; forward.cpp's remaining runtime (elastic KV, EOS device loop, PTIR hooks, timing) | — | missing/deferred. `copy_state`'s deciding half has since landed in `store/control.rs` (`PARITY-STORE.md`); taps landed as `batch/golden.rs` |
+| the M=1 ring engine surface; split-K/fp16/tiled rungs; forward.cpp's engine-facing wiring (PTIR hooks, the timing hand-off, logits views) | — | missing/deferred. Since landed: `copy_state`'s deciding half (`store/control.rs`), taps (`batch/golden.rs`), the elastic sizing (`batch/sizing.rs`), the EOS substrate, and the timing attribution itself (`batch/timing.rs`) — what is left is the wiring, not the logic |
 | `forward.cpp` / `forward.hpp` | 5393 | missing — the executor; last, over everything above |
 
 ### The bind audit (2026-08-09)
