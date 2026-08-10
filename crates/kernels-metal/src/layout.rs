@@ -43,5 +43,18 @@ pub static KERNELS: &[KernelSig] = &[
     // 1 in ple_combine.metal
     kernel!(ple_combine "ple_combine", axes = &[BF16]),
     // 1 in row_gather.metal
-    kernel!(row_gather "row_gather", axes = &[BF16]),
+    // The readout's gather. A prefill's stream is one row per TOKEN and its
+    // readout is one distribution per REQUEST, so the sampled rows have to be
+    // picked out before the lm head runs. `Kernel::G4RowGather` is what the
+    // retiring driver called it.
+    kernel!(row_gather "row_gather", file = Some("layout/row_gather.metal"),
+        launch = kernels::LaunchRule::ElementwiseRows,
+        operands = kernels::operands![
+            input: Buf <- kernels::Source::In(0),
+            out: BufMut <- kernels::Source::Out(0),
+            rows: U32s <- kernels::Source::SamplingIndices,
+            // `RowGatherParams`: width and count, packed.
+            params: Buf <- kernels::Source::Param(0),
+        ],
+        axes = &[BF16]),
 ];

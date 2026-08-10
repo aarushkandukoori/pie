@@ -457,6 +457,7 @@ fn reorder<S: Resolver>(
             kernels::Source::KvWritePage => fire(resolver, FireTable::KvWritePage),
             kernels::Source::KvWriteOffset => fire(resolver, FireTable::KvWriteOffset),
             kernels::Source::RopeFrequencies => fire(resolver, FireTable::RopeFrequencies),
+            kernels::Source::SamplingIndices => fire(resolver, FireTable::SamplingIndices),
             kernels::Source::AttentionMask => fire(resolver, FireTable::AttentionMask),
             kernels::Source::AttentionMaskEnabled => {
                 fire(resolver, FireTable::AttentionMaskEnabled)

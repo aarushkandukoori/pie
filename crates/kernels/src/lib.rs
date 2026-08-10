@@ -588,6 +588,12 @@ pub enum Source {
     KvWritePage,
     /// Per token: the row within [`Source::KvWritePage`]'s page.
     KvWriteOffset,
+    /// Which ROWS the fire samples, one per request.
+    ///
+    /// A prefill's readout is one distribution per request and its stream is
+    /// one row per token, so something has to pick. `Step::sampling_indices`
+    /// is the frame's answer and the row is where it is named.
+    SamplingIndices,
     /// The rotary INVERSE FREQUENCIES, `[rotary_dims/2]` f32.
     ///
     /// A table rather than a base, because a base cannot express what a

@@ -2249,6 +2249,40 @@ pub mod metal {
         .expect("the activation produces its value")
     }
 
+    /// `layout/row_gather.metal::row_gather` — the sampled rows, in order.
+    ///
+    /// A prefill's stream is one row per TOKEN and its readout is one
+    /// distribution per REQUEST, so the rows a fire samples have to be picked
+    /// out before the lm head runs. Which rows is `Step::sampling_indices`, a
+    /// fire table, so the row names it and no statement supplies it.
+    ///
+    /// Absent, a prefill's readout reads row 0 and answers the FIRST token's
+    /// distribution — measured against MLX, and exactly right for a question
+    /// nobody asked.
+    pub fn sample_rows(x: &Val, width: u32) -> Val {
+        with_params(
+            &x.t,
+            None,
+            "row_gather_bfloat16",
+            vec![],
+            None,
+            // `RowGatherParams`, packed: width then count.
+            //
+            // The count is ZERO and that is a GAP, not a value: how many rows
+            // to gather is the REQUEST count, a number of the fire's that no
+            // text can state, and the launch's own rows are TOKENS. The kernel
+            // reads `i >= p.count` and returns, so a zero gathers nothing.
+            //
+            // It wants a `Source` the way the KV pool's strides did -- the
+            // driver knows it and the text does not -- and until it has one
+            // this statement is written and uncalled.
+            vec![width, 0],
+            vec![x.id],
+            Some((Shape(vec![Dim::Requests, Dim::Const(width)]), DType::BF16)),
+        )
+        .expect("the gather produces its rows")
+    }
+
     /// `quantized_qmv.metal::affine_qmv_fast` against the lm head — the
     /// readout, `[Requests, vocab]` f32 like every family's.
     pub fn lm_head(x: &Val, weight: &str, vocab: u32, repr: WeightRepr, point: &str) -> Val {
