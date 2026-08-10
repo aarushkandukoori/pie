@@ -243,6 +243,10 @@ pub fn facts_from(
         // a per-layer embedding table is a deployment that has one.
         per_layer_emb_dim: 0,
         per_layer_scalar: false,
+        dense_beside_moe: false,
+        // Asked of the TENSORS: a checkpoint with no `v_proj` takes V from K.
+        v_from_k: !has_tensor("layers.0.self_attn.v_proj.weight")
+            && has_tensor("layers.0.self_attn.k_proj.weight"),
         kv_shared_layers: 0,
         // gemma's readout cap. Zero is "none" and the text names nothing.
         logit_softcap: geometry.final_logit_softcap,

@@ -594,6 +594,14 @@ fn llama_like_metal_text(
                 // operands, so the values here are never consumed.
                 let q = gemm(&x, &w.q_proj);
                 (q.clone(), q.clone(), q)
+            } else if metal.v_from_k {
+                // A K-EQ-V layer projects K and takes V FROM it, so it ships
+                // no `v_proj` tensor at all. The two norms then run in the
+                // other order: V reads the projection K's norm is about to
+                // overwrite, so V goes first.
+                let q = gemm(&x, &w.q_proj);
+                let k = gemm(&x, &w.k_proj);
+                (q, k.clone(), k)
             } else {
                 (
                     gemm(&x, &w.q_proj),
@@ -663,6 +671,22 @@ fn llama_like_metal_text(
                 let x = dsl::metal::rms_norm(&y, &w.mlp_norm, f.hidden, metal.rms_eps);
                 let h = gated(&x, &w);
                 y = gemm_add(&h, &w.down, &y);
+            }
+
+            // ── gemma's BRANCH. ──
+            //
+            // A mixture that sits BESIDE the dense MLP rather than replacing
+            // it: both read the post-attention residual and their results are
+            // added, which is five norms round one block. Every other family
+            // in this text runs one FFN or the other.
+            //
+            // Stated after the dense FFN because that is the order the
+            // dispatches run in, and the join is a plain add — the branch's
+            // own norm is `mlp_norm` at the same width, so no new statement.
+            if metal.dense_beside_moe && f.n_experts > 0 {
+                let branch = dsl::metal::rms_norm(&y, &w.mlp_norm, f.hidden, metal.rms_eps);
+                let mixed = gated(&branch, &w);
+                y = dsl::metal::residual_add(&mixed, &y);
             }
 
             // ── gemma's per-layer tail. ──

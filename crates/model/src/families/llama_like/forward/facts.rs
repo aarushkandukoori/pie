@@ -677,6 +677,22 @@ pub struct LlamaLikeMetalFacts {
     /// layer until the activations saturate.
     #[serde(default)]
     pub rope_theta: f32,
+    /// Whether V is taken from the K projection rather than projected.
+    ///
+    /// gemma4's k-eq-v layers ship no `v_proj` tensor at all, so a text that
+    /// stated one would name a tensor that is not there. It also reorders the
+    /// two norms: V reads the projection K's norm is about to overwrite, so V
+    /// goes first.
+    #[serde(default)]
+    pub v_from_k: bool,
+    /// Whether the mixture sits BESIDE the dense MLP rather than replacing it.
+    ///
+    /// gemma4's. Both branches read the post-attention residual and their
+    /// results are added — five norms round one block. Every other deployment
+    /// this text serves runs one FFN or the other, which is why this is a fact
+    /// and not the shape of the walk.
+    #[serde(default)]
+    pub dense_beside_moe: bool,
     /// Whether each layer scales the stream by a learned SCALAR.
     ///
     /// gemma's, for a deployment with no per-layer embeddings: one number per
@@ -790,6 +806,7 @@ impl LlamaLikeMetalFacts {
             logit_softcap: 30.0,
             per_layer_emb_dim: 256,
             kv_shared_layers: 4,
+            dense_beside_moe: true,
             window_left: (0..24).map(|l| if l % 6 == 5 { -1 } else { 512 }).collect(),
             rope_theta: 1_000_000.0,
             ..Self::synthetic()
@@ -833,8 +850,12 @@ impl LlamaLikeMetalFacts {
             // statement hands it `log2(theta)`; handing theta rotates by a
             // frequency ladder that is wrong from the second channel on.
             rope_theta: 1_000_000.0,
-            // qwen3 has no per-layer embeddings, no per-layer scalar, and
+            // qwen3's mixture replaces its dense MLP rather than sitting
+            // beside it, and it has no per-layer embeddings or scalar and
             // shares no KV.
+            // qwen3 projects its own V.
+            v_from_k: false,
+            dense_beside_moe: false,
             per_layer_scalar: false,
             per_layer_emb_dim: 0,
             kv_shared_layers: 0,
