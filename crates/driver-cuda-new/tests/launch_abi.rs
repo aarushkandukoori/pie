@@ -241,6 +241,52 @@ fn the_stated_quant_layout_gemm_and_moe_rows_describe_their_launchers() {
     }
 }
 
+/// `ssm`'s rows — the largest single family, and the one whose ten
+/// recurrence spellings differ only by which state dtype and whether the
+/// heads are grouped.
+///
+/// Ten near-identical argument lists is exactly where a hand-written
+/// binding goes wrong quietly: `state_base` is `float*` in six of them
+/// and `void*` in four, and the two are the same pointer at a call site.
+#[test]
+fn the_stated_ssm_rows_describe_their_launchers() {
+    let table = kernels_cuda::ssm::KERNELS;
+    // THREE rows stay unstated, and naming them is the point of pinning
+    // the count rather than asserting it away:
+    //
+    //   * the two `build_nemotron_moe_ptrs_*` builders take
+    //     `const void* const*` and `void**` -- POINTER ARRAYS, which the
+    //     operand vocabulary has no kind for. `gemm`'s batched and
+    //     grouped rows are unstated for the same reason, so the kind is
+    //     one piece of work that unblocks five rows across two families.
+    //   * `flashinfer_mamba_ssu_bf16` is declared behind the vendored
+    //     FlashInfer headers rather than in `ssm/`.
+    let stated = table.iter().filter(|k| !k.operands.is_empty()).count();
+    assert_eq!(
+        stated,
+        table.len() - 3,
+        "the unstated ssm rows changed; a row that arrived here needs a \
+         signature, and one that left needs this count lowered"
+    );
+    let shim = kernels_cuda::abi::emit_c_shim(
+        &[table],
+        &[
+            "ssm/causal_conv1d.hpp",
+            "ssm/flashinfer_mamba.hpp",
+            "ssm/gated_delta_net.hpp",
+            "ssm/kda.hpp",
+            "ssm/nemotron_h.hpp",
+        ],
+    )
+    .expect("no entry-point collisions");
+    if let Err(err) = compile(&shim) {
+        panic!(
+            "the generated shim does not compile, so a row misstates its \
+             launcher:\n{err}"
+        );
+    }
+}
+
 /// The pilot itself: every stated `rope` row describes its launcher exactly.
 #[test]
 fn every_rope_row_states_its_launcher_exactly() {

@@ -149,6 +149,11 @@ pub enum Ty {
     /// `std::uint32_t`, and a mirror that guessed `i32` would be a silent
     /// sign bug on any value above 2^31 rather than a compile error.
     U32,
+    /// A host scalar spelled `long long` — the recurrent state's slot
+    /// stride, which is an ELEMENT count into a multi-gigabyte arena and
+    /// so was widened deliberately. Its own kind for `Ty::U32`'s reason:
+    /// a mirror that guessed `int` is a silent truncation, not an error.
+    I64,
     /// A host byte count, spelled `std::size_t`. Its width is the platform's,
     /// which is why it is not [`Ty::U32`] widened by hand.
     Usize,
@@ -218,6 +223,7 @@ impl Ty {
             Ty::Buf => "const void*",
             Ty::I32s => "const ::std::int32_t*",
             Ty::I64s => "const ::std::int64_t*",
+            Ty::I64 => "long long",
             Ty::U32s => "const ::std::uint32_t*",
             Ty::U8s => "const ::std::uint8_t*",
             Ty::F32sMut => "float*",
@@ -255,6 +261,7 @@ impl Ty {
             Ty::Buf => "*const ::core::ffi::c_void",
             Ty::I32s => "*const i32",
             Ty::I64s => "*const i64",
+            Ty::I64 => "::core::ffi::c_longlong",
             Ty::U32s => "*const u32",
             Ty::U8s => "*const u8",
             Ty::F32sMut => "*mut f32",
