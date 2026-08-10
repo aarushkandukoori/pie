@@ -154,6 +154,54 @@ The work of the last two days is in the surviving column. It was ported for the
 C++'s reasons and it holds for the new ones, because none of it chooses a
 kernel.
 
+## Two things a symbol does not yet carry
+
+Found while starting the dispatch half, and they are the difference between
+"a symbol is a name" being nearly true and being true. Both are questions for
+the tables, not for the driver — a driver that answers either is a driver
+choosing.
+
+### 1. Which shader file defines it
+
+`Compiler::compile` takes a **source path and an entry name**, so a symbol
+alone cannot be compiled. Today the only things that know the file are the
+hand-written per-family PSO plans, which carry it as a literal
+(`Request::new(kernels_dir.join(r.file), r.entry)`) — one more fact the driver
+knows and the statement does not, and one that retires with them.
+
+Nothing else has it. `KernelSig` has no file field; the row carries `name`,
+`symbol`, the axes and the contract. `entrypoints.generated.txt` is 479 bare
+names. Of the 98 `kernel!` rows, **16 mention a `.metal` file in a comment**,
+in prose (`// 7 in sdpa_paged.metal.`) — enough to read, not enough to compile
+from, and the usual shape of a fact that lives in a comment.
+
+The fix belongs on the row: a `file` beside the `symbol`, filled per row the
+way the signature was. 98 rows of ordinary work, and it cannot be scripted
+from the comments.
+
+Note this is a *Metal* problem only. CUDA reaches a `pie_k_*` symbol through a
+linked C function, so nothing has to say where it lives — the linker knows.
+Metal's runtime compilation is the reason the name works at all and the reason
+the file has to be stated.
+
+### 2. Its launch geometry
+
+A row states the contract — `whole`, `needs`, `lacks`, `sink`, the in-place
+pairs, the operand sources — and **no grid or threadgroup size**. The
+per-family plans carry those too, per kernel and per shape.
+
+A rectangle gives rows and layers, which is the *iteration space*, not the
+launch. Something has to turn one into the other, and if it is a `match` on
+the symbol in the driver then the arm-per-kernel that Metal was supposed to
+avoid has reappeared under a different name.
+
+Worth deciding before the dispatch half is written, because it determines
+whether that half is a loop or a switch. The three candidates, in the order
+they preserve the rule: the row states it; the lowering states it as params;
+or the shader declares it and the driver reads it back from the compiled
+pipeline (`maxTotalThreadsPerThreadgroup` and friends), which is the only one
+that needs no new authoring at all.
+
 ## The next step
 
 The three legs can go in parallel, and the order that de-risks fastest is:
