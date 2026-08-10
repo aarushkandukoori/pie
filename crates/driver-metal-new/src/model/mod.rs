@@ -12,6 +12,9 @@
 //! * [`frame`] — the other end: a sealed frame's step becomes the `&[Row]` the
 //!   lowering takes. Host logic too, and the piece that was expected to have
 //!   no predecessor.
+//! * [`grid`] — the launch arithmetic itself, moved out of the retiring
+//!   `batch/dispatch.rs` because a kernel's thread-position contract is
+//!   backend knowledge that survives the DAG builder beside it.
 //! * [`encode`] — the one half that needs a GPU: compile the symbols, bind the
 //!   addresses, dispatch. Apple-only.
 
@@ -21,6 +24,7 @@ pub mod encode;
 pub mod executor;
 pub mod frame;
 pub mod geometry;
+pub mod grid;
 
 pub use dispatch::{Dispatch, Geometry, Undispatchable, plan as plan_dispatches};
 pub use executor::{BindRefusal, BoundArg, BoundLaunch, Frame, Resolver, Slice, bind, resolve_arg};
