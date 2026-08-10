@@ -121,6 +121,13 @@ pub enum Ty {
     Buf,
     /// A read-only device array of `i32` — positions, and the like.
     I32s,
+    /// A read-only device array of `i64`. One row needs it — kimi_k3's
+    /// hash routing reads a `[vocab, K]` token-to-expert table — and it
+    /// is its own kind rather than a `Buf` because the pilot caught
+    /// exactly that substitution: `const void*` and `const int64_t*` are
+    /// both pointers, so only the DECLARED width makes the mismatch a
+    /// compile error instead of a stride bug.
+    I64s,
     /// A read-only device array of `u32` — the CSR/indptr family.
     U32s,
     /// A read-only device array of `u8` — the per-row validity masks.
@@ -210,6 +217,7 @@ impl Ty {
             Ty::BufMut => "void*",
             Ty::Buf => "const void*",
             Ty::I32s => "const ::std::int32_t*",
+            Ty::I64s => "const ::std::int64_t*",
             Ty::U32s => "const ::std::uint32_t*",
             Ty::U8s => "const ::std::uint8_t*",
             Ty::F32sMut => "float*",
@@ -246,6 +254,7 @@ impl Ty {
             Ty::BufMut => "*mut ::core::ffi::c_void",
             Ty::Buf => "*const ::core::ffi::c_void",
             Ty::I32s => "*const i32",
+            Ty::I64s => "*const i64",
             Ty::U32s => "*const u32",
             Ty::U8s => "*const u8",
             Ty::F32sMut => "*mut f32",

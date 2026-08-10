@@ -31,7 +31,15 @@ pub static KERNELS: &[KernelSig] = &[
     // A copy that skips requests whose slot id is invalid: the launch happens
     // for every request every time and the slot decides whether it does
     // anything, so the dispatch is fixed and a CUDA graph replays.
-    kernel!(copy_if_valid_slot "layout::copy_if_valid_slot", whole = true),
+    kernel!(copy_if_valid_slot "layout::copy_if_valid_slot", whole = true,
+        operands = operands![
+            src: U8s,
+            dst: U8sMut,
+            bytes: Usize,
+            slot_ids: I32s,
+            request: Usize,
+            stream: Stream,
+        ]),
     kernel!(concat_rows "layout::concat_bf16_rows",
         operands = operands![
             left: Buf,
@@ -44,7 +52,15 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     // Splits a packed gate/up bank by HALVES, where `deinterleave_rows`
     // splits by parity. Same shape, different layout, checkpoint decides.
-    kernel!(split_gate_up "layout::split_gate_up_bf16"),
+    kernel!(split_gate_up "layout::split_gate_up_bf16",
+        operands = operands![
+            packed: Buf,
+            gate_out: BufMut,
+            up_out: BufMut,
+            n_tokens: I32,
+            inter: I32,
+            stream: Stream,
+        ]),
     // gpt-oss interleaves gate and up ROW BY ROW, so splitting them is a
     // parity deinterleave and not a slice. Weight-shaped, no token extent.
     kernel!(deinterleave_rows "layout::deinterleave_rows_bf16",
@@ -68,7 +84,17 @@ pub static KERNELS: &[KernelSig] = &[
     // `vocab_offset` and writes zeros elsewhere, and the all-reduce after it
     // makes the row whole. The shard is a property of the WEIGHT, not of the
     // row range, so this splits like any gather.
-    kernel!(embed_vocab_shard "layout::embed_bf16_vocab_shard"),
+    kernel!(embed_vocab_shard "layout::embed_bf16_vocab_shard",
+        operands = operands![
+            token_ids: I32s,
+            weight: Buf,
+            y: BufMut,
+            num_tokens: I32,
+            hidden: I32,
+            local_vocab: I32,
+            vocab_offset: I32,
+            stream: Stream,
+        ]),
     // The PLE relay: [N, L, D] -> [L, N, D], so a layer reads a
     // contiguous slice. Addressing, not arithmetic.
     kernel!(transpose_nld_to_lnd "layout::transpose_bf16_nld_to_lnd"),

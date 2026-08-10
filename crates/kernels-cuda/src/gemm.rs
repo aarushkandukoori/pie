@@ -4,6 +4,7 @@
 //! [`KernelSig`], `whole`, `needs`, `lacks`, `sink` — are `kernels`'.
 
 use kernels::kernel;
+use kernels::operands;
 use kernels::KernelSig;
 
 #[rustfmt::skip]
@@ -41,7 +42,17 @@ pub static KERNELS: &[KernelSig] = &[
     // GUARD in the text, not a driver test: see `all_reduce_residual_rmsnorm`.
     kernel!(all_reduce_residual_rmsnorm "comm::all_reduce_residual_rmsnorm_bf16",
         whole = true, in_place = &[(0, 1)]),
-    kernel!(gemm_xwt "gemm::act_x_wt_bf16"),
+    kernel!(gemm_xwt "gemm::act_x_wt_bf16",
+        operands = operands![
+            handle: CublasHandle,
+            act: Buf,
+            w: Buf,
+            y: BufMut,
+            m: I32,
+            n: I32,
+            k: I32,
+            beta: F32,
+        ]),
     // ── the WEIGHT REPRESENTATION axis ─────────────────────────────
     //
     // One row per way a weight can be stored, because the statement
@@ -68,8 +79,27 @@ pub static KERNELS: &[KernelSig] = &[
     // device pointer arrays built for the WHOLE fire, so a row window
     // would leave them pointing at rows the window does not own.
     kernel!(gemm_batched_xwt "gemm::batched_act_x_wt_bf16", whole = true),
-    kernel!(gemm_cublas "gemm::act_x_wt_bf16_cublas"),
-    kernel!(gemm_out_fp32 "gemm::act_x_wt_bf16_out_fp32"),
+    kernel!(gemm_cublas "gemm::act_x_wt_bf16_cublas",
+        operands = operands![
+            handle: CublasHandle,
+            act: Buf,
+            w: Buf,
+            y: BufMut,
+            m: I32,
+            n: I32,
+            k: I32,
+            beta: F32,
+        ]),
+    kernel!(gemm_out_fp32 "gemm::act_x_wt_bf16_out_fp32",
+        operands = operands![
+            handle: CublasHandle,
+            act: Buf,
+            w: Buf,
+            y: F32sMut,
+            m: I32,
+            n: I32,
+            k: I32,
+        ]),
     // The group boundaries (`M_array`) are fire-global, so a row window would
     // cut a group in half.
     kernel!(gemm_grouped "gemm::grouped_act_x_wt_bf16", whole = true),
@@ -79,5 +109,17 @@ pub static KERNELS: &[KernelSig] = &[
     // by an argument, so the kernel that changes is none.
     // A projection with its bias in the EPILOGUE — one launch where a
     // matmul plus an AddBias is two, and a different accumulation order.
-    kernel!(gemm_bias "gemm::act_x_wt_bias_bf16"),
+    kernel!(gemm_bias "gemm::act_x_wt_bias_bf16",
+        operands = operands![
+            handle: CublasHandle,
+            act: Buf,
+            w: Buf,
+            bias: Buf,
+            y: BufMut,
+            m: I32,
+            n: I32,
+            k: I32,
+            stream: Stream,
+            beta: F32,
+        ]),
 ];
