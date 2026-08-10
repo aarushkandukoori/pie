@@ -179,7 +179,7 @@ fn moe_mlp_body_aligned_cuda(
         facts.top_k,
         facts.num_experts,
     );
-    let aligned_in = dsl::cuda::gather_moe_aligned_inputs(&m, &sorted, aligned, facts.hidden);
+    let aligned_in = dsl::cuda::gather_moe_aligned_inputs(&m, &sorted, aligned, facts.hidden, facts.top_k);
     // The pointer build DECLARES the aligned staging, because it bakes
     // those buffers' base addresses into the device pointer arrays the
     // batched-cuBLAS fallback dereferences. Everything below fills a

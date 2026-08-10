@@ -814,11 +814,27 @@ impl Lowerer<'_> {
         let first = self.args.len() as u32;
         // A statement inside a value-producing region states no result of its
         // own and binds the REGION's -- see `Self::region_outs`.
-        let outs: &[ValueId] = if op.outputs.is_empty() && !self.region_outs.is_empty() {
-            &self.region_outs
-        } else {
-            &op.outputs
-        };
+        //
+        // "States no result" is not the same as "has none to state", and
+        // the difference is STATE. A statement that names a `StateRef`
+        // writes the KV pages or the recurrent slabs, which outlive the
+        // fire and have no SSA value; producing nothing is what it IS,
+        // not evidence that a region owns its output.
+        //
+        // `attn::dequant_kv_cache_layer_to_bf16_active` is the one that
+        // found this. It stages a quantized cache before a prefill
+        // dispatch, names `kv_state` and declares no result -- and inside
+        // the attention's value-producing guard it was handed the guard's
+        // output as a fourth operand, so its row's arity check refused
+        // every fire that took the quantized path.
+        let outs: &[ValueId] =
+            if op.outputs.is_empty()
+                && op.kind.state_ref().is_none()
+                && !self.region_outs.is_empty() {
+                &self.region_outs
+            } else {
+                &op.outputs
+            };
         for &v in op.inputs.iter().chain(outs.iter()) {
             self.args.push(self.slot(v));
         }

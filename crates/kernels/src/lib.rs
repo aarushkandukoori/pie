@@ -718,6 +718,22 @@ pub enum Source {
     /// Dimension `d` of the `i`-th result, which is how a head count
     /// reaches a launcher: the shape says `[Tokens, heads, dim]`.
     OutDim(u8, u8),
+    /// The fire's ROUTE COUNT: rows times the `i`-th param.
+    ///
+    /// The MoE aligned path's `num_routes`, and the one product the
+    /// table could not otherwise reach. `InElements` covers the case
+    /// where a value already IS the routes (`topk_idx` is
+    /// `[Tokens, top_k]`, so its element count is the answer), but the
+    /// gather and the reorder take the PERMUTATION as their integer
+    /// operand — `[max_blocks * block_size]`, the padded aligned extent —
+    /// and neither their other operand nor their result carries the
+    /// router's width. So the statement states `top_k` on the param
+    /// channel and this reads rows times it.
+    ///
+    /// Deliberately narrow: it is a row's way of saying "per-token
+    /// fan-out", not a general arithmetic escape hatch. A row wanting a
+    /// different product should say what the product IS.
+    RoutesOfParam(u8),
     /// A named field of the executing context — the stream, the handle,
     /// `eps`, the head geometry.
     ///

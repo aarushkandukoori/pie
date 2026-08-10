@@ -5240,18 +5240,28 @@ pub mod cuda {
 
     /// `kernels::moe::gather_moe_aligned_inputs_bf16`: the block-major
     /// operand, gathered in the sorted order.
+    /// `top_k` rides the PARAM channel because the kernel wants
+    /// `num_routes` — the fire's tokens times k — and nothing else in the
+    /// statement says k. `x` is `[Tokens, hidden]`, `sorted_route_ids` is
+    /// `[max_blocks * block_size]`, and the result is the aligned
+    /// rectangle; none of the three carries the router's width. Same
+    /// reason [`moe_align`] carries its three load-time numbers there,
+    /// and stating it is what lets the row generate instead of needing a
+    /// hand-written arm.
     pub fn gather_moe_aligned_inputs(
         x: &Val,
         sorted_route_ids: &Val,
         aligned: Dim,
         hidden: u32,
+        top_k: u32,
     ) -> Val {
-        record(
+        record_with_params(
             &x.t,
             x.layer,
             "moe::gather_moe_aligned_inputs_bf16",
             vec![],
             None,
+            vec![top_k],
             vec![x.id, sorted_route_ids.id],
             Some((Shape(vec![aligned, Dim::Const(hidden)]), DType::BF16)),
         )
@@ -5324,12 +5334,19 @@ pub mod cuda {
         top_k: u32,
         hidden: u32,
     ) -> Val {
-        record(
+        record_with_params(
             &aligned_out.t,
             aligned_out.layer,
             "moe::reorder_moe_aligned_output_bf16",
             vec![],
             None,
+            // `top_k` on the param channel, for the gather's reason: the
+            // kernel wants `num_routes` and no operand of this statement
+            // carries the router's width. The result's SECOND dim is
+            // `top_k` as well, so this one could be read off `OutDim(0,
+            // 1)` — it is stated the same way as the gather's so the two
+            // halves of one permutation read alike.
+            vec![top_k],
             vec![aligned_out.id, sorted_route_ids.id],
             Some((
                 Shape(vec![

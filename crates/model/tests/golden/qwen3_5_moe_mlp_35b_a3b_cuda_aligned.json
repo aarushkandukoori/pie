@@ -306,7 +306,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "moe::gather_moe_aligned_inputs_bf16"
+          "kernel": "moe::gather_moe_aligned_inputs_bf16",
+          "params": [
+            8
+          ]
         }
       },
       "inputs": [
@@ -395,7 +398,10 @@
     {
       "kind": {
         "Launch": {
-          "kernel": "moe::reorder_moe_aligned_output_bf16"
+          "kernel": "moe::reorder_moe_aligned_output_bf16",
+          "params": [
+            8
+          ]
         }
       },
       "inputs": [

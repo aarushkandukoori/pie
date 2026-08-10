@@ -1187,42 +1187,26 @@ fn every_lowered_symbol_has_an_arm() {
         // whose staging is not a `stage_d2d` — it accumulates across a
         // grouped launch.
         //
-        // THE OTHER THREE state operand names and types but no `Source`,
-        // and the reason none is simply an annotation is ONE NUMBER:
-        // `num_routes`, the fire's tokens times `top_k`.
+        // TWO MORE HAVE LEFT since: the gather and the reorder now
+        // GENERATE, with no arm written for either. What they needed was
+        // not an annotation but a change to the STATEMENT — `top_k` on
+        // the param channel, the way `moe_align` already carries its
+        // three load-time numbers — because `num_routes` is the fire's
+        // tokens times k and no operand of either statement carries the
+        // router's width. `Source::RoutesOfParam` reads that product.
         //
-        // Everything else in the gather and the reorder is already
-        // reachable. `aligned_rows` is `sorted_route_ids`' own leading
-        // extent (`moe_align` declares it `[max_blocks * block_size]`);
-        // `hidden` is the result's width; `num_tokens` is `Rows`; and
-        // `shared_row_begin` is `-1` at EVERY call site in the C++ tree,
-        // which `Source::Lit(Lit::I32(-1))` states exactly. But `top_k`
-        // is not an operand dim of either statement and neither passes it
-        // as a param, so `num_routes` has nowhere to come from.
-        //
-        // So the fix is a change to the STATEMENT, not to the row:
-        // `gather_moe_aligned_inputs` and `reorder_moe_aligned_output`
-        // want `top_k` on the param channel, the way `moe_align` already
-        // carries its three load-time numbers. Worth doing — it is just
-        // not the one-line annotation it looks like from here.
-        //
-        // `build_moe_ptrs_aligned_bf16` is a hand arm regardless: twenty
-        // operands including six pointer ARRAYS it fills, against
+        // What remains of the mixture is `build_moe_ptrs_aligned_bf16`,
+        // and it is a hand arm rather than a row's work: twenty operands
+        // including six pointer ARRAYS it fills, against
         // `Dim::MoeAlignedRoutes` — the one extent in the tree that is
         // neither the fire's rows nor a load-time number.
-        //
-        //   gather_moe_aligned_inputs_bf16         statement + annotate
-        //   reorder_moe_aligned_output_bf16        statement + annotate
-        //   build_moe_ptrs_aligned_bf16            hand arm
         //
         // Note this is the path the LIVE L40S facts take for BOTH
         // classes: `moe_cutlass_max_rows = 0` sends decode down the
         // aligned body too, so arming these opens the mixture outright
         // rather than opening prefill only.
         "moe::build_moe_ptrs_aligned_bf16",
-        "moe::gather_moe_aligned_inputs_bf16",
         "moe::moe_grouped_gemm_bf16",
-        "moe::reorder_moe_aligned_output_bf16",
     ];
 
     // Compared as SETS: the list above is grouped by subsystem because
