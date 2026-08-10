@@ -572,67 +572,23 @@ impl MetalDriver {
             .iter()
             .map(|f| f.to_bits())
             .collect();
-            let mut blob: Vec<u32> = Vec::new();
-            let mut spans: Vec<(usize, usize)> = Vec::new();
-            for table in [
-                step.plan.token_ids.as_slice(),
-                step.plan.position_ids.as_slice(),
-                // Which request owns each token, expanded from the qo CSR:
-                // the scheduler states the boundaries and the kernel wants it
-                // per token.
-                &req_of_token(&step.plan.qo_indptr),
-                step.plan.kv_page_indices.as_slice(),
-                step.plan.kv_page_indptr.as_slice(),
-                &w_page,
-                &w_off,
-                // The rotary ladder, derived at LOAD from the config: a
-                // deployment that RESCALES it (llama-3, YaRN) is not a
-                // geometric series in any base, so no text can state one.
-                &inv_freq,
-                // Which rows the readout samples, one per request. A fire's
-                // stream is one row per TOKEN; without this the readout reads
-                // row 0 and answers the FIRST token's distribution.
-                step.plan.sampling_indices.as_slice(),
-            ] {
-                spans.push((blob.len(), table.len()));
-                blob.extend_from_slice(table);
-            }
-            let staged = driver_metal_new::metal::allocate(
+            let req = req_of_token(&step.plan.qo_indptr);
+            let staged = driver_metal_new::model::tables::stage(
                 &self.context,
-                ((blob.len() * 4).max(4)) as u64,
-                "fire tables",
+                driver_metal_new::model::tables::Frame {
+                    token_ids: &step.plan.token_ids,
+                    position_ids: &step.plan.position_ids,
+                    req_of_token: &req,
+                    kv_page_indices: &step.plan.kv_page_indices,
+                    kv_page_indptr: &step.plan.kv_page_indptr,
+                    kv_write_page: &w_page,
+                    kv_write_offset: &w_off,
+                    rope_frequencies: &inv_freq,
+                    sampling_indices: &step.plan.sampling_indices,
+                },
             )
             .map_err(|e| anyhow!("fire tables: {e:?}"))?;
-            // SAFETY: freshly allocated and not yet encoded against.
-            unsafe {
-                use driver_metal_new::region::Region as _;
-                let raw = core::slice::from_raw_parts(blob.as_ptr().cast::<u8>(), blob.len() * 4);
-                staged.write(0, raw).map_err(|e| anyhow!("fire tables: {e:?}"))?;
-            }
-            let tables = |which: driver_metal_new::model::executor::FireTable| {
-                use driver_metal_new::model::executor::FireTable as F;
-                let i = match which {
-                    F::TokenIds => 0,
-                    F::Positions => 1,
-                    F::RequestOfToken => 2,
-                    F::KvPageIndices => 3,
-                    F::KvPageIndptr => 4,
-                    F::KvWritePage => 5,
-                    F::KvWriteOffset => 6,
-                    F::RopeFrequencies => 7,
-                    F::SamplingIndices => 8,
-                    // No custom mask on this path yet; a slot nobody fills is
-                    // better than one filled with the wrong table.
-                    F::AttentionMask | F::AttentionMaskEnabled => return None,
-                    // Numbers, not addresses: answered by `pool`.
-                    F::KvHeadStride | F::KvSeqStride | F::KvPageSize => return None,
-                };
-                let (at, len) = spans[i];
-                (len > 0).then(|| driver_metal_new::model::executor::Slice {
-                    address: staged.gpu_address() + (at * 4) as u64,
-                    bytes: (len * 4) as u64,
-                })
-            };
+            let tables = |which| staged.at(which);
 
             let names = driver_metal_new::model::resolve::Names::mlx();
             // The KV pages a statement's state reference resolves through. A

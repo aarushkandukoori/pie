@@ -159,9 +159,7 @@ fn census(bytes: &[u8], element: usize) -> Census {
 /// The checkpoint's weights, the fire's tables, and the pool's geometry.
 struct Live<'a> {
     store: Store<'a>,
-    tables: Slice,
-    /// Where each table starts in `tables`, and how long it is, in u32s.
-    spans: Vec<(usize, usize)>,
+    tables: &'a driver_metal_new::model::tables::Staged,
     shape: Shape,
     pages: &'a dyn Fn(u16, bool) -> Option<Slice>,
 }
@@ -177,28 +175,7 @@ impl Resolver for Live<'_> {
         (self.pages)(layer, values)
     }
     fn fire(&mut self, which: FireTable) -> Option<Slice> {
-        // The REAL tables, staged the way the seam stages them. A zeroed
-        // region for all of them was the first draft, and it decodes token 0
-        // at position 0 on every lane -- a legitimate input, and a degenerate
-        // one that tells you nothing about whether the per-token axis works.
-        let i = match which {
-            FireTable::TokenIds => 0,
-            FireTable::Positions => 1,
-            FireTable::RequestOfToken => 2,
-            FireTable::KvPageIndices => 3,
-            FireTable::KvPageIndptr => 4,
-            FireTable::KvWritePage => 5,
-            FireTable::KvWriteOffset => 6,
-            FireTable::RopeFrequencies => 7,
-            FireTable::SamplingIndices => 8,
-            // No custom mask on this path, and no pool number is an address.
-            _ => return None,
-        };
-        let (at, len) = self.spans[i];
-        (len > 0).then(|| Slice {
-            address: self.tables.address + (at * 4) as u64,
-            bytes: (len * 4) as u64,
-        })
+        self.tables.at(which)
     }
     fn pool(&mut self, which: FireTable) -> Option<u32> {
         Some(match which {
@@ -256,47 +233,28 @@ fn stage_tables(
     step: &Step<'_>,
     page_size: u32,
     freqs: &[f32],
-) -> (driver_metal_new::metal::Handle, Vec<(usize, usize)>) {
-    let tokens: Vec<u32> = step.token_ids.to_vec();
-    let positions: Vec<u32> = (0..tokens.len() as u32).collect();
-    let req_of_token: Vec<u32> = (0..tokens.len() as u32).collect();
-    // One page per request, and the CSR that says so.
-    let kv_page_indices: Vec<u32> = (0..tokens.len() as u32).collect();
-    let kv_page_indptr: Vec<u32> = (0..=tokens.len() as u32).collect();
-    let w_page: Vec<u32> = kv_page_indices.clone();
+) -> driver_metal_new::model::tables::Staged {
+    let n = step.token_ids.len() as u32;
+    let positions: Vec<u32> = (0..n).collect();
+    let each: Vec<u32> = (0..n).collect();
+    let indptr: Vec<u32> = (0..=n).collect();
     let w_off: Vec<u32> = positions.iter().map(|p| p % page_size.max(1)).collect();
-
-    // The rotary frequencies ride the same region: f32 bits in a u32 channel,
-    // which is what the channel is for. A rescaled ladder is not a base and
-    // the shader reads it as a buffer.
-    // Which rows the readout samples, one per request.
-    let sampled: Vec<u32> = step.sampling_indices.to_vec();
     let inv_freq: Vec<u32> = freqs.iter().map(|f| f.to_bits()).collect();
-
-    let mut blob: Vec<u32> = Vec::new();
-    let mut spans: Vec<(usize, usize)> = Vec::new();
-    for table in [
-        &tokens,
-        &positions,
-        &req_of_token,
-        &kv_page_indices,
-        &kv_page_indptr,
-        &w_page,
-        &w_off,
-        &inv_freq,
-        &sampled,
-    ] {
-        spans.push((blob.len(), table.len()));
-        blob.extend_from_slice(table);
-    }
-    let staged =
-        allocate(context, (blob.len() * 4) as u64, "fire tables").expect("a table region");
-    // SAFETY: freshly allocated, nothing encoded against it yet.
-    unsafe {
-        let raw = core::slice::from_raw_parts(blob.as_ptr().cast::<u8>(), blob.len() * 4);
-        staged.write(0, raw).expect("the tables stage");
-    }
-    (staged, spans)
+    driver_metal_new::model::tables::stage(
+        context,
+        driver_metal_new::model::tables::Frame {
+            token_ids: step.token_ids,
+            position_ids: &positions,
+            req_of_token: &each,
+            kv_page_indices: &each,
+            kv_page_indptr: &indptr,
+            kv_write_page: &each,
+            kv_write_offset: &w_off,
+            rope_frequencies: &inv_freq,
+            sampling_indices: step.sampling_indices,
+        },
+    )
+    .expect("the tables stage")
 }
 
 #[test]
@@ -357,16 +315,12 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
             original_max: dg.rope_original_max_position as f32,
         }),
     );
-    let (staged, spans) = stage_tables(&context, &step, shape.page_size, &freqs);
+    let staged = stage_tables(&context, &step, shape.page_size, &freqs);
 
     let named = HashMap::new();
     let mut live = Live {
         store: Store::new(Names::mlx(), &loaded.tensors, &named),
-        tables: Slice {
-            address: staged.gpu_address(),
-            bytes: staged.len(),
-        },
-        spans,
+        tables: &staged,
         shape,
         pages: &pages,
     };
@@ -832,7 +786,7 @@ fn bisect(class: FireClass) {
             original_max: dg.rope_original_max_position as f32,
         }),
     );
-    let (staged, spans) = if decode {
+    let staged = if decode {
         stage_tables(&context, &step, shape.page_size, &freqs)
     } else {
         stage_prefill(&context, &step, shape.page_size, &freqs)
@@ -841,11 +795,7 @@ fn bisect(class: FireClass) {
     let named = HashMap::new();
     let mut live = Live {
         store: Store::new(Names::mlx(), &loaded.tensors, &named),
-        tables: Slice {
-            address: staged.gpu_address(),
-            bytes: staged.len(),
-        },
-        spans,
+        tables: &staged,
         shape,
         pages: &pages,
     };
@@ -1134,16 +1084,12 @@ fn one_token_at_position_zero_agrees_with_mlx() {
             original_max: dg.rope_original_max_position as f32,
         }),
     );
-    let (staged, spans) = stage_tables(&context, &step, shape.page_size, &freqs);
+    let staged = stage_tables(&context, &step, shape.page_size, &freqs);
 
     let named = HashMap::new();
     let mut live = Live {
         store: Store::new(Names::mlx(), &loaded.tensors, &named),
-        tables: Slice {
-            address: staged.gpu_address(),
-            bytes: staged.len(),
-        },
-        spans,
+        tables: &staged,
         shape,
         pages: &pages,
     };
@@ -1342,16 +1288,12 @@ fn a_two_token_prefill_agrees_with_mlx() {
     // land in that request's first page at their own offsets. `stage_tables`
     // states one request per token, which is a decode's shape — so the tables
     // here are the prefill's own.
-    let (staged, spans) = stage_prefill(&context, &step, shape.page_size, &freqs);
+    let staged = stage_prefill(&context, &step, shape.page_size, &freqs);
 
     let named = HashMap::new();
     let mut live = Live {
         store: Store::new(Names::mlx(), &loaded.tensors, &named),
-        tables: Slice {
-            address: staged.gpu_address(),
-            bytes: staged.len(),
-        },
-        spans,
+        tables: &staged,
         shape,
         pages: &pages,
     };
@@ -1452,41 +1394,25 @@ fn stage_prefill(
     step: &Step<'_>,
     page_size: u32,
     freqs: &[f32],
-) -> (driver_metal_new::metal::Handle, Vec<(usize, usize)>) {
+) -> driver_metal_new::model::tables::Staged {
     let n = step.token_ids.len() as u32;
-    let tokens: Vec<u32> = step.token_ids.to_vec();
     let positions: Vec<u32> = (0..n).collect();
-    let req_of_token: Vec<u32> = vec![0; n as usize];
-    let kv_page_indices: Vec<u32> = vec![0];
-    let kv_page_indptr: Vec<u32> = vec![0, 1];
-    let w_page: Vec<u32> = vec![0; n as usize];
+    let zeros: Vec<u32> = vec![0; n as usize];
     let w_off: Vec<u32> = positions.iter().map(|p| p % page_size.max(1)).collect();
-    // Which rows the readout samples, one per request.
-    let sampled: Vec<u32> = step.sampling_indices.to_vec();
     let inv_freq: Vec<u32> = freqs.iter().map(|f| f.to_bits()).collect();
-
-    let mut blob: Vec<u32> = Vec::new();
-    let mut spans: Vec<(usize, usize)> = Vec::new();
-    for table in [
-        &tokens,
-        &positions,
-        &req_of_token,
-        &kv_page_indices,
-        &kv_page_indptr,
-        &w_page,
-        &w_off,
-        &inv_freq,
-        &sampled,
-    ] {
-        spans.push((blob.len(), table.len()));
-        blob.extend_from_slice(table);
-    }
-    let staged =
-        allocate(context, (blob.len() * 4) as u64, "fire tables").expect("a table region");
-    // SAFETY: freshly allocated, nothing encoded against it yet.
-    unsafe {
-        let raw = core::slice::from_raw_parts(blob.as_ptr().cast::<u8>(), blob.len() * 4);
-        staged.write(0, raw).expect("the tables stage");
-    }
-    (staged, spans)
+    driver_metal_new::model::tables::stage(
+        context,
+        driver_metal_new::model::tables::Frame {
+            token_ids: step.token_ids,
+            position_ids: &positions,
+            req_of_token: &zeros,
+            kv_page_indices: &[0],
+            kv_page_indptr: &[0, 1],
+            kv_write_page: &zeros,
+            kv_write_offset: &w_off,
+            rope_frequencies: &inv_freq,
+            sampling_indices: step.sampling_indices,
+        },
+    )
+    .expect("the tables stage")
 }
