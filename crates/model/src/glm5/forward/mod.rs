@@ -147,18 +147,17 @@ pub fn glm5_cuda(facts: &Glm5Facts, class: FireClass) -> ForwardPlan {
                 a.qk_nope_head_dim,
                 a.qk_rope_head_dim,
             );
-            let kv_b = format!("layer.{l}.kv_b_proj");
-            let q_latent =
-                dsl::cuda::mla_absorb_q_to_latent(&q_nope, &kv_b, a.heads, a.kv_lora_rank, a.v_head_dim, a.qk_nope_head_dim);
-            let attn_latent =
-                dsl::cuda::attention_mla(&q_latent, &q_pe, l, a.heads, a.kv_lora_rank);
-            let attn_v = dsl::cuda::mla_absorb_latent_to_v(
-                &attn_latent,
-                &kv_b,
-                a.heads,
-                a.v_head_dim,
-                a.qk_nope_head_dim,
-                a.kv_lora_rank,
+            let attn_v = dsl::mla_absorbed_attention(
+                &q_nope,
+                &q_pe,
+                &format!("layer.{l}.kv_b_proj"),
+                l,
+                dsl::MlaWidths {
+                    heads: a.heads,
+                    kv_lora_rank: a.kv_lora_rank,
+                    qk_nope_head_dim: a.qk_nope_head_dim,
+                    v_head_dim: a.v_head_dim,
+                },
             );
             // The OnAttn site: after the core, before `o_proj` — the
             // hand-written invoke's position.

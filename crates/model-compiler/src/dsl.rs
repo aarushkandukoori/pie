@@ -773,6 +773,58 @@ pub fn rope(q: &Val, k: &Val, kind: RopeKind) -> (Val, Val) {
     (mk(qo), mk(ko))
 }
 
+/// The five widths an MLA layer is described by.
+///
+/// Three families carry a field-identical struct for these — glm5's
+/// `Glm5MlaFacts`, kimi-k2's `KimiMlaFacts`, kimi-k3's `KimiK3MlaFacts`
+/// — and pass them one at a time to statements that always want the same
+/// four. Grouping them is what lets the block below take one argument
+/// instead of four, and what makes a fifth family's copy obviously a
+/// copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MlaWidths {
+    pub heads: u32,
+    pub kv_lora_rank: u32,
+    pub qk_nope_head_dim: u32,
+    pub v_head_dim: u32,
+}
+
+/// MLA's ABSORBED attention: the three statements every latent-cache
+/// family runs, in the order all three wrote them.
+///
+/// `q_nope` is absorbed into the latent space, attention runs THERE
+/// against the compressed cache, and the result is absorbed back out to
+/// the value space. Both absorptions name the whole `kv_b_proj` bank and
+/// slice it themselves, which is why the bank is one weight name rather
+/// than two.
+///
+/// What is NOT here is the PREPARE, and that is the point of where the
+/// line falls. glm5 and kimi-k2 take the fused `mla_prepare`, which does
+/// the rope as part of what it fuses; kimi-k3 takes the split pair,
+/// because its MLA carries no rope. That is a real fact about a family,
+/// so it stays at the call site — while the three statements after it,
+/// which no family varies, stop being written three times.
+#[must_use]
+pub fn mla_absorbed_attention(
+    q_nope: &Val,
+    q_pe: &Val,
+    kv_b_proj: &str,
+    layer: u32,
+    w: MlaWidths,
+) -> Val {
+    let q_latent =
+        cuda::mla_absorb_q_to_latent(q_nope, kv_b_proj, w.heads, w.kv_lora_rank, w.v_head_dim, w.qk_nope_head_dim);
+    let attn_latent = cuda::attention_mla(&q_latent, q_pe, layer, w.heads, w.kv_lora_rank);
+    cuda::mla_absorb_latent_to_v(
+        &attn_latent,
+        kv_b_proj,
+        w.heads,
+        w.v_head_dim,
+        w.qk_nope_head_dim,
+        w.kv_lora_rank,
+    )
+}
+
 /// The DENSE GATED MLP, and which activation is a FACT.
 ///
 /// Four families wrote this block identically — glm5, kimi-k2, kimi-k3
