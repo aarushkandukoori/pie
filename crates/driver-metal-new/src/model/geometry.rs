@@ -60,8 +60,18 @@ pub struct Dims {
     /// Rows the rectangle covers.
     pub rows: u32,
     /// Elements per row of the operand that sizes the launch — a projection's
-    /// output width, a norm's row width, an MLP's intermediate.
+    /// output width, a norm's row width, an MLP's intermediate. The launch's
+    /// last widthed operand, which is its last OUTPUT.
     pub width: u32,
+    /// Elements per row of the launch's first widthed operand — its first
+    /// INPUT.
+    ///
+    /// Most rules size on the output, because most statements read narrow and
+    /// write wide or the same. A statement that reads ONE packed buffer and
+    /// writes several sizes on the input instead: its outputs are each a
+    /// fraction of the work, so no one of them spells the grid. Both numbers
+    /// are the trace's; neither is derived here.
+    pub in_width: u32,
     /// Query heads.
     pub q_heads: u32,
     /// Key/value heads.
@@ -136,6 +146,7 @@ pub fn eval(rule: Rule, dims: Dims) -> Result<Launch, Ungeometric> {
         Rule::Rope => rope_rows(dims.rotary_dims, dims.q_heads, rows),
         Rule::Elementwise => shapes::elementwise_mb(dims.width, rows),
         Rule::ElementwiseRows => embed_rows(dims.width, rows),
+        Rule::SplitPacked => embed_rows(dims.in_width, rows),
         Rule::PerHead => per_head_rows(dims.head_dim, dims.kv_heads, rows),
         Rule::SdpaVector => sdpa_rows(dims.q_heads, rows),
         Rule::PerHeadElementwise => shapes::attn_gate(dims.q_heads, dims.head_dim),
@@ -208,6 +219,7 @@ mod tests {
         Dims {
             rows: 7,
             width: 4096,
+            in_width: 4096,
             q_heads: 16,
             kv_heads: 4,
             head_dim: 128,

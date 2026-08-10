@@ -11,6 +11,8 @@ use kernels::{Axis, Cap, KernelSig, kernel};
 use crate::axes::*;
 
 pub static KERNELS: &[KernelSig] = &[
+    // 1 in split_qkv.metal
+    kernel!(split_qkv_bf16 "split_qkv_bf16", file = Some("attn/split_qkv.metal"), launch = kernels::LaunchRule::SplitPacked),
     // 1 in attn_gate.metal
     kernel!(gate "gate", axes = &[BF16]),
     // 1 in kv_append.metal

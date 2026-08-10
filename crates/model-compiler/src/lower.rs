@@ -178,6 +178,18 @@ pub struct Launch {
     /// names — the order the trace states them, so nothing here is a
     /// convention a reader has to learn twice.
     pub args: Range<u32>,
+    /// The scalar arguments the statement states, as a run of
+    /// [`Lowered::params`].
+    ///
+    /// A kernel takes numbers no operand shape gives — a QKV split's two
+    /// widths, a strided kernel's row pitch. `OpKind::Launch::params` is the
+    /// channel the trace carries them on, and its own doc says why it exists:
+    /// *"a scalar that has nowhere to ride is a scalar the DRIVER re-derives
+    /// from its config. That is the thing this arc removes."* Dropping them
+    /// here would have put the derivation straight back.
+    ///
+    /// Empty for every statement that states none, which is most of them.
+    pub params: Range<u32>,
     /// Which peel region this rectangle sits in, when it sits in one.
     ///
     /// The executing arms read exactly four things about where they
@@ -388,6 +400,10 @@ pub struct Lowered {
     /// `launches` the WHOLE of what a fire executes, and only then can
     /// the driver stop walking.
     pub residue: Vec<Unlowered>,
+    /// Every launch's scalar arguments, concatenated; [`Launch::params`]
+    /// indexes it. Flat for the same reason [`Lowered::args`] is: the whole
+    /// frame stays two arrays and a table.
+    pub params: Vec<u32>,
     /// The guard tree, when the lowering kept it ([`GuardMode::Union`]).
     ///
     /// Empty under [`GuardMode::Resolve`], where every guard was
@@ -454,6 +470,7 @@ pub fn lower_with(
         fire,
         structural: Vec::new(),
         args: Vec::new(),
+        params: Vec::new(),
         buffers: Buffers::assign(plan, rows),
         peel_region: None,
         guards,
@@ -476,6 +493,7 @@ pub fn lower_with(
         epilogue_gather,
         epilogue_norm,
         args: out.args,
+        params: out.params,
         structural: out.structural,
         residue: out.residue,
         conds: out.conds,
@@ -499,6 +517,7 @@ struct Lowerer<'a> {
     structural: Vec<Site>,
     /// The operand slots emitted so far.
     args: Vec<Arg>,
+    params: Vec<u32>,
     /// The arena, so an operand can be resolved to an offset as it is
     /// emitted rather than in a second pass that would have to re-walk
     /// the regions to know which launches exist.
@@ -718,10 +737,15 @@ impl Lowerer<'_> {
         for &v in op.inputs.iter().chain(op.outputs.iter()) {
             self.args.push(self.slot(v));
         }
-        if let OpKind::Launch { weights, .. } = &op.kind {
+        let first_param = self.params.len() as u32;
+        if let OpKind::Launch {
+            weights, params, ..
+        } = &op.kind
+        {
             for name in weights {
                 self.args.push(Arg::Weight(name.clone()));
             }
+            self.params.extend_from_slice(params);
         }
         self.launches.push(Launch {
             kernel: id,
@@ -729,6 +753,7 @@ impl Lowerer<'_> {
             layers: layer..layer + 1,
             op: at as u32,
             args: first..self.args.len() as u32,
+            params: first_param..self.params.len() as u32,
             peel: self.peel_region,
             cond: self.cond,
         });

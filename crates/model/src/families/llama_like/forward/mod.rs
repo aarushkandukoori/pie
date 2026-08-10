@@ -330,7 +330,7 @@ fn llama_like_metal_text(
             };
 
             let (q, k, v) = if f.fused_qkv {
-                split_qkv(&gemm(&x, &w.qkv), q_w, kv_w)
+                dsl::metal::split_qkv(&gemm(&x, &w.qkv), q_w, kv_w)
             } else {
                 (
                     gemm(&x, &w.q_proj),
@@ -1403,9 +1403,21 @@ mod metal_tests {
                 .iter()
                 .filter(|op| matches!(op.kind, OpKind::Launch { .. }))
                 .count();
-            // Every op of this text is a stated kernel except the
-            // SplitQkv the fused binding traces.
-            assert_eq!(launches + 28, plan.ops.len(), "one split per layer");
+            // EVERY op of this text is now a stated kernel. It used to be
+            // "every op except the 28 `SplitQkv`s the fused binding traces":
+            // the generic `split_qkv` records an `OpKind::SplitQkv`, whose two
+            // widths a driver could only reach by matching on `OpKind` — which
+            // is the driver knowing what a QKV split is. The Metal text states
+            // the launch outright now and rides the widths on
+            // `OpKind::Launch::params`, the channel built for scalars no
+            // operand shape gives. So the count is exact, and that exactness
+            // is the property: nothing in this text is a kind the driver has
+            // to recognise.
+            assert_eq!(
+                launches,
+                plan.ops.len(),
+                "every op of the metal text is a stated kernel"
+            );
         }
     }
 

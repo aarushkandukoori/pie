@@ -78,6 +78,14 @@ pub struct Dispatch<'a> {
     pub threadgroup: [u32; 3],
     /// Operands in the trace's stated order: inputs, outputs, weights.
     pub args: Vec<BoundArg>,
+    /// The scalar arguments the statement states, in its stated order.
+    ///
+    /// A kernel takes numbers no operand shape gives — a QKV split's two
+    /// widths, a strided kernel's row pitch. The **text** states them; this
+    /// forwards them without knowing what they mean, which is the difference
+    /// between a driver that passes a constant and one that re-derives it
+    /// from a config it had to understand.
+    pub params: &'a [u32],
     /// The layers this rectangle covers.
     pub layers: Range<u16>,
     /// Which traced op produced it — where a refusal points.
@@ -162,14 +170,28 @@ pub enum Undispatchable {
 /// Zero when the launch states no widthed operand at all, which leaves the
 /// rule to refuse rather than this to guess.
 fn sizing_width(lowered: &Lowered, launch: &Launch) -> u32 {
+    widths(lowered, launch).next_back().unwrap_or(0)
+}
+
+/// Elements per row of the launch's FIRST widthed operand — its first input.
+///
+/// What sizes a statement that reads one packed buffer and writes several: no
+/// one output spells the grid, because each is a fraction of the work.
+fn input_width(lowered: &Lowered, launch: &Launch) -> u32 {
+    widths(lowered, launch).next().unwrap_or(0)
+}
+
+/// The row widths this launch's operands state, in the trace's order.
+fn widths<'a>(
+    lowered: &'a Lowered,
+    launch: &Launch,
+) -> impl DoubleEndedIterator<Item = u32> + 'a {
     lowered.args[launch.args.start as usize..launch.args.end as usize]
         .iter()
-        .rev()
-        .find_map(|arg| match arg {
+        .filter_map(|arg| match arg {
             Arg::Arena { width, .. } | Arg::Named { width, .. } => Some(*width),
             Arg::Weight(_) => None,
         })
-        .unwrap_or(0)
 }
 
 /// The dims one launch evaluates its rule at.
@@ -178,6 +200,7 @@ pub fn dims_of(lowered: &Lowered, launch: &Launch, geometry: Geometry) -> Dims {
     Dims {
         rows: launch.rows.end - launch.rows.start,
         width: sizing_width(lowered, launch),
+        in_width: input_width(lowered, launch),
         q_heads: geometry.q_heads,
         kv_heads: geometry.kv_heads,
         head_dim: geometry.head_dim,
@@ -236,6 +259,7 @@ pub fn plan_one<'a, S: Resolver>(
     })?;
     Ok(Dispatch {
         symbol: bound.kernel,
+        params: &lowered.params[launch.params.start as usize..launch.params.end as usize],
         file,
         grid: grid.grid,
         threadgroup: grid.tg,
@@ -329,6 +353,7 @@ mod tests {
                 layers: 0..1,
                 op: 7,
                 cond: Launch::NO_COND,
+                params: 0..0,
                 args: 0..args.len() as u32,
                 peel: None,
             }],
@@ -340,6 +365,7 @@ mod tests {
             epilogue_gather: usize::MAX,
             epilogue_norm: usize::MAX,
             args,
+            params: Vec::new(),
             structural: Vec::new(),
             residue: Vec::new(),
             conds: Vec::new(),
@@ -463,6 +489,7 @@ mod tests {
             grid: [1, 1, 1],
             threadgroup: [1, 1, 1],
             args: Vec::new(),
+            params: &[],
             layers: 0..1,
             op: 0,
         };

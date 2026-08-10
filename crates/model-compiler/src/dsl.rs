@@ -1797,6 +1797,46 @@ pub mod metal {
         (mk(ids[0]), mk(ids[1]))
     }
 
+    /// `attn/split_qkv.metal::split_qkv_bf16`: deinterleave the packed QKV
+    /// projection `[rows, q_width + 2*kv_width]` into three buffers.
+    ///
+    /// # Why this exists beside `dsl::split_qkv`
+    ///
+    /// The generic `split_qkv` records an `OpKind::SplitQkv`, which carries
+    /// the two widths *in the op kind*. A driver could read them — by
+    /// matching on `OpKind`, which is exactly what "nothing in the driver may
+    /// choose a kernel" forbids: the widths would reach the kernel because the
+    /// driver knew what a QKV split is.
+    ///
+    /// So the Metal text states the launch outright, and the widths ride the
+    /// channel built for them — [`OpKind::Launch::params`], whose own doc says
+    /// *"a scalar that has nowhere to ride is a scalar the DRIVER re-derives
+    /// from its config. That is the thing this arc removes."* The driver then
+    /// forwards `params` to every kernel that states them, knowing nothing
+    /// about what they mean.
+    ///
+    /// [`OpKind::Launch::params`]: crate::trace::OpKind::Launch
+    pub fn split_qkv(packed: &Val, q_width: u32, kv_width: u32) -> (Val, Val, Val) {
+        let rows = packed.t.inner.borrow().value_shape(packed.id).0[0];
+        let out = |w: u32| (Shape(vec![rows, Dim::Const(w)]), DType::BF16);
+        let ids = packed.t.with(packed.layer, |b| {
+            b.launch_with_params(
+                "split_qkv_bf16",
+                vec![],
+                None,
+                vec![q_width, kv_width],
+                vec![packed.id],
+                vec![out(q_width), out(kv_width), out(kv_width)],
+            )
+        });
+        let mk = |id| Val {
+            t: packed.t.clone(),
+            id,
+            layer: packed.layer,
+        };
+        (mk(ids[0]), mk(ids[1]), mk(ids[2]))
+    }
+
     /// `kv_append.metal::kv_append_bfloat16` (contiguous) /
     /// `kv_append_paged.metal::kv_append_paged_bfloat16` (page table).
     pub fn kv_append(k: &Val, v: &Val, kv: &Kv, paged: bool) {

@@ -85,9 +85,6 @@ fn frame(lowered: &Lowered) -> Frame {
     }
 }
 
-/// The one symbol with no `kernel!` row. `model_bind.rs` owns the argument;
-/// here it is only the launch this walk is allowed to refuse.
-const KNOWN_GAP: &str = "attn::split_qkv_bf16";
 
 /// Plan every launch, returning the dispatches and the refusals separately.
 fn planned(low: &Lowered) -> (Vec<Dispatch<'_>>, Vec<Undispatchable>) {
@@ -117,13 +114,14 @@ fn every_launch_whose_symbol_has_a_row_becomes_a_grid() {
         let low = lowered(class, rows);
         let (dispatches, refused) = planned(&low);
 
-        // Nothing may refuse for any reason other than the recorded gap.
-        for why in &refused {
-            match why {
-                Undispatchable::NoRow { symbol, .. } if symbol == KNOWN_GAP => {}
-                other => panic!("{class:?}: a launch refused for a NEW reason: {other:?}"),
-            }
-        }
+        // NOTHING may refuse. The `split_qkv` gap closed when the text
+        // started stating its two widths as launch params, so every symbol
+        // this text names now reaches a grid.
+        assert!(
+            refused.is_empty(),
+            "{class:?}: {} launch(es) refused: {refused:?}",
+            refused.len()
+        );
         assert!(
             !dispatches.is_empty(),
             "{class:?}: nothing dispatched at all"
@@ -155,9 +153,11 @@ fn every_launch_whose_symbol_has_a_row_becomes_a_grid() {
 }
 
 #[test]
-fn the_only_symbol_the_walk_refuses_is_the_one_with_no_row() {
-    // Stated as its own test so that closing the gap fails HERE, loudly,
-    // rather than quietly widening what the walk tolerates.
+fn there_is_no_symbol_this_backend_cannot_dispatch() {
+    // This used to record one: `attn::split_qkv_bf16`, the symbol with no row.
+    // It was never a missing shader — it was a kernel needing `q_width` as a
+    // dispatch constant with no channel to receive one. The text states it now
+    // and the driver forwards it, so the set is empty.
     let mut refusals: BTreeSet<String> = BTreeSet::new();
     for (class, rows) in [(FireClass::Decode, 1), (FireClass::Prefill, 8)] {
         for why in planned(&lowered(class, rows)).1 {
@@ -170,11 +170,40 @@ fn the_only_symbol_the_walk_refuses_is_the_one_with_no_row() {
             });
         }
     }
-    assert_eq!(
-        refusals,
-        [KNOWN_GAP.to_string()].into_iter().collect::<BTreeSet<_>>(),
-        "the set of symbols this backend cannot dispatch has changed"
+    assert!(
+        refusals.is_empty(),
+        "this backend cannot dispatch: {refusals:?}"
     );
+}
+
+#[test]
+fn a_statement_that_states_scalars_carries_them_to_its_dispatch() {
+    // The QKV split is the case that forced the channel: three outputs, each
+    // a fraction of the work, and a kernel that cannot find the boundary
+    // between them from any operand shape. The widths are the TEXT's, and the
+    // driver forwards them without knowing what they mean.
+    let low = lowered(FireClass::Decode, 1);
+    let split = planned(&low)
+        .0
+        .into_iter()
+        .find(|d| d.symbol == "split_qkv_bf16")
+        .expect("the text states a QKV split");
+    assert_eq!(split.params.len(), 2, "q_width and kv_width");
+    let packed: u32 = split.params[0] + 2 * split.params[1];
+    assert_eq!(
+        split.grid[0], packed,
+        "the grid covers the packed input, not one of the three outputs"
+    );
+    assert_eq!(split.args.len(), 4, "packed in, q/k/v out");
+
+    // And every other statement states none, so the channel is not a general
+    // escape hatch that grew.
+    let others = planned(&low)
+        .0
+        .into_iter()
+        .filter(|d| d.symbol != "split_qkv_bf16" && !d.params.is_empty())
+        .count();
+    assert_eq!(others, 0, "{others} other statements have grown scalars");
 }
 
 #[test]
@@ -245,14 +274,11 @@ fn the_batched_lane_is_the_row_count_and_not_a_second_vocabulary() {
     );
     // And every one of them dispatches, which is what says the row carries the
     // lane rather than the driver picking it.
-    for (_, refused) in [planned(&lowered(FireClass::Prefill, 8))] {
-        for why in refused {
-            assert!(
-                matches!(&why, Undispatchable::NoRow { symbol, .. } if symbol == KNOWN_GAP),
-                "a batched symbol did not dispatch: {why:?}"
-            );
-        }
-    }
+    let refused = planned(&lowered(FireClass::Prefill, 8)).1;
+    assert!(
+        refused.is_empty(),
+        "a batched symbol did not dispatch: {refused:?}"
+    );
 }
 
 /// The whole host path, joined: a sealed frame's step becomes rows, the rows
@@ -299,7 +325,6 @@ mod from_a_frame {
                     assert!(d.grid.iter().all(|&n| n > 0));
                     grids += 1;
                 }
-                Err(Undispatchable::NoRow { symbol, .. }) if symbol == KNOWN_GAP => {}
                 Err(other) => panic!("a frame-driven launch refused: {other:?}"),
             }
         }
