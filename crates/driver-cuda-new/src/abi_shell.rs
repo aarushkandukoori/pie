@@ -1259,14 +1259,40 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
         eprintln!("[driver-cuda-new] launch: only HF llama-like checkpoints execute today");
         return Err(PIE_STATUS_UNSUPPORTED);
     }
+    // NORM PLACEMENT, off the checkpoint. `input_layernorm`'s presence IS
+    // the placement, which is the same fact `fuse_llama_like` already
+    // binds on: pre-norm ships it, post-norm (olmo2) ships
+    // `post_attention` + `post_feedforward` instead. The binder was
+    // already correct for both; only this derivation refused.
     let pre_norm = model
         .aliases
         .get("layer.0.attn_norm")
         .is_some_and(|t| t.ends_with("input_layernorm.weight"));
-    if !pre_norm {
-        eprintln!("[driver-cuda-new] launch: post-norm families await their facts mapping");
-        return Err(PIE_STATUS_UNSUPPORTED);
-    }
+
+    // QK NORM, three ways, and the checkpoint distinguishes them by
+    // SHAPE rather than by any config key. A deployment that norms q and
+    // k ships `q_norm`/`k_norm`; whether it norms PER HEAD (qwen3, one
+    // gamma of `head_dim`) or over the whole projection (olmo2, one gamma
+    // of `q_heads * head_dim`) is the tensor's own extent. Reading the
+    // extent is deriving from the checkpoint; assuming one is guessing,
+    // and the two lower to different kernels.
+    let elems_of = |trace: &str| -> Option<usize> {
+        let ckpt = model.aliases.get(trace)?;
+        // bf16 gammas throughout this family.
+        Some(model.weights.get(ckpt)?.len() / 2)
+    };
+    let qk_norm = match elems_of("layer.0.q_norm") {
+        None => QkNorm::Off,
+        Some(n) if n == usize::try_from(hf.head_dim).unwrap_or(0) => QkNorm::PerHead,
+        Some(_) => QkNorm::Global,
+    };
+
+    // FUSED QKV is a fact about the LOAD, not about the checkpoint:
+    // `fuse_llama_like` concatenates q/k/v when all three are present and
+    // leaves them alone when they are not. So the honest source is
+    // whether the fused name exists, which is what the trace will state.
+    let fused_qkv = model.weights.contains_key("layer.0.qkv");
+
     let to_u32 = |v: i32| u32::try_from(v).unwrap_or(0);
     let facts = LlamaLikeFacts {
         hidden: to_u32(hf.hidden_size),
@@ -1278,10 +1304,9 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<FamilyFacts, i32> {
         vocab: to_u32(hf.vocab_size),
         rope: RopeKind::Standard,
         norm_variant: NormVariant::Plain,
-        norm_placement: NormPlacement::Pre,
-        qk_norm: if hf.use_qk_norm { QkNorm::PerHead } else { QkNorm::Off },
-        // The load built the fused names, so the trace states them.
-        fused_qkv: true,
+        norm_placement: if pre_norm { NormPlacement::Pre } else { NormPlacement::Post },
+        qk_norm,
+        fused_qkv,
         tied_embeddings: hf.tie_word_embeddings,
         qkv_bias: hf.attention_bias,
     };

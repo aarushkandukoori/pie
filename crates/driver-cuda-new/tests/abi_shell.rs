@@ -193,6 +193,147 @@ fn the_registries_run_the_id_lifecycle() {
 /// register → bind → LAUNCH one decode frame — a single token over one
 /// KV page — and the shell runs the actual forward on the device,
 /// publishes the terminal cell, and notifies the runtime. This is the
+/// OLMo-2 through the ABI: the POST-NORM, GLOBAL-qk-norm deployment.
+///
+/// This one is here because it is the case the shell used to refuse.
+/// `facts_from_hf` asserted `norm_placement: Pre` and answered `qk_norm`
+/// from a config boolean, so a post-norm checkpoint was turned away with
+/// "post-norm families await their facts mapping" — even though
+/// `fuse_llama_like` had bound its names correctly all along (its own
+/// comment names olmo2).
+///
+/// Three facts are now read off the checkpoint instead of assumed:
+///
+/// * norm placement, from whether `input_layernorm` is what
+///   `layer.0.attn_norm` resolved to;
+/// * `qk_norm`, from the EXTENT of the `q_norm` gamma — `head_dim`
+///   elements is per-head (qwen3), anything wider is global (olmo2). No
+///   config key distinguishes them, and the two lower to different
+///   kernels;
+/// * `fused_qkv`, from whether the load actually produced the fused name.
+///
+/// All three differ between this deployment and qwen3-0.6B, so a
+/// regression in any of them fails here and nowhere else in this file.
+#[test]
+fn olmo2_loads_and_fires_post_norm_through_the_abi() {
+    let _gpu = gpu_guard();
+    use driver_abi::local::{
+        PIE_TERMINAL_OUTCOME_PENDING, PIE_TERMINAL_OUTCOME_SUCCESS, PieBytes, PieCompletion,
+        PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc, PieProgramDesc,
+        PieRuntimeCallbacks, PieStepDesc, PieTerminalCell, PieTerminalCellPtrSlice,
+        PieU32Slice, PieU64Slice,
+    };
+
+    let home = std::env::var("HOME").expect("HOME");
+    let snaps = std::path::PathBuf::from(&home)
+        .join(".cache/huggingface/hub/models--allenai--OLMo-2-0425-1B-Instruct/snapshots");
+    let Some(snap) = std::fs::read_dir(&snaps).ok().and_then(|mut d| {
+        d.find_map(|e| {
+            let p = e.ok()?.path();
+            p.join("model.safetensors").is_file().then_some(p)
+        })
+    }) else {
+        eprintln!("skipped: no cached OLMo-2-1B");
+        return;
+    };
+    let descriptor = std::path::PathBuf::from(
+        "/tmp/claude-0/-root--patissier-work-tart-alpha/7460e4c3-f305-45df-9603-2298b0c0c60e/scratchpad",
+    )
+    .join("olmo2_descriptor.json");
+    if !descriptor.is_file() {
+        eprintln!("skipped: no generated olmo2 descriptor");
+        return;
+    }
+
+    unsafe extern "C" fn notify(_ctx: *mut std::ffi::c_void, _wait_id: u64, _epoch: u64) {}
+
+    let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
+    let desc = PieDriverCreateDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+        runtime: PieRuntimeCallbacks {
+            abi_version: PIE_DRIVER_ABI_VERSION,
+            reserved0: 0,
+            ctx: std::ptr::null_mut(),
+            notify: Some(notify),
+        },
+        ..Default::default()
+    };
+    let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
+    assert!(!d.is_null());
+
+    let snap_str = snap.to_string_lossy().into_owned();
+    let load = PieModelLoadDesc {
+        snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
+        ..Default::default()
+    };
+    assert_eq!(
+        unsafe { driver_abi::local::pie_cuda_load_model(d, &load, std::ptr::null_mut()) },
+        PIE_STATUS_OK,
+        "the olmo2 snapshot loads"
+    );
+
+    let prog = PieProgramDesc { program_hash: 0x0102, ..Default::default() };
+    let mut program_id = 0u64;
+    assert_eq!(
+        unsafe { driver_abi::local::pie_cuda_register_program(d, &prog, &mut program_id) },
+        PIE_STATUS_OK
+    );
+    let inst = PieInstanceDesc { program_id, ..Default::default() };
+    let mut binding = PieInstanceBinding::default();
+    assert_eq!(
+        unsafe { driver_abi::local::pie_cuda_bind_instance(d, &inst, &mut binding) },
+        PIE_STATUS_OK
+    );
+
+    let mut cell = PieTerminalCell { outcome: PIE_TERMINAL_OUTCOME_PENDING, reserved0: 0 };
+    let cell_ptr: *mut PieTerminalCell = &mut cell;
+    let roster_rows: [u32; 1] = [0];
+    let sub_batch_indptr: [u32; 2] = [0, 1];
+    let sub_batch_class: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+    let token_ids: [u32; 1] = [7];
+    let position_ids: [u32; 1] = [0];
+    let kv_page_indices: [u32; 1] = [0];
+    let kv_page_indptr: [u32; 2] = [0, 1];
+    let kv_last_page_lens: [u32; 1] = [1];
+    let qo_indptr: [u32; 2] = [0, 1];
+    let u32s = |v: &[u32]| PieU32Slice { ptr: v.as_ptr(), len: v.len() };
+    let step = PieStepDesc {
+        roster_rows: u32s(&roster_rows),
+        sub_batch_indptr: u32s(&sub_batch_indptr),
+        sub_batch_class: u32s(&sub_batch_class),
+        terminal_cells: PieTerminalCellPtrSlice { ptr: &cell_ptr, len: 1 },
+        token_ids: u32s(&token_ids),
+        position_ids: u32s(&position_ids),
+        kv_page_indices: u32s(&kv_page_indices),
+        kv_page_indptr: u32s(&kv_page_indptr),
+        kv_last_page_lens: u32s(&kv_last_page_lens),
+        qo_indptr: u32s(&qo_indptr),
+        ..Default::default()
+    };
+    let instance_ids: [u64; 1] = [binding.instance_id];
+    let frame = PieFrameDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
+        required_kv_pages: 1,
+        steps: driver_abi::local::PieStepDescSlice { ptr: &step, len: 1 },
+        ..Default::default()
+    };
+    let completion = PieCompletion {
+        wait_id: 0x0102,
+        target_epoch: 1,
+        terminal_cell: std::ptr::null_mut(),
+    };
+    assert_eq!(
+        unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) },
+        PIE_STATUS_OK,
+        "a post-norm deployment fires"
+    );
+    assert_eq!(cell.outcome, PIE_TERMINAL_OUTCOME_SUCCESS);
+
+    unsafe { driver_abi::local::pie_cuda_destroy(d) };
+}
+
 /// engine's own call sequence, driven through the engine's own
 /// declarations.
 #[test]
