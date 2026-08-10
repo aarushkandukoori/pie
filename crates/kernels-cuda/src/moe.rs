@@ -216,6 +216,19 @@ pub static KERNELS: &[KernelSig] = &[
             num_tokens_past_padded: I32sMut <- Source::Lit("nullptr"),
             stream: Stream <- Source::Ctx("arm.stream"),
         ]),
+    // THE THREE THAT REMAIN UNSTATED, and the one thing blocking all
+    // three: they take the ROUTE count and `top_k` as separate
+    // arguments, and neither is reachable here. `moe_align` above got
+    // its route count from `Source::InElements` because `topk_idx` is
+    // `[Tokens, top_k]` and holds exactly that product — these three do
+    // not take `topk_idx`, and giving them a dataflow edge to it that
+    // the kernel does not read would be a lie about the trace.
+    //
+    // Both numbers ARE in the aligned dim's packed word. What is missing
+    // is a way to say "the fire's rows times a number packed in a dim",
+    // and the table deliberately has no arithmetic: an expression
+    // language here is one more place a binding can be wrong, checked by
+    // nothing. The next ask decides whether that is worth revisiting.
     kernel!(gather_moe_aligned_inputs "moe::gather_moe_aligned_inputs_bf16", whole = true,
         operands = operands![
             norm_x: Buf,
