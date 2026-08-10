@@ -192,6 +192,21 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
         hidden,
         vocab,
         eps: f.q35_rms_norm_eps,
+        // The rope RESCALING, when the config states one. `llama3` is the
+        // only kind whose four numbers this reads; a config that states
+        // another kind gets a factor of zero, which the derivation treats as
+        // "no rescaling" rather than guessing at a shape it does not know.
+        rope_freq_factor: if f.ll_rope_scaling_kind == "llama3" {
+            f.ll_rope_scale
+        } else {
+            0.0
+        },
+        rope_low_freq_factor: f.ll_rope_low_freq_factor,
+        rope_high_freq_factor: f.ll_rope_high_freq_factor,
+        rope_original_max_position: f
+            .ll_rope_original_max_position
+            .try_into()
+            .unwrap_or(0),
         n_q_heads,
         n_kv_heads,
         head_dim,

@@ -510,7 +510,8 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         | Source::KvSeqStride
         | Source::KvPageSize
         | Source::KvWritePage
-        | Source::KvWriteOffset => return None,
+        | Source::KvWriteOffset
+        | Source::RopeFrequencies => return None,
         Source::Ctx(f) | Source::CtxNonZero(f) => format!("ctx.{f}"),
         // A NULL is returned fully typed and skips the cast step below:
         // that step turns a slot into the row's pointee, and a null has

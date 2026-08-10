@@ -189,6 +189,7 @@ impl Resolver for Live<'_> {
             FireTable::KvPageIndptr => 4,
             FireTable::KvWritePage => 5,
             FireTable::KvWriteOffset => 6,
+            FireTable::RopeFrequencies => 7,
             // No custom mask on this path, and no pool number is an address.
             _ => return None,
         };
@@ -253,6 +254,7 @@ fn stage_tables(
     context: &Context,
     step: &Step<'_>,
     page_size: u32,
+    freqs: &[f32],
 ) -> (driver_metal_new::metal::Handle, Vec<(usize, usize)>) {
     let tokens: Vec<u32> = step.token_ids.to_vec();
     let positions: Vec<u32> = (0..tokens.len() as u32).collect();
@@ -262,6 +264,11 @@ fn stage_tables(
     let kv_page_indptr: Vec<u32> = (0..=tokens.len() as u32).collect();
     let w_page: Vec<u32> = kv_page_indices.clone();
     let w_off: Vec<u32> = positions.iter().map(|p| p % page_size.max(1)).collect();
+
+    // The rotary frequencies ride the same region: f32 bits in a u32 channel,
+    // which is what the channel is for. A rescaled ladder is not a base and
+    // the shader reads it as a buffer.
+    let inv_freq: Vec<u32> = freqs.iter().map(|f| f.to_bits()).collect();
 
     let mut blob: Vec<u32> = Vec::new();
     let mut spans: Vec<(usize, usize)> = Vec::new();
@@ -273,6 +280,7 @@ fn stage_tables(
         &kv_page_indptr,
         &w_page,
         &w_off,
+        &inv_freq,
     ] {
         spans.push((blob.len(), table.len()));
         blob.extend_from_slice(table);
@@ -335,7 +343,17 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
         })
     };
 
-    let (staged, spans) = stage_tables(&context, &step, shape.page_size);
+    let freqs = driver_metal_new::model::rope::frequencies(
+        facts.head_dim,
+        metal.rope_theta,
+        (dg.rope_freq_factor > 0.0).then_some(driver_metal_new::model::rope::Rescale {
+            factor: dg.rope_freq_factor,
+            low: dg.rope_low_freq_factor,
+            high: dg.rope_high_freq_factor,
+            original_max: dg.rope_original_max_position as f32,
+        }),
+    );
+    let (staged, spans) = stage_tables(&context, &step, shape.page_size, &freqs);
 
     let named = HashMap::new();
     let mut live = Live {
@@ -752,7 +770,17 @@ fn the_second_lane_stops_somewhere_and_this_says_where() {
             bytes: shape.layer_bytes(),
         })
     };
-    let (staged, spans) = stage_tables(&context, &step, shape.page_size);
+    let freqs = driver_metal_new::model::rope::frequencies(
+        facts.head_dim,
+        metal.rope_theta,
+        (dg.rope_freq_factor > 0.0).then_some(driver_metal_new::model::rope::Rescale {
+            factor: dg.rope_freq_factor,
+            low: dg.rope_low_freq_factor,
+            high: dg.rope_high_freq_factor,
+            original_max: dg.rope_original_max_position as f32,
+        }),
+    );
+    let (staged, spans) = stage_tables(&context, &step, shape.page_size, &freqs);
 
     let named = HashMap::new();
     let mut live = Live {
@@ -799,7 +827,7 @@ fn the_second_lane_stops_somewhere_and_this_says_where() {
     // The prefixes worth running: the first twelve statements are one layer's
     // worth, which is where a per-row defect either appears or does not.
     let mut first_bad: Option<(usize, String)> = None;
-    for n in 1..=3.min(lowered.launches.len()) {
+    for n in 1..=12.min(lowered.launches.len()) {
         let arena = allocate(
             &context,
             (lowered.arena_bytes as u64).max(1),
@@ -1008,7 +1036,17 @@ fn one_token_at_position_zero_agrees_with_mlx() {
             bytes: shape.layer_bytes(),
         })
     };
-    let (staged, spans) = stage_tables(&context, &step, shape.page_size);
+    let freqs = driver_metal_new::model::rope::frequencies(
+        facts.head_dim,
+        metal.rope_theta,
+        (dg.rope_freq_factor > 0.0).then_some(driver_metal_new::model::rope::Rescale {
+            factor: dg.rope_freq_factor,
+            low: dg.rope_low_freq_factor,
+            high: dg.rope_high_freq_factor,
+            original_max: dg.rope_original_max_position as f32,
+        }),
+    );
+    let (staged, spans) = stage_tables(&context, &step, shape.page_size, &freqs);
 
     let named = HashMap::new();
     let mut live = Live {

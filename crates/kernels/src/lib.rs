@@ -588,6 +588,17 @@ pub enum Source {
     KvWritePage,
     /// Per token: the row within [`Source::KvWritePage`]'s page.
     KvWriteOffset,
+    /// The rotary INVERSE FREQUENCIES, `[rotary_dims/2]` f32.
+    ///
+    /// A table rather than a base, because a base cannot express what a
+    /// deployment does to it. llama-3 rescales its frequencies piecewise
+    /// (`rope_type: llama3`), YaRN rescales them differently, and a text that
+    /// stated `theta` would be right only for the deployments that leave the
+    /// ladder alone.
+    ///
+    /// Derived at LOAD from the checkpoint's config, so it is the driver's to
+    /// answer -- the same argument the KV pool's strides make for themselves.
+    RopeFrequencies,
     /// The same slot read as a FLOAT.
     ///
     /// The param channel is untyped `u32` — "what each slot means is the

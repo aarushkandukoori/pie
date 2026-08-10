@@ -1985,10 +1985,11 @@ pub mod metal {
         theta: f32,
         scale: f32,
         head_dim: u32,
+        table: bool,
     ) -> (Val, Val) {
         (
-            rope_one(q, multi_batch, theta, scale, head_dim),
-            rope_one(k, multi_batch, theta, scale, head_dim),
+            rope_one(q, multi_batch, theta, scale, head_dim, table),
+            rope_one(k, multi_batch, theta, scale, head_dim, table),
         )
     }
 
@@ -2006,7 +2007,34 @@ pub mod metal {
     ///
     /// In place, so the result is the operand: the row states `x` as its
     /// `Out(0)` and the same buffer is read and written.
-    fn rope_one(x: &Val, multi_batch: bool, theta: f32, scale: f32, head_dim: u32) -> Val {
+    fn rope_one(
+        x: &Val,
+        multi_batch: bool,
+        theta: f32,
+        scale: f32,
+        head_dim: u32,
+        table: bool,
+    ) -> Val {
+        // A deployment that RESCALES its frequency ladder cannot state a base:
+        // llama-3 rescales piecewise and YaRN rescales differently, and both
+        // are tables. The driver derives one at load and answers it as
+        // `Source::RopeFrequencies`, so the statement's job is only to say
+        // WHICH form this deployment takes.
+        if table {
+            return with_params(
+                &x.t,
+                x.layer,
+                "neox_freqs_decode_bfloat16",
+                vec![],
+                None,
+                // Scale, head width, and YaRN's `mscale` -- one for llama-3,
+                // whose rescaling lives entirely in the frequencies.
+                vec![scale.to_bits(), head_dim, 1.0f32.to_bits()],
+                vec![x.id],
+                Some(same_shape(x)),
+            )
+            .expect("a rotation produces its value");
+        }
         let kernel = if multi_batch {
             "neox_mb_bfloat16"
         } else {

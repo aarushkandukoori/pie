@@ -236,6 +236,9 @@ pub fn facts_from(
         rms_eps: geometry.eps,
         // The checkpoint's own rotary base.
         rope_theta: geometry.rope_theta,
+        // Whether the ladder is RESCALED, in which case no base expresses it
+        // and the driver hands over a table instead.
+        rope_freq_table: geometry.rope_freq_factor > 0.0,
         // Empty is every layer attending the whole context, which is what a
         // llama-like deployment does. `DecodeGeometry` carries no window at
         // all, so this is the honest answer and not a default: the families

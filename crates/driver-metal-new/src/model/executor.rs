@@ -151,6 +151,8 @@ pub enum FireTable {
     KvWritePage,
     /// Per token: the row within that page.
     KvWriteOffset,
+    /// The rotary inverse frequencies, `[rotary_dims/2]` f32.
+    RopeFrequencies,
 }
 
 /// Where an operand is: a device address and the bytes it may address.

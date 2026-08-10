@@ -622,6 +622,19 @@ pub struct LlamaLikeMetalFacts {
     /// layer until the activations saturate.
     #[serde(default)]
     pub rope_theta: f32,
+    /// Whether this deployment's rotary frequencies come from a TABLE.
+    ///
+    /// True for a config that rescales its ladder -- llama-3's `rope_scaling`
+    /// with `rope_type: llama3`, YaRN, and anything else that is not a plain
+    /// geometric series in a base. A `rope_theta` cannot express those, so a
+    /// text that stated one would rotate by the wrong frequencies from the
+    /// second channel on, at every position but zero.
+    ///
+    /// The table itself is the DRIVER's: derived at load from the config and
+    /// answered as `Source::RopeFrequencies`. This fact only says which form
+    /// the statement takes.
+    #[serde(default)]
+    pub rope_freq_table: bool,
     /// The SLIDING WINDOW each layer attends over, `-1` for none.
     ///
     /// The same load-time fact [`LlamaLikeCudaFacts::window_left`] carries,
@@ -673,6 +686,8 @@ impl LlamaLikeMetalFacts {
             // statement hands it `log2(theta)`; handing theta rotates by a
             // frequency ladder that is wrong from the second channel on.
             rope_theta: 1_000_000.0,
+            // qwen3's ladder is a plain geometric series in `rope_theta`.
+            rope_freq_table: false,
             // qwen3 attends over the whole context at every layer.
             window_left: Vec::new(),
         }

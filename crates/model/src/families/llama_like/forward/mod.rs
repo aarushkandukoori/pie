@@ -472,7 +472,19 @@ fn llama_like_metal_text(
             };
             // One dispatch for q and k together, as `declared_dag.hpp`'s
             // `Kind::Rope` states it.
-            let (q, k) = dsl::metal::rope(&q, &k, multi_batch, metal.rope_theta, 1.0, f.head_dim);
+            // A deployment that RESCALES its ladder takes the table form:
+            // llama-3's piecewise rescaling and YaRN's are not bases, so no
+            // theta expresses them. The driver derives the table at load and
+            // answers it; the text only says which form.
+            let (q, k) = dsl::metal::rope(
+                &q,
+                &k,
+                multi_batch,
+                metal.rope_theta,
+                1.0,
+                f.head_dim,
+                metal.rope_freq_table,
+            );
             dsl::metal::kv_append(&k, &v, &w.kv, paged, f.head_dim, f.kv_heads);
             // The window this layer attends over, `-1` for all of it. A
             // load-time fact, and one the executor sites used to reach into
