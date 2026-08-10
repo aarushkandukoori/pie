@@ -167,7 +167,7 @@ if (sym == "quant::bf16_to_fp16" && ins.size >= 1 && outs.size >= 1) {
         c.arm.stream);
     return true;
 }
-if (sym == "rope::rope_bf16" && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+if (sym == "rope::rope_bf16" && outs.size >= 2 && c.rope_theta != 0 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::rope::rope_bf16(
         c.arm.values.slot(outs[0]),
         c.arm.values.slot(outs[1]),
@@ -181,7 +181,7 @@ if (sym == "rope::rope_bf16" && outs.size >= 2 && c.arm.plan.value(outs[0]).dims
         false);
     return true;
 }
-if (sym == "rope::rope_partial_bf16" && outs.size >= 2 && ps.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+if (sym == "rope::rope_partial_bf16" && outs.size >= 2 && ps.size >= 1 && c.rope_theta != 0 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::rope::rope_partial_bf16(
         c.arm.values.slot(outs[0]),
         c.arm.values.slot(outs[1]),

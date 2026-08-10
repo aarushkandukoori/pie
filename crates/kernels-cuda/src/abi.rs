@@ -396,7 +396,7 @@ fn bind_expr(op: &kernels::Operand, ctx: &str) -> Option<String> {
         Source::OutDim(i, d) => format!(
             "static_cast<int>({ctx}.arm.plan.value(outs[{i}]).dims[{d}].value)"
         ),
-        Source::Ctx(f) => format!("{ctx}.{f}"),
+        Source::Ctx(f) | Source::CtxNonZero(f) => format!("{ctx}.{f}"),
         Source::Lit(l) => l.to_string(),
     };
     // The generated call goes through the flat ABI entry point, whose
@@ -490,6 +490,14 @@ pub fn emit_dispatch(tables: &[&'static [KernelSig]], ctx: &str) -> String {
         // computes the padded count — could see it. So the branch tests
         // the assumption it is making, and a statement that does not
         // meet it falls through to the arm that knows the other extent.
+        // A field a family zeroes to say "not mine" — see
+        // `Source::CtxNonZero`. The guard is the row's, not the reading
+        // arm's, which is what makes it survive the arm being generated.
+        for o in k.operands {
+            if let Source::CtxNonZero(f) = o.source {
+                guard.push_str(&format!(" && {ctx}.{f} != 0"));
+            }
+        }
         if k.operands.iter().any(|o| o.source == Source::Rows) {
             let probe = if need_out > 0 { "outs[0]" } else { "ins[0]" };
             if need_out > 0 || need_in > 0 {
