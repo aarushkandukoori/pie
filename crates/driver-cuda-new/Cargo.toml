@@ -256,3 +256,7 @@ required-features = ["_cuda", "abi"]
 [[test]]
 name = "union_lower"
 required-features = ["_cuda"]
+
+[[test]]
+name = "gpu_supergraph"
+required-features = ["_cuda", "bridge"]

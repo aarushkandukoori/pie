@@ -329,7 +329,21 @@ impl<'a> SupergraphBuilder<'a> {
 
     /// The stream launches should currently target: the root at depth 0, the
     /// innermost body stream inside a body.
-    pub fn stream(&self) -> cudaStream_t {
+    ///
+    /// Safe, and that is the point of returning a [`StreamRef`] rather than
+    /// the raw handle: the builder owns the pooled body streams and borrows
+    /// the root, so the lifetime is one it can prove. A caller issuing work
+    /// into a capture should not have to write `unsafe` to name the stream it
+    /// is issuing onto.
+    pub fn stream(&self) -> StreamRef<'_> {
+        // SAFETY: `raw_stream` is either the root (borrowed for `'a`, which
+        // outlives `&self`) or a stream in `self.pool`, which lives as long as
+        // the builder.
+        unsafe { StreamRef::from_raw(self.raw_stream()) }
+    }
+
+    /// The same handle, raw — for the FFI seams that take one.
+    fn raw_stream(&self) -> cudaStream_t {
         self.active.last().copied().unwrap_or_else(|| self.root.as_raw())
     }
 
@@ -349,7 +363,7 @@ impl<'a> SupergraphBuilder<'a> {
         if pred_slot as usize >= PRED_SLOTS {
             return Err(Error::invalid("supergraph", "pred slot out of range"));
         }
-        let s = self.stream();
+        let s = self.raw_stream();
 
         // The handle belongs to whichever graph this stream is capturing --
         // the root graph at depth 0, an arm's body graph when nested.
@@ -451,7 +465,7 @@ impl<'a> SupergraphBuilder<'a> {
         if self.active.len() <= 1 {
             return Err(Error::invalid("supergraph", "end_body underflow"));
         }
-        let s = self.stream();
+        let s = self.raw_stream();
         let mut out: cudaGraph_t = std::ptr::null_mut();
         // The graph handed back is the body graph the parent already owns, so
         // it is read and dropped rather than wrapped: wrapping it would give
@@ -471,7 +485,7 @@ impl<'a> SupergraphBuilder<'a> {
     ///
     /// If the update fails.
     pub fn close_cond(&mut self, cond: &Cond) -> Result<()> {
-        let s = self.stream();
+        let s = self.raw_stream();
         let mut node = cond.node;
         unsafe { update_capture_deps(s, &raw mut node) }
     }

@@ -3449,7 +3449,7 @@ pub fn run_captured<R: Resolver>(
             stack.push(OpenCond { cond, node });
         }
 
-        ctx.stream = builder.stream().cast::<c_void>();
+        ctx.stream = builder.stream().as_raw().cast::<c_void>();
 
         let bound = bind(lowered, launch, frame, resolver).map_err(|e| RunRefusal {
             launch: i,
