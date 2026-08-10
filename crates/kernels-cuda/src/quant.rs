@@ -5,6 +5,7 @@
 
 use kernels::kernel;
 use kernels::operands;
+use kernels::Source;
 use kernels::KernelSig;
 
 #[rustfmt::skip]
@@ -87,10 +88,10 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     kernel!(bf16_to_fp16 "quant::bf16_to_fp16",
         operands = operands![
-            in_bf16: Buf,
-            out_fp16: BufMut,
-            count: Usize,
-            stream: Stream,
+            in_bf16: Buf <- Source::In(0),
+            out_fp16: BufMut <- Source::Out(0),
+            count: Usize <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(scale_rows "quant::scale_rows_bf16",
         operands = operands![

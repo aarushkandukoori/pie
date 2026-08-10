@@ -461,6 +461,12 @@ pub enum Source {
     OutWidth(u8),
     /// The same for the `i`-th operand.
     InWidth(u8),
+    /// Rows times the `i`-th result's row width — the ELEMENT count a
+    /// flat launcher takes where a row-shaped one takes both.
+    OutElements(u8),
+    /// Dimension `d` of the `i`-th operand. The routed combine reads
+    /// `[Tokens, top_k, H]` and both extents come off it.
+    InDim(u8, u8),
     /// Dimension `d` of the `i`-th result, which is how a head count
     /// reaches a launcher: the shape says `[Tokens, heads, dim]`.
     OutDim(u8, u8),

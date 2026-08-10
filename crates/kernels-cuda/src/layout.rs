@@ -5,28 +5,29 @@
 
 use kernels::kernel;
 use kernels::operands;
+use kernels::Source;
 use kernels::KernelSig;
 
 #[rustfmt::skip]
 pub static KERNELS: &[KernelSig] = &[
     kernel!(split_rows "layout::split_bf16_rows",
         operands = operands![
-            src: Buf,
-            left: BufMut,
-            right: BufMut,
-            n: I32,
-            left_dim: I32,
-            right_dim: I32,
-            stream: Stream,
+            src: Buf <- Source::In(0),
+            left: BufMut <- Source::Out(0),
+            right: BufMut <- Source::Out(1),
+            n: I32 <- Source::Rows,
+            left_dim: I32 <- Source::OutWidth(0),
+            right_dim: I32 <- Source::OutWidth(1),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(split_qwen_gdn_ba "layout::split_qwen_gdn_ba_bf16",
         operands = operands![
-            ba: Buf,
-            b_out: BufMut,
-            a_out: BufMut,
-            n: I32,
-            v_h: I32,
-            stream: Stream,
+            ba: Buf <- Source::In(0),
+            b_out: BufMut <- Source::Out(0),
+            a_out: BufMut <- Source::Out(1),
+            n: I32 <- Source::Rows,
+            v_h: I32 <- Source::OutWidth(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // A copy that skips requests whose slot id is invalid: the launch happens
     // for every request every time and the slot decides whether it does

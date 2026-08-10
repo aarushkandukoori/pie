@@ -6,6 +6,7 @@
 
 use kernels::kernel;
 use kernels::operands;
+use kernels::Source;
 use kernels::KernelSig;
 
 #[rustfmt::skip]
@@ -283,13 +284,13 @@ pub static KERNELS: &[KernelSig] = &[
     // shapes no `Dim` spells, and are named refusals, not entries.
     kernel!(topk_softmax "moe::topk_softmax_bf16",
         operands = operands![
-            logits: Buf,
-            topk_idx: I32sMut,
-            topk_w: F32sMut,
-            n: I32,
-            num_experts: I32,
-            k: I32,
-            stream: Stream,
+            logits: Buf <- Source::In(0),
+            topk_idx: I32sMut <- Source::Out(0),
+            topk_w: F32sMut <- Source::Out(1),
+            n: I32 <- Source::Rows,
+            num_experts: I32 <- Source::InWidth(0),
+            k: I32 <- Source::OutWidth(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // The whole routed block as one call — permute, both grouped GEMMs,
     // the activation and the weighted finalize. The leg decode actually
@@ -321,15 +322,15 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     kernel!(moe_gate_up_gemv "moe::moe_gate_up_decode_gemv_bf16",
         operands = operands![
-            topk_idx: I32s,
-            norm_x: Buf,
-            gate_up_base: Buf,
-            expert_gate_up: BufMut,
-            num_tokens: I32,
-            top_k: I32,
-            h: I32,
+            topk_idx: I32s <- Source::In(0),
+            norm_x: Buf <- Source::In(1),
+            gate_up_base: Buf <- Source::Weight(0),
+            expert_gate_up: BufMut <- Source::Out(0),
+            num_tokens: I32 <- Source::Rows,
+            top_k: I32 <- Source::OutDim(0, 1),
+            h: I32 <- Source::InWidth(1),
             i_moe: I32,
-            stream: Stream,
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(moe_down_gemv "moe::moe_down_decode_gemv_bf16",
         operands = operands![
@@ -348,13 +349,13 @@ pub static KERNELS: &[KernelSig] = &[
     // WeightedSum and a ResidualAdd.
     kernel!(moe_weighted_sum "moe::token_batched_weighted_sum_bf16",
         operands = operands![
-            out: BufMut,
-            src: Buf,
-            weights: F32s,
-            num_tokens: I32,
-            top_k: I32,
-            hidden: I32,
-            stream: Stream,
+            out: BufMut <- Source::Out(0),
+            src: Buf <- Source::In(0),
+            weights: F32s <- Source::In(1),
+            num_tokens: I32 <- Source::Rows,
+            top_k: I32 <- Source::InDim(0, 1),
+            hidden: I32 <- Source::InDim(0, 2),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // The `_add` spelling accumulates into the residual, which the
     // statement carries as its THIRD operand (`weighted_sum_add(x,

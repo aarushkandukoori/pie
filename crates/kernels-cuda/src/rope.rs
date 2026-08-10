@@ -123,12 +123,21 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(rope_partial_q_only "rope::rope_partial_bf16",
         in_place = &[(0, 0), (1, 1)],
         operands = operands![
-            q: BufMut, k: BufMut,
-            positions: I32s,
-            num_tokens: I32, num_q_heads: I32, num_kv_heads: I32,
-            head_dim: I32, rotary_dim: I32,
-            theta: F32,
-            stream: Stream,
+            q: BufMut <- Source::Out(0),
+            // A Q-ONLY site states one result, and the shared arm
+            // passes q for k with `num_kv_heads = 0`. That is arity the
+            // STATEMENT carries, not a source this row can name, so the
+            // q-only spelling stays a hand-written arm and this row
+            // describes the two-operand one.
+            k: BufMut <- Source::Out(1),
+            positions: I32s <- Source::Ctx("positions"),
+            num_tokens: I32 <- Source::Rows,
+            num_q_heads: I32 <- Source::Ctx("num_q_heads"),
+            num_kv_heads: I32 <- Source::Ctx("num_kv_heads"),
+            head_dim: I32 <- Source::Ctx("head_dim"),
+            rotary_dim: I32 <- Source::Param(0),
+            theta: F32 <- Source::Ctx("rope_theta"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // The other row the audit was counting as undeclared. It is `rope_partial`
     // with `positions` shifted by a host constant, and the delta sits between

@@ -6,6 +6,7 @@
 
 use kernels::kernel;
 use kernels::operands;
+use kernels::Source;
 use kernels::KernelSig;
 
 #[rustfmt::skip]
@@ -79,25 +80,25 @@ pub static KERNELS: &[KernelSig] = &[
     // a driver that reads it off a param is a driver choosing a kernel.
     kernel!(rmsnorm "norm::rmsnorm_bf16",
         operands = operands![
-            x: Buf,
-            weight: Buf,
-            y: BufMut,
-            num_rows: I32,
-            hidden: I32,
-            eps: F32,
-            stream: Stream,
+            x: Buf <- Source::In(0),
+            weight: Buf <- Source::Weight(0),
+            y: BufMut <- Source::Out(0),
+            num_rows: I32 <- Source::Rows,
+            hidden: I32 <- Source::InWidth(0),
+            eps: F32 <- Source::Ctx("eps"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // Gemma folds `(1 + w)` instead of `w` — different arithmetic, same
     // signature, same row space.
     kernel!(rmsnorm_gemma "norm::rmsnorm_gemma_bf16",
         operands = operands![
-            x: Buf,
-            weight: Buf,
-            y: BufMut,
-            num_rows: I32,
-            hidden: I32,
-            eps: F32,
-            stream: Stream,
+            x: Buf <- Source::In(0),
+            weight: Buf <- Source::Weight(0),
+            y: BufMut <- Source::Out(0),
+            num_rows: I32 <- Source::Rows,
+            hidden: I32 <- Source::InWidth(0),
+            eps: F32 <- Source::Ctx("eps"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(rmsnorm_with_fp16 "norm::rmsnorm_bf16_with_fp16",
         operands = operands![
@@ -193,14 +194,14 @@ pub static KERNELS: &[KernelSig] = &[
     // state rather than a different computation.
     kernel!(residual_add_rmsnorm "norm::residual_add_rmsnorm_bf16",
         operands = operands![
-            hidden: BufMut,
-            residual: Buf,
-            weight: Buf,
-            norm_out: BufMut,
-            num_rows: I32,
-            hidden_size: I32,
-            eps: F32,
-            stream: Stream,
+            hidden: BufMut <- Source::In(0),
+            residual: Buf <- Source::In(1),
+            weight: Buf <- Source::Weight(0),
+            norm_out: BufMut <- Source::Out(0),
+            num_rows: I32 <- Source::Rows,
+            hidden_size: I32 <- Source::OutWidth(0),
+            eps: F32 <- Source::Ctx("eps"),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     // A rank-K residual stream: K parallel streams predicted from each
     // other, one of them run through the real layer, the rest corrected
@@ -327,10 +328,10 @@ pub static KERNELS: &[KernelSig] = &[
     // result — see `KernelSig::in_place`.
     kernel!(residual_add_cuda "norm::residual_add_bf16", in_place = &[(0, 0)],
         operands = operands![
-            y: BufMut,
-            x: Buf,
-            n: Usize,
-            stream: Stream,
+            y: BufMut <- Source::Out(0),
+            x: Buf <- Source::In(1),
+            n: Usize <- Source::OutElements(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
     kernel!(tanh "norm::tanh_bf16",
         operands = operands![
