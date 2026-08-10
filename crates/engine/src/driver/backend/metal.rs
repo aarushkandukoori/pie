@@ -316,25 +316,133 @@ impl MetalDriver {
         self.model.as_ref()
     }
 
+    /// Register a PTIR program: its launch package and whatever kernels the
+    /// host generated for it.
+    ///
+    /// Memoised by hash inside the registry, so a re-registration costs a
+    /// lookup — which is the engine's assumption and not an optimisation
+    /// added here.
+    ///
     /// # Errors
     ///
-    /// Always, until the registry is wired to the seam's own id space.
-    pub fn register_program(&mut self, _desc: &ProgramRegistration) -> Result<u64> {
-        bail!(UNSERVED_REGISTRY)
+    /// A package the registry refuses (a channel whose shape it cannot serve,
+    /// a stage it cannot read).
+    pub fn register_program(&mut self, desc: &ProgramRegistration) -> Result<u64> {
+        self.registry
+            .register_program(
+                desc.program_hash,
+                desc.launch.clone(),
+                // Field for field the same record under two names: the ABI's
+                // and the registry's. Converted rather than aliased, because
+                // the registry's is the one it validates against and a type
+                // alias would let a future field diverge silently.
+                desc.emitted_kernels
+                    .iter()
+                    .map(|k| driver_metal_new::pipeline::EmittedKernel {
+                        kind: k.kind,
+                        stage_index: k.stage_index,
+                        region_index: k.region_index,
+                        entry_name: k.entry_name.clone(),
+                        source: k.source.clone(),
+                        error: k.error.clone(),
+                    })
+                    .collect(),
+            )
+            .map_err(|e| anyhow!("metal register_program: {e:?}"))
     }
 
     /// # Errors
     ///
     /// As [`Self::register_program`].
-    pub fn register_channel(&mut self, _desc: &ChannelRegistrationPlan) -> Result<RegisteredChannel> {
-        bail!(UNSERVED_REGISTRY)
+    /// Register a channel and hand back where its ring lives.
+    ///
+    /// The ring is HOST memory on this backend, exactly as it is on the dummy
+    /// driver: `ChannelState` holds the cells and four control words, and the
+    /// binding is their addresses. Nothing about the channel plane is on the
+    /// GPU — it is a different layer from the model forward and always has
+    /// been (`PARITY-INTERP.md`).
+    ///
+    /// # Errors
+    ///
+    /// A shape or dtype the registry will not serve, or a duplicate id.
+    pub fn register_channel(&mut self, desc: &ChannelRegistrationPlan) -> Result<RegisteredChannel> {
+        let spec = driver_metal_new::pipeline::ChannelSpec {
+            id: desc.channel_id,
+            dtype: desc.dtype,
+            shape: desc.shape.clone(),
+            capacity: desc.capacity,
+            role: driver_metal_new::pipeline::HostRole::from_wire(desc.host_role),
+            seeded: desc.seeded,
+            direction: driver_metal_new::pipeline::Direction::from_wire(desc.extern_dir),
+            extern_name: desc.extern_name.clone(),
+        };
+        let endpoint = self
+            .registry
+            .register_channel(spec)
+            .map_err(|e| anyhow!("metal register_channel: {e:?}"))?;
+        Ok(RegisteredChannel {
+            driver_id: desc.driver_id,
+            binding: driver_abi::PieChannelEndpointBinding {
+                channel_id: endpoint.channel_id,
+                mirror_base: endpoint.mirror_base,
+                word_base: endpoint.word_base,
+                mirror_bytes: endpoint.mirror_bytes as u64,
+                word_bytes: endpoint.word_bytes as u64,
+                cell_bytes: endpoint.cell_bytes,
+                capacity: endpoint.capacity,
+                // The ABI's order, and `ChannelState`'s: head, tail, poison,
+                // closed. Stated here as constants because the two sides index
+                // the same four words and neither can move without the other.
+                head_word_index: 0,
+                tail_word_index: 1,
+                poison_word_index: 2,
+                closed_word_index: 3,
+            },
+            reader_wait_id: desc.reader_wait_id,
+            writer_wait_id: desc.writer_wait_id,
+        })
     }
 
     /// # Errors
     ///
     /// As [`Self::register_program`].
-    pub fn bind_instance(&mut self, _desc: &InstanceBindingPlan) -> Result<BoundInstance> {
-        bail!(UNSERVED_REGISTRY)
+    /// Attach an instance of a registered program to its channels.
+    ///
+    /// # Errors
+    ///
+    /// A program id the registry does not hold, a channel an instance may not
+    /// attach to, or a geometry class it does not serve.
+    pub fn bind_instance(&mut self, desc: &InstanceBindingPlan) -> Result<BoundInstance> {
+        let geometry = driver_metal_new::pipeline::Geometry::from_wire(desc.geometry_class as u32)
+            .map_err(|e| anyhow!("metal bind_instance: {e:?}"))?;
+        let seeds: Vec<(u64, Vec<u8>)> = desc
+            .seed_values
+            .iter()
+            .map(|v| (v.channel, v.bytes.clone()))
+            .collect();
+        let requested = (desc.requested_instance_id != 0).then_some(desc.requested_instance_id);
+        let instance_id = self
+            .registry
+            .bind_instance(
+                desc.program_id,
+                requested,
+                geometry,
+                &desc.channel_ids,
+                &seeds,
+            )
+            .map_err(|e| anyhow!("metal bind_instance: {e:?}"))?;
+        let binding = driver_abi::PieInstanceBinding {
+            instance_id,
+            geometry_class: desc.geometry_class as u32,
+            reserved0: 0,
+        };
+        desc.validate_binding(&binding)?;
+        Ok(BoundInstance::new(
+            desc.driver_id,
+            desc.program_id,
+            binding,
+            desc.pacing_wait_id,
+        ))
     }
 
     /// Post one sealed frame: admit it, then run its steps in order.
@@ -451,51 +559,55 @@ impl MetalDriver {
     /// Always, until the KV pool exists. `store::control::plan_kv_copy` and
     /// `store::kv_move::plan_cell_moves` already decide what would move.
     pub fn copy_kv(&mut self, _desc: &KvCopyPlan) -> Result<SubmissionCompletion> {
-        bail!(UNSERVED_POOL)
+        bail!(UNSERVED_MOVE)
     }
 
     /// # Errors
     ///
     /// As [`Self::copy_kv`].
     pub fn copy_state(&mut self, _desc: &StateCopyPlan) -> Result<SubmissionCompletion> {
-        bail!(UNSERVED_POOL)
+        bail!(UNSERVED_MOVE)
     }
 
     /// # Errors
     ///
     /// As [`Self::copy_kv`].
     pub fn resize_pool(&mut self, _desc: &PoolResizePlan) -> Result<SubmissionCompletion> {
-        bail!(UNSERVED_POOL)
+        bail!(UNSERVED_MOVE)
     }
 
     /// # Errors
     ///
     /// Never today; the registry accepts a close of an id it does not hold,
     /// because a close is idempotent from the scheduler's side.
-    pub fn close_instance(&mut self, _id: u64) -> Result<()> {
+    pub fn close_instance(&mut self, id: u64) -> Result<()> {
+        // A close of an id the registry does not hold is not an error: the
+        // scheduler closes on its own schedule and a double close is how a
+        // teardown race reads from this side.
+        let _ = self.registry.close_instance(id);
         Ok(())
     }
 
     /// # Errors
     ///
     /// As [`Self::close_instance`].
-    pub fn close_channel(&mut self, _id: u64) -> Result<()> {
+    pub fn close_channel(&mut self, id: u64) -> Result<()> {
+        let _ = self.registry.close_channel(id);
         Ok(())
     }
 }
 
 /// The hole, named once so every verb that shares it reads the same.
-const UNSERVED_POOL: &str = "driver-metal-new: the KV pool is not wired to the seam yet. The \
-     executor above it is complete and device-tested (tests/device_text_fire.rs \
-     fires the whole llama_like text); what is missing is the buffers a fire \
-     binds, not the decisions it makes.";
-
-/// The other hole: the registry is ported and device tested
-/// (`PARITY-REGISTRY.md`), but nothing maps the seam's plans onto it yet.
-const UNSERVED_REGISTRY: &str = "driver-metal-new: `register_program` / `register_channel` / \
-     `bind_instance` are not wired to `pipeline::Registry` yet. The registry \
-     itself is ported and device tested; what is missing is the translation \
-     from the seam's plan types to its own.";
+///
+/// The pool EXISTS now — `launch` admits against it and fires. What these
+/// three still want is the MOVE: `store::control` decides what a copy or a
+/// resize would do and `store::kv_move` plans the offsets, both portable and
+/// both tested. What is missing is the encoder that runs the plan, and the
+/// reallocation a resize implies for a pool that is a fixed allocation today.
+const UNSERVED_MOVE: &str = "driver-metal-new: KV copy/resize is not wired to the seam yet. \
+     The pool exists and `launch` fires against it; `store::control::plan_kv_copy` and \
+     `store::kv_move::plan_cell_moves` already decide and plan the movement. What is \
+     missing is the encoder that runs the plan.";
 
 /// Where the Metal shader tree lives.
 ///

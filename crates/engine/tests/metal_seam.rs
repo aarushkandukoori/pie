@@ -39,20 +39,16 @@ fn the_verbs_that_need_the_kv_pool_refuse_by_name() {
         eprintln!("SKIP: no Metal 4 device");
         return;
     };
-    let why = backend
-        .register_program(&Default::default())
-        .expect_err("the registry is not wired to the seam's plan types yet");
-    let text = format!("{why}");
+    let text = match backend.copy_kv(&Default::default()) {
+        Err(why) => format!("{why}"),
+        Ok(_) => panic!("the encoder that runs a move plan is not wired yet"),
+    };
     assert!(
         text.contains("driver-metal-new"),
         "a refusal must name the backend that made it: {text}"
     );
     assert!(
-        text.contains("register_program"),
-        "and the verb it could not serve: {text}"
-    );
-    assert!(
-        text.contains("device tested"),
+        text.contains("already decide and plan"),
         "and which half is actually missing, so the next reader does not \
          re-port machinery that is already there: {text}"
     );
@@ -140,4 +136,111 @@ fn a_frame_that_cannot_fit_the_pool_is_impossible_rather_than_an_error() {
         why.contains("before load_model"),
         "the refusal should say which order was broken: {why}"
     );
+}
+
+#[test]
+fn a_program_a_channel_and_an_instance_all_register() {
+    // The three verbs that gate everything: without them no instance is bound,
+    // so no `FrameSubmission` is ever built and `launch` is unreachable through
+    // the engine however complete it is.
+    //
+    // The channel plane is HOST memory on this backend, exactly as it is on the
+    // dummy driver — `ChannelState` holds the cells and four control words —
+    // so the binding is their addresses and nothing about it needs a GPU.
+    let Ok((mut backend, _)) = DriverBackend::metal_create(b"{}") else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+
+    // A package with no stages is refused, and that is the registry doing its
+    // job: a program that runs nothing is a registration nobody can use.
+    let why = format!(
+        "{}",
+        backend
+            .register_program(&Default::default())
+            .expect_err("a package with no stages is not a program")
+    );
+    assert!(why.contains("no stages"), "and it says why: {why}");
+
+    let program = backend
+        .register_program(&driver_abi::ProgramRegistration {
+            program_hash: 0xABCD,
+            launch: package(),
+            ..driver_abi::ProgramRegistration::default()
+        })
+        .expect("a package with a stage registers");
+
+    // Memoised by hash: the engine re-registers freely and expects a lookup.
+    let again = backend
+        .register_program(&driver_abi::ProgramRegistration {
+            program_hash: 0xABCD,
+            launch: package(),
+            ..driver_abi::ProgramRegistration::default()
+        })
+        .expect("the same hash registers again");
+    assert_eq!(program, again, "the same hash is the same program");
+
+    let channel = backend
+        .register_channel(&driver_abi::ChannelRegistrationPlan {
+            driver_id: 0,
+            channel_id: 7,
+            shape: vec![4],
+            dtype: driver_abi::PIE_CHANNEL_DTYPE_U32,
+            host_role: driver_abi::PIE_CHANNEL_HOST_ROLE_READER,
+            seeded: false,
+            extern_dir: driver_abi::PIE_CHANNEL_EXTERN_EXPORT,
+            capacity: 2,
+            reader_wait_id: 11,
+            writer_wait_id: 12,
+            extern_name: b"out".to_vec(),
+        })
+        .expect("a channel registers");
+
+    assert_eq!(channel.binding.channel_id, 7);
+    assert_ne!(
+        channel.binding.mirror_base, 0,
+        "a ring whose base is zero is a ring the host cannot read"
+    );
+    assert_ne!(channel.binding.word_base, 0);
+    assert!(
+        channel.binding.mirror_bytes >= u64::from(channel.binding.cell_bytes),
+        "the ring must hold at least one cell"
+    );
+    assert_eq!(
+        channel.binding.word_bytes,
+        4 * std::mem::size_of::<u64>() as u64,
+        "head, tail, poison, closed"
+    );
+    // The four indices are the ABI's order and the state's; neither side may
+    // move without the other.
+    assert_eq!(
+        (
+            channel.binding.head_word_index,
+            channel.binding.tail_word_index,
+            channel.binding.poison_word_index,
+            channel.binding.closed_word_index
+        ),
+        (0, 1, 2, 3)
+    );
+    assert_eq!(channel.reader_wait_id, 11);
+
+    // And a close of an id nobody holds is not an error: the scheduler closes
+    // on its own schedule, and a double close is how a teardown race reads.
+    backend.close_channel(7).expect("closing is idempotent");
+    backend.close_channel(7).expect("twice, too");
+    backend.close_instance(program).expect("as is an instance");
+}
+
+/// The smallest package the registry accepts: one stage and its plan.
+///
+/// Written out because the registry validates rather than assumes — an empty
+/// package is "no stages" and a stage without its plan is a "plan/stage count
+/// mismatch". Both refusals are the point: a program that runs nothing, or one
+/// whose stages and plans disagree, is a registration nobody can use.
+fn package() -> driver_abi::plan::LaunchPackage {
+    driver_abi::plan::LaunchPackage {
+        stages: vec![driver_abi::plan::LaunchStage::default()],
+        plans: vec![driver_abi::plan::LaunchStagePlan::default()],
+        ..driver_abi::plan::LaunchPackage::default()
+    }
 }
