@@ -168,6 +168,39 @@ impl Resolver for Live<'_> {
     }
 }
 
+/// How many dispatches the fire plans, and how many have an empty grid.
+fn plan_count(
+    lowered: &model_compiler::lower::Lowered,
+    facts: &model::families::llama_like::forward::facts::LlamaLikeFacts,
+    live: &mut Live<'_>,
+) -> String {
+    let dispatches = driver_metal_new::model::dispatch::plan(
+        lowered,
+        driver_metal_new::model::run::table(),
+        driver_metal_new::model::executor::Frame {
+            arena: Slice {
+                address: 0x1_0000_0000,
+                bytes: 1 << 30,
+            },
+        },
+        Geometry {
+            q_heads: facts.q_heads,
+            kv_heads: facts.kv_heads,
+            head_dim: facts.head_dim,
+            rotary_dims: facts.head_dim,
+            n_experts: facts.n_experts,
+            experts_per_token: facts.experts_per_token,
+        },
+        live,
+    )
+    .expect("the fire plans");
+    let empty = dispatches
+        .iter()
+        .filter(|d| d.grid.contains(&0) || d.threadgroup.contains(&0))
+        .count();
+    format!("{} ({empty} with an empty grid)", dispatches.len())
+}
+
 #[test]
 fn a_real_checkpoints_weights_produce_finite_varied_activations() {
     let Some(snapshot) = snapshot() else {
@@ -319,7 +352,51 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
     regions.sort_unstable();
     regions.dedup();
 
+    // Which statement each arena offset belongs to, and whether it is that
+    // statement's OUTPUT. A region nothing wrote is diagnosable only if the
+    // report says which launch was supposed to write it.
+    let mut writers: HashMap<usize, String> = HashMap::new();
+    for launch in &lowered.launches {
+        let symbol = &lowered.kernels[launch.kernel as usize];
+        let args = &lowered.args[launch.args.start as usize..launch.args.end as usize];
+        // The trace states inputs, then OUTPUTS, then weights, and the row
+        // says how many of the widthed operands are results — the same split
+        // `dispatch::reorder` makes. A region that is only ever an INPUT is
+        // one nothing was ever supposed to write.
+        let results = kernels::sig_in(kernels_metal::KERNELS, symbol)
+            .map(|sig| {
+                sig.operands
+                    .iter()
+                    .filter_map(|o| match o.source {
+                        kernels::Source::Out(i) => Some(usize::from(i) + 1),
+                        _ => None,
+                    })
+                    .max()
+                    .unwrap_or(1)
+            })
+            .unwrap_or(1);
+        let widthed: Vec<&model_compiler::lower::Arg> = args
+            .iter()
+            .filter(|a| !matches!(a, model_compiler::lower::Arg::Weight(_)))
+            .collect();
+        let split = widthed.len().saturating_sub(results);
+        for arg in widthed.iter().skip(split) {
+            if let model_compiler::lower::Arg::Arena { at, .. } = arg {
+                writers
+                    .entry(*at)
+                    .or_insert_with(|| format!("written by {symbol}"));
+            }
+        }
+    }
+
+    eprintln!(
+        "{} launch(es) -> {} dispatch(es)",
+        lowered.launches.len(),
+        plan_count(&lowered, &facts, &mut live)
+    );
+
     let mut c = Census::default();
+    let mut unwritten: Vec<String> = Vec::new();
     let mut widest_by_element: Vec<(usize, f32)> = Vec::new();
     for (at, len, element) in &regions {
         let end = (at + len).min(read.len());
@@ -331,11 +408,30 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
         c.zero += r.zero;
         c.nan += r.nan;
         c.inf += r.inf;
+        if r.finite_nonzero == 0 && writers.contains_key(at) {
+            unwritten.push(format!(
+                "  @{at} ({} elements x{element}): {}",
+                len / element,
+                writers[at]
+            ));
+        }
         widest_by_element.push((*element, r.max_abs));
         c.max_abs = c.max_abs.max(r.max_abs);
         eprintln!(
-            "  @{at:>8} {len:>8} B x{element}: {:>7} nz, {:>7} zero, max |v| = {}",
-            r.finite_nonzero, r.zero, r.max_abs
+            "  @{at:>8} {len:>8} B x{element}: {:>7} nz, {:>7} zero, max |v| = {}{}",
+            r.finite_nonzero,
+            r.zero,
+            r.max_abs,
+            if r.finite_nonzero == 0 {
+                format!(
+                    "   <- NOTHING WROTE THIS ({})",
+                    writers
+                        .get(at)
+                        .map_or("NO LAUNCH WRITES IT — read-only", String::as_str)
+                )
+            } else {
+                String::new()
+            }
         );
     }
     let widest = |e: usize| {
@@ -415,6 +511,34 @@ fn a_real_checkpoints_weights_produce_finite_varied_activations() {
     assert!(
         r.max_abs > 1e-4,
         "every logit is under 1e-4, so the readout accumulated nothing."
+    );
+
+    // ── the regions a launch declares and does not fill ──
+    //
+    // FIVE, measured 2026-08-10 against `Llama-3.2-1B-Instruct-4bit`. Each is
+    // the stated OUTPUT of a launch that ran -- 227 launches became 227
+    // dispatches and none had an empty grid -- and came back entirely zero.
+    // Two are `affine_qmv_fast` at kv width, two more at the MLP's, and one is
+    // a `silu_mul`.
+    //
+    // Pinned rather than asserted to zero because it is a MEASUREMENT of a
+    // gap, not a bound anyone has closed: the point is that it can only
+    // shrink. `tests/text_conformance.rs` did the same for operand binding
+    // (14 -> 0) and for scalars (13 -> 0), and both closed only after the
+    // number existed to close.
+    //
+    // What it is NOT is a fire that fails: the readout is fully written and
+    // every lane differs, so the path that produces logits runs end to end.
+    // These are branches of it that produce nothing, and a decode that reads
+    // one gets a zero rather than a wrong number -- which is why this is a
+    // measurement rather than a crash.
+    eprintln!("{} declared output(s) nothing filled", unwritten.len());
+    assert!(
+        unwritten.len() <= 5,
+        "the gap GREW to {}. A statement whose output stays zero is a branch \
+         of the forward pass that computes nothing.\n{}",
+        unwritten.len(),
+        unwritten.join("\n")
     );
 
     // The per-token axis: four lanes decoded four DIFFERENT tokens, so four
