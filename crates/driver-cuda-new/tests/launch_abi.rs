@@ -192,6 +192,55 @@ fn every_mlp_row_states_its_launcher_exactly() {
     }
 }
 
+/// `quant`'s and `moe`'s rows, and the STATED half of `layout`'s and
+/// `gemm`'s.
+///
+/// Not a whole-family assertion like `norm`'s and `mlp`'s, because two
+/// of these families carry rows the shim cannot reach yet and saying so
+/// is better than a count that quietly excludes them:
+///
+///   * `dist::` and `comm::` name METHODS on `NcclComm`, not free
+///     launchers, so `::pie_cuda_driver::kernels::dist::all_reduce_bf16`
+///     does not exist to forward to. They need free wrappers first.
+///   * `gemm`'s remaining rows take a `WeightView` or pointer arrays,
+///     which the operand vocabulary has no kind for yet.
+///
+/// What IS stated compiles, which is the claim this test can make.
+#[test]
+fn the_stated_quant_layout_gemm_and_moe_rows_describe_their_launchers() {
+    let tables: [&'static [KernelSig]; 4] = [
+        kernels_cuda::quant::KERNELS,
+        kernels_cuda::layout::KERNELS,
+        kernels_cuda::gemm::KERNELS,
+        kernels_cuda::moe::KERNELS,
+    ];
+    let headers = [
+        "quant/dequant_fp4.hpp",
+        "quant/dequant_fp8.hpp",
+        "quant/dequant_wna16.hpp",
+        "quant/dtype_cast.hpp",
+        "quant/mxfp4_marlin.hpp",
+        "layout/embed.hpp",
+        "layout/gather_rows.hpp",
+        "layout/slot_ops.hpp",
+        "layout/split_gate_up.hpp",
+        "layout/deinterleave.hpp",
+        "gemm/gemm.hpp",
+        "moe/dsv4_routing.hpp",
+        "moe/moe_dispatch.hpp",
+        "moe/topk_sigmoid.hpp",
+        "moe/topk_softmax.hpp",
+    ];
+    let shim = kernels_cuda::abi::emit_c_shim(&tables, &headers)
+        .expect("no entry-point collisions");
+    if let Err(err) = compile(&shim) {
+        panic!(
+            "the generated shim does not compile, so a row misstates its \
+             launcher:\n{err}"
+        );
+    }
+}
+
 /// The pilot itself: every stated `rope` row describes its launcher exactly.
 #[test]
 fn every_rope_row_states_its_launcher_exactly() {

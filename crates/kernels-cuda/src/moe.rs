@@ -5,6 +5,7 @@
 //! [`KernelSig`], `whole`, `needs`, `lacks`, `sink` — are `kernels`'.
 
 use kernels::kernel;
+use kernels::operands;
 use kernels::KernelSig;
 
 #[rustfmt::skip]
@@ -15,29 +16,111 @@ pub static KERNELS: &[KernelSig] = &[
     // intact and these are not `whole`.
     kernel!(wna16_gate_up_decode "quant::wna16_gate_up_decode_bf16"),
     kernel!(wna16_down_decode "quant::wna16_down_decode_bf16"),
-    kernel!(apply_per_expert_scale "moe::apply_per_expert_scale_bf16"),
+    kernel!(apply_per_expert_scale "moe::apply_per_expert_scale_bf16",
+        operands = operands![
+            topk_idx: I32s,
+            topk_w: F32sMut,
+            per_expert_scale_bf16: Buf,
+            n: I32,
+            k: I32,
+            stream: Stream,
+        ]),
     // `topk_idx` is route-global, so a row window would pick the wrong
     // experts' biases.
-    kernel!(add_moe_route_bias "moe::add_moe_route_bias_bf16", whole = true),
-    kernel!(transpose_expert_scales "moe::transpose_expert_scales_u8"),
+    kernel!(add_moe_route_bias "moe::add_moe_route_bias_bf16", whole = true,
+        operands = operands![
+            out: BufMut,
+            bias: Buf,
+            topk_idx: I32s,
+            num_routes: I32,
+            cols: I32,
+            out_stride: I32,
+            stream: Stream,
+        ]),
+    kernel!(transpose_expert_scales "moe::transpose_expert_scales_u8",
+        operands = operands![
+            src: Buf,
+            dst: BufMut,
+            num_experts: I32,
+            n: I32,
+            k_groups: I32,
+            stream: Stream,
+        ]),
     kernel!(mxfp4_moe_gate_up_decode_grouped "quant::mxfp4_moe_gate_up_decode_grouped_bf16",
         whole = true),
     // Namespaced in the symbol because it lives in the vendored `marlin_moe`
     // tree, the same way the `ops::` entries do.
     kernel!(mxfp4_moe_gemm_w4a16 "marlin_moe::launch_mxfp4_moe_gemm_w4a16_bf16", whole = true),
-    kernel!(topk_sqrtsoftplus "moe::topk_sqrtsoftplus_bf16"),
+    kernel!(topk_sqrtsoftplus "moe::topk_sqrtsoftplus_bf16",
+        operands = operands![
+            logits: Buf,
+            topk_idx: I32sMut,
+            topk_w: F32sMut,
+            correction_bias: F32s,
+            tokens: I32,
+            num_experts: I32,
+            top_k: I32,
+            renormalize: Bool,
+            routed_scaling_factor: F32,
+            stream: Stream,
+        ]),
     // Expert INDICES from a table keyed by token id -- a route that is a pure
     // function of the token rather than of its activations. The WEIGHTS still
     // come from the router logits, so the logits GEMM above it does not go
     // away.
-    kernel!(hash_route_lookup "moe::hash_route_lookup"),
-    kernel!(topk_sigmoid_bias "moe::topk_sigmoid_bias_fp32"),
+    kernel!(hash_route_lookup "moe::hash_route_lookup",
+        operands = operands![
+            token_ids: I32s,
+            tid2eid: I64s,
+            logits: Buf,
+            topk_idx: I32sMut,
+            topk_w: F32sMut,
+            tokens: I32,
+            vocab_size: I32,
+            num_experts: I32,
+            top_k: I32,
+            renormalize: Bool,
+            routed_scaling_factor: F32,
+            stream: Stream,
+        ]),
+    kernel!(topk_sigmoid_bias "moe::topk_sigmoid_bias_fp32",
+        operands = operands![
+            logits: F32s,
+            correction_bias: F32s,
+            topk_idx: I32sMut,
+            topk_w: F32sMut,
+            n: I32,
+            num_experts: I32,
+            k: I32,
+            normalize: Bool,
+            routed_scaling_factor: F32,
+            stream: Stream,
+        ]),
     // The UNPADDED counterpart of `moe_align`: exact per-expert counts the
     // host reads to build cuBLAS grouped shapes. `whole` for the same reason
     // -- the sort is over all routes.
-    kernel!(moe_bucket_exact "moe::moe_bucket_exact", whole = true),
+    kernel!(moe_bucket_exact "moe::moe_bucket_exact", whole = true,
+        operands = operands![
+            topk_idx: I32s,
+            sorted_route_ids: I32sMut,
+            route_to_sorted_row: I32sMut,
+            counts_out: I32sMut,
+            num_routes: I32,
+            num_experts: I32,
+            stream: Stream,
+        ]),
     kernel!(token_batched_weighted_sum_aligned "moe::token_batched_weighted_sum_aligned_bf16",
-        whole = true),
+        whole = true,
+        operands = operands![
+            out: BufMut,
+            aligned_out: Buf,
+            weights: F32s,
+            route_to_aligned_row: I32s,
+            num_tokens: I32,
+            top_k: I32,
+            hidden: I32,
+            stream: Stream,
+        ]),
     // glm5 and kimi_k3 route through a permutation rather than a loop: every
     // (token, expert) pair is a route, routes are bucketed by expert and
     // padded to fixed blocks so one batched GEMM covers all experts, and the
@@ -47,22 +130,88 @@ pub static KERNELS: &[KernelSig] = &[
     // permutation is computed over ALL routes in the fire, so a statement
     // addressed through `sorted_route_ids` cannot take a row window -- the
     // window would name different routes than the sort did.
-    kernel!(moe_align "moe::moe_align_decode", whole = true),
-    kernel!(gather_moe_aligned_inputs "moe::gather_moe_aligned_inputs_bf16", whole = true),
+    kernel!(moe_align "moe::moe_align_decode", whole = true,
+        operands = operands![
+            topk_idx: I32s,
+            sorted_route_ids: I32sMut,
+            expert_ids: I32sMut,
+            route_to_aligned_row: I32sMut,
+            num_routes: I32,
+            num_experts: I32,
+            block_size: I32,
+            max_blocks: I32,
+            num_tokens_past_padded: I32sMut,
+            stream: Stream,
+        ]),
+    kernel!(gather_moe_aligned_inputs "moe::gather_moe_aligned_inputs_bf16", whole = true,
+        operands = operands![
+            norm_x: Buf,
+            sorted_route_ids: I32s,
+            aligned_in: BufMut,
+            num_routes: I32,
+            aligned_rows: I32,
+            top_k: I32,
+            hidden: I32,
+            shared_row_begin: I32,
+            num_tokens: I32,
+            stream: Stream,
+        ]),
     kernel!(build_moe_ptrs_aligned "moe::build_moe_ptrs_aligned_bf16", whole = true),
-    kernel!(reorder_moe_aligned_output "moe::reorder_moe_aligned_output_bf16", whole = true),
+    kernel!(reorder_moe_aligned_output "moe::reorder_moe_aligned_output_bf16", whole = true,
+        operands = operands![
+            aligned_out: Buf,
+            sorted_route_ids: I32s,
+            route_out: BufMut,
+            num_routes: I32,
+            aligned_rows: I32,
+            hidden: I32,
+            shared_row_begin: I32,
+            num_tokens: I32,
+            shared_out: BufMut,
+            stream: Stream,
+        ]),
     // `out[dst_idx[i]] += src[i]·w[i]`, and `dst_idx` is route-global: a
     // window over output ROWS is not a window over routes.
-    kernel!(scatter_add_weighted "moe::scatter_add_weighted_bf16", whole = true),
+    kernel!(scatter_add_weighted "moe::scatter_add_weighted_bf16", whole = true,
+        operands = operands![
+            out: BufMut,
+            src: Buf,
+            dst_idx: I32s,
+            row_weights: F32s,
+            num_routed: I32,
+            hidden: I32,
+            stream: Stream,
+        ]),
     // The exception, and it is the router: a token's top-k reads only its own
     // logits row, so this one splits like any elementwise statement.
-    kernel!(topk_sigmoid "moe::topk_sigmoid_bf16"),
+    kernel!(topk_sigmoid "moe::topk_sigmoid_bf16",
+        operands = operands![
+            logits: Buf,
+            topk_idx: I32sMut,
+            topk_w: F32sMut,
+            correction_bias: F32s,
+            tokens: I32,
+            num_experts: I32,
+            top_k: I32,
+            renormalize: Bool,
+            routed_scaling_factor: F32,
+            stream: Stream,
+        ]),
     // The router's top-k, then the decode GEMV leg's two routed
     // projections and its combine. The expert axis rides INSIDE the
     // value on this leg, so the whole branch stays a list of rectangles;
     // the grouped-GEMM and host-routed legs reach the same numbers by
     // shapes no `Dim` spells, and are named refusals, not entries.
-    kernel!(topk_softmax "moe::topk_softmax_bf16"),
+    kernel!(topk_softmax "moe::topk_softmax_bf16",
+        operands = operands![
+            logits: Buf,
+            topk_idx: I32sMut,
+            topk_w: F32sMut,
+            n: I32,
+            num_experts: I32,
+            k: I32,
+            stream: Stream,
+        ]),
     // The whole routed block as one call — permute, both grouped GEMMs,
     // the activation and the weighted finalize. The leg decode actually
     // takes, and the only one that is a single rectangle.
@@ -70,18 +219,58 @@ pub static KERNELS: &[KernelSig] = &[
     // `ops::` entry point that installs tactics and runs a CUTLASS
     // pipeline. The symbol says so.
     kernel!(moe_fused_cutlass "moe::flashinfer_cutlass_moe_bf16"),
-    kernel!(moe_gate_up_gemv "moe::moe_gate_up_decode_gemv_bf16"),
-    kernel!(moe_down_gemv "moe::moe_down_decode_gemv_bf16"),
+    kernel!(moe_gate_up_gemv "moe::moe_gate_up_decode_gemv_bf16",
+        operands = operands![
+            topk_idx: I32s,
+            norm_x: Buf,
+            gate_up_base: Buf,
+            expert_gate_up: BufMut,
+            num_tokens: I32,
+            top_k: I32,
+            h: I32,
+            i_moe: I32,
+            stream: Stream,
+        ]),
+    kernel!(moe_down_gemv "moe::moe_down_decode_gemv_bf16",
+        operands = operands![
+            topk_idx: I32s,
+            expert_act: Buf,
+            down_base: Buf,
+            expert_out: BufMut,
+            num_tokens: I32,
+            top_k: I32,
+            h: I32,
+            i_moe: I32,
+            stream: Stream,
+        ]),
     // The combine folds the residual when the MoE output lands straight
     // on the stream (tp=1) — one launch where the semantic text has a
     // WeightedSum and a ResidualAdd.
-    kernel!(moe_weighted_sum "moe::token_batched_weighted_sum_bf16"),
+    kernel!(moe_weighted_sum "moe::token_batched_weighted_sum_bf16",
+        operands = operands![
+            out: BufMut,
+            src: Buf,
+            weights: F32s,
+            num_tokens: I32,
+            top_k: I32,
+            hidden: I32,
+            stream: Stream,
+        ]),
     // The `_add` spelling accumulates into the residual, which the
     // statement carries as its THIRD operand (`weighted_sum_add(x,
     // weights, residual)`); the plain spelling above writes a fresh
     // value and aliases nothing.
     kernel!(moe_weighted_sum_add "moe::token_batched_weighted_sum_add_bf16",
-        in_place = &[(0, 2)]),
+        in_place = &[(0, 2)],
+        operands = operands![
+            out: BufMut,
+            src: Buf,
+            weights: F32s,
+            num_tokens: I32,
+            top_k: I32,
+            hidden: I32,
+            stream: Stream,
+        ]),
     // The routed MXFP4 GEMVs. Like qwen3_5's GEMV leg the expert axis
     // rides INSIDE the value, so each is one rectangle over `N * k`
     // routes; unlike it, the weight slot names a per-expert POINTER
