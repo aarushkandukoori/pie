@@ -192,6 +192,18 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
         hidden,
         vocab,
         eps: f.q35_rms_norm_eps,
+        // gpt-oss's activation constants, when the config read as gpt-oss.
+        // `go_num_hidden_layers` is the marker its own doc describes.
+        swiglu_limit: if f.go_num_hidden_layers > 0 {
+            f.go_swiglu_limit
+        } else {
+            0.0
+        },
+        // 1.702, the constant gpt-oss's SwiGLU is defined with. Not read from
+        // the config because no config states it -- it is part of the
+        // ACTIVATION, the way `silu`'s sigmoid is, and a deployment that
+        // changed it would be a different activation.
+        swiglu_alpha: 1.702,
         // The rope RESCALING, when the config states one. `llama3` is the
         // only kind whose four numbers this reads; a config that states
         // another kind gets a factor of zero, which the derivation treats as

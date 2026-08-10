@@ -2197,11 +2197,17 @@ pub mod metal {
         gqa_factor: u32,
         kv_heads: u32,
         window: i32,
+        sinks: Option<&str>,
     ) -> Option<Val> {
-        let kernel = if paged {
-            format!("sdpa_paged_decode_bfloat16_d_{head_dim}")
-        } else {
-            format!("sdpa_vector_decode_bfloat16_d_{head_dim}")
+        // The SINK variant is the same template at `sinks = true`, so it is
+        // the same statement with one weight. A sink is a per-head learned
+        // logit that joins the softmax without a value behind it — gpt-oss's,
+        // and the reason `sdpa_paged_decode`'s row has carried an open slot
+        // since the rows were written.
+        let kernel = match (paged, sinks.is_some()) {
+            (true, true) => format!("sdpa_paged_decode_sink_bfloat16_d_{head_dim}"),
+            (true, false) => format!("sdpa_paged_decode_bfloat16_d_{head_dim}"),
+            (false, _) => format!("sdpa_vector_decode_bfloat16_d_{head_dim}"),
         };
         let kernel = kernel.as_str();
         // The model's scalars, in the order both rows name them. The strides
@@ -2217,7 +2223,9 @@ pub mod metal {
             &q.t,
             Some(kv.l),
             kernel,
-            vec![],
+            // The sink weight, when this deployment has one: a per-head
+            // learned logit, and the row's `Weight(0)`.
+            sinks.map(|w| vec![w.to_string()]).unwrap_or_default(),
             kv_state(kv),
             vec![
                 gqa_factor,
@@ -2240,6 +2248,30 @@ pub mod metal {
             "silu_mul_bfloat16",
             vec![],
             None,
+            vec![gate.id, up.id],
+            Some((
+                Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),
+                DType::BF16,
+            )),
+        )
+        .expect("the activation produces its value")
+    }
+
+    /// `mlp/gated.metal::gptoss_swiglu` — gpt-oss's activation.
+    ///
+    /// Not `silu_mul` with parameters. The gate is clamped ABOVE only, the
+    /// linear branch is clamped both ways and carries a `+1`, and dropping
+    /// either produces a model that runs and is wrong. So it is its own
+    /// symbol, and which one a deployment takes is a load-time fact.
+    pub fn swiglu(gate: &Val, up: &Val, intermediate: u32, limit: f32, alpha: f32) -> Val {
+        with_params(
+            &gate.t,
+            gate.layer,
+            "gptoss_swiglu_bfloat16",
+            vec![],
+            None,
+            // `GptOssSwiGluParams`, field for field: n, limit, alpha.
+            vec![intermediate, limit.to_bits(), alpha.to_bits()],
             vec![gate.id, up.id],
             Some((
                 Shape(vec![Dim::Tokens, Dim::Const(intermediate)]),

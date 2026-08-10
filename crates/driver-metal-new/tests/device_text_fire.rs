@@ -223,6 +223,91 @@ fn a_mixture_fires_on_the_device_through_the_same_executor() {
     );
 }
 
+/// **gpt-oss reaches the device, through the same executor.**
+///
+/// Attention SINKS, gpt-oss's own SwiGLU and an alternating sliding window —
+/// three facts, one extra weight per layer, one extra symbol. No family.
+///
+/// The `sinks` slot has been open on `sdpa_paged_decode`'s row since the rows
+/// were written, with the comment "no statement fills it until a text that has
+/// sinks does". This is that text.
+#[test]
+fn gpt_oss_fires_on_the_device_through_the_same_executor() {
+    let Ok(context) = Context::new() else {
+        eprintln!("SKIP: no Metal 4 device");
+        return;
+    };
+    let compiler = Compiler::new(&context).expect("a compiler");
+    let mut pipelines = Pipelines::new(kernels_dir());
+
+    let step = Step {
+        token_ids: &[11, 22, 33, 44],
+        qo_indptr: &[0, 1, 2, 3, 4],
+        sampling_indices: &[0, 1, 2, 3],
+        ..Step::default()
+    };
+    let facts = LlamaLikeFacts {
+        layers: 4,
+        ..LlamaLikeFacts::gpt_oss_20b()
+    };
+    let metal = LlamaLikeMetalFacts {
+        window_left: vec![128, -1, 128, -1],
+        ..LlamaLikeMetalFacts::gpt_oss_20b()
+    };
+    let plan = llama_like_metal(&facts, &metal, FireClass::Decode);
+    let lowered = lower_step(&plan, &step).expect("the step lowers");
+
+    let sinked = lowered
+        .kernels
+        .iter()
+        .filter(|k| k.contains("_sink"))
+        .count();
+    assert!(sinked > 0, "a sinked text names the sink symbol: {:?}", lowered.kernels);
+    let swiglu = lowered.kernels.iter().filter(|k| k.contains("swiglu")).count();
+    assert!(swiglu > 0, "and its own activation: {:?}", lowered.kernels);
+
+    let backing = allocate(&context, 256 << 20, "sentinel weights").expect("a backing region");
+    let zeros = zeroed(&context);
+    let mut store = Sentinels {
+        slice: Slice {
+            address: backing.gpu_address(),
+            bytes: 256 << 20,
+        },
+        tables: Slice {
+            address: zeros.gpu_address(),
+            bytes: 1 << 20,
+        },
+        asked: HashMap::new(),
+    };
+
+    let timing = run(
+        &context,
+        &compiler,
+        &mut pipelines,
+        &lowered,
+        Geometry {
+            q_heads: 64,
+            kv_heads: 8,
+            head_dim: 64,
+            rotary_dims: 64,
+            n_experts: 32,
+            experts_per_token: 4,
+        },
+        &mut store,
+    )
+    .expect("gpt-oss fires");
+
+    assert!(
+        timing.encode > std::time::Duration::ZERO,
+        "the stepper reported no encode time, so nothing was encoded"
+    );
+    assert!(
+        store.asked.keys().any(|n| n.contains("attn_sinks")),
+        "the fire bound no sink, so it cannot have been gpt-oss: {:?}",
+        store.asked.keys().collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn the_whole_metal_text_fires_on_the_device() {
     let Ok(context) = Context::new() else {

@@ -88,6 +88,15 @@ pub struct DecodeGeometry {
     pub rotary_dims: u32,
     /// The rope base.
     pub rope_theta: f32,
+    /// gpt-oss's SwiGLU constants, or zero for a deployment that takes the
+    /// plain gated activation.
+    ///
+    /// A limit of zero is "not gpt-oss" and not a clamp at zero, which would
+    /// zero the gate branch entirely — which is why the pair is read through
+    /// the limit rather than through a separate flag.
+    pub swiglu_limit: f32,
+    /// See [`Self::swiglu_limit`].
+    pub swiglu_alpha: f32,
     /// The rope RESCALING, when the config states one, or zero for a plain
     /// geometric ladder.
     ///
@@ -181,6 +190,8 @@ impl Default for DecodeGeometry {
             alt_quant: AffineFormat { bits: 0, group: 0 },
             rotary_dims: 64,
             rope_theta: 1e7,
+            swiglu_limit: 0.0,
+            swiglu_alpha: 0.0,
             rope_freq_factor: 0.0,
             rope_low_freq_factor: 0.0,
             rope_high_freq_factor: 0.0,

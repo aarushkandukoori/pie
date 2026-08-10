@@ -112,6 +112,8 @@ impl Names {
             ("shared_down", "mlp.shared_expert.down_proj"),
             ("shared_gate_proj", "mlp.shared_expert_gate"),
             // The norms.
+            // The attention sink, one learned logit per head.
+            ("attn_sinks", "self_attn.sinks"),
             ("q_norm", "self_attn.q_norm"),
             ("k_norm", "self_attn.k_norm"),
             ("attn_norm", "input_layernorm"),

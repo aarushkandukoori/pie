@@ -225,6 +225,41 @@ impl LlamaLikeFacts {
         }
     }
 
+    /// gpt-oss-20b: llama-like attention with SINKS, a routed FFN, and its
+    /// own SwiGLU.
+    ///
+    /// The numbers are the published config's. What makes it interesting is
+    /// how little of it is new: the attention is a qwen3 attention with one
+    /// extra weight per layer, the mixture is the one qwen3-moe already
+    /// proved, and the activation is a symbol. `sliding_window: 128` alternates
+    /// with full attention every other layer, which `window_left` states.
+    pub fn gpt_oss_20b() -> Self {
+        Self {
+            hidden: 2880,
+            layers: 24,
+            q_heads: 64,
+            kv_heads: 8,
+            head_dim: 64,
+            // The DENSE inner width, which a mixture has no use for.
+            intermediate: 0,
+            n_experts: 32,
+            experts_per_token: 4,
+            moe_intermediate: 2880,
+            // No shared expert.
+            shared_intermediate: 0,
+            vocab: 201_088,
+            rope: RopeKind::Standard,
+            norm_variant: NormVariant::Plain,
+            norm_placement: NormPlacement::Pre,
+            // No QK norm; gpt-oss normalizes neither.
+            qk_norm: QkNorm::Off,
+            fused_qkv: false,
+            tied_embeddings: false,
+            // `attention_bias: true` — every projection carries one.
+            qkv_bias: true,
+        }
+    }
+
     pub fn phi3_mini() -> Self {
         Self {
             // DENSE: no mixture. Stated rather than defaulted because a
@@ -622,6 +657,25 @@ pub struct LlamaLikeMetalFacts {
     /// layer until the activations saturate.
     #[serde(default)]
     pub rope_theta: f32,
+    /// Whether every layer carries an attention SINK.
+    ///
+    /// A per-head learned logit that joins the softmax without a value behind
+    /// it, so a sinked attention normalizes over one more term than it sums.
+    /// gpt-oss's; asked of the TENSORS, like the other binding facts.
+    #[serde(default)]
+    pub attn_sinks: bool,
+    /// gpt-oss's SwiGLU, as `(limit, alpha)`, or `None` for `silu_mul`.
+    ///
+    /// Not a parameterization of `silu_mul`: the gate is clamped ABOVE only,
+    /// the linear branch is clamped both ways and carries a `+1`, and dropping
+    /// either produces a model that runs and is wrong. Which activation a
+    /// deployment takes is therefore a SYMBOL choice, and this is the fact
+    /// that makes it.
+    ///
+    /// Serde-defaulted (append-only discipline); `None` is every llama-like
+    /// deployment.
+    #[serde(default)]
+    pub swiglu: Option<(f32, f32)>,
     /// Whether this deployment's rotary frequencies come from a TABLE.
     ///
     /// True for a config that rescales its ladder -- llama-3's `rope_scaling`
@@ -649,6 +703,26 @@ pub struct LlamaLikeMetalFacts {
 }
 
 impl LlamaLikeMetalFacts {
+    /// gpt-oss-20b's Metal facts. A SYNTHETIC fixture like `synthetic`.
+    #[must_use]
+    pub fn gpt_oss_20b() -> Self {
+        Self {
+            // Every layer carries one learned logit per head.
+            attn_sinks: true,
+            // `swiglu_limit: 7.0`, and alpha is the activation's own constant.
+            swiglu: Some((7.0, 1.702)),
+            // `rope_theta: 150000`, a plain geometric ladder.
+            rope_theta: 150_000.0,
+            rope_freq_table: false,
+            rms_eps: 1e-5,
+            // `sliding_window: 128`, ALTERNATING: every other layer attends
+            // the window and the rest attend everything. `window_left_at`
+            // reads the list per layer, which is what the accessor is for.
+            window_left: (0..24).map(|l| if l % 2 == 0 { 128 } else { -1 }).collect(),
+            ..Self::synthetic()
+        }
+    }
+
     /// This layer's window, `-1` for all of it. See [`Self::window_left`].
     pub fn window_left_at(&self, l: u32) -> i32 {
         model_compiler::facts::window_left_at(&self.window_left, l)
@@ -686,6 +760,9 @@ impl LlamaLikeMetalFacts {
             // statement hands it `log2(theta)`; handing theta rotates by a
             // frequency ladder that is wrong from the second channel on.
             rope_theta: 1_000_000.0,
+            // qwen3 has no attention sinks and the plain gated activation.
+            attn_sinks: false,
+            swiglu: None,
             // qwen3's ladder is a plain geometric series in `rope_theta`.
             rope_freq_table: false,
             // qwen3 attends over the whole context at every layer.

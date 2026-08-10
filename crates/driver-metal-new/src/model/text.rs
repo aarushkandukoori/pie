@@ -239,6 +239,14 @@ pub fn facts_from(
         // Whether the ladder is RESCALED, in which case no base expresses it
         // and the driver hands over a table instead.
         rope_freq_table: geometry.rope_freq_factor > 0.0,
+        // Asked of the TENSORS: a sink is a weight, and a checkpoint that
+        // ships one is a deployment that has them.
+        attn_sinks: has_tensor("layers.0.self_attn.sinks"),
+        // gpt-oss's activation, when the geometry states its two constants.
+        // A limit of zero is "this deployment is not gpt-oss" and not a clamp
+        // at zero, which would zero the gate branch entirely.
+        swiglu: (geometry.swiglu_limit > 0.0)
+            .then_some((geometry.swiglu_limit, geometry.swiglu_alpha)),
         // Empty is every layer attending the whole context, which is what a
         // llama-like deployment does. `DecodeGeometry` carries no window at
         // all, so this is the honest answer and not a default: the families

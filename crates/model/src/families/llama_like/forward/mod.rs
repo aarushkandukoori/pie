@@ -434,8 +434,16 @@ fn llama_like_metal_text(
         // rule, grid, operands -- and `RouteRows`/`RoutedQmv` read the expert
         // counts off the dims the same way `Qmv` reads `width`.
         let gated = |x: &Val, w: &dsl::Layer| {
+            // WHICH activation, and it is a symbol rather than a flag:
+            // gpt-oss clamps the gate above only, clamps the linear branch
+            // both ways and adds one to it, and dropping either produces a
+            // model that runs and is wrong.
+            let activate = |gate: &Val, up: &Val, width: u32| match metal.swiglu {
+                Some((limit, alpha)) => dsl::metal::swiglu(gate, up, width, limit, alpha),
+                None => dsl::metal::silu_mul(gate, up, width),
+            };
             if f.n_experts == 0 {
-                return dsl::metal::silu_mul(
+                return activate(
                     &gemm(x, &w.gate_proj),
                     &gemm(x, &w.up_proj),
                     f.intermediate,
@@ -465,7 +473,7 @@ fn llama_like_metal_text(
                 padded,
                 f.hidden,
             );
-            let h = dsl::metal::silu_mul(
+            let h = activate(
                 &dsl::metal::routed_qmv(&rows, &ids, &w.expert_gate, k, false),
                 &dsl::metal::routed_qmv(&rows, &ids, &w.expert_up, k, false),
                 f.moe_intermediate,
@@ -482,7 +490,7 @@ fn llama_like_metal_text(
             }
             // The dense expert a mixture may also have, blended in by a
             // per-row sigmoid gate.
-            let shared = dsl::metal::silu_mul(
+            let shared = activate(
                 &gemm(x, &w.shared_gate),
                 &gemm(x, &w.shared_up),
                 f.shared_intermediate,
@@ -543,6 +551,10 @@ fn llama_like_metal_text(
             // load-time fact, and one the executor sites used to reach into
             // `fwd_cfg.per_layer_window_left` for.
             let window = metal.window_left_at(l);
+            // The attention SINK this layer has, if any: a per-head learned
+            // logit that joins the softmax without a value behind it.
+            // gpt-oss's, and a deployment without them names none.
+            let sink = metal.attn_sinks.then(|| format!("layer.{l}.attn_sinks"));
             let a = dsl::metal::sdpa(
                 &q,
                 &w.kv,
@@ -552,6 +564,10 @@ fn llama_like_metal_text(
                 f.q_heads / f.kv_heads.max(1),
                 f.kv_heads,
                 window,
+                // The attention SINK this layer has, if any: a per-head
+                // learned logit that joins the softmax without a value behind
+                // it. gpt-oss's, and a deployment without them names none.
+                sink.as_deref(),
             )
                 .expect("a plain attention statement produces its value");
 

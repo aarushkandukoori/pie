@@ -122,8 +122,33 @@ pub static KERNELS: &[KernelSig] = &[
                   "_bfloat16_d_128_p32", "_bfloat16_d_64_p32_sg8"],
     }]),
     // 1 in sdpa_paged.metal
-    kernel!(sdpa_paged_decode_sink "sdpa_paged_decode_sink",
-        axes = &[BF16, Axis { what: "head dim", points: &["_d_64"] }]),
+    // The SAME template at `sinks = true`, so the same row with one slot
+    // filled. A sink is a per-head learned logit that joins the softmax
+    // without a value behind it -- gpt-oss's, and the reason the slot has been
+    // open on `sdpa_paged_decode` since the rows were written.
+    kernel!(sdpa_paged_decode_sink "sdpa_paged_decode_sink", file = Some("attn/sdpa_paged.metal"),
+    launch = kernels::LaunchRule::SdpaVector,
+    operands = kernels::operands![
+        queries: Buf <- kernels::Source::In(0),
+        k_pages: Buf <- kernels::Source::KvKeys,
+        v_pages: Buf <- kernels::Source::KvValues,
+        out: BufMut <- kernels::Source::Out(0),
+        gqa_factor: I32 <- kernels::Source::Param(0),
+        position_ids: I32s <- kernels::Source::Positions,
+        req_of_token: I32s <- kernels::Source::RequestOfToken,
+        kv_page_indices: U32s <- kernels::Source::KvPageIndices,
+        kv_page_indptr: U32s <- kernels::Source::KvPageIndptr,
+        page_size: I32 <- kernels::Source::KvPageSize,
+        n_kv_heads: I32 <- kernels::Source::Param(1),
+        scale: F32 <- kernels::Source::ParamF32(2),
+        attention_mask: U8s <- kernels::Source::AttentionMask,
+        attention_mask_stride: U32 <- kernels::Source::Param(3),
+        attention_mask_enabled: U8s <- kernels::Source::AttentionMaskEnabled,
+        window: I32 <- kernels::Source::Param(4),
+        sinks: Buf <- kernels::Source::Weight(0),
+    ],
+    lacks = &[Cap::Scores, Cap::PageMaskSink],
+    axes = &[BF16, Axis { what: "head dim", points: &["_d_64"] }]),
     // 1 in sdpa_paged_mma.metal
     kernel!(sdpa_paged_mma "sdpa_paged_mma",
         axes = &[BF16, Axis { what: "head dim", points: &["_d_64"] }]),

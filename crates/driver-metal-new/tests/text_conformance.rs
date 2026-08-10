@@ -90,6 +90,30 @@ fn texts() -> Vec<Text> {
             n_experts: 128,
             experts_per_token: 8,
         },
+    },
+    // gpt-oss, and it joins the same way: attention SINKS, its own SwiGLU and
+    // an alternating window are three facts, not a family. What is new is one
+    // weight per layer and one symbol.
+    Text {
+        name: "llama_like (gpt-oss)",
+        plan: |class| {
+            use model::families::llama_like::forward::facts::{
+                LlamaLikeFacts, LlamaLikeMetalFacts,
+            };
+            model::families::llama_like::forward::llama_like_metal(
+                &LlamaLikeFacts::gpt_oss_20b(),
+                &LlamaLikeMetalFacts::gpt_oss_20b(),
+                class,
+            )
+        },
+        geometry: Geometry {
+            q_heads: 64,
+            kv_heads: 8,
+            head_dim: 64,
+            rotary_dims: 64,
+            n_experts: 32,
+            experts_per_token: 4,
+        },
     }]
 }
 
@@ -279,7 +303,7 @@ fn the_harness_covers_every_family_that_has_a_text() {
     // branch anywhere in the executor.
     assert_eq!(
         texts().len(),
-        2,
+        3,
         "a Metal text or fixture landed or left. Add or remove its row in \
          `texts()` — everything above is per-text and a shape not listed is a \
          shape not checked."
