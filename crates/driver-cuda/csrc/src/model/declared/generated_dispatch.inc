@@ -67,6 +67,17 @@ if (sym == "mlp::chunked_geglu_tanh_bf16" && ins.size >= 1 && outs.size >= 1 && 
         false);
     return true;
 }
+if (sym == "mlp::sigmoid_dot_scalar_gate_add_bf16" && ins.size >= 3 && outs.size >= 1 && aux.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::mlp::sigmoid_dot_scalar_gate_add_bf16(
+        c.arm.values.slot(ins[0]),
+        c.wb.require(c.arm.plan.name(aux[0])).data(),
+        c.arm.values.slot(outs[0]),
+        c.arm.values.slot(ins[2]),
+        c.arm.rows,
+        row_width(c.arm.plan, outs[0]),
+        c.arm.stream);
+    return true;
+}
 if (sym == "moe::topk_softmax_bf16" && ins.size >= 1 && outs.size >= 2 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::moe::topk_softmax_bf16(
         c.arm.values.slot(ins[0]),
@@ -80,6 +91,17 @@ if (sym == "moe::topk_softmax_bf16" && ins.size >= 1 && outs.size >= 2 && c.arm.
 }
 if (sym == "moe::token_batched_weighted_sum_bf16" && ins.size >= 2 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
     ::pie_cuda_driver::kernels::moe::token_batched_weighted_sum_bf16(
+        c.arm.values.slot(outs[0]),
+        c.arm.values.slot(ins[0]),
+        static_cast<const float*>(c.arm.values.slot(ins[1])),
+        c.arm.rows,
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[1].value),
+        static_cast<int>(c.arm.plan.value(ins[0]).dims[2].value),
+        c.arm.stream);
+    return true;
+}
+if (sym == "moe::token_batched_weighted_sum_add_bf16" && ins.size >= 2 && outs.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::moe::token_batched_weighted_sum_add_bf16(
         c.arm.values.slot(outs[0]),
         c.arm.values.slot(ins[0]),
         static_cast<const float*>(c.arm.values.slot(ins[1])),
@@ -137,6 +159,17 @@ if (sym == "norm::magnitude_rescale_bf16" && ins.size >= 2 && outs.size >= 1 && 
     ::pie_cuda_driver::kernels::norm::magnitude_rescale_bf16(
         c.arm.values.slot(outs[0]),
         static_cast<const float*>(c.arm.values.slot(ins[1])),
+        c.arm.rows,
+        row_width(c.arm.plan, outs[0]),
+        c.eps,
+        c.arm.stream);
+    return true;
+}
+if (sym == "norm::rmsnorm_residual_add_bf16" && ins.size >= 1 && outs.size >= 1 && aux.size >= 1 && c.arm.plan.value(outs[0]).dims[0].kind == pie_forward::PieForwardDimKind::Tokens) {
+    ::pie_cuda_driver::kernels::norm::rmsnorm_residual_add_bf16(
+        c.arm.values.slot(ins[0]),
+        c.wb.require(c.arm.plan.name(aux[0])).data(),
+        c.arm.values.slot(outs[0]),
         c.arm.rows,
         row_width(c.arm.plan, outs[0]),
         c.eps,

@@ -2229,51 +2229,15 @@ case PieForwardOpKind::Launch: {
                             /*shared_out=*/nullptr, stream);
                         break;
                     }
-                    case declared::Kernel::MoeWeightedSum:
-                        // The reorder above already put the rows back in
-                        // ROUTE order, so this is the plain token-batched
-                        // sum. `_aligned_` names a kernel that reads
-                        // block-major rows; by here there are none.
-                        // `_add_`, onto `ws.y`: at tp=1 the aligned leg is
-                        // reached only through the decode fast path, where
-                        // the hand body sets `add_to_residual` and `moe_out`
-                        // IS the residual stream. The declaration says the
-                        // same thing, so there is no trailing add to make.
-                        // ISLAND (value arena). `weighted_sum_add(x,
-                        // weights, residual)` accumulates INTO the
-                        // residual, which is operand 2 and which the
-                        // `kernel!` row now aliases the result over.
-                        kernels::moe::token_batched_weighted_sum_add_bf16(
-                            values.slot(plan.outputs(op)[0]),
-                            values.slot(plan.inputs(op)[0]),
-                            static_cast<const float*>(
-                                values.slot(plan.inputs(op)[1])),
-                            N, Ktop, H, stream);
-                        break;
-                    case declared::Kernel::SigmoidDotScalarGateAdd: {
-                        const auto aux = plan.aux_names(op);
-                        if (aux.size != 1) {
-                            throw_drift("the shared gate names " +
-                                        std::to_string(aux.size) +
-                                        " weights, wants 1");
-                        }
-                        // (x, gate_weight, ACCUMULATOR, addend) -- the
-                        // hand call's order. Reversing the last two lands
-                        // the gate on the wrong buffer and still compiles.
-                        // ISLAND (value arena).
-                        // `sigmoid_dot_scalar_gate_add(x, base, shared)`
-                        // -- `base` is the residual stream and the
-                        // kernel's own header calls that argument the
-                        // "in-place add destination", which the table
-                        // now says too.
-                        kernels::mlp::sigmoid_dot_scalar_gate_add_bf16(
-                            values.slot(plan.inputs(op)[0]),
-                            wb.require(plan.name(aux[0])).data(),
-                            values.slot(plan.outputs(op)[0]),
-                            values.slot(plan.inputs(op)[2]),
-                            N, H, stream);
-                        break;
-                    }
+                    // The COMBINE and the SHARED GATE generate. Both
+                    // read their extents off the values -- the reorder
+                    // above produces `[Tokens, top_k, hidden]`, so the
+                    // route count and the width are its own dims -- and
+                    // both accumulate into an operand the `kernel!` row
+                    // aliases the result over. The shared gate's arm
+                    // carried a warning that reversing its last two
+                    // arguments lands the gate on the wrong buffer and
+                    // still compiles; the row states that order once.
                     default:
                         break;
                     }

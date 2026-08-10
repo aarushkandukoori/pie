@@ -825,20 +825,10 @@ bool gemma4_forward_declared(
                     N, H, eps, stream);
                 break;
             }
-            case declared::Kernel::NormResidualAdd: {
-                // The `ple_norm` test that used to live here chose
-                // between two input scratches. The trace names the
-                // input, so there is nothing left to tell apart.
-                const std::string_view first = aux(0);
-                const auto ins = plan.inputs(op);
-                const auto outs = plan.outputs(op);
-                need(ins, 1, "norm-residual-add inputs");
-                need(outs, 1, "norm-residual-add outputs");
-                kernels::norm::rmsnorm_residual_add_bf16(
-                    values.slot(ins[0]), wb.require(first).data(),
-                    values.slot(outs[0]), N, H, eps, stream);
-                break;
-            }
+            // The norm-and-residual-add GENERATES. The `ple_norm` test
+            // that used to live here chose between two input scratches,
+            // and the trace naming its input is what removed it; the
+            // width being the result's is what removed the rest.
             case declared::Kernel::LogitSoftcap:
                 kernels::attn::logit_softcap_bf16(
                     values.slot(plan.outputs(op)[0]),

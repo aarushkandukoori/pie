@@ -176,12 +176,16 @@ pub static KERNELS: &[KernelSig] = &[
     kernel!(moe_shared_gate_dot "mlp::sigmoid_dot_scalar_gate_add_bf16",
         in_place = &[(0, 1)],
         operands = operands![
-            x: Buf,
-            gate_w: Buf,
-            out: BufMut,
-            y: Buf,
-            n: I32,
-            h: I32,
-            stream: Stream,
+            x: Buf <- Source::In(0),
+            gate_w: Buf <- Source::Weight(0),
+            out: BufMut <- Source::Out(0),
+            // The ADDEND, operand 2, not the accumulator. The hand arm
+            // carried a warning that reversing the last two lands the
+            // gate on the wrong buffer and still compiles; a row states
+            // the order once instead.
+            y: Buf <- Source::In(2),
+            n: I32 <- Source::Rows,
+            h: I32 <- Source::OutWidth(0),
+            stream: Stream <- Source::Ctx("arm.stream"),
         ]),
 ];
