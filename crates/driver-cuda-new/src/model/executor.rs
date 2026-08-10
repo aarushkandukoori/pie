@@ -956,6 +956,32 @@ fn dispatch_generated(
         v.is_set()
     }
 
+    // A JOIN FACT NO `Source` CAN NAME declines the whole branch.
+    //
+    // The generator binds from the ROW, and the row describes the
+    // launcher. What it cannot describe is a fact the op join carries
+    // ABOUT this statement — and those change the arithmetic, not the
+    // operands, so a generated branch reads right and computes wrong.
+    //
+    // `per_head_dim` is the live one and gemma-4 is where it bites:
+    // `OpKind::RmsnormPerHead` lowers to `norm::rmsnorm_bf16`, the same
+    // symbol the plain kind does, and the per-head reading is `rows *
+    // (width / head_dim)` rows of `head_dim` against the flat reading's
+    // `rows` of `width`. A generated branch binds `Rows` and
+    // `InWidth(0)` and would norm gemma-4's q/k heads as one row each.
+    //
+    // `rope_partial` and `aux` are the same class: a rotary width the
+    // statement carries out of band, and operands the trace does not
+    // state at all. `beta_one` is not — it changes which ARG is the
+    // destination, which arity guards already catch.
+    //
+    // This is the fallthrough working as designed, not a special case:
+    // the hand arm reads the join and the generated branch says "not
+    // mine" rather than guessing which reading applies.
+    if spec.per_head_dim.is_some() || spec.rope_partial.is_some() || !spec.aux.is_empty() {
+        return false;
+    }
+
     let n_in = spec.n_in;
     let n_out = spec.n_out;
     include!(concat!(env!("OUT_DIR"), "/rust_dispatch.rs"))

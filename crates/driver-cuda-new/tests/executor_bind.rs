@@ -869,6 +869,39 @@ fn every_lowered_symbol_has_an_arm() {
         armed.len()
     );
 
+    // GENERATED branches count as armed, because they are. `dispatch`
+    // runs them first and the hand-written match is the fallthrough, so a
+    // symbol with a generated branch and no arm is served — and this test
+    // said otherwise for exactly as long as the generator has existed.
+    //
+    // Read off `emit_rust_dispatch` rather than off the build's output:
+    // the generator is the claim, and reading `OUT_DIR` would make this
+    // pass or fail on whether a build script had run.
+    let generated = kernels_cuda::abi::emit_rust_dispatch(&[
+        kernels_cuda::attn::KERNELS,
+        kernels_cuda::rope::KERNELS,
+        kernels_cuda::norm::KERNELS,
+        kernels_cuda::mlp::KERNELS,
+        kernels_cuda::gemm::KERNELS,
+        kernels_cuda::moe::KERNELS,
+        kernels_cuda::ssm::KERNELS,
+        kernels_cuda::quant::KERNELS,
+        kernels_cuda::layout::KERNELS,
+        kernels_cuda::sample::KERNELS,
+        kernels_cuda::driver_internal::DRIVER_KERNELS,
+    ]);
+    for line in generated.lines() {
+        // A branch opens `"symbol" if ... => unsafe {`.
+        if !line.trim_start().starts_with('"') || !line.contains("=> unsafe") {
+            continue;
+        }
+        if let Some(sym) = line.split('"').nth(1)
+            && sym.contains("::")
+        {
+            armed.insert(sym.to_string());
+        }
+    }
+
     let mut every: BTreeSet<String> = BTreeSet::new();
     for l in [
         lowered(FireClass::Decode, 4),
@@ -922,7 +955,10 @@ fn every_lowered_symbol_has_an_arm() {
         "norm::hc_pre_postprocess_bf16",
         "norm::hc_rmsnorm_to_f32",
         // ── kimi_k3: KDA, the per-key-channel delta rule ──────────────
-        "ssm::bf16_to_fp32",
+        //
+        // `ssm::bf16_to_fp32` left this list without an arm being
+        // written: its row stated its sources, so a branch generates.
+        // That is the shape every line here is meant to leave by.
         "ssm::kda_gate_beta_bf16",
         "ssm::kda_o_norm_gated_bf16",
         "ssm::kda_recurrent_step_batched",
