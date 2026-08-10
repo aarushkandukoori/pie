@@ -63,6 +63,9 @@ struct Shell {
     notify_ctx: *mut std::ffi::c_void,
     /// The hybrid's GDN state slabs, allocated on first hybrid launch.
     gdn: Option<GdnState>,
+    /// The per-fire device arrays, pooled so a capture can outlive the
+    /// fire that recorded it. See [`FireArrays`].
+    fire_arrays: FireArrays,
     /// The driver-owned KV pools, allocated on first launch and grown on
     /// demand — decode continuity across launches lives here.
     kv: Option<KvState>,
@@ -166,6 +169,67 @@ impl ChannelState {
 /// The shell's KV: one (k, v) pool per layer, plus the capacity in
 /// pages. A `None` row is a layer that owns no pages — gemma-4's
 /// KV-shared trailing layers, whose views ride their source's pool.
+/// The per-fire device arrays, POOLED across fires.
+///
+/// They used to be allocated and dropped every launch — `step_impl`'s own
+/// comment said "KV pools (persistent), fire arrays (per launch)" — and
+/// that is the one thing standing between the supergraph and the live
+/// path. A captured exec bakes the addresses it recorded, so an arena
+/// freed at the end of its fire can never be replayed into.
+///
+/// So they are kept and reused, and grown when a fire needs more than the
+/// last one did. Growth MOVES a base address, which invalidates every
+/// capture that recorded it — hence [`Self::epoch`], which is the
+/// `PlanEpoch` `model::supergraph::SupergraphCache` keys its execs on. A
+/// bump means stale, and stale means recapture rather than a wrong
+/// answer.
+#[derive(Default)]
+struct FireArrays {
+    arena: Option<crate::cuda::DeviceBuffer>,
+    named: std::collections::BTreeMap<model_compiler::trace::ValueId, crate::cuda::DeviceBuffer>,
+    epoch: u64,
+}
+
+impl FireArrays {
+    /// The activation arena, at least `bytes` wide.
+    fn arena(
+        &mut self,
+        alloc: &crate::cuda::Allocator,
+        bytes: usize,
+    ) -> Result<*mut std::ffi::c_void, i32> {
+        if self.arena.as_ref().is_none_or(|b| b.len() < bytes) {
+            self.arena = Some(alloc.alloc(bytes).map_err(|_| PIE_STATUS_EXHAUSTED)?);
+            self.epoch += 1;
+        }
+        Ok(self.arena.as_ref().expect("just ensured").as_ptr())
+    }
+
+    /// One named seam buffer, at least `bytes` wide, zeroed.
+    ///
+    /// Zeroed on every fire rather than only on allocation: the pin is
+    /// per-fire state whatever its storage is, and a reused buffer still
+    /// holds the last fire's values.
+    fn named(
+        &mut self,
+        alloc: &crate::cuda::Allocator,
+        v: model_compiler::trace::ValueId,
+        bytes: usize,
+        stream: crate::cuda::StreamRef<'_>,
+    ) -> Result<(), i32> {
+        let grow = self.named.get(&v).is_none_or(|b| b.len() < bytes);
+        if grow {
+            self.named
+                .insert(v, alloc.alloc(bytes).map_err(|_| PIE_STATUS_EXHAUSTED)?);
+            self.epoch += 1;
+        }
+        self.named
+            .get_mut(&v)
+            .expect("just ensured")
+            .memset(0, stream)
+            .map_err(|_| PIE_STATUS_DRIVER_ERROR)
+    }
+}
+
 struct KvState {
     pools: Vec<Option<(crate::cuda::DeviceBuffer, crate::cuda::DeviceBuffer)>>,
     num_pages: u32,
@@ -338,6 +402,7 @@ pub extern "C" fn pie_cuda_create(
         next_id: 1,
         notify: desc.runtime.notify,
         notify_ctx: desc.runtime.ctx,
+        fire_arrays: FireArrays::default(),
         kv: None,
         gdn: None,
         channels: std::collections::BTreeMap::new(),
@@ -1686,8 +1751,9 @@ fn step_impl(
     };
     ws.end_plan_update(&mut sops, raw_stream);
 
-    let arena = alloc.alloc(lowered.arena_bytes.max(64)).map_err(|_| PIE_STATUS_EXHAUSTED)?;
-    let exec_frame = Frame { arena: arena.as_ptr(), arena_bytes: lowered.arena_bytes.max(64) };
+    let arena_bytes = lowered.arena_bytes.max(64);
+    let arena_ptr = state.fire_arrays.arena(&alloc, arena_bytes)?;
+    let exec_frame = Frame { arena: arena_ptr, arena_bytes };
 
     let mut named_widths: std::collections::BTreeMap<ValueId, u32> =
         std::collections::BTreeMap::new();
@@ -1703,16 +1769,12 @@ fn step_impl(
             }
         }
     }
-    let mut named_bufs: std::collections::BTreeMap<ValueId, crate::cuda::DeviceBuffer> =
-        std::collections::BTreeMap::new();
     for (&v, &w) in &named_widths {
         // fp32-wide: the GDN seam pins are f32; llama-like's are bf16 and
         // simply leave half the pin unread.
-        let mut b =
-            alloc.alloc(rows * w as usize * 4).map_err(|_| PIE_STATUS_EXHAUSTED)?;
-        b.memset(0, stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        named_bufs.insert(v, b);
+        state.fire_arrays.named(&alloc, v, rows * w as usize * 4, stream.as_ref())?;
     }
+    let named_bufs = &state.fire_arrays.named;
 
     // ── The hybrid's GDN context: driver-owned slabs, instance slots. ──
     let mut gdn_ctx: Option<GdnCtx> = None;
@@ -1900,7 +1962,7 @@ fn step_impl(
         score_indptr_d: core::ptr::null(),
         o_out: o_off
             .map_or(core::ptr::null_mut(), |off| unsafe {
-                arena.as_ptr().cast::<u8>().add(off)
+                arena_ptr.cast::<u8>().add(off)
             }
             .cast()),
         kv_page_indices_d: d_kv_indices.as_ptr().cast(),
