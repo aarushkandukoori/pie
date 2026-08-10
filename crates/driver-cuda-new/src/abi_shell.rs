@@ -1704,8 +1704,40 @@ pub fn fire_class_of(
     Ok(if rows == requests { FireClass::Decode } else { FireClass::Prefill })
 }
 
+/// THE GQA RATIO, refused at LOAD rather than discovered at launch.
+///
+/// FlashInfer's decode instantiates group sizes {1, 2, 3, 4, 8} and
+/// reports anything else by THROWING. A throw crossing the C ABI is
+/// undefined behaviour; the generated shim prints the message before it
+/// dies, but printing is all it can do — the launcher signatures have
+/// nowhere to put a failure. A load DOES: it returns a status code.
+///
+/// This lived inside the llama lineage's derivation, which made it a
+/// property of that lineage rather than of the BUILD. It is the build's:
+/// every family whose attention reaches the same dispatch is subject to
+/// the same instantiation set, and the hybrid is the live proof —
+/// Qwen3.6-27B declares `qwen3_5_text`, so it is already openable, and
+/// its 24 query heads over 4 kv heads is a group size of six.
+///
+/// Qwen2.5-1.5B is the other live example, twelve over two.
+fn refuse_unservable_gqa(hf: &crate::model::config::HfConfig) -> Result<(), i32> {
+    let kv_heads = hf.num_key_value_heads.max(1);
+    let group_size = hf.num_attention_heads / kv_heads;
+    if hf.num_attention_heads % kv_heads != 0 || !matches!(group_size, 1 | 2 | 3 | 4 | 8) {
+        eprintln!(
+            "[driver-cuda-new] load: this build's decode does not instantiate \
+             GQA group size {group_size} ({} q heads over {kv_heads} kv heads); \
+             the supported set is 1, 2, 3, 4, 8",
+            hf.num_attention_heads
+        );
+        return Err(PIE_STATUS_UNSUPPORTED);
+    }
+    Ok(())
+}
+
 /// The facts for a loaded checkpoint, by the model type it declares.
 fn facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i32> {
+    refuse_unservable_gqa(&model.hf)?;
     let model_type = model.hf.model_type.as_str();
     match FACTS_ROWS.iter().find(|(k, _)| *k == model_type) {
         Some((_, derive)) => derive(model),
@@ -1731,33 +1763,6 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily
         eprintln!("[driver-cuda-new] launch: only HF llama-like checkpoints execute today");
         return Err(PIE_STATUS_UNSUPPORTED);
     }
-    // THE GQA RATIO, refused here rather than discovered at launch.
-    //
-    // FlashInfer's decode instantiates group sizes {1, 2, 3, 4, 8} and
-    // reports anything else by THROWING. A throw crossing the C ABI is
-    // undefined behaviour; the generated shim now prints the message
-    // before it dies, but printing is all it can do — the launcher
-    // signatures have nowhere to put a failure. A load DOES: it returns a
-    // status code.
-    //
-    // So a deployment whose q/kv ratio this build cannot serve is turned
-    // away while turning it away is still cheap. Qwen2.5-1.5B is the live
-    // example — twelve query heads over two kv heads is a group size of
-    // six, and six is not in the list.
-    let kv_heads = hf.num_key_value_heads.max(1);
-    let group_size = hf.num_attention_heads / kv_heads;
-    if hf.num_attention_heads % kv_heads != 0
-        || !matches!(group_size, 1 | 2 | 3 | 4 | 8)
-    {
-        eprintln!(
-            "[driver-cuda-new] load: this build's decode does not instantiate \
-             GQA group size {group_size} ({} q heads over {kv_heads} kv heads); \
-             the supported set is 1, 2, 3, 4, 8",
-            hf.num_attention_heads
-        );
-        return Err(PIE_STATUS_UNSUPPORTED);
-    }
-
     // NORM PLACEMENT, off the checkpoint. `input_layernorm`'s presence IS
     // the placement, which is the same fact `fuse_llama_like` already
     // binds on: pre-norm ships it, post-norm (olmo2) ships
