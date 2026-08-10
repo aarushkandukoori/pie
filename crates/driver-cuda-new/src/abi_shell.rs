@@ -1717,13 +1717,34 @@ const SCORE_PIN: model_compiler::trace::ValueId = model_compiler::trace::ValueId
 
 /// Is the unionized supergraph armed for this process?
 ///
-/// `PIE_CUDA_SUPERGRAPH=1`. Off by default and deliberately so: every A/B
-/// in this tree pins the EAGER leg, and a capture is an optimisation that
-/// has to prove itself against that rather than replace it silently. The
-/// same shape as `decode_fused_post` and the lora grouping gate.
+/// **ON by default now**, and `PIE_CUDA_SUPERGRAPH=0` turns it off.
+///
+/// It was off, deliberately, with this reason: every A/B in the tree pins
+/// the EAGER leg, and a capture is an optimisation that has to prove
+/// itself against that rather than replace it silently. It has now proved
+/// it, on the three claims that were the actual doubt:
+///
+/// - the whole ABI suite records and replays (19/19 with the gate on),
+///   which is every family this shell opens and every fire shape it
+///   serves;
+/// - one exec runs two structurally distinct KV-write programs and
+///   returns byte-identical logits, selected by a byte of device memory
+///   (`bridge_smoke::the_union_captures_and_replays_the_same_decode`);
+/// - and one exec serves a SECOND fire's tokens
+///   (`a_cached_exec_serves_the_next_fire`), which is the property that
+///   makes a cached exec worth caching and the only one that can tell a
+///   baked address from baked contents.
+///
+/// What cannot be replayed still refuses rather than being captured
+/// wrong: recurrent-state families stay eager at the LOWERING decision,
+/// and an arm whose prepared state the fire declines to build is refused.
+/// So default-on changes which leg runs, not which answers are possible.
+///
+/// The env var inverts rather than disappears, because a default is a
+/// judgement and a judgement should stay reversible without a rebuild.
 fn supergraph_enabled() -> bool {
-    std::env::var_os("PIE_CUDA_SUPERGRAPH")
-        .is_some_and(|v| v == "1" || v == "true" || v == "on")
+    !std::env::var_os("PIE_CUDA_SUPERGRAPH")
+        .is_some_and(|v| v == "0" || v == "false" || v == "off")
 }
 
 /// What a row dispatches to: this family's facts, off the checkpoint.
