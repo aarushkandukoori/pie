@@ -2466,47 +2466,6 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [topk_idx, norm_x, out, W stacked-expert base] — the
-        // decode GEMV over the routed experts; one warp per output row.
-        "moe::moe_gate_up_decode_gemv_bf16" => {
-            need(4)?;
-            let (idx, x, y, base) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            let top_k = i32::try_from(idx.width).expect("top_k");
-            unsafe {
-                ffi::pie_k_moe_moe_gate_up_decode_gemv_bf16(
-                    idx.ptr.cast_const().cast(),
-                    x.ptr.cast_const(),
-                    base.ptr.cast_const(),
-                    y.ptr,
-                    rows,
-                    top_k,
-                    i32::try_from(x.width).expect("hidden"),
-                    i32::try_from(y.width).expect("width") / top_k.max(1),
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [topk_idx, act, out, W stacked-expert base].
-        "moe::moe_down_decode_gemv_bf16" => {
-            need(4)?;
-            let (idx, act, y, base) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            let top_k = i32::try_from(idx.width).expect("top_k");
-            unsafe {
-                ffi::pie_k_moe_moe_down_decode_gemv_bf16(
-                    idx.ptr.cast_const().cast(),
-                    act.ptr.cast_const(),
-                    base.ptr.cast_const(),
-                    y.ptr,
-                    rows,
-                    top_k,
-                    i32::try_from(y.width).expect("width") / top_k.max(1),
-                    i32::try_from(act.width).expect("i_moe"),
-                    ctx.stream,
-                );
-            }
-        }
         // args: [q, v] in place; qkv_in rides the spec's aux (the same
         // layer's projection input), the staged state + scratch ride the
         // ctx. The LAYER is the op tag's — never `param1`, the bug the
@@ -2575,56 +2534,6 @@ pub fn dispatch<R: Resolver>(
                     hidden,
                     rows,
                     ctx.eps,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [act_fp16, topk_idx, gate_out, up_out] + the FOUR named
-        // per-expert tables. They were unnamed until the declaration
-        // learned to say what it reads — with no name in the trace an
-        // executor that resolves by name cannot reach them at all, and
-        // the only way in was a family's private layer struct.
-        "quant::wna16_gate_up_decode_bf16" => {
-            need(8)?;
-            let (act, idx, gate_out, up_out) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            let top_k = i32::try_from(idx.width).expect("top_k");
-            unsafe {
-                ffi::pie_k_quant_wna16_gate_up_decode_bf16(
-                    act.ptr.cast_const(),
-                    idx.ptr.cast_const().cast(),
-                    bound.args[4].ptr.cast_const().cast(),
-                    bound.args[5].ptr.cast_const().cast(),
-                    bound.args[6].ptr.cast_const().cast(),
-                    bound.args[7].ptr.cast_const().cast(),
-                    gate_out.ptr,
-                    up_out.ptr,
-                    rows,
-                    top_k,
-                    i32::try_from(act.width).expect("hidden"),
-                    i32::try_from(gate_out.width).expect("intermediate"),
-                    ctx.wna16_group_size,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [act_fp16, topk_idx, out] + the two named down tables.
-        "quant::wna16_down_decode_bf16" => {
-            need(5)?;
-            let (act, idx, out) = (bound.args[0], bound.args[1], bound.args[2]);
-            let top_k = i32::try_from(idx.width).expect("top_k");
-            unsafe {
-                ffi::pie_k_quant_wna16_down_decode_bf16(
-                    act.ptr.cast_const(),
-                    idx.ptr.cast_const().cast(),
-                    bound.args[3].ptr.cast_const().cast(),
-                    bound.args[4].ptr.cast_const().cast(),
-                    out.ptr,
-                    rows,
-                    top_k,
-                    i32::try_from(out.width).expect("hidden"),
-                    i32::try_from(act.width).expect("intermediate"),
-                    ctx.wna16_group_size,
                     ctx.stream,
                 );
             }
@@ -2846,24 +2755,6 @@ pub fn dispatch<R: Resolver>(
                     top_k,
                     i32::try_from(out.width).expect("width") / top_k.max(1),
                     i32::try_from(act.width).expect("width") / top_k.max(1),
-                    ctx.stream,
-                );
-            }
-        }
-        // ── gemma3n's arms (AltUp, the rank-K residual) ─────────────
-        // args: [x, y] — one stream broadcast into K. `hc_mult` is the
-        // ratio of the widths, so the expansion states its own K.
-        "norm::hc_expand_bf16" => {
-            need(2)?;
-            let (x, y) = (bound.args[0], bound.args[1]);
-            let hidden = i32::try_from(x.width).expect("hidden");
-            unsafe {
-                ffi::pie_k_norm_hc_expand_bf16(
-                    x.ptr.cast_const(),
-                    y.ptr,
-                    rows,
-                    i32::try_from(y.width).expect("width") / hidden.max(1),
-                    hidden,
                     ctx.stream,
                 );
             }

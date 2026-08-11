@@ -144,14 +144,17 @@ pub static KERNELS: &[KernelSig] = &[
     // Where a rank-K residual BEGINS: replicate the embedding into K
     // streams. AltUp's equivalent is implicit in gemma-3n's workspace
     // layout; HC states it, which is the one a declaration can read.
+    // The hyper-connection expand: one hidden row in, `hc_mult` of them
+    // out. Both extents come off the two values — the multiplier is what
+    // the result is wider BY — so nothing here is the plan's.
     kernel!(hc_expand "norm::hc_expand_bf16",
         operands = operands![
-            input: Buf,
-            output: BufMut,
-            n: I32,
-            hc_mult: I32,
-            hidden_size: I32,
-            stream: Stream,
+            input: Buf <- Source::In(0),
+            output: BufMut <- Source::Out(0),
+            n: I32 <- Source::Rows,
+            hc_mult: I32 <- Source::OutWidthOverIn(0, 0),
+            hidden_size: I32 <- Source::InWidth(0),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(hc_pre "norm::hc_pre_postprocess_bf16",
         operands = operands![

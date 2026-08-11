@@ -845,6 +845,23 @@ pub enum Source {
     OutWidthOver(u8, &'static str),
     /// The same for the `i`-th operand. See [`Source::OutWidthOver`].
     InWidthOver(u8, &'static str),
+    /// The `o`-th result's row width divided by the `i`-th OPERAND's.
+    ///
+    /// The divisor is a value the statement already carries, which is the
+    /// only difference from [`Source::OutWidthOver`] — and it is worth a
+    /// variant because three rows want it and none of them can name a
+    /// context field for it. The MoE decode GEMVs read their intermediate
+    /// as `expert_out.width / topk_idx.width`, because the result is
+    /// `[Tokens, top_k * i_moe]` and the routing table IS `[Tokens,
+    /// top_k]`; gemma-3n's hyper-connection expand reads its multiplier
+    /// as `output.width / input.width`.
+    ///
+    /// Unguarded, unlike its context twin: an operand with a zero row
+    /// width is not a fire that states nothing, it is a fire whose
+    /// binding is already wrong, and the arity guard has covered the case
+    /// where the operand is absent. `width_over`'s `max(1)` stands behind
+    /// it either way.
+    OutWidthOverIn(u8, u8),
     /// A context field the fire holds PER LAYER, read at the statement's
     /// own layer.
     ///

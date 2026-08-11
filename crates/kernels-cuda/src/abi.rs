@@ -480,6 +480,9 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         // when the field is unset, so the `max(1)` is belt to that braces.
         Source::OutWidthOver(i, f) => format!("width_over(b, n_in + {i}, ctx.{f})"),
         Source::InWidthOver(i, f) => format!("width_over(b, {i}, ctx.{f})"),
+        Source::OutWidthOverIn(o, i) => {
+            format!("width_over(b, n_in + {o}, width_of(b, {i}))")
+        }
         // An ACCESSOR, not a field: the driver decides whether its
         // per-layer vector falls back, filters or refuses, and the
         // generator's claim is only that the statement's layer is the
@@ -577,6 +580,20 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         kernels::Ty::F32sMut => format!("({e}).cast::<f32>()"),
         kernels::Ty::U16s => format!("({e}).cast_const().cast::<u16>()"),
         kernels::Ty::U16sMut => format!("({e}).cast::<u16>()"),
+        // An ARRAY OF DEVICE POINTERS: the bank of per-expert addresses
+        // the routed GEMVs index. The bind is the same as a scalar
+        // pointer's — the arg holds the bank's address — and only the
+        // pointee type differs, which is a cast the row already states.
+        // Spelled out rather than left to `_` because a `*mut c_void`
+        // reaching a `*const *const i32` parameter is a compile error,
+        // and the whole reason these casts are here is that the error is
+        // better than a stride bug.
+        kernels::Ty::BufArray => format!("({e}).cast_const().cast::<*const ::core::ffi::c_void>()"),
+        kernels::Ty::BufArrayMut => format!("({e}).cast_const().cast::<*mut ::core::ffi::c_void>()"),
+        kernels::Ty::BufArrayOut => format!("({e}).cast::<*const ::core::ffi::c_void>()"),
+        kernels::Ty::BufArrayOutMut => format!("({e}).cast::<*mut ::core::ffi::c_void>()"),
+        kernels::Ty::U8Array => format!("({e}).cast_const().cast::<*const u8>()"),
+        kernels::Ty::I32Array => format!("({e}).cast_const().cast::<*const i32>()"),
         _ => e,
     })
 }
@@ -630,6 +647,10 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
                 | Source::OutWidth(i)
                 | Source::OutWidthOver(i, _)
                 | Source::OutElements(i) => need_out = need_out.max(i + 1),
+                Source::OutWidthOverIn(o, i) => {
+                    need_out = need_out.max(o + 1);
+                    need_in = need_in.max(i + 1);
+                }
                 Source::Weight(i) => need_w = need_w.max(i + 1),
                 Source::Param(i) | Source::ParamF32(i) | Source::RoutesOfParam(i) => {
                     need_ps = need_ps.max(i + 1);
