@@ -32,6 +32,22 @@
 //! it makes this test's failure mode the safe one: it can miss a
 //! deployment-specific gap, and it cannot invent one.
 //!
+//! ## What it does NOT catch, and one instance found while writing it
+//!
+//! **A name that resolves to the WRONG tensor.** This compares spellings,
+//! so a trace name `wire()` answers is a name it considers answered —
+//! whether or not the tensor behind it is the right one. gemma-2 is the
+//! live instance: it is a SANDWICH-norm family with four norms per layer,
+//! and `llama_like`'s pre-norm branch maps its `mlp_norm` to
+//! `post_attention_layernorm` where the forward means
+//! `pre_feedforward_layernorm`. The name resolves; the tensor is wrong.
+//!
+//! It is latent rather than live — `contract::HF_ROWS` has no `gemma2`
+//! row, so the family has a forward and cannot be loaded — which is also
+//! why fixing it would be guessing at a contract nobody has written. It
+//! is written down here instead, because the shape of what a test misses
+//! belongs beside the test.
+//!
 //! Layer indices are normalised to `layer.*`, because a trace at four
 //! layers and a `wire()` at eight would otherwise disagree about
 //! everything for no reason. The question is about SPELLINGS.
