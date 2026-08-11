@@ -51,6 +51,19 @@ struct Shell {
     /// Does this driver hand its completions to a stream callback and
     /// return with the fire still queued? See `runahead_env`.
     runahead: bool,
+    /// The traced-and-lowered program for a fire SHAPE, kept.
+    ///
+    /// Tracing the forward, lowering it and joining the ops back onto the
+    /// launches is ~3.3 ms per fire on a 0.6B decode — 1.25 ms of trace,
+    /// 1.85 ms of lowering, 0.17 ms of dispatch plan — and it is a pure
+    /// function of the key below. It was being redone on every launch, which
+    /// on a decode is most of the time the call takes.
+    ///
+    /// Keyed by what the answer can depend on: which model, which fire class,
+    /// how many rows, and whether a union was ASKED for. The union may still
+    /// be declined after the servability test, so the answer records what was
+    /// actually built rather than what was requested.
+    lowerings: std::collections::BTreeMap<LoweringKey, LoweredFire>,
     /// The fire's predicate word, allocated once.
     ///
     /// PERSISTENT for two reasons, and the second is correctness. It used to
@@ -241,6 +254,23 @@ struct InFlight {
     /// the point is that nothing here is read again — it is held only so
     /// that dropping it does not synchronize at the wrong moment.
     scratch: Vec<crate::cuda::DeviceBuffer>,
+}
+
+/// What a lowering can depend on: see [`Shell::lowerings`].
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct LoweringKey {
+    model_id: u64,
+    class: model_compiler::trace::FireClass,
+    rows: u32,
+    union_asked: bool,
+}
+
+/// A traced, lowered and joined program, and whether it kept its union.
+struct LoweredFire {
+    plan: model_compiler::trace::ForwardPlan,
+    lowered: model_compiler::lower::Lowered,
+    dplan: crate::model::executor::DispatchPlan,
+    union: bool,
 }
 
 /// EVERYTHING A FIRE STILL OWES WHEN ITS WORK IS ENQUEUED.
@@ -698,6 +728,7 @@ pub extern "C" fn pie_cuda_create(
         caps: CAPS_JSON.as_bytes().to_vec(),
         boot_descriptor,
         runahead,
+        lowerings: std::collections::BTreeMap::new(),
         preds: None,
         peel_win: None,
         logits_staging: None,
@@ -2819,7 +2850,7 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
         sg_trace(|| format!("capture ran={ran:?} ended_ok={}", ended.is_ok()));
         match (ran, ended) {
             (Ok(n), Ok(g)) => Some((n, g)),
-            (Err(_) | Ok(_), Ok(g)) => {
+            (Err(_), Ok(g)) => {
                 // AN ABANDONED CAPTURE IS NOT DESTROYED, it is forgotten.
                 //
                 // A run that refused part-way leaves a recording whose nodes
@@ -2836,7 +2867,7 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
                 std::mem::forget(g);
                 None
             }
-            (Err(_) | Ok(_), Err(_)) => None,
+            (_, Err(_)) => None,
         }
     };
     let Some((ran, graph)) = captured else {
@@ -2875,6 +2906,84 @@ fn launch_impl(
     let step = steps.last().expect("nonempty");
     let cells = slice_of(step.terminal_cells.ptr, step.terminal_cells.len).to_vec();
     step_impl(state, frame, step, Some((completion, cells)))
+}
+
+/// Trace a family's forward for one fire shape, lower it, and join the ops
+/// back onto the launches.
+///
+/// Split out of `step_impl` so its result can be CACHED — see
+/// [`Shell::lowerings`]. Nothing here reads the fire's data; it reads the
+/// shape, which is what makes the answer reusable.
+fn build_lowering(
+    family: &dyn PlannedFamily,
+    class: model_compiler::trace::FireClass,
+    rows: usize,
+    union_asked: bool,
+) -> Result<LoweredFire, i32> {
+    use crate::model::executor::DispatchPlan;
+    use model_compiler::lower::{Arg, Fire, GuardMode, Row, lower_with};
+
+    let plan = family.trace(class);
+    let fire_rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; rows];
+    let lower_as = |g: GuardMode| {
+        lower_with(&plan, &fire_rows, Fire { captures_across_splits: false }, g).map_err(|e| {
+            eprintln!("[driver-cuda-new] launch: uncovered: {e:?}");
+            PIE_STATUS_UNSUPPORTED
+        })
+    };
+    let mut union = union_asked;
+    if !union {
+        sg_trace(|| "union off at the gate".into());
+    }
+    let mut lowered = lower_as(if union { GuardMode::Union } else { GuardMode::Resolve })?;
+
+    // A union this fire cannot record is not a union worth building, and the
+    // decision has to be made HERE — before the arena, the pins and the
+    // attention context are sized against it — because falling back later
+    // would run one lowering's program against another's offsets.
+    //
+    // Two things make a union unservable, and both are about prepared state.
+    // A `_capture` dispatch wants a plan raised for the full-attention
+    // variant, a folded-row layout and an observation window; a `_custom`
+    // one wants a mask the fire did not build. Under `Union` every arm is
+    // present whether this fire takes it or not, so the capture runs the one
+    // that cannot run and the whole recording is abandoned.
+    //
+    // And the attention output slot has to be findable from the op JOIN. The
+    // neighbour trick — "the launch after the dispatch is the o_proj" — is
+    // what `Resolve` allows and `Union` does not, because every arm is
+    // present and the neighbour belongs to some other body.
+    if union {
+        let d = DispatchPlan::new(&plan, &lowered);
+        let servable = !lowered
+            .kernels
+            .iter()
+            .any(|k| k.contains("_capture") || k.contains("_custom"))
+            && {
+                let name = if lowered
+                    .kernels
+                    .iter()
+                    .any(|k| k == "attn::dispatch_attention_flashinfer_decode")
+                {
+                    "attn::dispatch_attention_flashinfer_decode"
+                } else {
+                    "attn::dispatch_attention_flashinfer_prefill_bf16"
+                };
+                lowered
+                    .launches
+                    .iter()
+                    .position(|x| lowered.kernels[x.kernel as usize] == name)
+                    .is_some_and(|fi| matches!(d.spec(fi).outs.first(), Some(Arg::Arena { .. })))
+            };
+        if !servable {
+            sg_trace(|| "union declined: unservable for this fire".into());
+            union = false;
+            lowered = lower_as(GuardMode::Resolve)?;
+        }
+    }
+    let dplan = DispatchPlan::new(&plan, &lowered);
+    sg_trace(|| format!("built: launches={} union={union}", lowered.launches.len()));
+    Ok(LoweredFire { plan, lowered, dplan, union })
 }
 
 /// One step's fire — the former single-step body.
@@ -2941,143 +3050,29 @@ fn step_impl(
         return Err(PIE_STATUS_UNSUPPORTED);
     }
 
-    // ── The lowering. ──
-    let plan = family.trace(class);
-    let fire_rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; rows];
-    // THE SUPERGRAPH GATE, off unless asked. `Union` keeps every guard so
-    // the arms can be recorded into conditional bodies and decided at
-    // replay; `Resolve` answers them here and produces one program. Off by
-    // default because the eager leg is what every A/B in the tree pins,
-    // and a capture is an optimisation that must prove itself against it.
-    // A family carrying RECURRENT STATE is not replayable, and the rule is
-    // decided HERE rather than at the capture, because a fire built
-    // against a union lowering cannot fall back to an eager one — it would
-    // run the union's program, both sides of every guard, over the same
-    // rows.
+    // ── The lowering, or the one this shape already has. ──
     //
-    // The hybrid's GDN slabs are per-fire mutable state reached through a
-    // slot indirection the host rewrites, so a captured body bakes one
-    // fire's slots and a replay would update another instance's
-    // recurrence. Found the hard way: the corruption surfaced as a fault
-    // inside `cudaGraphDestroy`, about as far from the cause as a symptom
-    // gets.
-    //
-    // Third instance of one rule — ungrouped LoRA, an arm whose prepared
-    // state the fire declines to build, and now recurrent state. What
-    // cannot be replayed stays eager.
-    let mut union =
-        supergraph_enabled() && !family.recurrent();
-    if !union {
-        sg_trace(|| {
-            format!(
-                "union off at the gate: enabled={} recurrent={}",
-                supergraph_enabled(),
-                family.recurrent()
-            )
-        });
-    }
-    let lower_as = |g: GuardMode| {
-        lower_with(&plan, &fire_rows, Fire { captures_across_splits: false }, g).map_err(|e| {
-            eprintln!("[driver-cuda-new] launch: uncovered: {e:?}");
-            PIE_STATUS_UNSUPPORTED
-        })
+    // Everything between here and `DispatchPlan` is a pure function of the
+    // key, and it costs ~3.3 ms on a 0.6B decode. See `Shell::lowerings`.
+    let key = LoweringKey {
+        model_id: u64::from(model.hf.num_hidden_layers.unsigned_abs()),
+        class,
+        rows: u32::try_from(rows).unwrap_or(0),
+        union_asked: supergraph_enabled() && !family.recurrent(),
     };
-    let t_lower = std::time::Instant::now();
-    let mut lowered = lower_as(if union { GuardMode::Union } else { GuardMode::Resolve })?;
-    let d_lower = t_lower.elapsed();
-
-    // A union this fire cannot record is not a union worth building, and
-    // the decision has to be made HERE — before the arena, the pins and
-    // the attention context are sized against it — because falling back
-    // later would run one lowering's program against another's offsets.
-    //
-    // The test is narrow on purpose: a SCORE-capturing dispatch needs a
-    // plan raised for the full-attention variant, a folded-row layout and
-    // an observation window, none of which a fire that wants no scores
-    // prepares. Its launcher answers by throwing, which the shim can only
-    // turn into a message and an abort. So a union that names one is
-    // abandoned for this fire and the guards are answered instead.
-    if union {
-        let d = DispatchPlan::new(&plan, &lowered);
-        // Two things make a union unservable for THIS fire, and both are
-        // about prepared state rather than about the graph.
-        //
-        // A `_capture` dispatch wants a plan raised for the full-attention
-        // variant, a folded-row layout and an observation window, none of
-        // which a fire that wants no scores builds; its launcher answers
-        // by throwing, which the shim can only turn into an abort.
-        //
-        // And the attention output slot has to be findable from the op
-        // JOIN. The neighbour trick — "the launch after the dispatch is
-        // the o_proj" — is what `Resolve` allows and `Union` does not,
-        // because every arm is present and the neighbour belongs to some
-        // other body. A deployment that states its attention as [q, o]
-        // records no output in the join and has only the neighbour.
-        // `_custom` joins `_capture`, and for the same reason. A
-        // custom-MASK dispatch wants a mask the fire did not build, and
-        // under `Union` both arms are present whether or not this fire
-        // takes them — so the capture runs the one that cannot run and the
-        // whole recording is abandoned. Phi-3's decode is the live case.
-        let servable = !lowered
-            .kernels
-            .iter()
-            .any(|k| k.contains("_capture") || k.contains("_custom"))
-            && {
-                let name = if lowered
-                    .kernels
-                    .iter()
-                    .any(|k| k == "attn::dispatch_attention_flashinfer_decode")
-                {
-                    "attn::dispatch_attention_flashinfer_decode"
-                } else {
-                    "attn::dispatch_attention_flashinfer_prefill_bf16"
-                };
-                lowered
-                    .launches
-                    .iter()
-                    .position(|x| lowered.kernels[x.kernel as usize] == name)
-                    .is_some_and(|fi| matches!(d.spec(fi).outs.first(), Some(Arg::Arena { .. })))
-            };
-        if !servable {
-            sg_trace(|| {
-                let name = if lowered
-                    .kernels
-                    .iter()
-                    .any(|k| k == "attn::dispatch_attention_flashinfer_decode")
-                {
-                    "attn::dispatch_attention_flashinfer_decode"
-                } else {
-                    "attn::dispatch_attention_flashinfer_prefill_bf16"
-                };
-                let pos = lowered
-                    .launches
-                    .iter()
-                    .position(|x| lowered.kernels[x.kernel as usize] == name);
-                format!(
-                    "union declined: {name} at {pos:?}, landing slot {:?}",
-                    pos.map(|fi| format!("{:?}", d.spec(fi).outs.first()))
-                )
-            });
-        }
-        if !servable {
-            union = false;
-            lowered = lower_as(GuardMode::Resolve)?;
-        }
+    if !state.lowerings.contains_key(&key) {
+        let built = build_lowering(family.as_ref(), class, rows, key.union_asked)?;
+        state.lowerings.insert(key, built);
     }
-    let t_dp = std::time::Instant::now();
-    let dplan = DispatchPlan::new(&plan, &lowered);
+    let LoweredFire { plan, lowered, dplan, union } =
+        state.lowerings.get(&key).expect("just built");
+    let union = *union;
+    let fire_rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; rows];
     let mut phase = std::time::Instant::now();
     let mut lap = |what: &str| {
         sg_trace(|| format!("  {what} {:?}", phase.elapsed()));
         phase = std::time::Instant::now();
     };
-    sg_trace(|| {
-        format!(
-            "lower={d_lower:?} dplan={:?} launches={} union={union}",
-            t_dp.elapsed(),
-            lowered.launches.len()
-        )
-    });
 
     // ── Device state, and all of it PERSISTENT now. ──
     //
