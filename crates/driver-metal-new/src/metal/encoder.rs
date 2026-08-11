@@ -302,7 +302,15 @@ impl StepEncoder<'_> {
 /// pipelined version needs and a synchronous one that ignores it would have to
 /// grow the state back when it stops being synchronous.
 pub struct Stepper<'ctx> {
-    context: &'ctx Context,
+    /// The device objects this timeline commits to.
+    ///
+    /// Borrowed OR shared, and the second is what run-ahead needs: a driver
+    /// that owns a `Context` cannot also hold a `Stepper<'_>` borrowing it,
+    /// which is a self-reference — so a stepper held across fires has to keep
+    /// its context alive itself. [`Stepper::shared`] is that constructor;
+    /// [`Stepper::new`] still borrows, because every test and every one-shot
+    /// caller has a context on the stack and should not have to allocate.
+    context: ContextRef<'ctx>,
     event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
     /// The event value the last committed step signals.
     committed: u64,
@@ -320,14 +328,69 @@ pub struct Stepper<'ctx> {
     mappings: Option<Mappings>,
 }
 
+/// This device's shared event, which is the timeline a stepper signals.
+fn new_shared_event(
+    context: &Context,
+) -> Result<Retained<ProtocolObject<dyn MTLSharedEvent>>> {
+    context.device().newSharedEvent().ok_or(Error::Create {
+        what: "MTLSharedEvent",
+        message: String::new(),
+    })
+}
+
+/// A context a [`Stepper`] either borrows or keeps alive.
+enum ContextRef<'ctx> {
+    Borrowed(&'ctx Context),
+    Shared(std::sync::Arc<Context>),
+}
+
+impl std::ops::Deref for ContextRef<'_> {
+    type Target = Context;
+    fn deref(&self) -> &Context {
+        match self {
+            ContextRef::Borrowed(c) => c,
+            ContextRef::Shared(c) => c,
+        }
+    }
+}
+
+impl std::fmt::Debug for ContextRef<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Context")
+    }
+}
+
+impl Stepper<'static> {
+    /// A stepper that KEEPS its context alive, so it can outlive the scope
+    /// that made it.
+    ///
+    /// What a driver holding one across fires needs. The timeline and the
+    /// allocator ring live on the stepper, so a fresh one per fire has no
+    /// previous value to compare against and no allocator to alternate — it
+    /// cannot pipeline even in principle.
+    ///
+    /// # Errors
+    ///
+    /// As [`Stepper::new`].
+    pub fn shared(context: std::sync::Arc<Context>) -> Result<Self> {
+        let event = new_shared_event(&context)?;
+        Ok(Self::with_context(ContextRef::Shared(context), event))
+    }
+}
+
 impl<'ctx> Stepper<'ctx> {
     /// Build a stepper for `context`.
     pub fn new(context: &'ctx Context) -> Result<Self> {
-        let event = context.device().newSharedEvent().ok_or(Error::Create {
-            what: "MTLSharedEvent",
-            message: String::new(),
-        })?;
-        Ok(Self {
+        let event = new_shared_event(context)?;
+        Ok(Self::with_context(ContextRef::Borrowed(context), event))
+    }
+
+    /// The fields every constructor fills the same way.
+    fn with_context(
+        context: ContextRef<'ctx>,
+        event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
+    ) -> Self {
+        Self {
             context,
             event,
             committed: 0,
@@ -335,7 +398,7 @@ impl<'ctx> Stepper<'ctx> {
             feedback: Feedbacks::new(),
             surfaced: 0,
             mappings: None,
-        })
+        }
     }
 
     /// How many steps have been committed.
@@ -780,7 +843,7 @@ impl<'ctx> Stepper<'ctx> {
     ) -> Result<T> {
         self.preflight()?;
         if self.mappings.is_none() {
-            self.mappings = Some(Mappings::new(self.context)?);
+            self.mappings = Some(Mappings::new(&self.context)?);
         }
         let queue = &self.mappings.as_ref().expect("just built").queue;
         let event = &*self.event;
@@ -806,14 +869,14 @@ impl<'ctx> Stepper<'ctx> {
                 heap_tile,
             )
         };
-        body(self.context, &mut schedule)
+        body(&self.context, &mut schedule)
     }
 
     /// The shrink half, which needs no heap and must be waited for.
     fn remap_shrink(&mut self, buffer: &mut Elastic, bytes: u64) -> Result<()> {
         self.preflight()?;
         if self.mappings.is_none() {
-            self.mappings = Some(Mappings::new(self.context)?);
+            self.mappings = Some(Mappings::new(&self.context)?);
         }
         let through = {
             let queue = &self.mappings.as_ref().expect("just built").queue;
@@ -868,7 +931,7 @@ impl<'ctx> Stepper<'ctx> {
     /// Safe because this stepper is synchronous: the work drawn from this
     /// allocator was waited for two submissions ago. The parity is what makes
     /// that sentence still true when the wait moves off the commit path.
-    fn allocator(&self) -> &'ctx ProtocolObject<dyn MTL4CommandAllocator> {
+    fn allocator(&self) -> &ProtocolObject<dyn MTL4CommandAllocator> {
         self.context.allocator(self.committed as usize)
     }
 

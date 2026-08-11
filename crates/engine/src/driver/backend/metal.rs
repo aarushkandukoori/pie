@@ -40,7 +40,19 @@ use driver_metal_new::Region;
 
 /// The Metal shell, behind the seam's fourteen verbs.
 pub struct MetalDriver {
-    context: driver_metal_new::metal::Context,
+    context: std::sync::Arc<driver_metal_new::metal::Context>,
+    /// The command timeline, held ACROSS frames.
+    ///
+    /// This is what makes run-ahead run-ahead rather than within-frame
+    /// pipelining. The timeline and the two-allocator ring live on the
+    /// stepper, so a fresh one per frame has no previous value to compare
+    /// against and no allocator to alternate: frame n+1 could not be queued
+    /// while frame n ran, however the steps inside each were arranged.
+    ///
+    /// `Stepper::shared` rather than `Stepper::new` because a borrowing
+    /// stepper beside the `Context` it borrows is a self-reference; sharing
+    /// the context is what lets one outlive a call.
+    stepper: driver_metal_new::metal::Stepper<'static>,
     registry: driver_metal_new::pipeline::Registry,
     device_facts: driver_abi::DeviceFacts,
     /// The checkpoint, once one is loaded. Held because every address in its
@@ -111,8 +123,12 @@ impl MetalDriver {
                     .as_str()
                     .map(std::path::PathBuf::from)
             });
-        let context =
-            driver_metal_new::metal::Context::new().map_err(|e| anyhow!("metal context: {e:?}"))?;
+        let context = std::sync::Arc::new(
+            driver_metal_new::metal::Context::new()
+                .map_err(|e| anyhow!("metal context: {e:?}"))?,
+        );
+        let stepper = driver_metal_new::metal::Stepper::shared(context.clone())
+            .map_err(|e| anyhow!("metal stepper: {e:?}"))?;
         let compiler = driver_metal_new::metal::Compiler::new(&context)
             .map_err(|e| anyhow!("metal compiler: {e:?}"))?;
         // The facts a scheduler reads, stated from what this backend IS
@@ -139,7 +155,8 @@ impl MetalDriver {
         };
         Ok((
             Self {
-                context,
+                context: context.clone(),
+                stepper,
                 registry: driver_metal_new::pipeline::Registry::new(),
                 device_facts: device_facts.clone(),
                 model: None,
@@ -548,8 +565,6 @@ impl MetalDriver {
         // lifetime: `Stepper<'ctx>` borrows the `Context` this struct owns, so
         // holding one across `launch` calls is a self-reference. Making it own
         // an `Arc<Context>` is what across-frame run-ahead needs next.
-        let mut stepper = driver_metal_new::metal::Stepper::new(&self.context)
-            .map_err(|e| anyhow!("metal stepper: {e:?}"))?;
         let mut in_flight: Vec<(&crate::driver::submission::StepSubmission, _)> = Vec::new();
 
         for step in &frame.steps {
@@ -650,7 +665,7 @@ impl MetalDriver {
                 &self.context,
                 &self.compiler,
                 &mut self.pipelines,
-                &mut stepper,
+                &mut self.stepper,
                 &lowered,
                 geometry,
                 &mut store,
@@ -678,7 +693,7 @@ impl MetalDriver {
         // arena before its fire retires is reading whatever the last fire left
         // there, which is a plausible tensor and the wrong one.
         for (step, (fire, readout)) in &in_flight {
-            stepper
+            self.stepper
                 .wait_for(fire.value)
                 .map_err(|e| anyhow!("metal fire {}: {e:?}", fire.value))?;
             // What the fire COMPUTED, handed to the programs bound to this
