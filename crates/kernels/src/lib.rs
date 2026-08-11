@@ -136,6 +136,70 @@ pub enum LaunchRule {
     Qmm,
 }
 
+impl LaunchRule {
+    /// Every variant, so a caller can enumerate the vocabulary rather than
+    /// remember it.
+    ///
+    /// The `Metal` driver's `a_rule_that_ignores_its_rows_has_to_say_so` is
+    /// what this exists for: the `RouterLane` row-axis defect survived
+    /// because the rule was *absent* from the list that would have caught
+    /// it, and a list you must remember to extend does not catch what you
+    /// forgot. Adding a variant below without adding it here fails to
+    /// compile, because the array's length is checked against the match.
+    pub const ALL: &'static [Self] = &[
+        Self::Unstated,
+        Self::Qmv,
+        Self::Rms,
+        Self::Rope,
+        Self::Elementwise,
+        Self::ElementwiseRows,
+        Self::PerHead,
+        Self::SdpaVector,
+        Self::PerHeadElementwise,
+        Self::GatedRms,
+        Self::RouterLane,
+        Self::RouterSort,
+        Self::RouteRows,
+        Self::RoutedQmv,
+        Self::SplitPacked,
+        Self::Qmm,
+    ];
+
+    /// A discriminant, used only to prove [`Self::ALL`] is complete.
+    const fn index(self) -> usize {
+        match self {
+            Self::Unstated => 0,
+            Self::Qmv => 1,
+            Self::Rms => 2,
+            Self::Rope => 3,
+            Self::Elementwise => 4,
+            Self::ElementwiseRows => 5,
+            Self::PerHead => 6,
+            Self::SdpaVector => 7,
+            Self::PerHeadElementwise => 8,
+            Self::GatedRms => 9,
+            Self::RouterLane => 10,
+            Self::RouterSort => 11,
+            Self::RouteRows => 12,
+            Self::RoutedQmv => 13,
+            Self::SplitPacked => 14,
+            Self::Qmm => 15,
+        }
+    }
+}
+
+// `ALL` is complete and in discriminant order, checked at COMPILE time: a new
+// variant makes `index` non-exhaustive, and forgetting to list it here makes
+// this assertion fail. Neither can be missed by a reviewer.
+const _: () = {
+    assert!(LaunchRule::ALL.len() == 16);
+    let mut i = 0;
+    while i < LaunchRule::ALL.len() {
+        assert!(LaunchRule::ALL[i].index() == i);
+        i += 1;
+    }
+};
+
 /// The host-side plan a kernel's contract obligates: stated so a reader of
 /// the model text can see which prepare a launch drags in, rather than
 /// reading the driver to find out.

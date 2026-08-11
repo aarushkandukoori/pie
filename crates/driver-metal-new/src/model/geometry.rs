@@ -356,6 +356,69 @@ mod tests {
         }
     }
 
+    /// **Every rule must either scale with the row count or say why not.**
+    ///
+    /// This is the guard the `RouterLane` defect earned. That rule dropped
+    /// the row axis, so a mixture prefill routed row 0 and ran every other
+    /// row on its experts — and it went unseen because the rule was simply
+    /// *absent* from the batched list above. A list you have to remember to
+    /// add to does not catch the thing you forgot.
+    ///
+    /// So this enumerates the vocabulary instead: a rule whose launch does
+    /// not move between one row and many is a rule that ignores its rows,
+    /// and it has to be on `ROW_INVARIANT` with a reason. Adding a variant
+    /// to `LaunchRule` fails this test until someone answers the question.
+    #[test]
+    fn a_rule_that_ignores_its_rows_has_to_say_so() {
+        /// The rules that genuinely do not move with the row count.
+        const ROW_INVARIANT: &[(Rule, &str)] = &[
+            (
+                Rule::RouterSort,
+                "ONE threadgroup reduces across every (row, slot) pair through \
+                 threadgroup atomics and stripes them over its own lanes; a \
+                 copy per row would clear the permutation the others read",
+            ),
+            (
+                Rule::PerHeadElementwise,
+                "per-head pointwise over the head geometry; no kernel row \
+                 claims it yet, so its row behaviour is unmeasured",
+            ),
+            (
+                Rule::GatedRms,
+                "GDN's gated norm over the value heads; no kernel row claims \
+                 it yet, so its row behaviour is unmeasured",
+            ),
+        ];
+
+        let one = Dims { rows: 1, ..dims() };
+        let many = Dims { rows: 8, ..dims() };
+        for &rule in Rule::ALL {
+            if rule == Rule::Unstated {
+                continue;
+            }
+            let (a, b) = (eval(rule, one), eval(rule, many));
+            let invariant = ROW_INVARIANT.iter().find(|(r, _)| *r == rule);
+            match (a, b) {
+                (Ok(a), Ok(b)) if a == b => assert!(
+                    invariant.is_some(),
+                    "{rule:?} launches the same rectangle for 1 row and 8. \
+                     Either it drops the row axis -- which is the RouterLane \
+                     defect, where every row but the first got the first \
+                     row's answer -- or it is genuinely row-invariant and \
+                     belongs on ROW_INVARIANT with the reason."
+                ),
+                (Ok(_), Ok(_)) => assert!(
+                    invariant.is_none(),
+                    "{rule:?} is on ROW_INVARIANT and its launch moves with \
+                     the row count anyway; the reason there is stale"
+                ),
+                // A rule that refuses one of the two is stating a geometry
+                // question, not ignoring rows. `Qmm` refuses a partial tile.
+                _ => {}
+            }
+        }
+    }
+
     /// The GEMM is a DIFFERENT KERNEL, not the matvec launched wider — which
     /// is what makes the batched lane a row's statement rather than a mode the
     /// driver picks.
