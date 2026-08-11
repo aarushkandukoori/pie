@@ -59,7 +59,7 @@ bridge = ["dep:kernels-cuda"]
 # (retirement plan — "the cutover boundary, measured"). Implies `bridge`
 # (the shell runs the executor). MUTUALLY EXCLUSIVE with linking the C++
 # shell into the same binary: same symbols, one provider.
-abi = ["bridge", "dep:driver-abi", "dep:model-loader", "dep:toml", "model/forward"]
+abi = ["bridge", "dep:driver-abi", "dep:model-loader", "dep:toml", "model/forward", "model/contract"]
 
 [dependencies]
 # The CUDA version is pinned EXPLICITLY rather than through
