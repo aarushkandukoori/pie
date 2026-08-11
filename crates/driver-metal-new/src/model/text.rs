@@ -254,6 +254,26 @@ pub fn facts_from(
             zero_point: true,
         },
         affine_bits: geometry.quant.bits,
+        // Uniform, for now, and the reason is worth stating because it is a
+        // load-time fact and not a text one.
+        //
+        // `metal_storage_target` sets `native_mxfp4_moe: false`, which tells
+        // the loader this driver has no MXFP4 routed kernel and its banks must
+        // be TRANSCODED to affine at load. When that transcode runs, one
+        // format serves the whole checkpoint and `None` is right.
+        //
+        // It does not run yet -- the load takes gpt-oss's bytes unchanged --
+        // so the banks reach the device as mxfp4/32 while the text reads them
+        // as affine/64, which is the 909,207 NaNs
+        // `the_first_statement_that_writes_a_nan_says_which_one_it_is` points
+        // at `affine_qmv_routed_bfloat16_gs_64_b_4`, layer 0.
+        //
+        // The mechanism to say otherwise now exists (`moe_repr`), so whichever
+        // way that lands -- the loader transcodes, or this driver grows the
+        // native kernel and states the bank's own format here -- the text can
+        // express it.
+        moe_repr: None,
+        moe_bits: 0,
         // The narrowest rung, which is what a short window fires; `bn = 32` is
         // the only column tile the residual GEMM is instantiated at.
         qmm_tile: (16, 32),
