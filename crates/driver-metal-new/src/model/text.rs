@@ -385,6 +385,12 @@ pub fn facts_from_with(
         // The SLIDING layers' base, when the deployment states a second one.
         // `rope_theta_at` picks between them off the window list.
         rope_theta_sliding: geometry.rope_theta_sliding,
+        // The FULL-attention layers' own attention shape, when it differs.
+        // `head_dim_at`/`kv_heads_at` pick off the SAME window list, so the
+        // two per-layer-type facts cannot disagree about which layers are
+        // full.
+        global_head_dim: geometry.global_head_dim,
+        global_kv_heads: geometry.global_kv_heads,
         // Whether the ladder is RESCALED, in which case no base expresses it
         // and the driver hands over a table instead.
         rope_freq_table: geometry.rope_freq_factor > 0.0,

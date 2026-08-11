@@ -263,8 +263,8 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
         );
     }
 
-    // gemma4's attention geometry is PER LAYER TYPE, and this geometry holds
-    // one of each number.
+    // gemma4's attention geometry is PER LAYER TYPE, and it is carried now
+    // rather than refused.
     //
     // Measured on `mlx-community/gemma-4-31b-it-4bit`'s own tensors, layer 0
     // (sliding) against layer 5 (full):
@@ -272,44 +272,19 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
     // | | sliding | full |
     // |---|---|---|
     // | `q_norm` | `[256]` | `[512]` |
-    // | `q_proj` | `[8192, …]` = 32x256 | `[16384, …]` = 32x512 |
-    // | `k_proj` | `[4096, …]` = 16x256 | `[2048, …]` = 4x512 |
+    // | `q_proj` | `[8192, ...]` = 32x256 | `[16384, ...]` = 32x512 |
+    // | `k_proj` | `[4096, ...]` = 16x256 | `[2048, ...]` = 4x512 |
     // | `v_proj` | ships | absent |
     //
-    // `global_head_dim: 512` and `num_global_key_value_heads: 4` state both
-    // halves and BOTH releases on this machine carry them. The descriptor
-    // parses them (`g4_global_head_dim`, `g4_num_global_kv_heads`) and
-    // nothing has ever read them, so the text ran every layer at the sliding
-    // shape: it read half of each full layer's Q, ran a quarter past the end
-    // of its K, and -- because `attention_k_eq_v` is one bool for the whole
-    // stack -- skipped the `v_proj` that the sliding layers DO ship.
+    // `global_head_dim: 512` and `num_global_key_value_heads` state both
+    // halves and both releases on this machine carry them. The descriptor has
+    // parsed them since it was written and nothing read either, so the text
+    // ran all sixty layers at the sliding shape -- half of each full layer's
+    // Q, a quarter past the end of its K.
     //
-    // Refused rather than approximated. There is no rounding here that is
-    // nearly right: a driver that picks either shape runs a different model
-    // on three quarters of the stack, and the failure is finite plausible
-    // text. Making it work is a per-layer-type attention geometry, which
-    // reaches the KV pool's page sizing as well as the text.
-    if f.g4_num_hidden_layers > 0
-        && f.g4_global_head_dim > 0
-        && (f.g4_global_head_dim != f.g4_head_dim
-            || (f.g4_num_global_kv_heads > 0
-                && f.g4_num_global_kv_heads != f.g4_num_key_value_heads))
-    {
-        return Err(GeometryRefused(format!(
-            "this gemma4 config states a SECOND attention geometry for its \
-             full-attention layers -- global_head_dim {} against head_dim {}, \
-             num_global_key_value_heads {} against num_key_value_heads {} -- \
-             and this driver holds one head shape for the whole stack. \
-             Running it would read half of each full layer's q_proj and past \
-             the end of its k_proj, which returns fluent text rather than \
-             failing",
-            f.g4_global_head_dim,
-            f.g4_head_dim,
-            f.g4_num_global_kv_heads,
-            f.g4_num_key_value_heads,
-        )));
-    }
-
+    // A stack whose two shapes AGREE states zero, which is what every other
+    // family here does and what `head_dim_at`/`kv_heads_at` read as "one
+    // shape everywhere".
     let mut out = DecodeGeometry {
         n_layers,
         hidden,
@@ -333,6 +308,26 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
         // passed `serves` and then ran as a llama. Finite numbers, fluent
         // text, a different model.
         gemma: f.g4_num_hidden_layers > 0,
+        // The FULL-attention layers' own shape, zero when the stack states
+        // one. `head_dim_at`/`kv_heads_at` read the zero as "same as the
+        // sliding layers", so every family but gemma-4 is unaffected.
+        //
+        // Only carried when it DIFFERS: a config restating its own head_dim
+        // under the global key is a stack with one shape, and answering it
+        // with a second would make every layer take the `is_full_attention`
+        // branch for no reason.
+        global_head_dim: if f.g4_global_head_dim > 0 && f.g4_global_head_dim != f.g4_head_dim {
+            u32::try_from(f.g4_global_head_dim).unwrap_or(0)
+        } else {
+            0
+        },
+        global_kv_heads: if f.g4_num_global_kv_heads > 0
+            && f.g4_num_global_kv_heads != f.g4_num_key_value_heads
+        {
+            u32::try_from(f.g4_num_global_kv_heads).unwrap_or(0)
+        } else {
+            0
+        },
         // The PLE's width and the KV sharing, both already parsed off the
         // descriptor and neither ever assigned. Zero for gemma-4-31b, which
         // is why "is gemma" cannot stand in for either.
@@ -799,16 +794,19 @@ mod tests {
              the answer: {why}"
         );
     }
-    /// A gemma4 checkpoint states TWO attention geometries, and this driver
-    /// holds one — so it must refuse rather than run three quarters of the
-    /// stack at the wrong shape.
+    /// A gemma4 checkpoint states TWO attention geometries, and both are
+    /// carried through to the text and the pool.
     ///
-    /// Both releases on this machine carry it: `global_head_dim: 512` against
+    /// Both releases on this machine have it: `global_head_dim: 512` against
     /// `head_dim: 256`, and `num_global_key_value_heads` of 4 (31b) or 2
     /// (26b) against `num_key_value_heads` of 16 or 8. Measured on the 31b's
     /// own tensors — layer 0's `q_norm` is `[256]` and layer 5's is `[512]`.
+    ///
+    /// The descriptor had parsed both since it was written and NOTHING read
+    /// either, so all sixty layers ran at the sliding shape: half of each
+    /// full layer's Q, a quarter past the end of its K.
     #[test]
-    fn a_gemma_config_with_two_head_shapes_is_refused_rather_than_halved() {
+    fn a_gemma_configs_second_head_shape_is_carried_and_not_flattened() {
         let base = ModelFacts {
             g4_num_hidden_layers: 60,
             g4_hidden_size: 5376,
@@ -822,30 +820,28 @@ mod tests {
             ..ModelFacts::default()
         };
         // `mlx-community/gemma-4-31b-it-4bit` as it actually reads.
-        let real = ModelFacts {
+        let g = geometry_from_facts(&ModelFacts {
             g4_global_head_dim: 512,
             g4_num_global_kv_heads: 4,
             ..base.clone()
-        };
-        let why = geometry_from_facts(&real)
-            .expect_err("two head shapes, one geometry -- this must refuse")
-            .0;
-        assert!(
-            why.contains("global_head_dim") && why.contains("512"),
-            "the refusal has to name what it cannot express, not just decline: {why}"
-        );
+        })
+        .expect("a gemma-4 config is decodable now that both shapes are carried");
+        assert_eq!(g.global_head_dim, 512);
+        assert_eq!(g.global_kv_heads, 4);
+        assert_eq!(g.head_dim, 256, "the SLIDING shape stays the stack's");
+        assert_eq!(g.n_kv_heads, 16);
 
-        // The SAME config with one shape is decodable, so the refusal is the
-        // second geometry and not gemma.
-        let one_shape = ModelFacts {
+        // A config that RESTATES its own head_dim under the global key has
+        // one shape, and must answer zero -- otherwise every layer takes the
+        // `is_full_attention` branch for a distinction that does not exist.
+        let g = geometry_from_facts(&ModelFacts {
             g4_global_head_dim: 256,
             g4_num_global_kv_heads: 16,
             ..base
-        };
-        assert!(
-            geometry_from_facts(&one_shape).is_ok(),
-            "a gemma stack with ONE head shape is expressible and must not be refused"
-        );
+        })
+        .expect("one shape restated twice is still one shape");
+        assert_eq!(g.global_head_dim, 0);
+        assert_eq!(g.global_kv_heads, 0);
     }
 
     #[test]

@@ -303,6 +303,16 @@ impl MetalDriver {
             page_size: self.device_facts.page_size,
             pages,
             element_bytes: 2,
+            // The FULL-attention layers' own shape, when the checkpoint
+            // states a second one. Zero everywhere but gemma-4, and the pool
+            // reads the zeros as "one shape for the whole stack".
+            //
+            // `full_attn_every` is the same rule `model::text` derives
+            // `window_left` from, so the pool and the text agree about which
+            // layers are full without a second list to keep in step.
+            global_head_dim: geometry.global_head_dim,
+            global_kv_heads: geometry.global_kv_heads,
+            full_attn_every: geometry.full_attn_every,
         };
         self.pool = Some(
             driver_metal_new::model::kv::Pool::allocate(&self.context, shape)
@@ -682,7 +692,12 @@ impl MetalDriver {
                     let h = if values { &l.v } else { &l.k };
                     driver_metal_new::model::executor::Slice {
                         address: h.gpu_address(),
-                        bytes: pool.shape().layer_bytes(),
+                        // THIS layer's, not the pool's: gemma-4's
+                        // full-attention layers hold a different page size
+                        // from its sliding ones, and a slice length that
+                        // over-states the region is one an attention reads
+                        // past the end of.
+                        bytes: pool.shape().layer_bytes_at(u32::from(layer)),
                     }
                 })
             };
@@ -778,13 +793,36 @@ impl MetalDriver {
             kv_total_pages: pool.pages(),
             rs_slots: 0,
         };
-        let work = driver_metal_new::store::plan_kv_copy(desc, caps, pool.shape().grid())
+        // ONE stride for the whole pool, or no copy at all.
+        //
+        // A move plan states byte offsets and applies them to every layer, so
+        // it needs the pool to be page-major at one stride. gemma-4's is not:
+        // its full-attention layers pack their pages at 4 heads x 512 where
+        // its sliding ones use 16 x 256. Planning at either and applying to
+        // both lands a page apart rather than obviously wrong.
+        //
+        // Refused by name rather than approximated. A KV copy is prefix
+        // sharing and forking, which is a feature a deployment can be without
+        // -- a corrupted cache is not.
+        let (Some(grid), Some(page_bytes)) = (pool.shape().grid(), pool.shape().page_bytes())
+        else {
+            bail!(
+                "driver-metal-new: copy_kv needs one page stride for the pool \
+                 and this model has two -- its full-attention layers are \
+                 {} kv heads x {} against {} x {} on the sliding ones. \
+                 Prefix sharing is unavailable on this checkpoint",
+                pool.shape().heads_at(0).0,
+                pool.shape().heads_at(0).1,
+                pool.shape().kv_heads,
+                pool.shape().head_dim,
+            );
+        };
+        let work = driver_metal_new::store::plan_kv_copy(desc, caps, grid)
             .map_err(|why| anyhow!("metal copy_kv: {why:?}"))?;
 
         // Whole-page moves first, as page pairs; then the row cells. Both run
-        // over every layer's K and V, because the pool is page-major at one
-        // stride everywhere.
-        let page_bytes = pool.shape().page_bytes();
+        // over every layer's K and V, which the stride check above is what
+        // makes true.
         let mut cells = Vec::new();
         for &(src, dst) in &work.pages {
             cells.push(driver_metal_new::store::CellCopy {

@@ -311,8 +311,10 @@ fn llama_like_metal_text(
         // for why a tile is a load-time fact and not a fire-time one.
         let gemm_point =
             dsl::metal::affine_gemm_point(metal.proj_repr, metal.affine_bits, metal.qmm_tile);
-        let q_w = f.q_width();
-        let kv_w = f.kv_width();
+        // The attention widths are per LAYER now and derived inside the loop:
+        // gemma-4's full-attention layers are a different shape from its
+        // sliding ones, so a fire-wide `q_width()` is only right for a stack
+        // that states one.
         let post_norm = f.norm_placement == NormPlacement::Post;
         // gemma's four-norm block. `post_norm` stays false under it — the
         // stream is normed on the way IN as well, so the input side reads
@@ -626,6 +628,24 @@ fn llama_like_metal_text(
             // it: gemma4's full-attention layers are the ones that take V from
             // K, and `window < 0` is that test.
             let window = metal.window_left_at(l);
+            // THIS layer's attention shape, which is not the stack's on every
+            // deployment. gemma-4 states two: its full-attention layers are
+            // twice as wide per head as its sliding ones and carry a quarter
+            // the KV heads, and its own tensors say so -- on the 31b, layer
+            // 0's `q_norm` is `[256]` and layer 5's is `[512]`.
+            //
+            // Keyed on `window` rather than on a second per-layer list, the
+            // same way `v_from_k` and `rope_theta_at` are: "does this layer
+            // attend everything" is already answered, and two lists are two
+            // chances to disagree.
+            //
+            // Zero on `global_head_dim` means one shape for the whole stack,
+            // which is every family here but gemma-4 -- so these read exactly
+            // as `f.head_dim`/`f.kv_heads` did for everyone else.
+            let head_dim = metal.head_dim_at(l, f.head_dim);
+            let kv_heads = metal.kv_heads_at(l, f.kv_heads);
+            let q_w = f.q_heads * head_dim;
+            let kv_w = kv_heads * head_dim;
             let (q, k, v) = if f.fused_qkv {
                 dsl::metal::split_qkv(&gemm(&x, &w.qkv), q_w, kv_w)
             } else if shares_kv {
@@ -656,8 +676,8 @@ fn llama_like_metal_text(
                 (q, k)
             } else {
                 (
-                    dsl::metal::rms_norm(&q, &w.q_norm, f.head_dim, metal.rms_eps),
-                    dsl::metal::rms_norm(&k, &w.k_norm, f.head_dim, metal.rms_eps),
+                    dsl::metal::rms_norm(&q, &w.q_norm, head_dim, metal.rms_eps),
+                    dsl::metal::rms_norm(&k, &w.k_norm, head_dim, metal.rms_eps),
                 )
             };
             // One dispatch for q and k together, as `declared_dag.hpp`'s
@@ -672,12 +692,12 @@ fn llama_like_metal_text(
                 multi_batch,
                 metal.rope_theta_at(l),
                 1.0,
-                f.head_dim,
+                head_dim,
                 metal.rope_freq_table,
             );
             // A shared layer appends nothing: its source already did.
             if !shares_kv {
-                dsl::metal::kv_append(&k, &v, &w.kv, paged, f.head_dim, f.kv_heads);
+                dsl::metal::kv_append(&k, &v, &w.kv, paged, head_dim, kv_heads);
             }
             // The attention SINK this layer has, if any: a per-head learned
             // logit that joins the softmax without a value behind it.
@@ -687,10 +707,10 @@ fn llama_like_metal_text(
                 &q,
                 &w.kv,
                 q_w,
-                f.head_dim,
+                head_dim,
                 paged,
-                f.q_heads / f.kv_heads.max(1),
-                f.kv_heads,
+                f.q_heads / kv_heads.max(1),
+                kv_heads,
                 window,
                 // The attention SINK this layer has, if any: a per-head
                 // learned logit that joins the softmax without a value behind

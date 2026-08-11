@@ -148,6 +148,16 @@ pub struct DecodeGeometry {
     pub sliding_window: u32,
     /// gemma's readout SOFTCAP — `cap * tanh(x / cap)` — or zero for none.
     pub final_logit_softcap: f32,
+    /// The per-head width the FULL-attention layers use, or zero for a stack
+    /// whose layers all share [`Self::head_dim`].
+    ///
+    /// gemma-4's `global_head_dim`. Measured on the 31b's own tensors: layer
+    /// 0 (sliding) has `q_norm [256]`, layer 5 (full) has `q_norm [512]`.
+    pub global_head_dim: u32,
+    /// The key/value head count the FULL-attention layers use, or zero for
+    /// one shape everywhere. Four on the 31b against sixteen sliding, two on
+    /// the 26b against eight. See [`Self::global_head_dim`].
+    pub global_kv_heads: u32,
     /// The rotary base a SLIDING layer takes, when the config states a second
     /// one, or zero for a stack whose layers all share [`Self::rope_theta`].
     ///
@@ -282,6 +292,8 @@ impl Default for DecodeGeometry {
             full_attn_every: 0,
             sliding_window: 0,
             final_logit_softcap: 0.0,
+            global_head_dim: 0,
+            global_kv_heads: 0,
             rope_theta_sliding: 0.0,
             gemma: false,
             per_layer_emb_dim: 0,
