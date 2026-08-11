@@ -169,7 +169,7 @@ struct Shell {
     fire_stream: Option<crate::cuda::OwnedStream>,
     /// The fire that is still running, if any — see [`InFlight`]. One
     /// slot, so the driver runs exactly one fire ahead.
-    in_flight: Option<InFlight>,
+    in_flight: std::collections::VecDeque<InFlight>,
     /// The allocator every fire's transient device memory comes from.
     /// Held for the pool, and dropped with the shell.
     fire_alloc: Option<crate::cuda::Allocator>,
@@ -266,6 +266,17 @@ struct InFlight {
     /// that dropping it does not synchronize at the wrong moment.
     scratch: Vec<crate::cuda::DeviceBuffer>,
 }
+
+/// How many fires the driver may have queued ahead of the GPU.
+///
+/// Backpressure by SCRATCH, not by time: each in-flight fire holds the
+/// buffers it is still writing, so the bound is on how much the driver is
+/// carrying rather than on how far ahead it has run.
+///
+/// Two, which is the C++'s `kSchedulerMaxInFlight` minus the frame the
+/// engine itself is holding. One is what this had, and one is not run-ahead:
+/// the call that would queue fire n+1 waited for fire n.
+const RUNAHEAD_DEPTH: usize = 2;
 
 /// What a lowering can depend on: see [`Shell::lowerings`].
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -760,7 +771,7 @@ pub extern "C" fn pie_cuda_create(
         swap: None,
         scratch: None,
         fire_stream: None,
-        in_flight: None,
+        in_flight: std::collections::VecDeque::new(),
         fire_alloc: None,
         ptir: crate::ptir::Runtime::default(),
         ptir_programs: crate::ptir::Programs::new(),
@@ -3113,16 +3124,32 @@ fn step_impl(
     if state.fire_alloc.is_none() {
         state.fire_alloc = Some(crate::cuda::Allocator::new());
     }
-    // RECLAIM THE FIRE AHEAD OF THIS ONE, and this is the backpressure.
+    // RECLAIM WHAT HAS FINISHED, AND ONLY WAIT WHEN THE QUEUE IS FULL.
     //
-    // Its scratch cannot be freed while it runs and cannot be freed from
-    // the callback, so it is freed here — after waiting on the event that
-    // says it is done. With one holder the driver runs exactly one fire
-    // ahead of the GPU, which is the property and the smallest thing that
-    // has it.
-    if let Some(prev) = state.in_flight.take() {
-        prev.done.synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        drop(prev);
+    // A fire's scratch cannot be freed while it runs and cannot be freed
+    // from the callback, so it is freed here. What matters is WHEN.
+    //
+    // This used to hold exactly one and `synchronize()` on it, which is a
+    // run-ahead that never runs ahead: the call that would queue fire n+1
+    // blocked until fire n had finished. It cost nothing to notice while
+    // issuing a fire took longer than running one — which is what the first
+    // measurements on this branch said — and it is the whole game now that
+    // issue is 0.81 ms against 2.9 ms of work.
+    //
+    // So: drop everything already retired, without asking the driver to
+    // wait, and wait only when the queue is at depth. `RUNAHEAD_DEPTH` is
+    // the backpressure — the driver runs at most that many fires ahead of
+    // the GPU, which bounds the scratch it is holding rather than the time.
+    while state
+        .in_flight
+        .front()
+        .is_some_and(|f| f.done.is_complete().unwrap_or(true))
+    {
+        state.in_flight.pop_front();
+    }
+    while state.in_flight.len() >= RUNAHEAD_DEPTH {
+        let oldest = state.in_flight.pop_front().expect("nonempty");
+        oldest.done.synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
     }
     let stream = state.fire_stream.as_ref().expect("just ensured");
     let raw_stream = stream.as_ref().as_raw().cast::<std::ffi::c_void>();
@@ -3881,7 +3908,7 @@ fn step_impl(
         lap("debt");
         let done = crate::cuda::Event::new().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
         stream.as_ref().record(&done).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        state.in_flight = Some(InFlight {
+        state.in_flight.push_back(InFlight {
             done,
             scratch: [Some(lse), Some(d_valid), _slot_ids_buf]
                 .into_iter()
