@@ -2074,6 +2074,60 @@ fn runahead_env() -> bool {
         .is_some_and(|v| v == "1" || v == "true" || v == "on")
 }
 
+/// The arena offset the attention dispatch at `fi` WRITES.
+///
+/// Two readings, and only the first is right under a union lowering.
+///
+/// 1. **The dispatch's own op join.** The attention statement carries its
+///    output placement, which is exactly the slot the o_proj goes on to read.
+/// 2. **The next launch's first operand** — "the launch after the dispatch is
+///    the o_proj". True under `Resolve`, where the guard has already deleted
+///    every arm the fire did not take. False under `Union`, where every arm is
+///    present and the next launch belongs to some other body, which is why a
+///    union that has to fall back here declines instead.
+///
+/// # And why every DECODE declines
+///
+/// `dsl::seam::attn_at` records an output only when the statement is NOT
+/// inside a value-producing region:
+///
+/// ```ignore
+/// let out = q.t.inner.borrow().inside_value_region();
+/// let shape = (!out).then(|| …);   // None inside a region
+/// ```
+///
+/// The decode arm states its attention inside one and the prefill arm does
+/// not. So reading 1 is empty for every decode, the union is declined, and a
+/// one-token fire walks all 396 launches — ~9 ms on a 0.6B model, which is
+/// most of what `.wiki/new-driver/next.md`'s table measures.
+///
+/// **Recovering it from the enclosing region here does not work, and the
+/// failure is quiet.** Two attempts, both green on 20 of 21 ABI tests and
+/// both wrong on `multi_step_resize_and_copy_preserve_the_kv`: the nearest
+/// preceding region is as often a closed guard from an earlier layer as the
+/// enclosing one; requiring coverage and matching the output's shape to q's
+/// still picks the wrong construct for some fires, because several covering
+/// regions can carry a q-shaped value. A wrong offset here is not a refusal —
+/// it binds the attention plan over another activation.
+///
+/// The fix belongs at the STATEMENT, not here: `attn_at` should record its
+/// landing in the join even inside a region, so the value has one stated
+/// producer instead of being reverse-engineered from op adjacency.
+fn attention_landing(
+    lowered: &model_compiler::lower::Lowered,
+    dplan: &crate::model::executor::DispatchPlan,
+    fi: usize,
+) -> Option<usize> {
+    use model_compiler::lower::Arg;
+    match dplan.spec(fi).outs.first() {
+        Some(Arg::Arena { at, .. }) => Some(*at),
+        _ => match lowered.launches.get(fi + 1).map(|n| &lowered.args[n.args.start as usize]) {
+            Some(Arg::Arena { at, .. }) => Some(*at),
+            _ => None,
+        },
+    }
+}
+
 /// `PIE_CUDA_TRACE_SUPERGRAPH=1`: say what each fire did with the graph.
 ///
 /// The one instrument that answers the question the measurements raise —
@@ -3579,18 +3633,12 @@ fn step_impl(
         // Positional is what breaks under `Union` — every guard arm is
         // present, so the launch after the dispatch belongs to some other
         // body — which is why the join is tried first rather than second.
-        let o_off = match dplan.spec(fi).outs.first() {
-            Some(Arg::Arena { at, .. }) => *at,
-            _ => match lowered.launches.get(fi + 1).map(|n| &lowered.args[n.args.start as usize]) {
-                Some(Arg::Arena { at, .. }) => *at,
-                _ => {
-                    eprintln!(
-                        "[driver-cuda-new] launch: {dispatch_name} states no arena \
-                         output, and the launch after it is not one either"
-                    );
-                    return Err(PIE_STATUS_UNSUPPORTED);
-                }
-            },
+        let Some(o_off) = attention_landing(&lowered, &dplan, fi) else {
+            eprintln!(
+                "[driver-cuda-new] launch: {dispatch_name} states no arena \
+                 output, and the launch after it is not one either"
+            );
+            return Err(PIE_STATUS_UNSUPPORTED);
         };
         (q_pin, Some(o_off))
     };
