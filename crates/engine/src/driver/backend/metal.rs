@@ -602,27 +602,49 @@ impl MetalDriver {
             // `uchar`, and a `u32` written little-endian is the same first
             // byte. The narrowing is the kernel's and the width is the
             // frame's, which is the direction that is safe.
+            // Every CSR invariant, checked BEFORE the pool is touched.
+            //
+            // The derivation below used `unwrap_or(0)` three times, and the
+            // third one was the defect: a short or mis-sized CSR resolved a
+            // token's physical KV page to **0**, which belongs to some other
+            // request, and the fire wrote this request's keys over that
+            // request's cache. Nothing faults and the damage lands on a
+            // request that did nothing wrong.
+            //
+            // There is no safe fallback page, so the only correct answer is to
+            // refuse the frame — and refusing has to happen here, before
+            // anything is staged, which is the `decide, then move` rule
+            // `store/control.rs` records the cost of breaking.
+            step.plan
+                .validate_geometry()
+                .map_err(|e| anyhow!("this frame's geometry: {e}"))?;
+            step.plan
+                .validate_kv_writes(pool.shape().page_size)
+                .map_err(|e| anyhow!("this frame's KV writes: {e}"))?;
             // Where the paged append writes each token: its physical page and
             // the row inside it. Driver arithmetic over a driver allocation --
             // the frame states a POSITION in a sequence and a page table, and
             // this normalizes the pair. `batch::fire_csr` computes the same
             // two the same way for the retiring path.
+            //
+            // Every lookup is infallible now: `validate_kv_writes` has already
+            // proved each token's virtual page sits inside its own request's
+            // span, so an `expect` here states a checked fact rather than
+            // papering over an unchecked one.
             let (w_page, w_off) = {
                 let page = pool.shape().page_size.max(1);
+                let req = step.plan.req_of_token();
                 let (mut pages, mut offs) = (Vec::new(), Vec::new());
                 for (t, &pos) in step.plan.position_ids.iter().enumerate() {
-                    let r = req_of_token(&step.plan.qo_indptr)
-                        .get(t)
-                        .copied()
-                        .unwrap_or(0) as usize;
-                    let base = step.plan.kv_page_indptr.get(r).copied().unwrap_or(0) as usize;
+                    let r = req[t] as usize;
+                    let base = step.plan.kv_page_indptr[r] as usize;
                     let virt = base + (pos / page) as usize;
-                    pages.push(step.plan.kv_page_indices.get(virt).copied().unwrap_or(0));
+                    pages.push(step.plan.kv_page_indices[virt]);
                     offs.push(pos % page);
                 }
                 (pages, offs)
             };
-            let req = req_of_token(&step.plan.qo_indptr);
+            let req = step.plan.req_of_token();
             let staged = driver_metal_new::model::tables::stage(
                 &self.context,
                 driver_metal_new::model::tables::Frame {
@@ -946,18 +968,3 @@ fn shader_tree() -> std::path::PathBuf {
         })
 }
 
-/// Which request owns each token, from the qo CSR.
-///
-/// The scheduler states the boundaries — request `r` owns rows
-/// `[qo_indptr[r], qo_indptr[r+1])` — and `sdpa_paged_decode` wants the
-/// inverse, one entry a token. Expanded here rather than asked of the
-/// scheduler, because it is a restatement of what the CSR already says and a
-/// second field would be a second chance to disagree with it.
-fn req_of_token(qo_indptr: &[u32]) -> Vec<u32> {
-    let mut out = Vec::new();
-    for r in 0..qo_indptr.len().saturating_sub(1) {
-        let (start, end) = (qo_indptr[r], qo_indptr[r + 1]);
-        out.resize(out.len() + (end - start) as usize, r as u32);
-    }
-    out
-}

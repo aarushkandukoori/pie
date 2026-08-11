@@ -123,6 +123,191 @@ pub struct LaunchPlan {
     pub channel_expected_tail: Vec<u64>,
 }
 
+/// Why a plan cannot be fired.
+///
+/// Names the member and both numbers that disagree, because a refusal that
+/// says only "invalid" leaves the caller to re-derive what this already knows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Malformed(pub String);
+
+impl core::fmt::Display for Malformed {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Malformed {}
+
+impl LaunchPlan {
+    /// Every CSR invariant a fire depends on, checked before anything is
+    /// staged or written.
+    ///
+    /// # Why this exists
+    ///
+    /// The Metal seam derived each token's physical KV page with
+    /// `kv_page_indices.get(virt).copied().unwrap_or(0)`. A request whose CSR
+    /// is short — truncated, mis-sized, or simply longer in positions than in
+    /// pages — therefore resolved to physical page **0**, which belongs to
+    /// some other request, and the fire wrote this request's keys and values
+    /// over a stranger's cache. Nothing faults, nothing logs, and the damage
+    /// lands on a request that did nothing wrong.
+    ///
+    /// `unwrap_or(0)` is the whole defect and it cannot be fixed at the call
+    /// site, because there is no safe fallback page. The only correct answer
+    /// is to refuse the frame — before the pool is touched, which is the
+    /// *decide, then move* rule the driver's `store/control.rs` records the
+    /// cost of breaking.
+    ///
+    /// It lives here rather than in a backend because `driver-api` is where
+    /// the family's other eleven validators live, and because a check a
+    /// backend can skip is one a backend will skip.
+    ///
+    /// # Errors
+    ///
+    /// [`Malformed`], naming the member and the numbers that disagree.
+    pub fn validate_geometry(&self) -> Result<(), Malformed> {
+        let bad = |why: String| Err(Malformed(why));
+        let tokens = self.token_ids.len();
+
+        if !self.position_ids.is_empty() && self.position_ids.len() != tokens {
+            return bad(format!(
+                "position_ids has {} entries for {tokens} tokens",
+                self.position_ids.len()
+            ));
+        }
+
+        // The QO CSR: starts at zero, never decreases, ends at the token
+        // count. An empty one is the documented default — one request over
+        // every token — and not a defect.
+        if !self.qo_indptr.is_empty() {
+            if self.qo_indptr[0] != 0 {
+                return bad(format!("qo_indptr starts at {}, not 0", self.qo_indptr[0]));
+            }
+            if let Some(w) = self.qo_indptr.windows(2).find(|w| w[0] > w[1]) {
+                return bad(format!("qo_indptr decreases: {} then {}", w[0], w[1]));
+            }
+            let last = *self.qo_indptr.last().unwrap_or(&0) as usize;
+            if last != tokens {
+                return bad(format!("qo_indptr ends at {last}, not the {tokens} tokens"));
+            }
+        }
+
+        // The KV page CSR, checked the same way and then against the array it
+        // indexes.
+        if !self.kv_page_indptr.is_empty() {
+            if self.kv_page_indptr[0] != 0 {
+                return bad(format!(
+                    "kv_page_indptr starts at {}, not 0",
+                    self.kv_page_indptr[0]
+                ));
+            }
+            if let Some(w) = self.kv_page_indptr.windows(2).find(|w| w[0] > w[1]) {
+                return bad(format!("kv_page_indptr decreases: {} then {}", w[0], w[1]));
+            }
+            let last = *self.kv_page_indptr.last().unwrap_or(&0) as usize;
+            if last > self.kv_page_indices.len() {
+                return bad(format!(
+                    "kv_page_indptr ends at {last}, past the {} entries \
+                     kv_page_indices holds",
+                    self.kv_page_indices.len()
+                ));
+            }
+            if !self.qo_indptr.is_empty() && self.kv_page_indptr.len() != self.qo_indptr.len() {
+                return bad(format!(
+                    "kv_page_indptr has {} rows and qo_indptr has {}; one of \
+                     them is not one-per-request",
+                    self.kv_page_indptr.len(),
+                    self.qo_indptr.len()
+                ));
+            }
+        }
+
+        // A read-out row that is not a token row reads whatever follows the
+        // logits — the same shape of defect, one buffer over.
+        if let Some(&row) = self.sampling_indices.iter().find(|&&r| r as usize >= tokens) {
+            return bad(format!(
+                "sampling_indices names row {row}, past the {tokens} rows this fire has"
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Whether every token's KV write lands inside its OWN request's pages.
+    ///
+    /// Separate from [`Self::validate_geometry`] because it needs the pool's
+    /// page size, which the plan does not carry. This is the check that
+    /// stands between a short CSR and a write into physical page 0.
+    ///
+    /// # Errors
+    ///
+    /// [`Malformed`], naming the token, its request, and the span it left.
+    pub fn validate_kv_writes(&self, page_size: u32) -> Result<(), Malformed> {
+        if self.kv_page_indptr.is_empty() || self.position_ids.is_empty() {
+            return Ok(());
+        }
+        let page = page_size.max(1);
+        let req_of_token = self.req_of_token();
+        for (t, &pos) in self.position_ids.iter().enumerate() {
+            let Some(&r) = req_of_token.get(t) else {
+                return Err(Malformed(format!(
+                    "token {t} belongs to no request; qo_indptr covers {}",
+                    req_of_token.len()
+                )));
+            };
+            let r = r as usize;
+            let (Some(&base), Some(&end)) =
+                (self.kv_page_indptr.get(r), self.kv_page_indptr.get(r + 1))
+            else {
+                return Err(Malformed(format!(
+                    "request {r} has no kv_page_indptr span; the CSR holds {} rows",
+                    self.kv_page_indptr.len()
+                )));
+            };
+            let virt = base as usize + (pos / page) as usize;
+            if virt >= end as usize {
+                return Err(Malformed(format!(
+                    "token {t} of request {r} sits at position {pos}, which wants \
+                     virtual page {} of a CSR span holding {} — resolving it \
+                     would write KV into another request's pages",
+                    pos / page,
+                    end - base
+                )));
+            }
+            if virt >= self.kv_page_indices.len() {
+                return Err(Malformed(format!(
+                    "token {t} of request {r} indexes kv_page_indices[{virt}] of {}",
+                    self.kv_page_indices.len()
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Which request each token belongs to, from the QO CSR.
+    ///
+    /// An empty `qo_indptr` is the default the field documents: one request
+    /// over every token.
+    #[must_use]
+    pub fn req_of_token(&self) -> Vec<u32> {
+        let tokens = self.token_ids.len();
+        if self.qo_indptr.len() < 2 {
+            return vec![0; tokens];
+        }
+        let mut out = vec![0u32; tokens];
+        for (r, w) in self.qo_indptr.windows(2).enumerate() {
+            for slot in out
+                .iter_mut()
+                .take((w[1] as usize).min(tokens))
+                .skip(w[0] as usize)
+            {
+                *slot = u32::try_from(r).unwrap_or(0);
+            }
+        }
+        out
+    }
+}
+
 pub const RS_FLAG_RESET: u8 = 1;
 pub const RS_FLAG_FOLD: u8 = 2;
 pub const RS_FLAG_BUFFER_WRITE: u8 = 4;
@@ -440,4 +625,111 @@ pub struct PoolResizePlan {
     pub target_pages: u64,
     pub map_ranges: Vec<PiePoolRange>,
     pub unmap_ranges: Vec<PiePoolRange>,
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+
+    /// Two requests, two pages each, four tokens — a well-formed frame.
+    fn sound() -> LaunchPlan {
+        LaunchPlan {
+            token_ids: vec![10, 11, 12, 13],
+            position_ids: vec![0, 1, 0, 1],
+            qo_indptr: vec![0, 2, 4],
+            kv_page_indptr: vec![0, 2, 4],
+            // Request 0 owns physical pages 7 and 8; request 1 owns 3 and 4.
+            kv_page_indices: vec![7, 8, 3, 4],
+            ..LaunchPlan::default()
+        }
+    }
+
+    #[test]
+    fn a_sound_frame_passes_both_halves() {
+        let p = sound();
+        p.validate_geometry().expect("a sound frame");
+        p.validate_kv_writes(16).expect("every write is in its own span");
+        assert_eq!(p.req_of_token(), vec![0, 0, 1, 1]);
+    }
+
+    /// THE defect this exists for.
+    ///
+    /// Request 1's positions run past the pages its CSR span holds. The seam
+    /// resolved that with `kv_page_indices.get(virt).copied().unwrap_or(0)`,
+    /// which is physical page **0** — a page belonging to some other request
+    /// entirely. The fire then wrote request 1's keys over that request's
+    /// cache, and nothing faulted.
+    #[test]
+    fn a_token_past_its_own_csr_span_is_refused_not_folded_to_page_zero() {
+        let mut p = sound();
+        // One page each now, but request 1 still has two tokens at positions
+        // 0 and 1 — and with a page size of 1, position 1 wants a second page
+        // it does not own.
+        p.kv_page_indptr = vec![0, 1, 2];
+        p.kv_page_indices = vec![7, 3];
+        let why = p
+            .validate_kv_writes(1)
+            .expect_err("a token past its span must be refused")
+            .0;
+        assert!(
+            why.contains("another request's pages"),
+            "the refusal must say what the fold would have cost: {why}"
+        );
+        // And the geometry half is happy with it, which is why the two are
+        // separate checks: the CSR is internally consistent and still wrong
+        // for these positions.
+        p.validate_geometry().expect("the CSR itself is well-formed");
+    }
+
+    #[test]
+    fn a_csr_that_disagrees_with_itself_is_refused_by_member() {
+        let mut p = sound();
+        p.qo_indptr = vec![0, 2, 3];
+        assert!(
+            p.validate_geometry().unwrap_err().0.contains("qo_indptr ends at 3"),
+            "the count that disagrees has to be in the message"
+        );
+
+        let mut p = sound();
+        p.qo_indptr = vec![0, 3, 2];
+        assert!(p.validate_geometry().unwrap_err().0.contains("decreases"));
+
+        let mut p = sound();
+        p.kv_page_indptr = vec![0, 2, 9];
+        assert!(
+            p.validate_geometry()
+                .unwrap_err()
+                .0
+                .contains("past the 4 entries"),
+            "a CSR ending past its own index array is the short-CSR case"
+        );
+
+        let mut p = sound();
+        p.position_ids = vec![0, 1];
+        assert!(p.validate_geometry().unwrap_err().0.contains("position_ids"));
+
+        // A read-out row that is not a token row reads whatever follows the
+        // logits.
+        let mut p = sound();
+        p.sampling_indices = vec![0, 9];
+        assert!(
+            p.validate_geometry()
+                .unwrap_err()
+                .0
+                .contains("sampling_indices names row 9")
+        );
+    }
+
+    /// An empty CSR is the documented DEFAULT — one request over every token
+    /// — and must not be refused as malformed.
+    #[test]
+    fn the_documented_defaults_are_not_refused() {
+        let p = LaunchPlan {
+            token_ids: vec![1, 2, 3],
+            ..LaunchPlan::default()
+        };
+        p.validate_geometry().expect("an empty CSR is a default");
+        p.validate_kv_writes(16).expect("no KV family, nothing to check");
+        assert_eq!(p.req_of_token(), vec![0, 0, 0]);
+    }
 }
