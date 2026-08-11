@@ -121,10 +121,21 @@ impl ModelCosts for CheckpointCosts {
     /// its own doc says what it is for: "the number the planner multiplies by
     /// a token budget". It had no caller.
     fn per_kv_token_bytes(&self) -> u64 {
+        // DSV4 CARRIES A COMPRESSOR CACHE BESIDE ITS KV, and it is charged
+        // per token like the rest. `dsv4_geometry::compress_bytes_per_token`'s
+        // own doc says where it belongs: "This is what the memory planner adds
+        // on top of the KV cache for a V4 model." It had no caller either.
+        //
+        // A checkpoint that states no ratios adds zero, which is every family
+        // but this one.
+        let compress = super::dsv4_geometry::compress_bytes_per_token(
+            &self.hf.dsv4_compress_ratios,
+            u32::try_from(self.head_dim()).unwrap_or(0),
+        );
         if let Some(mla) = self.mla_geometry() {
-            return mla.bytes_per_token();
+            return mla.bytes_per_token() + compress;
         }
-        self.layers() * self.kv_heads() * self.head_dim() * 2 * 2
+        self.layers() * self.kv_heads() * self.head_dim() * 2 * 2 + compress
     }
 
     /// Zero: this driver keeps no Quest key envelopes, and
@@ -142,13 +153,36 @@ impl ModelCosts for CheckpointCosts {
         if !self.has_linear_state() {
             return 0;
         }
-        let conv = u64::from(self.hf.linear_conv_kernel_dim.unsigned_abs())
-            * u64::from(self.hf.linear_key_head_dim.unsigned_abs())
+        // THE SAME TWO STRIDES `gdn_shape` HANDS THE ALLOCATOR, and the same
+        // layer count. Getting either wrong here does not fail: it moves bytes
+        // between the arena and the KV pool, silently.
+        //
+        // `conv_dim` is `2 * key_width + value_width`, not one head's width --
+        // the conv window spans the whole packed in-projection. And the slabs
+        // exist only for LINEAR layers: a hybrid's full-attention layers keep
+        // a KV cache instead, so charging every layer would over-count a
+        // qwen3.5 hybrid by the ratio of its two layer kinds.
+        let key_width = u64::from(self.hf.linear_key_head_dim.unsigned_abs())
             * u64::from(self.hf.linear_num_key_heads.unsigned_abs());
-        let state = u64::from(self.hf.linear_key_head_dim.unsigned_abs())
-            * u64::from(self.hf.linear_value_head_dim.unsigned_abs())
+        let value_width = u64::from(self.hf.linear_value_head_dim.unsigned_abs())
             * u64::from(self.hf.linear_num_value_heads.unsigned_abs());
-        self.layers() * (conv * 2 + state * 4)
+        let conv = u64::from(self.hf.linear_conv_kernel_dim.unsigned_abs())
+            * (2 * key_width + value_width);
+        let state = u64::from(self.hf.linear_num_value_heads.unsigned_abs())
+            * u64::from(self.hf.linear_key_head_dim.unsigned_abs())
+            * u64::from(self.hf.linear_value_head_dim.unsigned_abs());
+        let linear_layers = if self.hf.layer_types.is_empty() {
+            self.layers()
+        } else {
+            self.hf
+                .layer_types
+                .iter()
+                .filter(|t| *t == "linear_attention")
+                .count() as u64
+        };
+        // The conv window is bf16; the recurrent state is fp32 unless the
+        // deployment says otherwise, which is the shell's own default.
+        linear_layers * (conv * 2 + state * 4)
     }
 
     /// The forward workspace at `n` tokens, from the layout that allocates it.
@@ -313,6 +347,21 @@ mod tests {
     }
 
     #[test]
+    fn a_v4_checkpoint_pays_for_its_compressor_cache_too() {
+        let mut hf = qwen3_0_6b();
+        hf.kv_lora_rank = 512;
+        hf.qk_rope_head_dim = 64;
+        let plain = CheckpointCosts::new(&hf, 1).per_kv_token_bytes();
+
+        hf.dsv4_compress_ratios = vec![4, 4, 4];
+        let with_compressor = CheckpointCosts::new(&hf, 1).per_kv_token_bytes();
+        assert!(
+            with_compressor > plain,
+            "the compressor cache is resident and was charged nothing"
+        );
+    }
+
+    #[test]
     fn a_dense_model_keeps_no_recurrent_state() {
         let c = CheckpointCosts::new(&qwen3_0_6b(), 1);
         assert!(!c.has_linear_state());
@@ -330,11 +379,39 @@ mod tests {
         hf.linear_num_value_heads = 32;
         let c = CheckpointCosts::new(&hf, 1);
         assert!(c.has_linear_state());
-        // conv is bf16, the recurrent state is fp32 -- charged separately
-        // because they are different widths, not one.
-        let conv = 4 * 128 * 16 * 2;
-        let state = 128 * 128 * 32 * 4;
-        assert_eq!(c.state_slot_bytes(), 28 * (conv + state));
+        // ONE linear layer of the two, and `conv_dim` is the packed
+        // in-projection's width -- the same two strides `gdn_shape` hands the
+        // allocator.
+        let key_width = 128 * 16;
+        let value_width = 128 * 32;
+        let conv = 4 * (2 * key_width + value_width);
+        let state = 32 * 128 * 128;
+        assert_eq!(c.state_slot_bytes(), conv * 2 + state * 4);
+    }
+
+    #[test]
+    fn only_the_linear_layers_of_a_hybrid_carry_slabs() {
+        // A hybrid's full-attention layers keep a KV cache instead, so
+        // charging every layer over-counts by the ratio of the two kinds --
+        // which the planner then takes out of the KV pool.
+        let mut hf = qwen3_0_6b();
+        hf.linear_conv_kernel_dim = 4;
+        hf.linear_key_head_dim = 128;
+        hf.linear_num_key_heads = 16;
+        hf.linear_value_head_dim = 128;
+        hf.linear_num_value_heads = 32;
+
+        hf.layer_types = vec!["linear_attention".to_owned(); 4];
+        let all_linear = CheckpointCosts::new(&hf, 1).state_slot_bytes();
+
+        hf.layer_types = vec![
+            "linear_attention".to_owned(),
+            "full_attention".to_owned(),
+            "linear_attention".to_owned(),
+            "full_attention".to_owned(),
+        ];
+        let half = CheckpointCosts::new(&hf, 1).state_slot_bytes();
+        assert_eq!(half * 2, all_linear, "two of four layers carry slabs");
     }
 
     #[test]
