@@ -64,6 +64,17 @@ struct Shell {
     /// be declined after the servability test, so the answer records what was
     /// actually built rather than what was requested.
     lowerings: std::collections::BTreeMap<LoweringKey, LoweredFire>,
+    /// The cuBLAS handle, created once.
+    ///
+    /// It used to be created and DESTROYED inside every fire, and
+    /// `cublasDestroy` costs **3.2 ms** — measured, and it was three quarters
+    /// of what a warm decode spent being issued. Creating one per fire also
+    /// meant a fresh workspace allocation each time, which is the part that
+    /// actually takes the time.
+    ///
+    /// The stream is rebound per fire instead, which is what `cublasSetStream`
+    /// is for.
+    cublas: Option<crate::cuda::cublas::CublasHandle<cudarc::cublas::sys::cublasHandle_t>>,
     /// The fire's predicate word, allocated once.
     ///
     /// PERSISTENT for two reasons, and the second is correctness. It used to
@@ -728,6 +739,7 @@ pub extern "C" fn pie_cuda_create(
         caps: CAPS_JSON.as_bytes().to_vec(),
         boot_descriptor,
         runahead,
+        cublas: None,
         lowerings: std::collections::BTreeMap::new(),
         preds: None,
         peel_win: None,
@@ -772,6 +784,11 @@ pub extern "C" fn pie_cuda_destroy(driver: *mut PieDriver) {
         }
         if let Some(swap) = &shell.swap {
             swap.free();
+        }
+        // The handle is the DRIVER's now, so its destructor is the driver's
+        // too — `CublasHandle` asserts it was released rather than dropped.
+        if let Some(mut h) = shell.cublas.take() {
+            h.release(&mut crate::cuda::cublas::LiveCublas);
         }
         if let Some(mut scratch) = shell.scratch.take() {
             let mut sops = crate::model::attention_workspace::LiveStagingOps;
@@ -3003,12 +3020,13 @@ fn step_impl(
 ) -> Result<(), i32> {
     use crate::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use crate::model::executor::{
-        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, DispatchPlan, Frame, GdnCtx, PrefillPlan, Resolver,
+        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, Frame, GdnCtx, PrefillPlan, Resolver,
         run,
     };
     use model_compiler::lower::{Arg, Fire, GuardMode, Row, lower_with};
     use model_compiler::trace::{FireClass, ValueId};
 
+    let t_head = std::time::Instant::now();
     let sub_batches = slice_of(step.sub_batch_indptr.ptr, step.sub_batch_indptr.len);
     if sub_batches.len() > 2 {
         eprintln!("[driver-cuda-new] launch: one sub-batch per step today");
@@ -3050,6 +3068,8 @@ fn step_impl(
         return Err(PIE_STATUS_UNSUPPORTED);
     }
 
+    sg_trace(|| format!("  head {:?}", t_head.elapsed()));
+    let t_low = std::time::Instant::now();
     // ── The lowering, or the one this shape already has. ──
     //
     // Everything between here and `DispatchPlan` is a pure function of the
@@ -3068,6 +3088,7 @@ fn step_impl(
         state.lowerings.get(&key).expect("just built");
     let union = *union;
     let fire_rows: Vec<Row> = vec![Row { samples: true, ..Row::default() }; rows];
+    sg_trace(|| format!("  lowering {:?}", t_low.elapsed()));
     let mut phase = std::time::Instant::now();
     let mut lap = |what: &str| {
         sg_trace(|| format!("  {what} {:?}", phase.elapsed()));
@@ -3608,8 +3629,18 @@ fn step_impl(
         sm_scale,
     };
 
+    // ONE HANDLE FOR THE DRIVER, its stream rebound per fire. See
+    // `Shell::cublas`: creating and destroying one per fire cost 3.2 ms.
     let mut cublas_ops = crate::cuda::cublas::LiveCublas;
-    let mut cublas = crate::cuda::cublas::CublasHandle::create(&mut cublas_ops, raw_stream)
+    if state.cublas.is_none() {
+        state.cublas = Some(
+            crate::cuda::cublas::CublasHandle::create(&mut cublas_ops, raw_stream)
+                .map_err(|_| PIE_STATUS_DRIVER_ERROR)?,
+        );
+    }
+    let cublas = state.cublas.as_mut().expect("just ensured");
+    cublas
+        .set_stream(&mut cublas_ops, raw_stream)
         .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
     // The family's per-layer tables and named constants — the C++
     // parse-time vectors (`per_layer_rope_theta`, `rotary_of`) and the
@@ -3714,7 +3745,7 @@ fn step_impl(
     } else {
         stream.as_ref().synchronize()
     };
-    cublas.release(&mut cublas_ops);
+    lap("sync");
     match (result, sync) {
         (Ok(_), Ok(())) => {}
         (Err(e), _) => {
@@ -3727,6 +3758,7 @@ fn step_impl(
         }
     }
 
+    lap("post-match");
     // THE FRAME'S DEBT, built before the delivery below because it is
     // owed whether or not this fire has logits to deliver. Paying it
     // inside the delivery block meant a fire with no readout channel
@@ -3846,6 +3878,7 @@ fn step_impl(
         // `cudaFree` while the fire runs, which synchronizes the
         // device and undoes everything above. The next launch
         // reclaims it — see `InFlight`.
+        lap("debt");
         let done = crate::cuda::Event::new().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
         stream.as_ref().record(&done).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
         state.in_flight = Some(InFlight {
@@ -3856,6 +3889,7 @@ fn step_impl(
                 .collect(),
         });
     }
+    lap("tail");
     Ok(())
 }
 
