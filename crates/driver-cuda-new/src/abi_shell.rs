@@ -404,6 +404,19 @@ struct FireArrays {
     named: std::collections::BTreeMap<model_compiler::trace::ValueId, crate::cuda::DeviceBuffer>,
     /// The small per-fire u32 descriptor arrays, by slot.
     slots: Vec<Option<crate::cuda::DeviceBuffer>>,
+    /// PINNED host staging for those uploads, ONE PER SLOT.
+    ///
+    /// A `cudaMemcpyAsync` out of PAGEABLE host memory is SYNCHRONOUS — it
+    /// blocks until the copy lands — and there are eight of these per fire.
+    /// A `Vec` here therefore drained the stream eight times inside
+    /// `pie_cuda_launch`, which is the same trap the logits D2H fell into.
+    ///
+    /// Per slot and not one shared buffer, because pinning is what makes the
+    /// copy genuinely ASYNCHRONOUS: a single buffer would be overwritten by
+    /// the next slot's upload while the previous copy was still queued. Two
+    /// fires cannot collide on one slot either — the next launch waits on the
+    /// previous fire's event before it reclaims anything (`InFlight`).
+    staging: Vec<Option<crate::cuda::PinnedBuf>>,
     epoch: u64,
 }
 
@@ -441,14 +454,26 @@ impl FireArrays {
         if self.slots.len() <= slot {
             self.slots.resize_with(slot + 1, || None);
         }
-        let bytes: Vec<u8> = vals.iter().flat_map(|x| x.to_le_bytes()).collect();
-        let need = bytes.len().max(4);
+        if self.staging.len() <= slot {
+            self.staging.resize_with(slot + 1, || None);
+        }
+        let live = vals.len() * 4;
+        let need = live.max(4);
+        if self.staging[slot].as_ref().is_none_or(|p| p.len() < need) {
+            self.staging[slot] =
+                Some(crate::cuda::PinnedBuf::new(need).map_err(|_| PIE_STATUS_EXHAUSTED)?);
+        }
+        let pin = self.staging[slot].as_mut().expect("just sized");
+        for (dst, v) in pin.as_mut_slice()[..live].chunks_exact_mut(4).zip(vals) {
+            dst.copy_from_slice(&v.to_le_bytes());
+        }
         if self.slots[slot].as_ref().is_none_or(|b| b.len() < need) {
             self.slots[slot] = Some(alloc.alloc(need).map_err(|_| PIE_STATUS_EXHAUSTED)?);
             self.epoch += 1;
         }
+        let src = &self.staging[slot].as_ref().expect("just sized").as_slice()[..live];
         let b = self.slots[slot].as_mut().expect("just ensured");
-        b.copy_from_host(&bytes, stream).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+        b.copy_from_host(src, stream).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
         Ok(b.as_ptr().cast_const().cast::<u32>())
     }
 
