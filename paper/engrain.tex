@@ -923,8 +923,12 @@ cover, rows joining and leaving between steps; that harness ran 600 steps and
 trigger. Forcing the window small reproduces it in 30 steps, and both our
 backends had it independently. The fix is three lines of policy --- a narrowed
 row may not be remembered, a follower inherits its source's flag, and the spin
-bound raises the flag like the other two --- and it costs nothing under a window
-sized as the pool sizes it, because then no row narrows. The seventh
+bound raises the flag like the other two. Its cost is that a row which met a
+ceiling does not populate the memo for that step, which is paid only when a
+ceiling is met: over 40 steps of 32 rows on corpus documents at the window the
+pool sizes for itself, no row narrows at all, and the defect was reachable in
+serving only because a long enough document eventually reaches what a schema
+did not suggest it would. The seventh
 verification forces the window and \textbf{fails if no row narrows}: a check for
 a flag that is never raised asserts nothing, which is exactly how six checks
 missed this.
