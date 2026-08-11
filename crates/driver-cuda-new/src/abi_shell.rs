@@ -277,6 +277,31 @@ struct InFlight {
     /// the point is that nothing here is read again — it is held only so
     /// that dropping it does not synchronize at the wrong moment.
     scratch: Vec<crate::cuda::DeviceBuffer>,
+    /// Channels closed while this fire was queued, freed when it retires.
+    ///
+    /// A fire's debt COPIES the `ChannelState` it will publish into, so a
+    /// `close_channel` that freed the mirror immediately would leave the
+    /// stream-ordered callback writing into memory the allocator had already
+    /// taken back. Run-ahead is what made that reachable: before it, the
+    /// publish happened on the calling thread and was over before any close
+    /// could be processed.
+    ///
+    /// Deferring rather than refcounting because the lifetime is already
+    /// modelled here -- an in-flight fire is exactly the thing that might
+    /// still be holding it, and this queue already knows when one retires.
+    closed_channels: Vec<ChannelState>,
+}
+
+/// Give back what a retired fire was holding.
+///
+/// The scratch drops on its own; the channels do not, because a
+/// `ChannelState` is a pair of raw host allocations this shell owns rather
+/// than a Rust value with a destructor. Freeing them HERE rather than in
+/// `close_channel` is the whole point -- see `InFlight::closed_channels`.
+fn retire(fire: InFlight) {
+    for ch in &fire.closed_channels {
+        ch.free();
+    }
 }
 
 /// How many fires the driver may have queued ahead of the GPU.
@@ -873,6 +898,20 @@ pub fn pie_cuda_create(
 pub fn pie_cuda_destroy(driver: *mut PieDriver) {
     if !driver.is_null() {
         let mut shell = unsafe { Box::from_raw(driver.cast::<Shell>()) };
+        // EVERY QUEUED FIRE FIRST, because they may still be writing.
+        //
+        // A fire that is on the stream when the driver is destroyed will run
+        // its stream-ordered callback against a `ChannelState` copy, and the
+        // frees below would take that memory back underneath it. Waiting is
+        // the only correct answer here: unlike the reclaim in `step_impl`
+        // there is no later call to defer to.
+        //
+        // It also frees the channels those fires were holding for a
+        // `close_channel` that arrived while they were queued.
+        for fire in std::mem::take(&mut shell.in_flight) {
+            let _ = fire.done.synchronize();
+            retire(fire);
+        }
         for ch in shell.channels.values() {
             ch.free();
         }
@@ -3431,11 +3470,13 @@ fn step_impl(
         .front()
         .is_some_and(|f| f.done.is_complete().unwrap_or(true))
     {
-        state.in_flight.pop_front();
+        let done = state.in_flight.pop_front().expect("just checked");
+        retire(done);
     }
     while state.in_flight.len() >= RUNAHEAD_DEPTH {
         let oldest = state.in_flight.pop_front().expect("nonempty");
         oldest.done.synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+        retire(oldest);
     }
     let stream = state.fire_stream.as_ref().expect("just ensured");
     let raw_stream = stream.as_ref().as_raw().cast::<std::ffi::c_void>();
@@ -4200,6 +4241,7 @@ fn step_impl(
                 .into_iter()
                 .flatten()
                 .collect(),
+            closed_channels: Vec::new(),
         });
     }
     lap("tail");
@@ -4975,7 +5017,17 @@ pub fn pie_cuda_close_channel(driver: *mut PieDriver, channel_id: u64) -> i32 {
             return PIE_STATUS_INVALID_ARGUMENT;
         };
         if let Some(ch) = state.channels.remove(&channel_id) {
-            ch.free();
+            // UNREGISTERED NOW, FREED LATER. See `InFlight::closed_channels`:
+            // a queued fire's debt holds a copy of this state and will publish
+            // into it from a stream callback, so the mirror cannot go back to
+            // the allocator until every fire that could name it has retired.
+            //
+            // No fire in flight means nothing can be holding it, and the free
+            // happens here as it always did.
+            match state.in_flight.back_mut() {
+                Some(last) => last.closed_channels.push(ch),
+                None => ch.free(),
+            }
         }
         PIE_STATUS_OK
     })
