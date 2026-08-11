@@ -51,6 +51,10 @@ struct Shell {
     /// Does this driver hand its completions to a stream callback and
     /// return with the fire still queued? See `runahead_env`.
     runahead: bool,
+    /// The pinned host buffer the logits D2H lands in, grown to fit and
+    /// reused. The shell's rather than the fire's because a stream
+    /// callback may not free it — see `FireDebt::staging`.
+    logits_staging: Option<crate::cuda::PinnedBuf>,
     /// This driver's place in its tensor-parallel group, from
     /// `[driver] tp_rank` / `tp_size`. One rank, rank zero, unless told
     /// otherwise — and the two numbers travel together into both the load
@@ -241,16 +245,23 @@ struct InFlight {
 ///
 /// The staging buffer is the reason this is a struct rather than a
 /// closure: the D2H used to land in a `Vec` on the stack, which is a
-/// use-after-free the moment the call returns before the copy does. The
-/// buffer belongs to the debt now and dies with it.
+/// use-after-free the moment the call returns before the copy does.
+///
+/// **The debt BORROWS that buffer; it does not own it.** A callback may
+/// not make CUDA runtime calls, and freeing pinned memory is one — an
+/// owned `PinnedBuf` here means `cudaFreeHost` on a CUDA-owned thread,
+/// which is undefined and shows up as heap corruption several fires
+/// later. It is the same rule that put the device scratch in `InFlight`.
+/// The buffer is the shell's, reused every fire.
 struct FireDebt {
-    /// The bf16 logits, D2H'd into here by a stream-ordered copy.
+    /// The bf16 logits, D2H'd into the SHELL's pinned staging by a
+    /// stream-ordered copy, as (pointer, length).
     ///
-    /// PINNED, and that is the whole reason this type exists rather than
-    /// a `Vec`: `cudaMemcpyAsync` into pageable host memory blocks until
-    /// the copy completes, so a `Vec` here drains the stream inside
+    /// PINNED, and that is the whole reason the shell keeps one:
+    /// `cudaMemcpyAsync` into pageable host memory blocks until the copy
+    /// completes, so a `Vec` here drains the stream inside
     /// `pie_cuda_launch` and undoes the run-ahead.
-    staging: Option<crate::cuda::PinnedBuf>,
+    staging: Option<(*const u8, usize)>,
     /// Where the widened cell goes, and how wide the readout is.
     channel: Option<ChannelState>,
     vocab: usize,
@@ -286,10 +297,13 @@ unsafe extern "C" fn retire_fire(data: *mut std::ffi::c_void) {
     // The logits, widened bf16 -> f32 and published. The widening is the
     // wire's, not the model's: the ring's cell is f32 and the device
     // wrote bf16, so the shift is the conversion.
-    if let (Some(ch), Some(pin)) = (debt.channel.as_ref(), debt.staging.as_ref())
+    if let (Some(ch), Some(&(ptr, len))) = (debt.channel.as_ref(), debt.staging.as_ref())
         && debt.vocab > 0
     {
-        let staged = pin.as_slice();
+        // SAFETY: the shell's staging buffer, alive for the driver's
+        // lifetime, and the D2H that filled it is ordered before this
+        // callback on the same stream.
+        let staged = unsafe { std::slice::from_raw_parts(ptr, len) };
         let mut cell = vec![0u8; debt.vocab * 4];
         for t in 0..debt.vocab {
             let off = (debt.last_row * debt.vocab + t) * 2;
@@ -647,6 +661,7 @@ pub extern "C" fn pie_cuda_create(
         caps: CAPS_JSON.as_bytes().to_vec(),
         boot_descriptor,
         runahead,
+        logits_staging: None,
         tp_rank,
         tp_size,
         model: None,
@@ -3724,11 +3739,19 @@ fn step_impl(
         if let (Some(ch), Some(buf)) = (target, named_bufs.get(&lv)) {
             match debt.as_mut() {
                 Some(d) => {
-                    let mut pin = crate::cuda::PinnedBuf::new(buf.len())
-                        .map_err(|_| PIE_STATUS_EXHAUSTED)?;
-                    buf.copy_to_host(pin.as_mut_slice(), stream.as_ref())
+                    // The shell's buffer, grown to fit and reused. Not the
+                    // debt's: see `FireDebt::staging`.
+                    if state.logits_staging.as_ref().is_none_or(|p| p.len() < buf.len()) {
+                        state.logits_staging = Some(
+                            crate::cuda::PinnedBuf::new(buf.len())
+                                .map_err(|_| PIE_STATUS_EXHAUSTED)?,
+                        );
+                    }
+                    let pin = state.logits_staging.as_mut().expect("just sized");
+                    let view = (pin.as_slice().as_ptr(), buf.len());
+                    buf.copy_to_host(&mut pin.as_mut_slice()[..buf.len()], stream.as_ref())
                         .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-                    d.staging = Some(pin);
+                    d.staging = Some(view);
                     d.channel = Some(*ch);
                 }
                 None => {

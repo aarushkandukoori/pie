@@ -349,6 +349,18 @@ impl PinnedBuf {
         Ok(Self { ptr: p.cast::<u8>(), len })
     }
 
+    /// How many bytes are pinned.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Was this a zero-length request?
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// The bytes, as a slice.
     #[must_use]
     pub fn as_slice(&self) -> &[u8] {

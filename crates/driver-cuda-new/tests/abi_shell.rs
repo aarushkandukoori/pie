@@ -2808,6 +2808,66 @@ fn a_launch_returns_before_its_fire_retires() {
         std::thread::yield_now();
     }
     let retired_after = t0.elapsed();
+    // ── AND THE NUMBER THAT DECIDES WHETHER ANY OF THIS PAYS ──
+    //
+    // The prefill above says issue time ≈ GPU time. A DECODE is the shape
+    // production runs and the shape the supergraph is built to REPLAY, so
+    // it is where issuing can be cheaper than executing — one
+    // `cudaGraphLaunch` instead of ~500 bound-and-dispatched launches. If
+    // it is, run-ahead is the difference between a busy GPU and an idle
+    // one; if it is not, run-ahead only queues behind the host.
+    //
+    // Three rounds: the first warms, the second captures, the third
+    // replays.
+    let dec_pos = [prompt.len() as u32];
+    let dec_tok = [1u32];
+    let dec_qo = [0u32, 1];
+    // Position 128 lands in a NINTH page; the prefill filled eight.
+    let dec_pages: Vec<u32> = (0..=pages.len() as u32).collect();
+    let dec_indptr = [0u32, dec_pages.len() as u32];
+    let dec_lens = [1u32];
+    let decode = PieStepDesc {
+        roster_rows: u32s(&roster),
+        sub_batch_indptr: u32s(&sub),
+        sub_batch_class: u32s(&class),
+        terminal_cells: driver_abi::local::PieTerminalCellPtrSlice {
+            ptr: cells.as_ptr(),
+            len: 1,
+        },
+        token_ids: u32s(&dec_tok),
+        position_ids: u32s(&dec_pos),
+        kv_page_indices: u32s(&dec_pages),
+        kv_page_indptr: u32s(&dec_indptr),
+        kv_last_page_lens: u32s(&dec_lens),
+        qo_indptr: u32s(&dec_qo),
+        ..Default::default()
+    };
+    let dec_frame = PieFrameDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
+        required_kv_pages: dec_pages.len() as u32,
+        steps: driver_abi::local::PieStepDescSlice { ptr: &decode, len: 1 },
+        ..Default::default()
+    };
+    for round in 0..3 {
+        DONE.store(false, Ordering::Release);
+        let t = std::time::Instant::now();
+        let st = unsafe { driver_abi::local::pie_cuda_launch(d, &dec_frame, completion) };
+        let issued = t.elapsed();
+        let inside = DONE.load(Ordering::Acquire);
+        assert_eq!(st, PIE_STATUS_OK, "the decode launches");
+        let w = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !DONE.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < w, "the decode never completed");
+            std::thread::yield_now();
+        }
+        eprintln!(
+            "decode {round}: issued in {issued:?}, retired at {:?}, \
+             completion ran in-call: {inside}",
+            t.elapsed()
+        );
+    }
+
     unsafe { driver_abi::local::pie_cuda_destroy(d) };
 
     // MEASURED, and the number is the interesting part. On a warm
