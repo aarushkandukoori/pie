@@ -136,16 +136,21 @@ pub static KERNELS: &[KernelSig] = &[
             num_heads: I32 <- Source::OutWidth(2),
             stream: Stream <- Source::Ctx("stream"),
         ]),
+    // The only row in this module that needs nothing from the GDN
+    // context BUT a scalar — no slab, no aux operand, no attention
+    // context. Which is why it is the one `Source::Gdn` gets on its own:
+    // the rest of `ssm` wants per-layer state slabs and operands the
+    // trace does not state, and naming a field does not reach those.
     kernel!(nemotron_prepare_mamba_params "ssm::nemotron_prepare_mamba_params",
         operands = operands![
-            a_log: Buf,
-            d: Buf,
-            dt_bias: Buf,
-            a: F32sMut,
-            d_f32: F32sMut,
-            dt_bias_f32: F32sMut,
-            num_heads: I32,
-            stream: Stream,
+            a_log: Buf <- Source::Weight(0),
+            d: Buf <- Source::Weight(1),
+            dt_bias: Buf <- Source::Weight(2),
+            a: F32sMut <- Source::Out(0),
+            d_f32: F32sMut <- Source::Out(1),
+            dt_bias_f32: F32sMut <- Source::Out(2),
+            num_heads: I32 <- Source::Gdn("v_h"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(nemotron_prepare_mamba_dt_da "ssm::nemotron_prepare_mamba_dt_da",
         operands = operands![

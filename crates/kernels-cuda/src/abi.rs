@@ -536,6 +536,11 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         | Source::SamplingIndices
         | Source::RequestCount => return None,
         Source::Ctx(f) | Source::CtxNonZero(f) => format!("ctx.{f}"),
+        // `g_of` is the driver's unwrap, and the guard below is what
+        // makes it total: a branch binding a GDN field is emitted with
+        // `gdn.is_some()` in its guard, so the only way here is through
+        // that test.
+        Source::Gdn(f) => format!("g_of(gdn).{f}"),
         // A NULL is returned fully typed and skips the cast step below:
         // that step turns a slot into the row's pointee, and a null has
         // no slot to turn. `null_mut().cast::<i32>()` leaves the original
@@ -709,6 +714,12 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
         // the fallthrough is what reports.
         if k.operands.iter().any(|o| o.source == Source::WeightNamed) {
             guard.push_str(" && !w_named.is_null()");
+        }
+        // A FIRE WITH NO RECURRENT LAYERS CARRIES NO GDN CONTEXT, so a
+        // row reading one declines rather than reading a default. This
+        // is what makes `g_of`'s unwrap total.
+        if k.operands.iter().any(|o| matches!(o.source, Source::Gdn(_))) {
+            guard.push_str(" && gdn.is_some()");
         }
         // A field a family zeroes to say "not mine" — and a divisor,
         // which is the same test for a different reason: a width divided

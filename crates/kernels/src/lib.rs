@@ -808,6 +808,19 @@ pub enum Source {
     /// is exactly that operand's element count. A product the table has
     /// no arithmetic for, read off a value that already is it.
     InElements(u8),
+    /// A field of the fire's GDN context, which is the hybrids' recurrent
+    /// geometry: head counts, conv width, group count, slab strides.
+    ///
+    /// Its own source and not a `Ctx` because it comes from a DIFFERENT
+    /// struct and an OPTIONAL one — a fire with no recurrent layers
+    /// carries no GDN context at all, and a row reading one has to
+    /// decline rather than read a default. Ten hand arms open with
+    /// `let g = gdn_ctx()?;` for exactly that reason, which made this the
+    /// largest single blocker in the table once the resolver landed.
+    ///
+    /// Like [`Source::CtxByLayer`], the name is the DRIVER's field and
+    /// the generator's claim is only where to look.
+    Gdn(&'static str),
     /// The `i`-th result's row width DIVIDED by a context field.
     ///
     /// One variant and not two, because "how many head-dims fit in this

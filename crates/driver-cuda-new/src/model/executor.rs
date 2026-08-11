@@ -989,6 +989,7 @@ fn dispatch_generated<R: Resolver>(
     b: &BoundLaunch<'_>,
     spec: &LaunchSpec,
     ctx: &DispatchCtx,
+    gdn: Option<&GdnCtx>,
     resolver: &mut R,
     rows: i32,
 ) -> bool {
@@ -1068,6 +1069,17 @@ fn dispatch_generated<R: Resolver>(
     }
     fn is_set<T: IsSet>(v: T) -> bool {
         v.is_set()
+    }
+
+    /// `Source::Gdn`'s reach into the fire's recurrent geometry.
+    ///
+    /// Total because of the guard, not in spite of it: every generated
+    /// branch that binds a GDN field carries `&& gdn.is_some()`, so the
+    /// only path here has already proved it. The panic message names the
+    /// invariant rather than the symptom, because if it ever fires the
+    /// bug is in the emitter's guard and nowhere near this line.
+    fn g_of<'a>(g: Option<&'a GdnCtx>) -> &'a GdnCtx {
+        g.expect("a generated branch binding a GDN field is guarded on gdn.is_some()")
     }
 
     /// `cast_const` for a pointer that is ALREADY const.
@@ -1166,7 +1178,7 @@ pub fn dispatch<R: Resolver>(
     // needs no arm, and the branch for it is emitted from the row — so
     // the hand-written match below is what is LEFT, not what is normal.
     // It shrinks as rows state their sources, which is a row's work.
-    if dispatch_generated(bound, spec, ctx, resolver, rows) {
+    if dispatch_generated(bound, spec, ctx, gdn, resolver, rows) {
         return Ok(());
     }
 
@@ -2360,28 +2372,6 @@ pub fn dispatch<R: Resolver>(
                     rows,
                     i32::try_from(x.width).expect("hidden fits i32"),
                     ctx.eps,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [a_out, d_out, bias_out, W a_log, W d, W dt_bias] — the
-        // load-time fp32 tables (`Lw.mamba_A/D_f32/dt_bias_f32`), stated
-        // per fire because the declared trace has no load hook. Heads
-        // come from the fire's mamba geometry.
-        "ssm::nemotron_prepare_mamba_params" => {
-            need(6)?;
-            let g = gdn_ctx()?;
-            let (a, d, bias) = (bound.args[0], bound.args[1], bound.args[2]);
-            let (wa, wd, wb) = (bound.args[3], bound.args[4], bound.args[5]);
-            unsafe {
-                ffi::pie_k_ssm_nemotron_prepare_mamba_params(
-                    wa.ptr.cast_const(),
-                    wd.ptr.cast_const(),
-                    wb.ptr.cast_const(),
-                    a.ptr.cast(),
-                    d.ptr.cast(),
-                    bias.ptr.cast(),
-                    g.v_h,
                     ctx.stream,
                 );
             }
