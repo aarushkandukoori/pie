@@ -48,13 +48,23 @@ pub const CUDA_PREFERRED_ALIGNMENT: u32 = 256;
 /// How much host staging one load-time transform may take at once.
 pub const CUDA_MAX_TILE_BYTES: u64 = 64 * 1024 * 1024;
 
-/// This device's storage capability.
+/// This device's storage capability, for one rank of a tensor-parallel group.
+///
+/// `tp_rank`/`tp_size` are the whole of what makes a load SHARDED. Every
+/// family's contract states its splits in terms of them
+/// (`Builder::local_extent`, `Builder::split`), so a rank compiles a plan that
+/// reads only its own bands out of the checkpoint and allocates an arena sized
+/// to them. The driver never slices a tensor itself.
+///
+/// The KV cache is sharded from the same two numbers, one layer down
+/// (`store::kv_geometry` divides `num_key_value_heads` by `tp_size`), so the
+/// weights and the cache cannot disagree about how wide a rank is.
 #[must_use]
-pub fn cuda_storage_target() -> StorageTarget {
+pub fn cuda_storage_target(tp_rank: u32, tp_size: u32) -> StorageTarget {
     StorageTarget {
         backend: BackendKind::Cuda,
-        tp_rank: 0,
-        tp_size: 1,
+        tp_rank,
+        tp_size: tp_size.max(1),
         max_tile_bytes: CUDA_MAX_TILE_BYTES,
         preferred_alignment: CUDA_PREFERRED_ALIGNMENT,
         tile_map_mask: CUDA_TILE_MAP_MASK,
@@ -172,6 +182,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_rank_states_its_own_place_in_the_group() {
+        let t = cuda_storage_target(1, 4);
+        assert_eq!(t.tp_rank, 1);
+        assert_eq!(t.tp_size, 4);
+        // A zero group size is one rank, not a division by zero.
+        assert_eq!(cuda_storage_target(0, 0).tp_size, 1);
+    }
+
+    #[test]
     fn the_driver_mask_never_claims_a_transform_the_loader_cannot_model() {
         let modelled = model_loader::plan::passes::tile::tile_map_mask(BackendKind::Cuda);
         assert_eq!(
@@ -198,7 +217,7 @@ mod tests {
 
     #[test]
     fn the_target_states_the_device_and_nothing_optimistic() {
-        let t = cuda_storage_target();
+        let t = cuda_storage_target(0, 1);
         assert_eq!(t.backend, BackendKind::Cuda);
         assert_eq!(t.preferred_alignment, 256);
         assert_eq!(t.fusion_mask, 0, "no fused transcode kernels here");

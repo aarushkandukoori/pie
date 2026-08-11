@@ -51,6 +51,13 @@ struct Shell {
     /// Does this driver hand its completions to a stream callback and
     /// return with the fire still queued? See `runahead_env`.
     runahead: bool,
+    /// This driver's place in its tensor-parallel group, from
+    /// `[driver] tp_rank` / `tp_size`. One rank, rank zero, unless told
+    /// otherwise — and the two numbers travel together into both the load
+    /// plan and the KV geometry, so a rank cannot be one width for its
+    /// weights and another for its cache.
+    tp_rank: u32,
+    tp_size: u32,
     /// The loaded model, once `load_model` succeeds.
     model: Option<LoadedModel>,
     /// Registered programs by id — the C3 hash is the dedup key, so
@@ -561,6 +568,11 @@ struct LoadedModel {
     /// norm's whole-stream multiplier, carried into `DispatchCtx::scales`
     /// per fire. Empty on every other family.
     gemma_layer_scalars: Vec<f32>,
+    /// The group this rank's weights were sharded for, carried from the
+    /// shell so a family's facts and its load plan cannot disagree about
+    /// how wide a rank is. A forward derivation reads it to decide whether
+    /// its landing needs a collective.
+    tp_size: u32,
 }
 
 impl LoadedModel {
@@ -623,10 +635,20 @@ pub extern "C" fn pie_cuda_create(
         .get("driver")
         .and_then(|d| d.get("runahead")?.as_bool())
         .unwrap_or_else(runahead_env);
+    let driver_u32 = |key: &str, default: u32| {
+        boot.get("driver")
+            .and_then(|d| d.get(key)?.as_integer())
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or(default)
+    };
+    let tp_size = driver_u32("tp_size", 1).max(1);
+    let tp_rank = driver_u32("tp_rank", 0).min(tp_size - 1);
     let boxed = Box::new(Shell {
         caps: CAPS_JSON.as_bytes().to_vec(),
         boot_descriptor,
         runahead,
+        tp_rank,
+        tp_size,
         model: None,
         programs: std::collections::BTreeMap::new(),
         instances: std::collections::BTreeMap::new(),
@@ -763,7 +785,7 @@ fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
     // encodings are loadable (a transform outside `CUDA_TILE_MAP_MASK` is
     // refused when the plan COMPILES, with the tensor named, rather than
     // mis-bound at launch), and which projections are fused.
-    let target = crate::loader::plan::cuda_storage_target();
+    let target = crate::loader::plan::cuda_storage_target(state.tp_rank, state.tp_size);
     let (plan, _moe) =
         crate::loader::plan::compile_load_plan(snapshot, &meta, &target, &descriptor_json)
             .map_err(|e| {
@@ -785,6 +807,7 @@ fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
         owned: staged.owned,
         aliases: std::collections::BTreeMap::new(),
         gemma_layer_scalars: Vec::new(),
+        tp_size: state.tp_size,
     };
     name_llama_like(&mut model);
     name_gemma4(&mut model);
@@ -2703,7 +2726,10 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily
         // `hf.sliding_window` where a family has them, and that path is
         // unchanged.
         proj_repr: model_compiler::dsl::WeightRepr::Bf16,
-        tp_size: 1,
+        // The group the load sharded for. A rank whose weights are a band
+        // of the real ones has to land its projections with a collective,
+        // and this is where the trace learns that.
+        tp_size: model.tp_size,
         window_left: Vec::new(),
         all_reduce_p2p_max_rows: 0,
     };
