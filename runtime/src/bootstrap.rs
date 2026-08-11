@@ -347,6 +347,15 @@ fn init_wasmtime(runtime: &RuntimeConfig) -> wasmtime::Engine {
     let mut wasm_config = wasmtime::Config::default();
     wasm_config.async_support(true);
 
+    // iOS forbids writable+executable pages (no JIT), so execute inferlets
+    // with wasmtime's Pulley interpreter: wasm runs as data, which is
+    // App-Store-compatible. Inferlets are control-plane code — the FLOPs
+    // live in the driver — so the interpreter tax stays off the hot path.
+    #[cfg(target_os = "ios")]
+    wasm_config
+        .target("pulley64")
+        .expect("wasmtime built without the `pulley` feature");
+
     // Every wasmtime knob comes from the caller — Python is the source
     // of truth for defaults. The `wasm_max_instances` knob covers four
     // wasmtime resource classes (pie uses one of each per inferlet).
