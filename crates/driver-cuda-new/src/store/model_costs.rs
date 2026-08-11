@@ -70,6 +70,26 @@ impl CheckpointCosts {
         u64::from(self.hf.num_hidden_layers.unsigned_abs())
     }
 
+    /// This checkpoint's MLA cache shape, or `None` for ordinary attention.
+    ///
+    /// `kv_lora_rank` is the signature: a config that states one caches a
+    /// compressed latent instead of K and V. One page and one layer is enough
+    /// to ask for `bytes_per_token`, which is per-token and per-layer and does
+    /// not depend on the pool's size.
+    fn mla_geometry(&self) -> Option<super::mla_geometry::MlaGeometry> {
+        let rank = u32::try_from(self.hf.kv_lora_rank).ok().filter(|r| *r > 0)?;
+        let rope = u32::try_from(self.hf.qk_rope_head_dim).ok().filter(|d| *d > 0)?;
+        super::mla_geometry::MlaGeometry::new(
+            u32::try_from(self.layers()).unwrap_or(1).max(1),
+            1,
+            16,
+            rank,
+            rope,
+            crate::dtype::DType::Bf16,
+        )
+        .ok()
+    }
+
     /// The widest MLP any layer in the stack asks for.
     ///
     /// `intermediate_size` on a uniform stack; a mixture states its expert
@@ -87,7 +107,23 @@ impl ModelCosts for CheckpointCosts {
     ///
     /// The same product `capabilities_json` divides the budget by and the same
     /// one `resize_pool` allocates a page from. One geometry, three readers.
+    ///
+    /// # Except for MLA, which does not cache K and V at all
+    ///
+    /// DeepSeek/Kimi/GLM5 cache a COMPRESSED LATENT and a rope key per token:
+    /// `kv_lora_rank + qk_rope_head_dim`, not `kv_heads × head_dim × 2`. On
+    /// DeepSeek-V3's shape those differ by more than an order of magnitude, so
+    /// charging the dense formula sizes the pool as if every token cost the
+    /// uncompressed cache — and the planner hands the difference to an arena
+    /// nothing will use, leaving the pool a fraction of what the card holds.
+    ///
+    /// `store::mla_geometry::MlaGeometry::bytes_per_token` is that number, and
+    /// its own doc says what it is for: "the number the planner multiplies by
+    /// a token budget". It had no caller.
     fn per_kv_token_bytes(&self) -> u64 {
+        if let Some(mla) = self.mla_geometry() {
+            return mla.bytes_per_token();
+        }
         self.layers() * self.kv_heads() * self.head_dim() * 2 * 2
     }
 
@@ -241,6 +277,39 @@ mod tests {
             })
             .cpp_budget_bytes()
         );
+    }
+
+    #[test]
+    fn an_mla_checkpoint_is_charged_its_latent_and_not_a_dense_cache() {
+        // DeepSeek-V3's shape: 128 kv heads of 192, but the cache holds a
+        // 512-wide latent plus a 64-wide rope key. Charging the dense formula
+        // is not a rounding error -- it is 85x per token (5,996,544 bytes
+        // against 70,272), and the pool the planner sizes from it is that much
+        // too small.
+        let mut hf = qwen3_0_6b();
+        hf.num_hidden_layers = 61;
+        hf.num_key_value_heads = 128;
+        hf.head_dim = 192;
+        hf.head_dim_kernel = 192;
+        hf.kv_lora_rank = 512;
+        hf.qk_rope_head_dim = 64;
+        let c = CheckpointCosts::new(&hf, 1);
+
+        let latent = 61 * (512 + 64) * 2;
+        assert_eq!(c.per_kv_token_bytes(), latent, "the cache is the latent");
+
+        let dense = 61 * 128 * 192 * 2 * 2;
+        assert!(
+            dense > c.per_kv_token_bytes() * 80,
+            "the dense formula would have charged {dense} for {latent}"
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_without_a_latent_keeps_the_dense_formula() {
+        // `kv_lora_rank` is the signature, and qwen3 states none.
+        let c = CheckpointCosts::new(&qwen3_0_6b(), 1);
+        assert_eq!(c.per_kv_token_bytes(), 28 * 8 * 128 * 2 * 2);
     }
 
     #[test]

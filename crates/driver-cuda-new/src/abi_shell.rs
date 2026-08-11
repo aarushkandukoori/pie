@@ -3391,6 +3391,26 @@ fn step_impl(
     use model_compiler::trace::{FireClass, ValueId};
 
     let t_head = std::time::Instant::now();
+    // A USER MASK IS REFUSED, not quietly replaced by a causal one.
+    //
+    // The engine encodes a program's attention mask as BRLE runs
+    // (`driver_api::plan::EncodedMask`), packs them into `step.masks`, and sets
+    // this flag. This shell reads NEITHER: `brle` is not ported and no
+    // custom-mask kernel is launched, so a fire that was asked to attend over
+    // a caller's mask attended causally instead and returned an answer that
+    // looks exactly like a correct one.
+    //
+    // Same class as the tensor-parallel bug and the same remedy. A mask the
+    // driver cannot honour is a fire it cannot serve.
+    if step.has_user_mask != 0 {
+        eprintln!(
+            "[driver-cuda-new] launch: this frame carries a user attention mask \
+             and this driver has no kernel that reads one. Serving it would \
+             attend CAUSALLY over a mask the caller supplied, which is a wrong \
+             answer that looks like a right one. See `custom-attention-mask`."
+        );
+        return Err(PIE_STATUS_UNSUPPORTED);
+    }
     let sub_batches = slice_of(step.sub_batch_indptr.ptr, step.sub_batch_indptr.len);
     if sub_batches.len() > 2 {
         eprintln!("[driver-cuda-new] launch: one sub-batch per step today");
