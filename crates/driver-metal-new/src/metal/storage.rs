@@ -43,12 +43,6 @@ use super::ring::allocate;
 
 
 
-fn alloc_zeroed(context: &Context, len: u64, what: &'static str) -> Result<Handle> {
-    let handle = allocate(context, len.max(1), what)?;
-    // SAFETY: the buffer is seconds old; no command buffer references it.
-    unsafe { handle.zero(0, handle.len())? };
-    Ok(handle)
-}
 
 /// Stage the plan's weights into one region, each tensor a named slice.
 ///

@@ -20,7 +20,13 @@
 //!
 //! [`Rule`]: super::geometry::Rule
 
-use crate::batch::QMM_BMS;
+/// The GEMM row tiles the shaders are compiled for, narrow first — the same
+/// three `TILE_M` declares in `kernels-metal/src/axes.rs`.
+///
+/// Here rather than in `batch` because this is the only reader left: the
+/// per-family PSO planner that also knew them has retired, and a constant
+/// whose one user is `grid` belongs beside `grid`.
+const QMM_BMS: [u32; 3] = [16, 32, 64];
 
 /// A dispatch's thread grid and threadgroup, in THREADS — the encoder calls
 /// `dispatchThreads`, so a head count multiplies the threadgroup width

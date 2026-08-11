@@ -67,6 +67,26 @@ const LLAMA_LIKE: &[&str] = &[
     "qwen3_moe",
     "gpt_oss",
     "gemma4",
+    // The ARCHITECTURE stems too, and they are not the same strings.
+    //
+    // Two spellings reach this list from two places. A checkpoint's
+    // `config.json` carries both a `model_type` (`qwen3_moe`) and an
+    // `architectures[0]` (`Qwen3MoeForCausalLM`), and `facts::arch_stem`
+    // lowercases the second and drops its `ForCausalLM` tail -- which gives
+    // `qwen3moe`, with no underscore.
+    //
+    // The SEAM passes the stem (`facts.arch_name`). The gate in
+    // `device_checkpoint_names` passed `model_type`. So the gate proved that
+    // every name a text states resolves, over five checkpoints, while the
+    // seam refused two of those checkpoints outright -- the two whose
+    // spellings differ. `llama`, `qwen3` and `gemma4` are the same either
+    // way, which is why nothing noticed.
+    //
+    // Both spellings, because both are real: this list answers "does a text
+    // serve this", and a name that means the same architecture must get the
+    // same answer whichever half of the config it came from.
+    "qwen3moe",
+    "gptoss",
 ];
 
 /// Every architecture some text serves.
@@ -125,6 +145,40 @@ mod tests {
         assert!(serves("qwen3_moe"));
         assert!(serves("gpt_oss"));
         assert!(serves("gemma4"));
+    }
+
+    /// Both spellings of one architecture get the same answer.
+    ///
+    /// The bug this pins was invisible to everything: a `config.json` carries
+    /// a `model_type` (`qwen3_moe`) AND an `architectures[0]`
+    /// (`Qwen3MoeForCausalLM`), `facts::arch_stem` turns the second into
+    /// `qwen3moe`, and the SEAM passes the stem. The load-time name gate
+    /// passed `model_type`. So the gate reported five checkpoints resolving
+    /// every name their texts state, while the seam refused two of them at
+    /// `plan_for` -- and both reports were true, of different questions.
+    ///
+    /// `llama`, `qwen3` and `gemma4` are spelled the same either way, which
+    /// is why the two that are not went unnoticed.
+    #[test]
+    fn both_spellings_of_an_architecture_get_the_same_answer() {
+        for (model_type, architecture) in [
+            ("qwen3_moe", "Qwen3MoeForCausalLM"),
+            ("gpt_oss", "GptOssForCausalLM"),
+            ("gemma4", "Gemma4ForConditionalGeneration"),
+            ("llama", "LlamaForCausalLM"),
+            ("qwen3", "Qwen3ForCausalLM"),
+        ] {
+            let stem = crate::facts::arch_stem(architecture);
+            assert_eq!(
+                serves(model_type),
+                serves(&stem),
+                "`{model_type}` and `{architecture}` (stem `{stem}`) are one \
+                 architecture, so a text either serves it or does not. The \
+                 seam asks with the STEM and the load gate asks with the \
+                 model_type, so a disagreement here is a checkpoint that \
+                 passes every gate and is then refused."
+            );
+        }
     }
 
     #[test]

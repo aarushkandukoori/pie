@@ -1771,7 +1771,7 @@ fn a_generation_agrees_with_mlx_token_for_token() {
     let mut seq: Vec<u32> = vec![128_000, 9906];
     let mut got: Vec<u32> = Vec::new();
 
-    for turn in 0..MLX.len() {
+    for (turn, &want) in MLX.iter().enumerate() {
         // The first fire is the PREFILL of the prompt; every one after is a
         // decode of the last token at its own position.
         let (tokens, first): (Vec<u32>, u32) = if turn == 0 {
@@ -1875,7 +1875,7 @@ fn a_generation_agrees_with_mlx_token_for_token() {
             .map(|(i, _)| i as u32)
             .expect("a readout has an argmax");
 
-        eprintln!("turn {turn}: {next} (MLX {})", MLX[turn]);
+        eprintln!("turn {turn}: {next} (MLX {want})");
         got.push(next);
         seq.push(next);
     }

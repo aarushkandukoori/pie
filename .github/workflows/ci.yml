@@ -337,6 +337,50 @@ jobs:
           cargo build -p pie \
             --no-default-features --features driver-dummy
 
+  # The Metal driver and the seam that joins it to the engine.
+  #
+  # `driver-metal-new` is an OPTIONAL feature of `engine`, so a plain
+  # `cargo test -p engine` builds its seam OUT. That file once went weeks
+  # without a compiler reading it and accumulated seven type errors; this job
+  # is what catches that on the first push. It was added once and lost in a
+  # rebase, which is its own argument for a job rather than a habit.
+  driver-metal:
+    name: driver-metal-new (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-driver-metal-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: cargo test (driver-metal-new)
+        run: cargo test -p driver-metal-new
+
+      # Type-check AND test: the seam's tests run everything that needs no
+      # checkpoint, and the checkpoint-gated ones state that they skipped.
+      - name: cargo test (engine, driver-metal-new seam)
+        run: cargo test -p engine --features driver-metal-new
+
+      # The worker feature the release build selects on macOS. `driver-metal`
+      # is `worker`'s name for `engine/driver-metal-new`, and nothing else
+      # compiles that composition.
+      - name: cargo build (worker, driver-metal)
+        run: |
+          cargo build -p worker \
+            --no-default-features --features driver-metal,driver-dummy
+
+      - name: cargo clippy (driver-metal-new)
+        run: cargo clippy --no-deps -p driver-metal-new --all-targets -- -D warnings
+
   pie-worker-cuda:
     name: pie-worker (driver-cuda)
     runs-on: [self-hosted, cuda]
