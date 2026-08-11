@@ -1,19 +1,26 @@
-//! pie-driver-abi — the final local runtime ↔ driver contract.
+//! The runtime ↔ driver vocabulary.
 //!
-//! This crate exposes the local ABI plus process-independent driver schemas:
+//! Both drivers are Rust and both are called directly, so there is no ABI
+//! here and no longer a crate named for one. What is left is the vocabulary
+//! the engine and the drivers say the same things in:
 //!
-//! - [`local`]: plain `#[repr(C)]` direct-FFI descriptors and symbol declarations.
-//! - [`adopt`]: the `local` → [`plan`] direction, copying a borrowed C launch
-//!   package into the owned one. A driver's registration entry point is handed
-//!   a [`local::PieProgramDesc`] and every Rust consumer of a program reads
-//!   [`plan`]'s types, so without this the two halves of the crate do not meet.
-//! - [`capabilities`]: reduced cold-path JSON facts used at create time.
-//! - [`transfer`]: Rust-only KV transfer vocabulary shared with cross-node transport.
+//! - [`local`]: the fire descriptors — a step, a frame, a program, a channel.
+//!   Still `#[repr(C)]` and still `{ptr, len}` where a slice would do, which
+//!   is the shape they took when they crossed a C boundary. Nothing crosses
+//!   one now; converting them to borrowed Rust is a mechanical sweep over
+//!   ~65 construction sites in `engine`, `driver-cuda-new` and
+//!   `driver-dummy`, and it is the next step rather than this one.
+//! - [`adopt`]: the [`local`] → [`plan`] direction, copying a borrowed launch
+//!   package into the owned one a driver keeps for the life of the program.
+//!   It survives exactly as long as `local`'s borrowed shape does.
+//! - [`capabilities`]: what a driver answers at create and load time.
+//! - [`transfer`]: the KV transfer vocabulary shared with cross-node transport.
 //! - [`plan`]: owned verb plans shared by local and remote backends.
-//! - [`remote`]: versioned worker-to-executor protocol.
+//! - [`remote`]: the versioned worker-to-executor protocol.
 //!
-//! The committed `include/pie_driver_abi.h` header is generated from [`local`]
-//! via `driver-abi-cbindgen`.
+//! The C header this crate used to generate, the `unsafe extern "C"` block
+//! that declared thirteen `pie_cuda_*` symbols, and the cbindgen binary that
+//! wrote the header are all gone with the C++ drivers they served.
 
 pub mod adopt;
 pub mod capabilities;

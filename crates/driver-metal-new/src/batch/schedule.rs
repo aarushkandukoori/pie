@@ -27,7 +27,7 @@
 //!
 //! * `kRsFlagReset` was a hand copy of `PIE_RS_FLAG_RESET`, "duplicated
 //!   rather than included" for a test harness this crate does not have. The
-//!   constant is [`driver_abi::local::PIE_RS_FLAG_RESET`] here — and the
+//!   constant is [`driver::local::PIE_RS_FLAG_RESET`] here — and the
 //!   MASK discipline the C++ comment insists on (a truthiness test reads a
 //!   FOLD row as a fresh sequence and zeroes a live recurrent state) is kept
 //!   and tested.
@@ -41,7 +41,7 @@
 //! [`Rejected`] carries *which* request or token failed, which is the
 //! difference between a fixable report and "malformed request CSR span".
 
-use driver_abi::local::PIE_RS_FLAG_RESET;
+use driver::local::PIE_RS_FLAG_RESET;
 
 /// The page size the shipped pools use when the runtime does not say.
 ///

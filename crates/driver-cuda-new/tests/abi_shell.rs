@@ -1,4 +1,4 @@
-//! The linker proves the ABI: `driver_abi::local` DECLARES the thirteen
+//! The linker proves the ABI: `driver::local` DECLARES the thirteen
 //! `pie_cuda_*` symbols (the engine's consumer side), this crate's `abi`
 //! feature DEFINES them, and this test resolving the declaration against
 //! the definition is the same proof shape as the launch bridge — a
@@ -6,14 +6,14 @@
 
 #![cfg(all(feature = "_cuda", feature = "abi"))]
 
-use driver_abi::local::{
+use driver::local::{
     PIE_DRIVER_ABI_VERSION, PIE_STATUS_INVALID_ARGUMENT, PIE_STATUS_OK, PIE_STATUS_UNSUPPORTED, PieDriverCaps,
     PieDriverCreateDesc,
 };
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use driver_abi::local::{PieCompletion, PieFrameDesc, PieRuntimeCallbacks};
+use driver::local::{PieCompletion, PieFrameDesc, PieRuntimeCallbacks};
 
 mod common;
 #[allow(unused_imports)] // abi tests take only the guard
@@ -54,7 +54,7 @@ fn runtime_for(fires: &AtomicU64) -> PieRuntimeCallbacks {
 
 /// Launch, then wait for the fire to retire. The status is the launch's.
 fn fire_and_wait(
-    d: *mut driver_abi::local::PieDriver,
+    d: *mut driver::local::PieDriver,
     frame: &PieFrameDesc,
     completion: PieCompletion,
     fires: &AtomicU64,
@@ -95,7 +95,7 @@ fn qwen3_fixture() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
 ///
 /// This driver answered a five-field summary of the checkpoint —
 /// `{"model_type":…,"hidden":…,"layers":…,"vocab":…,"weights":…}` — and
-/// `driver_abi::DriverCapabilities` rejects that at its first field. So no
+/// `driver::DriverCapabilities` rejects that at its first field. So no
 /// engine could load a model through this driver at all, and every test here
 /// missed it by passing `null` for the caps out-parameter and reading the
 /// status instead.
@@ -106,7 +106,7 @@ fn qwen3_fixture() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
 /// the two fields a scheduler cannot work without.
 #[test]
 fn load_model_answers_capabilities_an_engine_can_parse() {
-    use driver_abi::local::{PieBytes, PieModelLoadDesc};
+    use driver::local::{PieBytes, PieModelLoadDesc};
 
     let _gpu = gpu_guard();
     let Some((snap, descriptor)) = qwen3_fixture() else {
@@ -126,14 +126,14 @@ fn load_model_answers_capabilities_an_engine_can_parse() {
         snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
         ..Default::default()
     };
-    let mut caps = driver_abi::local::PieDriverCaps::default();
+    let mut caps = driver::local::PieDriverCaps::default();
     assert_eq!(
         unsafe { driver_cuda_new::abi_shell::pie_cuda_load_model(d, &load, &mut caps) },
         PIE_STATUS_OK
     );
     assert!(!caps.json_bytes.is_null(), "load_model published no capabilities");
     let bytes = unsafe { std::slice::from_raw_parts(caps.json_bytes, caps.json_len) };
-    let parsed: driver_abi::DriverCapabilities = serde_json::from_slice(bytes)
+    let parsed: driver::DriverCapabilities = serde_json::from_slice(bytes)
         .expect("the engine deserializes this exact payload into this exact type");
 
     assert_eq!(parsed.abi_version, PIE_DRIVER_ABI_VERSION);
@@ -224,7 +224,7 @@ fn the_shell_answers_the_engines_own_declarations() {
         unsafe { driver_cuda_new::abi_shell::pie_cuda_close_instance(d, 7) },
         PIE_STATUS_OK
     );
-    let load = driver_abi::local::PieModelLoadDesc::default();
+    let load = driver::local::PieModelLoadDesc::default();
     assert_eq!(
         unsafe { driver_cuda_new::abi_shell::pie_cuda_load_model(d, &load, std::ptr::null_mut()) },
         PIE_STATUS_INVALID_ARGUMENT,
@@ -241,7 +241,7 @@ fn the_shell_answers_the_engines_own_declarations() {
 #[test]
 fn load_model_loads_a_real_snapshot_through_the_abi() {
     let _gpu = gpu_guard();
-    use driver_abi::local::{PieBytes, PieModelLoadDesc};
+    use driver::local::{PieBytes, PieModelLoadDesc};
 
     let home = std::env::var("HOME").expect("HOME");
     let snaps =
@@ -286,7 +286,7 @@ fn load_model_loads_a_real_snapshot_through_the_abi() {
     // holds the whole shape. Here it is only "the load answered about THIS
     // checkpoint", so the two fields the descriptor pins are enough.
     let json = unsafe { std::slice::from_raw_parts(caps.json_bytes, caps.json_len) };
-    let caps: driver_abi::DriverCapabilities =
+    let caps: driver::DriverCapabilities =
         serde_json::from_slice(json).expect("capabilities parse");
     assert_eq!(caps.arch_name, "qwen3", "caps carry the parsed facts");
     assert_eq!(caps.hidden_size, 1024);
@@ -300,7 +300,7 @@ fn load_model_loads_a_real_snapshot_through_the_abi() {
 /// same id succeeds after close, refuses before).
 #[test]
 fn the_registries_run_the_id_lifecycle() {
-    use driver_abi::local::{PieInstanceBinding, PieInstanceDesc, PieProgramDesc};
+    use driver::local::{PieInstanceBinding, PieInstanceDesc, PieProgramDesc};
 
     let desc =
         PieDriverCreateDesc { abi_version: PIE_DRIVER_ABI_VERSION, ..Default::default() };
@@ -370,7 +370,7 @@ fn the_registries_run_the_id_lifecycle() {
 /// carrying its own copy of the frame hides the thing worth reading,
 /// which is WHICH deployments the shell can open.
 fn load_and_fire(repo: &str, descriptor_name: &str, what: &str) -> bool {
-    use driver_abi::local::{
+    use driver::local::{
         PIE_TERMINAL_OUTCOME_PENDING, PIE_TERMINAL_OUTCOME_SUCCESS, PieBytes, PieCompletion,
         PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc, PieProgramDesc,
         PieRuntimeCallbacks, PieStepDesc, PieTerminalCell, PieTerminalCellPtrSlice,
@@ -459,7 +459,7 @@ fn load_and_fire(repo: &str, descriptor_name: &str, what: &str) -> bool {
     let cell_ptr: *mut PieTerminalCell = &mut cell;
     let roster_rows: [u32; 1] = [0];
     let sub_batch_indptr: [u32; 2] = [0, 1];
-    let sub_batch_class: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+    let sub_batch_class: [u32; 1] = [driver::local::PIE_GEOMETRY_CLASS_HOST];
     let token_ids: [u32; 1] = [7];
     let position_ids: [u32; 1] = [0];
     let kv_page_indices: [u32; 1] = [0];
@@ -485,7 +485,7 @@ fn load_and_fire(repo: &str, descriptor_name: &str, what: &str) -> bool {
         abi_version: PIE_DRIVER_ABI_VERSION,
         instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
         required_kv_pages: 1,
-        steps: driver_abi::local::PieStepDescSlice { ptr: &step, len: 1 },
+        steps: driver::local::PieStepDescSlice { ptr: &step, len: 1 },
         ..Default::default()
     };
     let completion =
@@ -585,7 +585,7 @@ fn mistral_loads_and_fires_through_the_abi() {
 /// once, before the registry dispatches to any family.
 #[test]
 fn an_unserveable_gqa_ratio_is_refused_at_load() {
-    use driver_abi::local::{PieBytes, PieModelLoadDesc, PieRuntimeCallbacks};
+    use driver::local::{PieBytes, PieModelLoadDesc, PieRuntimeCallbacks};
 
     let _gpu = gpu_guard();
     let home = std::env::var("HOME").expect("HOME");
@@ -649,7 +649,7 @@ fn a_real_decode_frame_launches_through_the_abi() {
     let _gpu = gpu_guard();
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use driver_abi::local::{
+    use driver::local::{
         PIE_TERMINAL_OUTCOME_PENDING, PIE_TERMINAL_OUTCOME_SUCCESS, PieBytes, PieCompletion,
         PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc, PieProgramDesc,
         PieRuntimeCallbacks, PieStepDesc, PieTerminalCell, PieTerminalCellPtrSlice,
@@ -726,7 +726,7 @@ fn a_real_decode_frame_launches_through_the_abi() {
     let cell_ptr: *mut PieTerminalCell = &mut cell;
     let roster_rows: [u32; 1] = [0];
     let sub_batch_indptr: [u32; 2] = [0, 1];
-    let sub_batch_class: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+    let sub_batch_class: [u32; 1] = [driver::local::PIE_GEOMETRY_CLASS_HOST];
     let token_ids: [u32; 1] = [7];
     let position_ids: [u32; 1] = [0];
     let kv_page_indices: [u32; 1] = [0];
@@ -752,7 +752,7 @@ fn a_real_decode_frame_launches_through_the_abi() {
         abi_version: PIE_DRIVER_ABI_VERSION,
         instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
         required_kv_pages: 1,
-        steps: driver_abi::local::PieStepDescSlice { ptr: &step, len: 1 },
+        steps: driver::local::PieStepDescSlice { ptr: &step, len: 1 },
         ..Default::default()
     };
     let completion = PieCompletion {
@@ -783,7 +783,7 @@ fn a_real_decode_frame_launches_through_the_abi() {
 #[test]
 fn channels_bind_the_ring_contract() {
     let _gpu = gpu_guard();
-    use driver_abi::local::{
+    use driver::local::{
         PIE_CHANNEL_DTYPE_BOOL, PieChannelDesc, PieChannelEndpointBinding, PieU32Slice,
     };
 
@@ -862,7 +862,7 @@ fn logits_come_back_through_the_ring() {
     let _gpu = gpu_guard();
     // The fire retires asynchronously; this is how the test learns it did.
     let fires = fire_counter();
-    use driver_abi::local::{
+    use driver::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PieBytes, PieChannelDesc, PieChannelEndpointBinding,
         PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc,
         PieProgramDesc, PieStepDesc, PieU32Slice, PieU64Slice,
@@ -953,7 +953,7 @@ fn logits_come_back_through_the_ring() {
     let positions: Vec<u32> = (0..tokens as u32).collect();
     let roster_rows: Vec<u32> = vec![0; tokens];
     let sub_batch_indptr: [u32; 2] = [0, tokens as u32];
-    let sub_batch_class: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+    let sub_batch_class: [u32; 1] = [driver::local::PIE_GEOMETRY_CLASS_HOST];
     let kv_page_indices: [u32; 1] = [0];
     let kv_page_indptr: [u32; 2] = [0, 1];
     let kv_last_page_lens: [u32; 1] = [tokens as u32];
@@ -976,7 +976,7 @@ fn logits_come_back_through_the_ring() {
         abi_version: PIE_DRIVER_ABI_VERSION,
         instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
         required_kv_pages: 1,
-        steps: driver_abi::local::PieStepDescSlice { ptr: &step, len: 1 },
+        steps: driver::local::PieStepDescSlice { ptr: &step, len: 1 },
         ..Default::default()
     };
     let completion =
@@ -1019,7 +1019,7 @@ fn multi_step_resize_and_copy_preserve_the_kv() {
     let _gpu = gpu_guard();
     // The fire retires asynchronously; this is how the test learns it did.
     let fires = fire_counter();
-    use driver_abi::local::{
+    use driver::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PieBytes, PieChannelDesc, PieChannelEndpointBinding,
         PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieKvCopyDesc,
         PieModelLoadDesc, PiePoolResizeDesc, PieProgramDesc, PieStepDesc, PieU32Slice,
@@ -1107,7 +1107,7 @@ fn multi_step_resize_and_copy_preserve_the_kv() {
     let positions1: Vec<u32> = (0..n as u32).collect();
     let roster1: Vec<u32> = vec![0; n];
     let sbi1: [u32; 2] = [0, n as u32];
-    let cls: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+    let cls: [u32; 1] = [driver::local::PIE_GEOMETRY_CLASS_HOST];
     let pages: [u32; 1] = [0];
     let indptr: [u32; 2] = [0, 1];
     let lens1: [u32; 1] = [n as u32];
@@ -1148,7 +1148,7 @@ fn multi_step_resize_and_copy_preserve_the_kv() {
         abi_version: PIE_DRIVER_ABI_VERSION,
         instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
         required_kv_pages: 1,
-        steps: driver_abi::local::PieStepDescSlice { ptr: steps.as_ptr(), len: 2 },
+        steps: driver::local::PieStepDescSlice { ptr: steps.as_ptr(), len: 2 },
         ..Default::default()
     };
     let completion =
@@ -1181,8 +1181,8 @@ fn multi_step_resize_and_copy_preserve_the_kv() {
     let src: [u32; 1] = [0];
     let dst: [u32; 1] = [2];
     let copy = PieKvCopyDesc {
-        src_domain: driver_abi::local::PIE_MEMORY_DOMAIN_CUDA_DEVICE,
-        dst_domain: driver_abi::local::PIE_MEMORY_DOMAIN_CUDA_DEVICE,
+        src_domain: driver::local::PIE_MEMORY_DOMAIN_CUDA_DEVICE,
+        dst_domain: driver::local::PIE_MEMORY_DOMAIN_CUDA_DEVICE,
         src_page_ids: u32s(&src),
         dst_page_ids: u32s(&dst),
         ..Default::default()
@@ -1195,7 +1195,7 @@ fn multi_step_resize_and_copy_preserve_the_kv() {
     let step3 = PieStepDesc { kv_page_indices: u32s(&pages2), ..step2 };
     let steps3 = [step3];
     let frame3 = PieFrameDesc {
-        steps: driver_abi::local::PieStepDescSlice { ptr: steps3.as_ptr(), len: 1 },
+        steps: driver::local::PieStepDescSlice { ptr: steps3.as_ptr(), len: 1 },
         required_kv_pages: 4,
         ..frame
     };
@@ -1238,7 +1238,7 @@ fn a_fifty_step_greedy_chain_is_deterministic_and_leak_free() {
     let _gpu = gpu_guard();
     // The fire retires asynchronously; this is how the test learns it did.
     let fires = fire_counter();
-    use driver_abi::local::{
+    use driver::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PieBytes, PieChannelDesc, PieChannelEndpointBinding,
         PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc,
         PieProgramDesc, PieStepDesc, PieU32Slice, PieU64Slice,
@@ -1344,7 +1344,7 @@ fn a_fifty_step_greedy_chain_is_deterministic_and_leak_free() {
             let qo: [u32; 2] = [0, qo_end];
             let roster: Vec<u32> = vec![0; tokens.len()];
             let sbi: [u32; 2] = [0, tokens.len() as u32];
-            let cls: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+            let cls: [u32; 1] = [driver::local::PIE_GEOMETRY_CLASS_HOST];
             let step = PieStepDesc {
                 roster_rows: u32s(&roster),
                 sub_batch_indptr: u32s(&sbi),
@@ -1362,7 +1362,7 @@ fn a_fifty_step_greedy_chain_is_deterministic_and_leak_free() {
                 abi_version: PIE_DRIVER_ABI_VERSION,
                 instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
                 required_kv_pages: total_pages,
-                steps: driver_abi::local::PieStepDescSlice { ptr: steps_arr.as_ptr(), len: 1 },
+                steps: driver::local::PieStepDescSlice { ptr: steps_arr.as_ptr(), len: 1 },
                 ..Default::default()
             };
             assert_eq!(
@@ -1436,7 +1436,7 @@ fn a_fifty_step_greedy_chain_is_deterministic_and_leak_free() {
 #[ignore = "the scaled soak: ~1 minute of GPU; run explicitly"]
 fn the_711_fire_soak_holds_steady() {
     let _gpu = gpu_guard();
-    use driver_abi::local::{
+    use driver::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PieBytes, PieChannelDesc, PieChannelEndpointBinding,
         PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc,
         PieProgramDesc, PieStepDesc, PieU32Slice, PieU64Slice,
@@ -1534,7 +1534,7 @@ fn the_711_fire_soak_holds_steady() {
             let qo: [u32; 2] = [0, tokens.len() as u32];
             let roster: Vec<u32> = vec![0; tokens.len()];
             let sbi: [u32; 2] = [0, tokens.len() as u32];
-            let cls: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+            let cls: [u32; 1] = [driver::local::PIE_GEOMETRY_CLASS_HOST];
             let step = PieStepDesc {
                 roster_rows: u32s(&roster),
                 sub_batch_indptr: u32s(&sbi),
@@ -1552,7 +1552,7 @@ fn the_711_fire_soak_holds_steady() {
                 abi_version: PIE_DRIVER_ABI_VERSION,
                 instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
                 required_kv_pages: total_pages,
-                steps: driver_abi::local::PieStepDescSlice {
+                steps: driver::local::PieStepDescSlice {
                     ptr: steps_arr.as_ptr(),
                     len: 1,
                 },
@@ -1640,7 +1640,7 @@ fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
     let _gpu = gpu_guard();
     // The fire retires asynchronously; this is how the test learns it did.
     let fires = fire_counter();
-    use driver_abi::local::{
+    use driver::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PIE_RS_FLAG_RESET, PieBytes, PieChannelDesc,
         PieChannelEndpointBinding, PieCompletion, PieFrameDesc, PieInstanceBinding,
         PieInstanceDesc, PieModelLoadDesc, PieProgramDesc, PieStateCopyDesc,
@@ -1674,7 +1674,7 @@ fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
             .expect("reference");
 
     let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
-    let desc = driver_abi::local::PieDriverCreateDesc {
+    let desc = driver::local::PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
         runtime: runtime_for(&fires),
@@ -1732,7 +1732,7 @@ fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
             abi_version: PIE_DRIVER_ABI_VERSION,
             instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
             required_kv_pages: 1,
-            steps: driver_abi::local::PieStepDescSlice { ptr: step, len: 1 },
+            steps: driver::local::PieStepDescSlice { ptr: step, len: 1 },
             ..Default::default()
         };
         let completion =
@@ -1748,7 +1748,7 @@ fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
     let positions: Vec<u32> = (0..tokens as u32).collect();
     let roster_rows: Vec<u32> = vec![0; tokens];
     let sub_batch_indptr: [u32; 2] = [0, tokens as u32];
-    let sub_batch_class: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+    let sub_batch_class: [u32; 1] = [driver::local::PIE_GEOMETRY_CLASS_HOST];
     let kv_page_indices: [u32; 1] = [0];
     let kv_page_indptr: [u32; 2] = [0, 1];
     let kv_last_page_lens: [u32; 1] = [tokens as u32];
@@ -1766,7 +1766,7 @@ fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
         kv_last_page_lens: u32s(&kv_last_page_lens),
         qo_indptr: u32s(&qo_indptr),
         rs_slot_ids: u32s(&rs_slots),
-        rs_slot_flags: driver_abi::local::PieU8Slice {
+        rs_slot_flags: driver::local::PieU8Slice {
             ptr: rs_flags.as_ptr(),
             len: 1,
         },
@@ -1803,7 +1803,7 @@ fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
         PieStateCopyRange { src_slot_id: 0, dst_slot_id: 2, ..Default::default() },
     ];
     let copy = PieStateCopyDesc {
-        slot_ranges: driver_abi::local::PieStateCopyRangeSlice {
+        slot_ranges: driver::local::PieStateCopyRangeSlice {
             ptr: ranges.as_ptr(),
             len: 2,
         },
@@ -1891,7 +1891,7 @@ fn gemma4_loads_and_fires_both_classes_through_the_abi() {
     let _gpu = gpu_guard();
     // The fire retires asynchronously; this is how the test learns it did.
     let fires = fire_counter();
-    use driver_abi::local::{
+    use driver::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PieBytes, PieChannelDesc, PieChannelEndpointBinding,
         PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc,
         PieProgramDesc, PieStepDesc, PieU32Slice, PieU64Slice,
@@ -1924,7 +1924,7 @@ fn gemma4_loads_and_fires_both_classes_through_the_abi() {
             .expect("reference");
 
     let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
-    let desc = driver_abi::local::PieDriverCreateDesc {
+    let desc = driver::local::PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
         runtime: runtime_for(&fires),
@@ -1982,7 +1982,7 @@ fn gemma4_loads_and_fires_both_classes_through_the_abi() {
             abi_version: PIE_DRIVER_ABI_VERSION,
             instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
             required_kv_pages: 1,
-            steps: driver_abi::local::PieStepDescSlice { ptr: step, len: 1 },
+            steps: driver::local::PieStepDescSlice { ptr: step, len: 1 },
             ..Default::default()
         };
         let completion =
@@ -1998,7 +1998,7 @@ fn gemma4_loads_and_fires_both_classes_through_the_abi() {
     let positions: Vec<u32> = (0..tokens as u32).collect();
     let roster_rows: Vec<u32> = vec![0; tokens];
     let sub_batch_indptr: [u32; 2] = [0, tokens as u32];
-    let sub_batch_class: [u32; 1] = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+    let sub_batch_class: [u32; 1] = [driver::local::PIE_GEOMETRY_CLASS_HOST];
     let kv_page_indices: [u32; 1] = [0];
     let kv_page_indptr: [u32; 2] = [0, 1];
     let kv_last_page_lens: [u32; 1] = [tokens as u32];
@@ -2083,7 +2083,7 @@ fn gemma4_loads_and_fires_both_classes_through_the_abi() {
 #[test]
 fn gemma4_vision_encodes_real_weights_through_the_abi() {
     let _gpu = gpu_guard();
-    use driver_abi::local::{PieBytes, PieEncodeDesc, PieCompletion};
+    use driver::local::{PieBytes, PieEncodeDesc, PieCompletion};
 
     let home = std::env::var("HOME").expect("HOME");
     let snaps = std::path::PathBuf::from(&home)
@@ -2107,7 +2107,7 @@ fn gemma4_vision_encodes_real_weights_through_the_abi() {
     }
 
     let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
-    let desc = driver_abi::local::PieDriverCreateDesc {
+    let desc = driver::local::PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
         ..Default::default()
@@ -2115,7 +2115,7 @@ fn gemma4_vision_encodes_real_weights_through_the_abi() {
     let d = unsafe { driver_cuda_new::abi_shell::pie_cuda_create(&desc, std::ptr::null_mut()) };
     assert!(!d.is_null());
     let snap_str = snap.to_string_lossy().into_owned();
-    let load = driver_abi::local::PieModelLoadDesc {
+    let load = driver::local::PieModelLoadDesc {
         snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
         ..Default::default()
     };
@@ -2144,23 +2144,23 @@ fn gemma4_vision_encodes_real_weights_through_the_abi() {
                 ptr: pixels.as_ptr().cast(),
                 len: pixels.len() * 4,
             },
-            image_pixel_indptr: driver_abi::local::PieU32Slice {
+            image_pixel_indptr: driver::local::PieU32Slice {
                 ptr: pixel_indptr.as_ptr(),
                 len: 2,
             },
-            image_patch_positions: driver_abi::local::PieU32Slice {
+            image_patch_positions: driver::local::PieU32Slice {
                 ptr: patch_positions.as_ptr(),
                 len: 18,
             },
-            image_anchor_rows: driver_abi::local::PieU32Slice {
+            image_anchor_rows: driver::local::PieU32Slice {
                 ptr: anchors.as_ptr(),
                 len: 1,
             },
-            output_rows: driver_abi::local::PieMutBytes {
+            output_rows: driver::local::PieMutBytes {
                 ptr: out_rows.as_mut_ptr().cast(),
                 len: out_rows.len() * 2,
             },
-            output_row_indptr: driver_abi::local::PieU32MutSlice {
+            output_row_indptr: driver::local::PieU32MutSlice {
                 ptr: out_indptr.as_mut_ptr(),
                 len: 2,
             },
@@ -2211,7 +2211,7 @@ fn gemma4_vision_encodes_real_weights_through_the_abi() {
 #[test]
 fn gemma4_audio_encodes_real_weights_through_the_abi() {
     let _gpu = gpu_guard();
-    use driver_abi::local::{PieBytes, PieCompletion, PieEncodeDesc};
+    use driver::local::{PieBytes, PieCompletion, PieEncodeDesc};
 
     let home = std::env::var("HOME").expect("HOME");
     let snaps = std::path::PathBuf::from(&home)
@@ -2234,7 +2234,7 @@ fn gemma4_audio_encodes_real_weights_through_the_abi() {
         return;
     }
     let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
-    let desc = driver_abi::local::PieDriverCreateDesc {
+    let desc = driver::local::PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
         ..Default::default()
@@ -2242,7 +2242,7 @@ fn gemma4_audio_encodes_real_weights_through_the_abi() {
     let d = unsafe { driver_cuda_new::abi_shell::pie_cuda_create(&desc, std::ptr::null_mut()) };
     assert!(!d.is_null());
     let snap_str = snap.to_string_lossy().into_owned();
-    let load = driver_abi::local::PieModelLoadDesc {
+    let load = driver::local::PieModelLoadDesc {
         snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
         ..Default::default()
     };
@@ -2268,19 +2268,19 @@ fn gemma4_audio_encodes_real_weights_through_the_abi() {
                 ptr: features.as_ptr().cast(),
                 len: features.len() * 4,
             },
-            audio_feature_indptr: driver_abi::local::PieU32Slice {
+            audio_feature_indptr: driver::local::PieU32Slice {
                 ptr: feat_indptr.as_ptr(),
                 len: 2,
             },
-            audio_anchor_rows: driver_abi::local::PieU32Slice {
+            audio_anchor_rows: driver::local::PieU32Slice {
                 ptr: anchors.as_ptr(),
                 len: 1,
             },
-            output_rows: driver_abi::local::PieMutBytes {
+            output_rows: driver::local::PieMutBytes {
                 ptr: out_rows.as_mut_ptr().cast(),
                 len: out_rows.len() * 2,
             },
-            output_row_indptr: driver_abi::local::PieU32MutSlice {
+            output_row_indptr: driver::local::PieU32MutSlice {
                 ptr: out_indptr.as_mut_ptr(),
                 len: 2,
             },
@@ -2336,7 +2336,7 @@ fn gemma4_audio_encodes_real_weights_through_the_abi() {
 #[test]
 fn gemma4_mixed_media_encodes_through_one_call() {
     let _gpu = gpu_guard();
-    use driver_abi::local::{PieBytes, PieCompletion, PieEncodeDesc};
+    use driver::local::{PieBytes, PieCompletion, PieEncodeDesc};
 
     let home = std::env::var("HOME").expect("HOME");
     let snaps = std::path::PathBuf::from(&home)
@@ -2359,7 +2359,7 @@ fn gemma4_mixed_media_encodes_through_one_call() {
         return;
     }
     let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
-    let desc = driver_abi::local::PieDriverCreateDesc {
+    let desc = driver::local::PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
         ..Default::default()
@@ -2367,7 +2367,7 @@ fn gemma4_mixed_media_encodes_through_one_call() {
     let d = unsafe { driver_cuda_new::abi_shell::pie_cuda_create(&desc, std::ptr::null_mut()) };
     assert!(!d.is_null());
     let snap_str = snap.to_string_lossy().into_owned();
-    let load = driver_abi::local::PieModelLoadDesc {
+    let load = driver::local::PieModelLoadDesc {
         snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
         ..Default::default()
     };
@@ -2397,15 +2397,15 @@ fn gemma4_mixed_media_encodes_through_one_call() {
     let mut out_indptr = [u32::MAX; 3];
     let e = PieEncodeDesc {
         image_pixels: PieBytes { ptr: pixels.as_ptr().cast(), len: pixels.len() * 4 },
-        image_pixel_indptr: driver_abi::local::PieU32Slice {
+        image_pixel_indptr: driver::local::PieU32Slice {
             ptr: pixel_indptr.as_ptr(),
             len: 2,
         },
-        image_patch_positions: driver_abi::local::PieU32Slice {
+        image_patch_positions: driver::local::PieU32Slice {
             ptr: patch_positions.as_ptr(),
             len: 18,
         },
-        image_anchor_rows: driver_abi::local::PieU32Slice {
+        image_anchor_rows: driver::local::PieU32Slice {
             ptr: img_anchors.as_ptr(),
             len: 1,
         },
@@ -2413,19 +2413,19 @@ fn gemma4_mixed_media_encodes_through_one_call() {
             ptr: features.as_ptr().cast(),
             len: features.len() * 4,
         },
-        audio_feature_indptr: driver_abi::local::PieU32Slice {
+        audio_feature_indptr: driver::local::PieU32Slice {
             ptr: feat_indptr.as_ptr(),
             len: 2,
         },
-        audio_anchor_rows: driver_abi::local::PieU32Slice {
+        audio_anchor_rows: driver::local::PieU32Slice {
             ptr: clip_anchors.as_ptr(),
             len: 1,
         },
-        output_rows: driver_abi::local::PieMutBytes {
+        output_rows: driver::local::PieMutBytes {
             ptr: out_rows.as_mut_ptr().cast(),
             len: out_rows.len() * 2,
         },
-        output_row_indptr: driver_abi::local::PieU32MutSlice {
+        output_row_indptr: driver::local::PieU32MutSlice {
             ptr: out_indptr.as_mut_ptr(),
             len: 3,
         },
@@ -2465,7 +2465,7 @@ fn gemma4_mixed_media_encodes_through_one_call() {
 #[test]
 fn gemma4_vision_encode_matches_hf_cosine() {
     let _gpu = gpu_guard();
-    use driver_abi::local::{PieBytes, PieCompletion, PieEncodeDesc};
+    use driver::local::{PieBytes, PieCompletion, PieEncodeDesc};
 
     let scratch = std::path::PathBuf::from(std::env::var("PIE_TEST_SCRATCH").unwrap_or_else(
         |_| "/tmp/claude-0/-root--patissier-work-tart-alpha/7460e4c3-f305-45df-9603-2298b0c0c60e/scratchpad".into(),
@@ -2515,7 +2515,7 @@ fn gemma4_vision_encode_matches_hf_cosine() {
     let positions: Vec<u32> = pos_f.iter().map(|&v| v as u32).collect();
 
     let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
-    let desc = driver_abi::local::PieDriverCreateDesc {
+    let desc = driver::local::PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
         ..Default::default()
@@ -2523,7 +2523,7 @@ fn gemma4_vision_encode_matches_hf_cosine() {
     let d = unsafe { driver_cuda_new::abi_shell::pie_cuda_create(&desc, std::ptr::null_mut()) };
     assert!(!d.is_null());
     let snap_str = snap.to_string_lossy().into_owned();
-    let load = driver_abi::local::PieModelLoadDesc {
+    let load = driver::local::PieModelLoadDesc {
         snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
         ..Default::default()
     };
@@ -2538,20 +2538,20 @@ fn gemma4_vision_encode_matches_hf_cosine() {
     let mut out_indptr = [u32::MAX; 2];
     let e = PieEncodeDesc {
         image_pixels: PieBytes { ptr: pixels.as_ptr().cast(), len: pixels.len() * 4 },
-        image_pixel_indptr: driver_abi::local::PieU32Slice {
+        image_pixel_indptr: driver::local::PieU32Slice {
             ptr: pixel_indptr.as_ptr(),
             len: 2,
         },
-        image_patch_positions: driver_abi::local::PieU32Slice {
+        image_patch_positions: driver::local::PieU32Slice {
             ptr: positions.as_ptr(),
             len: positions.len(),
         },
-        image_anchor_rows: driver_abi::local::PieU32Slice { ptr: anchors.as_ptr(), len: 1 },
-        output_rows: driver_abi::local::PieMutBytes {
+        image_anchor_rows: driver::local::PieU32Slice { ptr: anchors.as_ptr(), len: 1 },
+        output_rows: driver::local::PieMutBytes {
             ptr: out_rows.as_mut_ptr().cast(),
             len: out_rows.len() * 2,
         },
-        output_row_indptr: driver_abi::local::PieU32MutSlice {
+        output_row_indptr: driver::local::PieU32MutSlice {
             ptr: out_indptr.as_mut_ptr(),
             len: 2,
         },
@@ -2597,7 +2597,7 @@ fn gemma4_vision_encode_matches_hf_cosine() {
 #[test]
 fn gemma4_audio_encode_matches_hf_cosine() {
     let _gpu = gpu_guard();
-    use driver_abi::local::{PieBytes, PieCompletion, PieEncodeDesc};
+    use driver::local::{PieBytes, PieCompletion, PieEncodeDesc};
 
     let scratch = std::path::PathBuf::from(std::env::var("PIE_TEST_SCRATCH").unwrap_or_else(
         |_| "/tmp/claude-0/-root--patissier-work-tart-alpha/7460e4c3-f305-45df-9603-2298b0c0c60e/scratchpad".into(),
@@ -2642,7 +2642,7 @@ fn gemma4_audio_encode_matches_hf_cosine() {
     assert_eq!(fshape[1], 128);
 
     let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
-    let desc = driver_abi::local::PieDriverCreateDesc {
+    let desc = driver::local::PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
         ..Default::default()
@@ -2650,7 +2650,7 @@ fn gemma4_audio_encode_matches_hf_cosine() {
     let d = unsafe { driver_cuda_new::abi_shell::pie_cuda_create(&desc, std::ptr::null_mut()) };
     assert!(!d.is_null());
     let snap_str = snap.to_string_lossy().into_owned();
-    let load = driver_abi::local::PieModelLoadDesc {
+    let load = driver::local::PieModelLoadDesc {
         snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
         ..Default::default()
     };
@@ -2668,16 +2668,16 @@ fn gemma4_audio_encode_matches_hf_cosine() {
             ptr: features.as_ptr().cast(),
             len: features.len() * 4,
         },
-        audio_feature_indptr: driver_abi::local::PieU32Slice {
+        audio_feature_indptr: driver::local::PieU32Slice {
             ptr: feat_indptr.as_ptr(),
             len: 2,
         },
-        audio_anchor_rows: driver_abi::local::PieU32Slice { ptr: anchors.as_ptr(), len: 1 },
-        output_rows: driver_abi::local::PieMutBytes {
+        audio_anchor_rows: driver::local::PieU32Slice { ptr: anchors.as_ptr(), len: 1 },
+        output_rows: driver::local::PieMutBytes {
             ptr: out_rows.as_mut_ptr().cast(),
             len: out_rows.len() * 2,
         },
-        output_row_indptr: driver_abi::local::PieU32MutSlice {
+        output_row_indptr: driver::local::PieU32MutSlice {
             ptr: out_indptr.as_mut_ptr(),
             len: 2,
         },
@@ -2741,7 +2741,7 @@ fn gemma4_audio_encode_matches_hf_cosine() {
 /// question at all, and this one now loads.
 #[test]
 fn a_quantized_checkpoint_loads_through_the_abi() {
-    use driver_abi::local::{PieBytes, PieModelLoadDesc, PieRuntimeCallbacks};
+    use driver::local::{PieBytes, PieModelLoadDesc, PieRuntimeCallbacks};
 
     let _gpu = gpu_guard();
     let home = std::env::var("HOME").expect("HOME");
@@ -2838,7 +2838,7 @@ fn a_quantized_checkpoint_loads_through_the_abi() {
 fn a_launch_returns_before_its_fire_retires() {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-    use driver_abi::local::{
+    use driver::local::{
         PieBytes, PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc,
         PieModelLoadDesc, PieProgramDesc, PieRuntimeCallbacks, PieStepDesc, PieU32Slice,
         PieU64Slice,
@@ -2930,18 +2930,18 @@ fn a_launch_returns_before_its_fire_retires() {
     let u32s = |v: &[u32]| PieU32Slice { ptr: v.as_ptr(), len: v.len() };
     let roster = [0u32];
     let sub = [0u32, 1];
-    let class = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+    let class = [driver::local::PIE_GEOMETRY_CLASS_HOST];
     let pages: Vec<u32> = (0..prompt.len().div_ceil(16) as u32).collect();
     let kv_indptr = [0u32, pages.len() as u32];
     let kv_lens = [((prompt.len() - 1) % 16 + 1) as u32];
     let qo = [0u32, prompt.len() as u32];
-    let mut cell = driver_abi::local::PieTerminalCell::default();
+    let mut cell = driver::local::PieTerminalCell::default();
     let cells = [std::ptr::addr_of_mut!(cell)];
     let step = PieStepDesc {
         roster_rows: u32s(&roster),
         sub_batch_indptr: u32s(&sub),
         sub_batch_class: u32s(&class),
-        terminal_cells: driver_abi::local::PieTerminalCellPtrSlice {
+        terminal_cells: driver::local::PieTerminalCellPtrSlice {
             ptr: cells.as_ptr(),
             len: 1,
         },
@@ -2958,7 +2958,7 @@ fn a_launch_returns_before_its_fire_retires() {
         abi_version: PIE_DRIVER_ABI_VERSION,
         instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
         required_kv_pages: pages.len() as u32,
-        steps: driver_abi::local::PieStepDescSlice { ptr: &step, len: 1 },
+        steps: driver::local::PieStepDescSlice { ptr: &step, len: 1 },
         ..Default::default()
     };
     let completion =
@@ -3020,7 +3020,7 @@ fn a_launch_returns_before_its_fire_retires() {
         roster_rows: u32s(&roster),
         sub_batch_indptr: u32s(&sub),
         sub_batch_class: u32s(&class),
-        terminal_cells: driver_abi::local::PieTerminalCellPtrSlice {
+        terminal_cells: driver::local::PieTerminalCellPtrSlice {
             ptr: cells.as_ptr(),
             len: 1,
         },
@@ -3036,7 +3036,7 @@ fn a_launch_returns_before_its_fire_retires() {
         abi_version: PIE_DRIVER_ABI_VERSION,
         instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
         required_kv_pages: dec_pages.len() as u32,
-        steps: driver_abi::local::PieStepDescSlice { ptr: &decode, len: 1 },
+        steps: driver::local::PieStepDescSlice { ptr: &decode, len: 1 },
         ..Default::default()
     };
     for round in 0..3 {

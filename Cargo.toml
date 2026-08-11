@@ -45,7 +45,7 @@ members = [
     "crates/client-api",
     "crates/controller-api",
     "crates/worker-api",
-    "crates/driver-abi",
+    "crates/driver",
 
     # -- driver-*: execution shells ----------------------------------------
     # `driver` is the C++ substrate both shells interpret the ABI with; the two
@@ -148,7 +148,7 @@ default-members = [
     "crates/client-api",
     "crates/controller-api",
     "crates/worker-api",
-    "crates/driver-abi",
+    "crates/driver",
     "crates/driver-dummy",
     "crates/driver-pipeline",
     "crates/model",

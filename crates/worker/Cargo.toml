@@ -53,9 +53,10 @@ controller-api = { path = "../controller-api" }
 # INTO the gateway and serves WorkerControl over the split connection.
 worker-api = { path = "../worker-api" }
 
-# Direct dep so this crate's build script receives `DEP_PIE_DRIVER_ABI_INCLUDE`
-# (the C header dir) from pie-driver-abi's `links` build-script handoff.
-driver-abi = { path = "../driver-abi" }
+# The runtime <-> driver vocabulary. A direct dep because this crate names
+# those types, not (as it once did) so its build script could receive a C
+# header directory through a `links` handoff.
+driver = { path = "../driver" }
 transport = { path = "../transport", optional = true }
 # Shared id atoms (WorkerId / NodeId / ReqId / SessionId) and the client wire
 # vocabulary (ClientMessage / ServerMessage) the gateway data plane carries.

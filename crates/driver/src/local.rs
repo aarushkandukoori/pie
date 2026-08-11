@@ -90,7 +90,7 @@ pub const PIE_STATUS_EXHAUSTED: i32 = -6;
 /// The frame can never fit within the driver's physical budget ceiling.
 pub const PIE_STATUS_IMPOSSIBLE: i32 = -7;
 
-// Literal values so cbindgen emits plain macros; the assert pins them to the
+// Literal values, and the assert pins them to the
 // Rust enum.
 /// Sentinel for [`PieLaunchOp::channel`] on ops that touch no channel.
 pub const PIE_NO_CHANNEL: u32 = u32::MAX;
@@ -2851,31 +2851,8 @@ mod tests {
     const ROSTER: usize = 128;
     use std::ptr::NonNull;
 
-    fn committed_header() -> String {
-        std::fs::read_to_string(format!(
-            "{}/include/pie_driver_abi.h",
-            env!("CARGO_MANIFEST_DIR")
-        ))
-        .expect("read committed pie_driver_abi.h")
-    }
 
-    fn cbindgen_config() -> String {
-        std::fs::read_to_string(format!(
-            // The satellite is a sibling crate now, not a subdirectory:
-            // `-cbindgen` sits flat beside its parent (rule 6).
-            "{}/../driver-abi-cbindgen/cbindgen.toml",
-            env!("CARGO_MANIFEST_DIR")
-        ))
-        .expect("read cbindgen.toml")
-    }
 
-    fn cbindgen_main() -> String {
-        std::fs::read_to_string(format!(
-            "{}/../driver-abi-cbindgen/src/main.rs",
-            env!("CARGO_MANIFEST_DIR")
-        ))
-        .expect("read pie-driver-abi-cbindgen main.rs")
-    }
 
     fn header_block<'a>(header: &'a str, name: &str) -> &'a str {
         let start = format!("typedef struct {name} {{");
@@ -3669,120 +3646,5 @@ mod tests {
         assert!(err.message().contains("cover every ticket"));
     }
 
-    #[test]
-    fn cbindgen_config_stays_pinned_and_excludes_transfer_types() {
-        let config = cbindgen_config();
-        let main_rs = cbindgen_main();
-        assert!(!config.contains("parse.expand"));
-        assert!(!config.contains("RUSTC_BOOTSTRAP"));
-        assert!(!main_rs.contains("RUSTC_BOOTSTRAP"));
 
-        for excluded in [
-            "\"KvDtype\"",
-            "\"KvLayoutKind\"",
-            "\"KvLayout\"",
-            "\"MemoryDomain\"",
-            "\"KvRegion\"",
-            "\"KvHandle\"",
-        ] {
-            assert!(
-                config.contains(excluded),
-                "missing cbindgen exclude {excluded}"
-            );
-        }
-    }
-
-    #[test]
-    fn generated_header_matches_refined_surface() {
-        let header = committed_header();
-        let runtime = header_block(&header, "PieRuntimeCallbacks");
-        let create = header_block(&header, "PieDriverCreateDesc");
-        let load = header_block(&header, "PieModelLoadDesc");
-        let program = header_block(&header, "PieProgramDesc");
-        let instance = header_block(&header, "PieInstanceDesc");
-        let binding = header_block(&header, "PieInstanceBinding");
-        let terminal_cell = header_block(&header, "PieTerminalCell");
-        let terminal_cell_ptr_slice = header_block(&header, "PieTerminalCellPtrSlice");
-        let launch = header_block(&header, "PieStepDesc");
-        let frame = header_block(&header, "PieFrameDesc");
-        let encode = header_block(&header, "PieEncodeDesc");
-        let completion = header_block(&header, "PieCompletion");
-        let kv_copy = header_block(&header, "PieKvCopyDesc");
-        let state_copy = header_block(&header, "PieStateCopyDesc");
-        let pool_resize = header_block(&header, "PiePoolResizeDesc");
-
-        assert!(header.contains("typedef uint32_t PieTerminalOutcome;"));
-        assert!(terminal_cell.contains("PieTerminalOutcome outcome;"));
-        assert!(terminal_cell.contains("uint32_t reserved0;"));
-        assert!(terminal_cell_ptr_slice.contains("struct PieTerminalCell *const *ptr;"));
-        assert!(launch.contains("struct PieU32Slice roster_rows;"));
-        assert!(launch.contains("struct PieU32Slice sub_batch_indptr;"));
-        assert!(launch.contains("struct PieU32Slice sub_batch_class;"));
-        assert!(launch.contains("struct PieTerminalCellPtrSlice terminal_cells;"));
-        assert!(
-            !launch.contains("host_put"),
-            "ABI v2: launch descriptors carry no channel values"
-        );
-        assert!(completion.contains("struct PieTerminalCell *terminal_cell;"));
-        assert!(launch.contains("uint32_t reserved0;"));
-        assert!(launch.contains("uint8_t reserved_flags[2];"));
-        assert!(frame.contains("struct PieU64Slice instance_ids;"));
-        assert!(frame.contains("struct PieU32Slice kv_translation;"));
-        assert!(frame.contains("uint32_t required_kv_pages;"));
-        assert!(frame.contains("struct PieStepDescSlice steps;"));
-        assert!(runtime.contains("uint32_t reserved0;"));
-        assert!(runtime.contains("PieRuntimeNotifyFn notify;"));
-        assert!(create.contains("uint32_t reserved0;"));
-        assert!(load.contains("struct PieBytes runtime_quant;"));
-        assert!(load.contains("struct PieBytes snapshot_dir;"));
-        assert!(load.contains("uint32_t mxfp4_moe;"));
-        assert!(load.contains("uint32_t component;"));
-        assert!(program.contains("uint64_t program_hash;"));
-        assert!(program.contains("uint32_t reserved0;"));
-        assert!(instance.contains("struct PieU64Slice channel_ids;"));
-        assert!(launch.contains("struct PieBytes embed_rows;"));
-        assert!(launch.contains("struct PieU32Slice embed_indptr;"));
-        assert!(encode.contains("struct PieMutBytes output_rows;"));
-        assert!(encode.contains("struct PieU32MutSlice output_row_indptr;"));
-        assert!(encode.contains("struct PieBytes audio_features;"));
-        assert!(!program.contains("channel_ids"));
-        assert!(binding.contains("uint64_t instance_id;"));
-        assert!(!header.contains("typedef struct PieChannelBinding"));
-        assert!(!header.contains("PieChannelWait"));
-        assert!(kv_copy.contains("uint32_t reserved0;"));
-        assert!(kv_copy.contains("struct PieU32Slice src_page_ids;"));
-        assert!(kv_copy.contains("struct PieU32Slice dst_page_ids;"));
-        assert!(state_copy.contains("uint32_t reserved0;"));
-        assert!(state_copy.contains("struct PieStateCopyRangeSlice slot_ranges;"));
-        assert!(pool_resize.contains("uint32_t reserved0;"));
-        assert!(!header.contains("struct_size"));
-
-        for needle in [
-            "PIE_SAMPLER_",
-            "PIE_SAMPLING_BINDING_",
-            "logit_masks",
-            "sampler_",
-            "sampling_program_",
-            "sampling_input_",
-            "sampling_late_",
-            "sampling_binding_",
-            "adapter_bindings",
-            "spec_token_ids",
-            "spec_position_ids",
-            "spec_indptr",
-            "output_spec_flags",
-            "PieF32Slice",
-            "PieAdapterBinding",
-            "KvDtype",
-            "KvLayoutKind",
-            "KvLayout",
-            "KvRegion",
-            "KvHandle",
-        ] {
-            assert!(
-                !header.contains(needle),
-                "generated header unexpectedly contains excluded name {needle}"
-            );
-        }
-    }
 }
