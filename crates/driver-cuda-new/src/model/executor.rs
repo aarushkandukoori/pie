@@ -989,6 +989,7 @@ fn dispatch_generated<R: Resolver>(
     b: &BoundLaunch<'_>,
     spec: &LaunchSpec,
     ctx: &DispatchCtx,
+    attn: Option<&AttnCtx>,
     gdn: Option<&GdnCtx>,
     resolver: &mut R,
     rows: i32,
@@ -1080,6 +1081,24 @@ fn dispatch_generated<R: Resolver>(
     /// bug is in the emitter's guard and nowhere near this line.
     fn g_of<'a>(g: Option<&'a GdnCtx>) -> &'a GdnCtx {
         g.expect("a generated branch binding a GDN field is guarded on gdn.is_some()")
+    }
+
+    /// `Source::Attn`'s reach into the fire's attention context.
+    fn a_of<'a>(a: Option<&'a AttnCtx>) -> &'a AttnCtx {
+        a.expect("a generated branch binding an attention field is guarded on attn.is_some()")
+    }
+
+    /// `Source::KvLayerView`'s test, and its read.
+    ///
+    /// Two functions rather than one returning an `Option`, because the
+    /// generator emits the test into the branch GUARD and the read into
+    /// the argument list, and a guard cannot bind. The pair is what makes
+    /// the read total.
+    fn has_kv_layer(a: Option<&AttnCtx>, layer: usize) -> bool {
+        a.is_some_and(|a| a.layers.len() > layer)
+    }
+    fn kv_view(a: Option<&AttnCtx>, layer: usize) -> crate::launch::KvCacheLayerView {
+        a_of(a).layers[layer]
     }
 
     /// `cast_const` for a pointer that is ALREADY const.
@@ -1178,7 +1197,7 @@ pub fn dispatch<R: Resolver>(
     // needs no arm, and the branch for it is emitted from the row — so
     // the hand-written match below is what is LEFT, not what is normal.
     // It shrinks as rows state their sources, which is a row's work.
-    if dispatch_generated(bound, spec, ctx, gdn, resolver, rows) {
+    if dispatch_generated(bound, spec, ctx, attn, gdn, resolver, rows) {
         return Ok(());
     }
 
@@ -1499,88 +1518,6 @@ pub fn dispatch<R: Resolver>(
                     a.logits_soft_cap,
                     a.sm_scale,
                     lse,
-                );
-            }
-        }
-        // args: [k_curr, v_curr]; the layer view, the CSRs and the fire
-        // scalars are the fire's.
-        // args: [k_curr, v_curr]. The write-descriptor spelling: the fire
-        // steers a graph replay, so the destination page and offset of
-        // every row are DESCRIPTORS the host published rather than
-        // something the kernel derives from the CSRs. `HasWriteDesc` is
-        // the guard that picks it, and `AttnCtx` already carried the three
-        // descriptor arrays — the arm was simply never written, because
-        // nothing in the corpus set the mark.
-        "attn::write_kv_explicit_bf16" => {
-            need(2)?;
-            let a = attn
-                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
-            let layer = a
-                .layers
-                .get(bound.layers.start as usize)
-                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
-            if a.w_page_d.is_null() || a.w_off_d.is_null() {
-                return Err(DispatchRefusal::NoAttnCtx(format!(
-                    "{}: the fire published no write descriptors",
-                    bound.kernel
-                )));
-            }
-            let (k_curr, v_curr) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_attn_write_kv_explicit_bf16(
-                    *layer,
-                    k_curr.ptr,
-                    v_curr.ptr,
-                    a.w_page_d,
-                    a.w_off_d,
-                    rows,
-                    ctx.stream,
-                    a.row_valid_d,
-                );
-            }
-        }
-        "attn::write_kv_to_pages" => {
-            need(2)?;
-            let a = attn
-                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
-            let layer = a
-                .layers
-                .get(bound.layers.start as usize)
-                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
-            let (k_curr, v_curr) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_attn_write_kv_to_pages(
-                    *layer,
-                    k_curr.ptr,
-                    v_curr.ptr,
-                    a.qo_indptr_d,
-                    a.kv_page_indices_d,
-                    a.kv_page_indptr_d,
-                    a.kv_last_page_lens_d,
-                    rows,
-                    a.num_requests,
-                    ctx.stream,
-                    a.row_valid_d,
-                    a.first_token,
-                );
-            }
-        }
-        // args: [] — everything is the fire's. A no-op on a native cache,
-        // and the arm still fires it: the launch is stated, so it runs.
-        "attn::dequant_kv_cache_layer_to_bf16_active" => {
-            need(0)?;
-            let a = attn
-                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
-            let layer = a
-                .layers
-                .get(bound.layers.start as usize)
-                .ok_or_else(|| DispatchRefusal::NoAttnCtx(bound.kernel.to_string()))?;
-            unsafe {
-                ffi::pie_k_attn_dequant_kv_cache_layer_to_bf16_active(
-                    *layer,
-                    a.kv_page_indices_d,
-                    a.num_pages_in_batch,
-                    ctx.stream,
                 );
             }
         }
