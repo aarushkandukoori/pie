@@ -1765,34 +1765,6 @@ pub fn dispatch<R: Resolver>(
         // rows already state their sources; staging is the whole
         // difference, and it is `stage_d2d` in both.
 
-        // args: [src, weights, residual, out] — the routed combine that
-        // ACCUMULATES. `out += sum_k(src[t, k] * w[t, k])`, so the
-        // residual is staged into `out` first and the kernel adds onto
-        // it. The plain `token_batched_weighted_sum_bf16` writes instead,
-        // which is why only this spelling is in-place.
-        "moe::token_batched_weighted_sum_add_bf16" => {
-            need(4)?;
-            let (src, weights, resid, out) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            stage_d2d(ctx, &bound.rows, out, resid);
-            // `src` is `[Tokens, top_k, hidden]` and `out` is
-            // `[Tokens, hidden]`, so the route count is the ratio of
-            // their row widths. Derived from what the two args SAY
-            // rather than from a config the arm would have to be told.
-            let hidden = i32::try_from(out.width).expect("dim");
-            let top_k = i32::try_from(src.width / out.width.max(1)).unwrap_or(1).max(1);
-            unsafe {
-                ffi::pie_k_moe_token_batched_weighted_sum_add_bf16(
-                    out.ptr,
-                    src.ptr,
-                    weights.ptr.cast::<f32>(),
-                    rows,
-                    top_k,
-                    hidden,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [x, out] — out = x + bias, the bias being the op's weight.
         // The kernel is in-place, so: stage x→out, add.
         "norm::add_bias_bf16" => {
@@ -2655,28 +2627,6 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [logits(f32), topk_idx, topk_w, W bias(f32)] — the
-        // sigmoid router. Normalize and the scaling factor are the
-        // deployment's (`cfg.norm_topk_prob`, `routed_scaling_factor`).
-        "moe::topk_sigmoid_bias_fp32" => {
-            need(4)?;
-            let (logits, idx, wts, bias) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            unsafe {
-                ffi::pie_k_moe_topk_sigmoid_bias_fp32(
-                    logits.ptr.cast_const().cast(),
-                    bias.ptr.cast_const().cast(),
-                    idx.ptr.cast(),
-                    wts.ptr.cast(),
-                    rows,
-                    i32::try_from(logits.width).expect("experts"),
-                    i32::try_from(idx.width).expect("top_k"),
-                    ctx.moe_norm_topk,
-                    ctx.moe_routed_scaling,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [topk_idx, norm_x, out, W stacked-expert base] — the
         // decode GEMV over the routed experts; one warp per output row.
         "moe::moe_gate_up_decode_gemv_bf16" => {
@@ -2715,41 +2665,6 @@ pub fn dispatch<R: Resolver>(
                     i32::try_from(y.width).expect("width") / top_k.max(1),
                     i32::try_from(act.width).expect("i_moe"),
                     ctx.stream,
-                );
-            }
-        }
-        // args: [src, weights, out] — the K-expert combine.
-        "moe::token_batched_weighted_sum_bf16" => {
-            need(3)?;
-            let (src, wts, out) = (bound.args[0], bound.args[1], bound.args[2]);
-            unsafe {
-                ffi::pie_k_moe_token_batched_weighted_sum_bf16(
-                    out.ptr,
-                    src.ptr.cast_const(),
-                    wts.ptr.cast_const().cast(),
-                    rows,
-                    i32::try_from(wts.width).expect("top_k"),
-                    i32::try_from(out.width).expect("hidden"),
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [act, y(f32), W] — the fp32-out GEMM the sigmoid router
-        // reads (`act_x_wt_bf16_out_fp32`); the statement carries its
-        // weight as an arg.
-        "gemm::act_x_wt_bf16_out_fp32" => {
-            need(3)?;
-            let (act, y) = (bound.args[0], bound.args[1]);
-            let w = bound.args[2].ptr.cast_const();
-            unsafe {
-                ffi::pie_k_gemm_act_x_wt_bf16_out_fp32(
-                    ctx.cublas,
-                    act.ptr.cast_const(),
-                    w,
-                    y.ptr.cast(),
-                    rows,
-                    i32::try_from(y.width).expect("n"),
-                    i32::try_from(act.width).expect("k"),
                 );
             }
         }
@@ -2966,45 +2881,6 @@ pub fn dispatch<R: Resolver>(
                         ctx.stream,
                     );
                 }
-            }
-        }
-        // args: [act, y, W] — the plain `x · Wᵀ`, weight as an arg.
-        "gemm::act_x_wt_bf16" => {
-            need(3)?;
-            let (act, y, w) = (bound.args[0], bound.args[1], bound.args[2]);
-            unsafe {
-                ffi::pie_k_gemm_act_x_wt_bf16(
-                    ctx.cublas,
-                    act.ptr.cast_const(),
-                    w.ptr.cast_const(),
-                    y.ptr,
-                    rows,
-                    i32::try_from(y.width).expect("n"),
-                    i32::try_from(act.width).expect("k"),
-                    0.0,
-                );
-            }
-        }
-        // ── gpt-oss / mixtral's arms ─────────────────────────────────
-        // args: [act, y, W w, W bias] — the projection with its bias
-        // folded in. The bias may be null; the row says so.
-        "gemm::act_x_wt_bias_bf16" => {
-            need(4)?;
-            let (act, y, w, bias) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            unsafe {
-                ffi::pie_k_gemm_act_x_wt_bias_bf16(
-                    ctx.cublas,
-                    act.ptr.cast_const(),
-                    w.ptr.cast_const(),
-                    bias.ptr.cast_const(),
-                    y.ptr,
-                    rows,
-                    i32::try_from(y.width).expect("n"),
-                    i32::try_from(act.width).expect("k"),
-                    ctx.stream,
-                    0.0,
-                );
             }
         }
         // args: [q_in, k_in, q_out, k_out] — YaRN over the ORIGINAL

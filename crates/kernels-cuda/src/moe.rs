@@ -152,16 +152,19 @@ pub static KERNELS: &[KernelSig] = &[
         ]),
     kernel!(topk_sigmoid_bias "moe::topk_sigmoid_bias_fp32",
         operands = operands![
-            logits: F32s,
-            correction_bias: F32s,
-            topk_idx: I32sMut,
-            topk_w: F32sMut,
-            n: I32,
-            num_experts: I32,
-            k: I32,
-            normalize: Bool,
-            routed_scaling_factor: F32,
-            stream: Stream,
+            logits: F32s <- Source::In(0),
+            correction_bias: F32s <- Source::Weight(0),
+            topk_idx: I32sMut <- Source::Out(0),
+            topk_w: F32sMut <- Source::Out(1),
+            n: I32 <- Source::Rows,
+            num_experts: I32 <- Source::InWidth(0),
+            k: I32 <- Source::OutWidth(0),
+            // The deployment's, both of them — `norm_topk_prob` and
+            // `routed_scaling_factor` are config values the driver reads
+            // at load, which is why they are context and not params.
+            normalize: Bool <- Source::Ctx("moe_norm_topk"),
+            routed_scaling_factor: F32 <- Source::Ctx("moe_routed_scaling"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // The UNPADDED counterpart of `moe_align`: exact per-expert counts the
     // host reads to build cuBLAS grouped shapes. `whole` for the same reason
@@ -406,8 +409,16 @@ pub static KERNELS: &[KernelSig] = &[
             src: Buf <- Source::In(0),
             weights: F32s <- Source::In(1),
             num_tokens: I32 <- Source::Rows,
-            top_k: I32 <- Source::InDim(0, 1),
-            hidden: I32 <- Source::InDim(0, 2),
+            // NOT `InDim(0, 1)` and `InDim(0, 2)`, which is what these
+            // said and why both rows sat on the generator's wall. A DIM
+            // is the plan's and the join does not carry it — but neither
+            // extent needs the plan: `weights` IS `[Tokens, top_k]`, so
+            // its row width is the route count, and the result IS
+            // `[Tokens, hidden]`. The arms read exactly those two widths.
+            // Asking the plan for a number two operands already state is
+            // an inference pass replacing a one-line answer.
+            top_k: I32 <- Source::InWidth(1),
+            hidden: I32 <- Source::OutWidth(0),
             stream: Stream <- Source::Ctx("stream"),
         ]),
     // The `_add` spelling accumulates into the residual, which the
@@ -424,8 +435,16 @@ pub static KERNELS: &[KernelSig] = &[
             src: Buf <- Source::In(0),
             weights: F32s <- Source::In(1),
             num_tokens: I32 <- Source::Rows,
-            top_k: I32 <- Source::InDim(0, 1),
-            hidden: I32 <- Source::InDim(0, 2),
+            // NOT `InDim(0, 1)` and `InDim(0, 2)`, which is what these
+            // said and why both rows sat on the generator's wall. A DIM
+            // is the plan's and the join does not carry it — but neither
+            // extent needs the plan: `weights` IS `[Tokens, top_k]`, so
+            // its row width is the route count, and the result IS
+            // `[Tokens, hidden]`. The arms read exactly those two widths.
+            // Asking the plan for a number two operands already state is
+            // an inference pass replacing a one-line answer.
+            top_k: I32 <- Source::InWidth(1),
+            hidden: I32 <- Source::OutWidth(0),
             stream: Stream <- Source::Ctx("stream"),
         ]),
     // The routed MXFP4 GEMVs. Like qwen3_5's GEMV leg the expert axis
