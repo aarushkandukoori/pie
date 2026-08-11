@@ -178,7 +178,9 @@ pub fn eval(rule: Rule, dims: Dims) -> Result<Launch, Ungeometric> {
         Rule::SdpaVector => sdpa_rows(dims.q_heads, rows),
         Rule::PerHeadElementwise => shapes::attn_gate(dims.q_heads, dims.head_dim),
         Rule::GatedRms => shapes::gated_rms(dims.kv_heads, dims.head_dim),
-        Rule::RouterLane => shapes::router_topk(dims.n_experts),
+        Rule::RouterLane => shapes::router_topk(dims.n_experts, rows),
+        // ONE threadgroup whatever the rows: see [`Rule::RouterSort`].
+        Rule::RouterSort => shapes::route_sort(dims.n_experts),
         Rule::RouteRows => shapes::route_rows(dims.width, rows),
         Rule::RoutedQmv => shapes::routed_qmv(dims.width, dims.experts_per_token, rows),
     })
@@ -280,7 +282,8 @@ mod tests {
                 shapes::attn_gate(d.q_heads, d.head_dim),
             ),
             (Rule::GatedRms, shapes::gated_rms(d.kv_heads, d.head_dim)),
-            (Rule::RouterLane, shapes::router_topk(d.n_experts)),
+            (Rule::RouterLane, shapes::router_topk(d.n_experts, 1)),
+            (Rule::RouterSort, shapes::route_sort(d.n_experts)),
             (Rule::RouteRows, shapes::route_rows(d.width, 1)),
             (
                 Rule::RoutedQmv,
@@ -325,6 +328,25 @@ mod tests {
                 grid: [d.q_heads * 1024, n, 1],
                 tg: [1024, 1, 1],
             }),
+            // The router, which was NOT in this list and was wrong because of
+            // it. `route.metal` reads its row from `tgid.y` and the rule
+            // returned `grid: [w, 1, 1]`, so a mixture PREFILL routed row 0
+            // only: every other row kept whatever `expert_ids` held from the
+            // last layer, and the FFN then ran those rows through the wrong
+            // experts. A finite, plausible, different model.
+            //
+            // Absent from the M>1 list is exactly how it stayed wrong -- the
+            // M=1 list has it and is right there, so the rule looked covered.
+            (Rule::RouterLane, Launch {
+                grid: [shapes::router_lane_width(d.n_experts), n, 1],
+                tg: [shapes::router_lane_width(d.n_experts), 1, 1],
+            }),
+            // And its twin, which must NOT move. `route_sort` reduces across
+            // every (row, slot) pair through threadgroup atomics; one copy
+            // per row would have each clearing and rewriting the permutation
+            // the others read. The two shared `RouterLane` until the row axis
+            // landed, which is why they are two rows now.
+            (Rule::RouterSort, shapes::route_sort(d.n_experts)),
         ] {
             assert_eq!(
                 eval(rule, d).expect("a stated rule evaluates"),

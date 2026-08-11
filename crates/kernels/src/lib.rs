@@ -103,8 +103,23 @@ pub enum LaunchRule {
     PerHeadElementwise,
     /// Gated norm over the value heads.
     GatedRms,
-    /// One threadgroup as wide as the expert count, rounded to a simd multiple.
+    /// One threadgroup as wide as the expert count PER ROW — the router's
+    /// top-k, which `route.metal` indexes with `tgid.y`.
+    ///
+    /// The row axis is load-bearing and was missing: with `grid.y = 1` a
+    /// mixture prefill routed row 0 only, and every other row's expert ids
+    /// were whatever the last layer left there.
     RouterLane,
+    /// ONE threadgroup as wide as the expert count, whatever the row count —
+    /// the counting sort, which reduces across all `(row, slot)` pairs
+    /// through threadgroup atomics and stripes them over its own lanes.
+    ///
+    /// Split from [`LaunchRule::RouterLane`] because they are two different
+    /// rules that shared one name. Giving this one the row axis launches N
+    /// copies of the same sort, each clearing and rewriting the permutation
+    /// the others are reading — the grid is the contract, so two contracts
+    /// need two rows.
+    RouterSort,
     /// One threadgroup per row, as wide as the row, capped at 256.
     RouteRows,
     /// Routed GEMV: [`LaunchRule::Qmv`] per row, per expert slot.

@@ -174,10 +174,10 @@ pub fn router_lane_width(n_experts: u32) -> u32 {
 
 /// `moe_route` top-k: every expert a lane, one row per grid.y.
 #[must_use]
-pub fn router_topk(n_experts: u32) -> Launch {
+pub fn router_topk(n_experts: u32, rows: u32) -> Launch {
     let w = router_lane_width(n_experts);
     Launch {
-        grid: [w, 1, 1],
+        grid: [w, rows.max(1), 1],
         tg: [w, 1, 1],
     }
 }
