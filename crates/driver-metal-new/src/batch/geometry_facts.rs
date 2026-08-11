@@ -502,6 +502,41 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
     } else if f.q35_intermediate_size <= 0 {
         return refuse("a dense FFN needs intermediate_size");
     }
+
+    // Can any Metal kernel READ this checkpoint's weights?
+    //
+    // The C++ shell asked this at load and refused by name
+    // (`heap_bind.cpp:845-890`: *"no metal kernel here reads '<name>'"*).
+    // Nothing asked after the port, so an unreadable scheme travelled all the
+    // way to the first fire and surfaced as the runtime compiler declining a
+    // mangled symbol -- loud, but after the weights are staged, and naming
+    // `affine_qmv_fast_bfloat16_gs_128_b_8` rather than the two config keys
+    // that chose it.
+    //
+    // Asked of the TABLE rather than a list here, so a point added or dropped
+    // in `kernels-metal` moves this answer with it.
+    //
+    // Scope, measured: `affine_qmv_fast` is stamped over the whole
+    // `(group x bits)` grid, so this does not catch a narrow kernel table --
+    // it catches a config whose numbers are off the axes ENTIRELY, a group or
+    // bit width nothing was ever stamped for. That is the case the C++
+    // refusal existed for.
+    if out.quant.is_set() && !out.quant.is_readable() {
+        return Err(GeometryRefused(format!(
+            "this checkpoint states group_size {} at {} bits and no metal \
+             kernel here reads it -- `affine_qmv_fast` is instantiated at {}. \
+             Refused at the geometry rather than at the first fire, where it \
+             would surface as a missing symbol after the weights are staged",
+            out.quant.group,
+            out.quant.bits,
+            AffineFormat::readable()
+                .iter()
+                .map(|f| format!("g{}/b{}", f.group, f.bits))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+
     Ok(out)
 }
 
@@ -684,6 +719,86 @@ mod tests {
         assert_eq!(g.rope_theta_sliding, 0.0);
     }
 
+    /// A quantization scheme no Metal kernel reads is refused at the
+    /// GEOMETRY, by name.
+    ///
+    /// The C++ shell asked this at load — *"no metal kernel here reads
+    /// '<name>'"* (`heap_bind.cpp:845-890`) — and nothing asked after the
+    /// port. An unreadable scheme then travelled to the first fire and
+    /// surfaced as the runtime compiler declining a mangled symbol: loud, but
+    /// after the weights are staged, and naming the entrypoint rather than
+    /// the two config keys that chose it.
+    #[test]
+    fn a_format_no_kernel_reads_is_refused_by_name() {
+        let base = ModelFacts {
+            ll_num_hidden_layers: 24,
+            ll_hidden_size: 1024,
+            ll_num_attention_heads: 8,
+            ll_num_key_value_heads: 2,
+            ll_head_dim: 128,
+            ll_vocab_size: 32_000,
+            ll_intermediate_size: 3584,
+            ..ModelFacts::default()
+        };
+
+        // What the table actually instantiates `affine_qmv_fast` at.
+        // Asserted rather than assumed, because the refusal above is only as
+        // honest as this list — and a point dropped from `kernels-metal` has
+        // to change this test rather than quietly narrow what the driver
+        // serves.
+        //
+        // Measured: the dense GEMV covers the WHOLE grid, `_gs_{32,64,128}` ×
+        // `_b_{4,8}`. So this check does not catch a narrow kernel table; it
+        // catches a config whose numbers are off the axes entirely — a group
+        // or bit width nothing was ever stamped for. That is the case the C++
+        // refusal existed for, and it is the case that otherwise reaches the
+        // first fire as a missing symbol.
+        let readable = AffineFormat::readable();
+        assert_eq!(
+            readable.len(),
+            6,
+            "the dense GEMV is stamped over the whole (group x bits) grid; \
+             if that changed, the refusal's scope changed with it: {readable:?}"
+        );
+        assert!(
+            readable.contains(&AffineFormat { bits: 4, group: 64 }),
+            "g64/b4 is what every MLX 4-bit checkpoint ships; if the table \
+             stopped instantiating it this driver serves nothing"
+        );
+
+        for f in &readable {
+            let g = geometry_from_facts(&ModelFacts {
+                quant_bits: f.bits as i32,
+                quant_group_size: f.group as i32,
+                ..base.clone()
+            });
+            assert!(
+                g.is_ok(),
+                "g{}/b{} is instantiated and must not be refused",
+                f.group,
+                f.bits
+            );
+        }
+
+        // A format nothing is compiled for. `group: 17` is not on any axis,
+        // so no entrypoint can end with its suffix.
+        let why = geometry_from_facts(&ModelFacts {
+            quant_bits: 4,
+            quant_group_size: 17,
+            ..base
+        })
+        .expect_err("a format no kernel reads must be refused")
+        .0;
+        assert!(
+            why.contains("group_size 17") && why.contains("no metal kernel here reads it"),
+            "the refusal must name the checkpoint's own numbers: {why}"
+        );
+        assert!(
+            why.contains("g64/b4"),
+            "and say what IS instantiated, so the reader knows the shape of \
+             the answer: {why}"
+        );
+    }
     /// A gemma4 checkpoint states TWO attention geometries, and this driver
     /// holds one — so it must refuse rather than run three quarters of the
     /// stack at the wrong shape.

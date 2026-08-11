@@ -47,6 +47,55 @@ impl AffineFormat {
     pub const fn is_set(self) -> bool {
         self.bits != 0 && self.group != 0
     }
+
+    /// Whether any Metal kernel is compiled to read this format.
+    ///
+    /// # Why the table is asked rather than a list kept here
+    ///
+    /// `quantized_qmv.metal` stamps one template over
+    /// `(dtype × group × bits)`, so a format is readable exactly when the
+    /// entrypoint carrying its suffix was instantiated. Asking
+    /// `kernels_metal::KERNELS` makes that a fact of the table — a point
+    /// added or dropped there moves this answer with it, where a list here
+    /// would drift and answer for a shader that no longer exists.
+    ///
+    /// The C++ shell refused an unreadable scheme by name at load
+    /// (`heap_bind.cpp:845-890`, *"no metal kernel here reads '<name>'"*) and
+    /// nothing did after the port. Without it the failure moves to the first
+    /// fire, as the runtime compiler declining a symbol — which is loud, but
+    /// arrives after the weights are staged and names a mangled entrypoint
+    /// instead of the config key that chose it.
+    #[must_use]
+    pub fn is_readable(self) -> bool {
+        if !self.is_set() {
+            return false;
+        }
+        let suffix = self.kernel_suffix();
+        // The DENSE projection, which every text names for every layer. A
+        // format it cannot read is a format this driver cannot serve, whatever
+        // else happens to be instantiated.
+        kernels_metal::KERNELS
+            .iter()
+            .filter(|k| k.symbol == "affine_qmv_fast")
+            .flat_map(kernels::KernelSig::entrypoints)
+            .any(|e| e.ends_with(&suffix))
+    }
+
+    /// Every format some Metal kernel reads, for a refusal that can say what
+    /// the alternatives were.
+    #[must_use]
+    pub fn readable() -> Vec<AffineFormat> {
+        let mut out = Vec::new();
+        for group in [32u32, 64, 128] {
+            for bits in [4u32, 8] {
+                let f = AffineFormat { bits, group };
+                if f.is_readable() {
+                    out.push(f);
+                }
+            }
+        }
+        out
+    }
 }
 
 /// The checkpoint-decided shape of the decode step.
