@@ -15,9 +15,54 @@ use anyhow::{Result, anyhow};
 
 // `shm_open` lives in `librt` on Linux but in `libc` on macOS / BSDs.
 // The link attr ensures the right thing on each.
+#[cfg(not(target_os = "ios"))]
 #[cfg_attr(target_os = "linux", link(name = "rt"))]
 unsafe extern "C" {
     fn shm_open(name: *const libc::c_char, oflag: libc::c_int, mode: libc::mode_t) -> libc::c_int;
+}
+
+#[cfg(not(target_os = "ios"))]
+unsafe fn shm_open_impl(
+    name: *const libc::c_char,
+    oflag: libc::c_int,
+    mode: libc::mode_t,
+) -> libc::c_int {
+    unsafe { shm_open(name, oflag, mode) }
+}
+
+#[cfg(not(target_os = "ios"))]
+unsafe fn shm_unlink_impl(name: *const libc::c_char) -> libc::c_int {
+    unsafe { libc::shm_unlink(name) }
+}
+
+// iOS: the sandbox denies global POSIX shmem names (`shm_open` returns
+// EPERM). Embedded drivers run in-process there, so a file-backed mmap
+// under the app's sandbox tmp dir is semantically equivalent — same
+// MAP_SHARED visibility, same fd/ftruncate lifecycle. The shmem "name"
+// (e.g. "/pie_shmem_g0") maps to `$TMPDIR/pie_shmem_g0`.
+#[cfg(target_os = "ios")]
+fn shm_backing_path(name: &CStr) -> std::ffi::CString {
+    let raw = name.to_string_lossy();
+    let file = raw.trim_start_matches('/').replace('/', "_");
+    let path = std::env::temp_dir().join(file);
+    std::ffi::CString::new(path.into_os_string().into_encoded_bytes())
+        .expect("tmp paths contain no NUL")
+}
+
+#[cfg(target_os = "ios")]
+unsafe fn shm_open_impl(
+    name: *const libc::c_char,
+    oflag: libc::c_int,
+    mode: libc::mode_t,
+) -> libc::c_int {
+    let path = shm_backing_path(unsafe { CStr::from_ptr(name) });
+    unsafe { libc::open(path.as_ptr(), oflag, mode as libc::c_uint) }
+}
+
+#[cfg(target_os = "ios")]
+unsafe fn shm_unlink_impl(name: *const libc::c_char) -> libc::c_int {
+    let path = shm_backing_path(unsafe { CStr::from_ptr(name) });
+    unsafe { libc::unlink(path.as_ptr()) }
 }
 
 /// Owned shmem region from the server's perspective. Held inside
@@ -42,9 +87,9 @@ pub(super) struct ClientMapping {
 /// holds the mapping in `ShmemServerInner` until drop.
 pub(super) fn map_shmem_server(name: &CStr, total_size: usize) -> Result<ServerMapping> {
     // Replace any stale region with the same name (best-effort).
-    unsafe { libc::shm_unlink(name.as_ptr()) };
+    unsafe { shm_unlink_impl(name.as_ptr()) };
 
-    let fd = unsafe { shm_open(name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
+    let fd = unsafe { shm_open_impl(name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
     if fd < 0 {
         return Err(anyhow!(
             "shm_open({:?}) failed: {}",
@@ -56,7 +101,7 @@ pub(super) fn map_shmem_server(name: &CStr, total_size: usize) -> Result<ServerM
         let err = std::io::Error::last_os_error();
         unsafe {
             libc::close(fd);
-            libc::shm_unlink(name.as_ptr());
+            shm_unlink_impl(name.as_ptr());
         }
         return Err(anyhow!("ftruncate failed: {err}"));
     }
@@ -74,7 +119,7 @@ pub(super) fn map_shmem_server(name: &CStr, total_size: usize) -> Result<ServerM
         let err = std::io::Error::last_os_error();
         unsafe {
             libc::close(fd);
-            libc::shm_unlink(name.as_ptr());
+            shm_unlink_impl(name.as_ptr());
         }
         return Err(anyhow!("mmap failed: {err}"));
     }
@@ -89,7 +134,7 @@ pub(super) fn map_shmem_server(name: &CStr, total_size: usize) -> Result<ServerM
 /// The size is discovered via `fstat`; the caller subsequently
 /// validates magic / schema-version / hash against the region header.
 pub(super) fn map_shmem_client(name: &CStr) -> Result<ClientMapping> {
-    let fd = unsafe { shm_open(name.as_ptr(), libc::O_RDWR, 0o600) };
+    let fd = unsafe { shm_open_impl(name.as_ptr(), libc::O_RDWR, 0o600) };
     if fd < 0 {
         return Err(anyhow!(
             "shm_open({:?}) for client failed: {}",
@@ -148,7 +193,7 @@ pub(super) unsafe fn unmap_shmem_server(mapping: &ServerMapping, name: &CStr) {
         if mapping.fd >= 0 {
             libc::close(mapping.fd);
         }
-        libc::shm_unlink(name.as_ptr());
+        shm_unlink_impl(name.as_ptr());
     }
 }
 
