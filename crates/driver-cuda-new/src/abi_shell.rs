@@ -3247,7 +3247,12 @@ fn step_impl(
         // NOTE: growth REPLACES the pools without migrating pages — decode
         // continuity holds while the page demand is stable, which is the
         // single-frame smoke's world. Page migration rides with resize_pool.
+        //
+        // AND IT MOVES BASE ADDRESSES, so every capture that recorded one is
+        // stale. Same rule as `FireArrays`' own growth, and the same bump:
+        // stale means recapture rather than a replay into freed pages.
         state.kv = Some(KvState { pools, num_pages: need_pages });
+        state.fire_arrays.epoch += 1;
     }
     let kv = state.kv.as_ref().expect("just ensured");
     let kv_source_of = |i: usize| -> usize {
@@ -4660,6 +4665,12 @@ pub extern "C" fn pie_cuda_resize_pool(
         return PIE_STATUS_DRIVER_ERROR;
     }
     state.kv = Some(KvState { pools, num_pages: target });
+    // A RESIZE MOVES THE KV PAGES, and a captured graph baked their old
+    // addresses into every attention launch. Bumping the epoch is what tells
+    // `SupergraphCache` to recapture instead of replaying into memory the
+    // pool no longer owns — which showed up as a segfault the moment decode
+    // fires became capturable at all.
+    state.fire_arrays.epoch += 1;
     std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
     if let Some(notify) = state.notify {
         unsafe { notify(state.notify_ctx, completion.wait_id, completion.target_epoch) };
