@@ -271,6 +271,14 @@ __device__ void replay_chain(
         r.depth += 1;
     }
     if (!r.settled) {
+        // The spin bound, not a property of the grammar: a chain that has not
+        // shifted after `max_reductions` reductions is cut off here, and
+        // cutting it off drops a terminal the grammar may well admit. That is
+        // a narrower mask, which is the flag's business - the ceilings above
+        // say so and this one was silent.
+        if (r.alive) {
+            overflow[sequence] = 1;
+        }
         r.alive = false;
     }
 }

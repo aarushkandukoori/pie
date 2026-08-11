@@ -1010,6 +1010,72 @@ class ArenaPaging(unittest.TestCase):
         self.assertEqual(dict(pool._used), held)
         self.assertEqual(pool.count, 1)
 
+    def test_an_admission_that_runs_out_of_memory_leaves_no_trace(self):
+        """The arena shares the device with the model, so an admission can fail.
+
+        And the eviction policy goes over budget rather than refuse a request,
+        which means the allocator is what says no - in the middle of writing a
+        grammar into the arena. Half a grammar is worse than none: the space is
+        reserved and no release ever reaches it, the identifier is spent, and
+        the shared blocks are held by something that is not in the pool. Every
+        later admission then builds on all three.
+
+        So `admit` unwinds and the caller decides. The serving backend keeps
+        that schema on the reference matcher, which is exact and only slower.
+        """
+        pool = self.DeviceGrammar()
+        kept = pool.admit(self._compile(0))
+        before = dict(pool._used)
+        free_before = {name: list(holes) for name, holes in pool._free.items()}
+        interned = {
+            store: {digest: list(entry) for digest, entry in table.items()}
+            for store, table in pool._interned.items()
+        }
+        ids_before = list(pool._free_ids)
+        count = pool.count
+
+        # Fail on the *last* array, so the admission is as far in as it goes:
+        # the shared blocks are placed, most runs are written, and only the
+        # unwind can put any of it back.
+        real = pool._reserve
+        calls = {"n": 0}
+
+        def refuse(name, extra):
+            calls["n"] += 1
+            if calls["n"] > 4:
+                raise torch.cuda.OutOfMemoryError("CUDA out of memory (staged)")
+            return real(name, extra)
+
+        pool._reserve = refuse
+        with self.assertRaises(torch.cuda.OutOfMemoryError):
+            pool.admit(self._compile(1))
+        pool._reserve = real
+
+        self.assertEqual(dict(pool._used), before, "space was left reserved")
+        self.assertEqual(
+            {name: list(holes) for name, holes in pool._free.items()},
+            free_before,
+            "the free lists did not come back to where they were",
+        )
+        self.assertEqual(
+            {
+                store: {digest: list(entry) for digest, entry in table.items()}
+                for store, table in pool._interned.items()
+            },
+            interned,
+            "a shared block is still held by a grammar that is not in the pool",
+        )
+        self.assertEqual(pool.count, count)
+        self.assertNotEqual(pool._free_ids, ids_before, "the identifier is spent")
+
+        # And the pool still works: the grammar that was already in it is
+        # untouched, and the next admission gets the identifier back.
+        again = pool.admit(self._compile(1))
+        self.assertEqual(pool.count, count + 1)
+        batch = pool.new_batch(2)
+        self.assertTrue(self._mask_agrees(pool, batch, 0, self._compile(0), kept))
+        self.assertTrue(self._mask_agrees(pool, batch, 1, self._compile(1), again))
+
     def test_an_identifier_is_reused_and_nothing_is_renumbered(self):
         pool = self.DeviceGrammar()
         keep = [pool.admit(self._compile(index)) for index in range(3)]

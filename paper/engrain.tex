@@ -154,7 +154,12 @@ positions, built as a \emph{probe} that discovers per-sequence work and a
 \emph{sweep} that redistributes it --- with evidence that the obvious
 single-kernel fusion is 14$\times$ slower on the batch shape serving actually
 produces (\S\ref{sec:fill}). (iii) A cross-step memo that answers 86--100\% of
-steps from a previously computed row (\S\ref{sec:memo}). (iv) Fused
+steps from a previously computed row (\S\ref{sec:memo}), and the invariant that
+makes sharing masks safe: a mask carries the provenance of the replay that
+produced it, so every path that hands one row's answer to another must hand
+over its bounds too --- an invariant we state because violating it in two
+places produced the only wrong masks this system has shipped
+(\S\ref{sec:ceilings},~\S\ref{sec:eval-online}). (iv) Fused
 constrained sampling, with an honest account of why its win does not survive a
 ragged batch (\S\ref{sec:sampling}). (v) A comparison methodology for
 constrained decoders, since none of them lower a schema to the same language:
@@ -339,11 +344,30 @@ configuration set that has been seen before; across a batch under one grammar,
 many sequences share one. Engrain hashes the configuration set on device --- one
 warp per configuration, folding stacks in shared memory --- and looks it up in a
 device-resident memo of previously computed rows. Over a real walk the memo
-answers \textbf{35.6\%} of steps without reading a table.
+answers \textbf{35.6\%} of steps without reading a table. Rows that miss the
+memo but match \emph{each other} within a step are deduplicated the same way:
+one computes and the rest copy its row. Both mechanisms move a mask between
+sequences, which \S\ref{sec:eval-online} shows is not free of consequences.
 
 The hash itself was a bottleneck until it was parallelized: one warp performing
 64 sequential stack reductions cost 65.8\,\textmu{}s; one warp per configuration
 costs 16.3\,\textmu{}s, half of the Triton reference's 32.8.
+
+\subsection{Bounded replays, and saying so}
+\label{sec:ceilings}
+
+A replay walks a private window rather than the sequence's stack, so its cost is
+bounded by construction --- but a bound can be met. A reduction chain that runs
+past the window, past the stack ceiling, or past the spin bound is stopped, and
+the terminal it was testing is left out of the mask. That makes the mask
+\emph{narrower} than the grammar allows, which is the one failure a
+constrained decoder must not commit silently: a model cannot route around a
+token that is not in its mask, whereas an over-wide mask surfaces as a token
+the matcher then refuses. So each ceiling raises a per-sequence flag, the
+caller reads it on the copy the mask already makes, and those rows are refilled
+from the reference matcher, which has no such bound. The mask is exact either
+way; the cost is that the row leaves the device for a step.
+\S\ref{sec:eval-online} is about what it takes to actually keep that promise.
 
 \subsection{Fused constrained sampling}
 \label{sec:sampling}
@@ -858,7 +882,7 @@ the batch is large enough for the mask to matter: 9.9\,ms against XGrammar's
 XGrammar's 25.5. Sustained throughput at saturation is llguidance 100\,q/s,
 engrain 75, XGrammar 68.5, against an unconstrained 125.
 
-\paragraph{And it found a defect the six verifications do not reach.} With
+\paragraph{And it found a defect the six verifications could not reach.} With
 per-row verification enabled, and only under continuous batching:
 
 \begin{center}
@@ -870,14 +894,40 @@ per-row verification enabled, and only under continuous batching:
 
 Computed alone the device agrees with the reference matcher; computed in the
 batch it is missing twelve words of bits, which is a mask too narrow for the
-row it belongs to. Three of 400 requests died outright. Our \texttt{mixed}
-verification changes the grammar assignment between recording a graph and
-replaying it, but every row is present for the whole run --- only arrivals and
-departures give rows that join and leave \emph{mid-flight}, and that is the
-shape none of the six cover. The correctness results of
-\S\ref{sec:correctness} walk the host reference matcher and are unaffected, but
-the serving numbers in this section are measured on an engine with a known
-wrong-mask path, and we report them with that stated rather than withheld.
+row it belongs to. Three of 400 requests died outright. A second instance was
+missing all 4{,}740 words --- the entire bitmask.
+
+The cause is not batching. It is the interaction between a bounded replay and
+the two mechanisms that share a mask between rows, and it is worth stating
+because any engine that caches masks has both. A replay that meets the window
+or the stack ceiling stops, leaves the terminal it was testing out of the mask,
+and raises a per-sequence flag; the caller refills those rows from the
+reference matcher, so the mask is exact and the cost is that the row leaves the
+device (\S\ref{sec:ceilings}). The flag is per sequence, and a mask is not:
+\textbf{the memo remembers a computed mask under a key describing the parse
+state}, so a narrowed row published a truncated answer that a later step read
+back as exact --- the 4{,}740-word case is a deep row that met the window on
+every group, stored an \emph{empty} mask, and was read by a row that computed
+correctly when alone because alone it missed the memo. And \textbf{rows in the
+same state share one computation}, so a row deduplicating onto a narrowed
+representative copied the truncation without the flag. Beside them, a reduction
+chain cut off by the spin bound raised nothing at all, so one of the three
+ceilings was silent.
+
+Nothing offline could see this. Every verification ran with the window the pool
+sizes from the grammars it holds, and nothing meets it --- so the flag was never
+raised, and paths that only misbehave once it \emph{is} raised were never
+taken. Our first response was to reproduce the \emph{shape} the six do not
+cover, rows joining and leaving between steps; that harness ran 600 steps and
+4{,}000 row replacements without a single failure, because shape was never the
+trigger. Forcing the window small reproduces it in 30 steps, and both our
+backends had it independently. The fix is three lines of policy --- a narrowed
+row may not be remembered, a follower inherits its source's flag, and the spin
+bound raises the flag like the other two --- and it costs nothing under a window
+sized as the pool sizes it, because then no row narrows. The seventh
+verification forces the window and \textbf{fails if no row narrows}: a check for
+a flag that is never raised asserts nothing, which is exactly how six checks
+missed this.
 
 \subsection{Speculative decoding}
 \label{sec:eval-spec}
@@ -1270,11 +1320,12 @@ own documents. \textbf{Fused sampling is
 suggests. \textbf{Heterogeneous pools of 8--16 schemas cost us
 33--36$\times$} what those schemas cost alone. \textbf{The memo and graph
 capture pay only below batch 32.} \textbf{One GPU}: every launch shape, memo
-size and chunk count was fitted on an A100. \textbf{A known wrong-mask path}:
-under continuous batching a row's mask can come out narrower in the batch than
-computed alone (\S\ref{sec:eval-online}); it is not root-caused, and it is the
-first thing to fix. \textbf{Untested}: tensor parallelism, prefill-heavy
-workloads, and a vocabulary above 200{,}000 tokens.
+size and chunk count was fitted on an A100. \textbf{Ceilings are policy, not
+proof}: a replay is bounded and a bound can be met, so exactness under load
+depends on a flag being propagated everywhere a mask is shared --- two places
+where it was not are \S\ref{sec:eval-online}, and we do not claim to have
+enumerated them by argument rather than by test. \textbf{Untested}: tensor
+parallelism, prefill-heavy workloads, and a vocabulary above 200{,}000 tokens.
 
 \section{Related Work}
 \label{sec:related}

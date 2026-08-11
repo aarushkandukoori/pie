@@ -505,6 +505,11 @@ def _replay_group(
                                         )
                                         copy_depth = copy_depth + 1
                 if settled == 0:
+                    # The spin bound, not a property of the grammar. Cutting a
+                    # chain off drops a terminal the grammar may admit, which
+                    # is a narrower mask and so the flag's business.
+                    if alive == 1:
+                        tl.store(overflow_ptr + sequence, 1)
                     alive = 0
                 high_water = tl.maximum(high_water, copy_depth - floor)
                 term = term + 1
@@ -1625,6 +1630,11 @@ def _candidate_kernel(
                                                 )
                                                 copy_depth = copy_depth + 1
                         if settled == 0:
+                            # The spin bound, not a property of the grammar.
+                            # Cutting a chain off drops a terminal the grammar
+                            # may admit, which is a narrower mask.
+                            if alive == 1:
+                                tl.store(overflow_ptr + sequence, 1)
                             alive = 0
                         term = term + 1
 
@@ -2257,6 +2267,7 @@ def _claim_kernel(
     row_floor_ptr,
     memo_store_ptr,
     memo_want_ptr,
+    overflow_ptr,
     CONFIGS: tl.constexpr,
     MEMO_STRIDE: tl.constexpr,
     SUFFIXES: tl.constexpr,
@@ -2271,10 +2282,17 @@ def _claim_kernel(
     Separate from the store because the store has to know what *other*
     sequences chose in order to give each slot one writer, and a kernel cannot
     read its siblings' writes.
+
+    A sequence whose replay met a ceiling is not remembered at all. Its mask is
+    narrower than the grammar allows - that is what `overflow` says - and an
+    entry made from it would hand the truncation to a later step under a key
+    claiming the answer is exact, with no flag on the row that read it.
     """
     sequence = tl.program_id(0)
     want = -1
-    keep = tl.load(memo_store_ptr + sequence) >= 0
+    keep = (tl.load(memo_store_ptr + sequence) >= 0) & (
+        tl.load(overflow_ptr + sequence) == 0
+    )
     if keep:
         count = tl.load(config_count_ptr + sequence)
         need = 1
@@ -2297,6 +2315,7 @@ def _copy_kernel(
     representative_ptr,
     memo_mask_ptr,
     mask_ptr,
+    overflow_ptr,
     mask_words,
     BLOCK: tl.constexpr,
 ):
@@ -2313,6 +2332,11 @@ def _copy_kernel(
 
     Before the store, so a sequence reading a slot reads the entry it matched
     rather than one a provider has since replaced.
+
+    A sequence that deduped onto a neighbour whose replay met a ceiling
+    inherits the flag with the mask. Without that the copy launders a narrowed
+    answer into a row the caller believes is exact - and `overflow` is the only
+    thing that sends a row back to the reference matcher.
     """
     sequence = tl.program_id(0)
     slot = tl.load(memo_slot_ptr + sequence)
@@ -2326,6 +2350,9 @@ def _copy_kernel(
             )
         else:
             value = tl.load(mask_ptr + source * mask_words + lane, mask=live, other=0)
+            if tl.program_id(1) == 0:
+                if tl.load(overflow_ptr + source) != 0:
+                    tl.store(overflow_ptr + sequence, 1)
         tl.store(mask_ptr + sequence * mask_words + lane, value, mask=live)
 
 
@@ -3057,6 +3084,26 @@ class DeviceGrammar:
         self._used[name] = at + extra
         return at
 
+    def _unintern(self, touched: list[tuple[str, object]]) -> None:
+        """Give back references a half-finished admission took.
+
+        The counterpart of the reference the intern loop takes per block, and
+        the reason `admit` can fail without leaving the pool holding blocks for
+        a grammar that is not in it. Written as a list of what was touched
+        rather than derived afterwards, because the failure can land in the
+        middle of a store and what `_intern` returns describes only the stores
+        it finished.
+        """
+        for store, digest in reversed(touched):
+            table = self._interned.get(store)
+            entry = table.get(digest) if table is not None else None
+            if entry is None:
+                continue
+            entry[2] -= 1
+            if entry[2] == 0:
+                self._return(store, entry[0], entry[1])
+                del table[digest]
+
     def _intern(self, tables) -> dict:
         """Place this grammar's shared blocks and say where they landed.
 
@@ -3071,6 +3118,20 @@ class DeviceGrammar:
         """
         out: dict[str, object] = {}
         held: dict[str, tuple] = {}
+        touched: list[tuple[str, object]] = []
+        try:
+            self._intern_into(tables, out, held, touched)
+        except Exception:
+            # Reserving into a store can fail - it grows the array, and the
+            # arena shares the device with the model and its KV cache. Leaving
+            # the references behind would hold blocks for a grammar the pool
+            # does not have, which no release ever reaches.
+            self._unintern(touched)
+            raise
+        out["__held"] = held
+        return out
+
+    def _intern_into(self, tables, out: dict, held: dict, touched: list) -> None:
         for store, (digests, spans, of_slot) in tables.shared.items():
             prefix = 0
             source = tables.runs[store].numpy()
@@ -3083,6 +3144,7 @@ class DeviceGrammar:
                     missing.append(block)
                 else:
                     entry[2] += 1
+                    touched.append((store, digest))
                     placed[block] = entry[0]
             if missing:
                 wanted = sum(spans[block][1] + prefix for block in missing)
@@ -3098,6 +3160,7 @@ class DeviceGrammar:
                     ]
                     placed[block] = base + cursor
                     table[digests[block]] = [base + cursor, size + prefix, 1]
+                    touched.append((store, digests[block]))
                     cursor += size + prefix
                 getattr(self, store)[base : base + wanted] = torch.from_numpy(
                     staged
@@ -3114,8 +3177,6 @@ class DeviceGrammar:
                 )
             out[pointer] = torch.from_numpy(rewritten)
             held[store] = (tuple(digests), of_slot)
-        out["__held"] = held
-        return out
 
     def _compact_shared(self, store: str, previous: torch.Tensor) -> None:
         """Rebuild a shared store densely and point every grammar at it again.
@@ -3394,33 +3455,64 @@ class DeviceGrammar:
             self._pinned.append(0)
             self._generation.append(0)
         if identifier >= self._capacity:
-            while identifier >= self._capacity:
-                self._capacity *= 2
+            capacity = self._capacity
+            while identifier >= capacity:
+                capacity *= 2
+            # `self._capacity` is raised only once the array it describes
+            # exists. Raising it first and then failing to allocate leaves the
+            # pool believing in room it does not have, and the next admission
+            # writes past the end of `bases`.
             grown = torch.zeros(
-                self._capacity * int(_NBASES.value), dtype=torch.int32, device="cuda"
+                capacity * int(_NBASES.value), dtype=torch.int32, device="cuda"
             )
             grown[: self.bases.numel()] = self.bases
             self.bases = grown
+            self._capacity = capacity
             self.revision += 1
 
         rows = np.zeros(int(_NBASES.value), dtype=np.int32)
         extent: dict[str, tuple[int, int]] = {}
-        # `set_payload` is shared, so its base is zero and a group's offset is
-        # absolute. Everything else is a per-grammar run at a base.
-        held = self._intern(tables) if tables.shared else None
-        for name, slot in _ARENA.items():
-            if held is not None and name in _INTERNED:
-                rows[int(slot.value)] = 0
-                continue
-            run = held.get(name, runs[name]) if held is not None else runs[name]
-            size = run.numel()
-            at = self._reserve(name, size)
-            getattr(self, name)[at : at + size] = run.cuda(non_blocking=True)
-            rows[int(slot.value)] = at
-            extent[name] = (at, size)
-        self.bases[
-            identifier * int(_NBASES.value) : (identifier + 1) * int(_NBASES.value)
-        ] = torch.from_numpy(rows).cuda()
+        held = None
+        # Every allocation from here on can fail, and the arena shares the
+        # device with the model and its KV cache, so it does. A grammar half in
+        # the pool is worse than one that is not in it: the space is reserved
+        # and no release reaches it, the identifier is spent, and the next
+        # admission builds on both. So the placement unwinds and the caller
+        # gets to decide - the serving backend keeps that schema on the
+        # reference matcher, which is exact and only slower.
+        try:
+            # `set_payload` is shared, so its base is zero and a group's offset
+            # is absolute. Everything else is a per-grammar run at a base.
+            held = self._intern(tables) if tables.shared else None
+            for name, slot in _ARENA.items():
+                if held is not None and name in _INTERNED:
+                    rows[int(slot.value)] = 0
+                    continue
+                run = held.get(name, runs[name]) if held is not None else runs[name]
+                size = run.numel()
+                at = self._reserve(name, size)
+                getattr(self, name)[at : at + size] = run.cuda(non_blocking=True)
+                rows[int(slot.value)] = at
+                extent[name] = (at, size)
+            self.bases[
+                identifier * int(_NBASES.value) : (identifier + 1) * int(_NBASES.value)
+            ] = torch.from_numpy(rows).cuda()
+        except Exception:
+            for name, (at, size) in extent.items():
+                self._return(name, at, size)
+            if held is not None:
+                self._unintern(
+                    [
+                        (store, digest)
+                        for store, (digests, _) in held["__held"].items()
+                        for digest in digests
+                    ]
+                )
+            # `_live[identifier]` was never set, so `release` would refuse it
+            # and the identifier would be spent for the life of the pool.
+            if identifier not in self._free_ids:
+                self._free_ids.append(identifier)
+            raise
 
         self.max_groups_per_state = max(
             self.max_groups_per_state, tables.max_groups_per_state
@@ -4760,6 +4852,7 @@ class DeviceBatch:
             self.representative,
             self.memo_mask,
             self.mask,
+            self.overflow,
             grammar.mask_words,
             BLOCK=512,
             num_warps=4,
@@ -4801,6 +4894,7 @@ class DeviceBatch:
             self.row_floor,
             self.memo_store,
             self.memo_want,
+            self.overflow,
             CONFIGS=self.configs,
             MEMO_STRIDE=self.memo_stride,
             SUFFIXES=_MEMO_SUFFIXES,

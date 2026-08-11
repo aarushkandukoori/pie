@@ -11,7 +11,7 @@ someone thought of; these assert agreement with an independent implementation.
 `--quick` runs the smaller configuration of each, which is what CI does on
 every push; the full run is what a release needs.
 
-The six, and what each is the only one to see:
+The seven, and what each is the only one to see:
 
     device      the mask and the configuration set, over corpus documents
     walk        random walks, which reach states no corpus document does
@@ -19,9 +19,14 @@ The six, and what each is the only one to see:
     mixed       many grammars in one batch, where the arena rebasing lives
     draft       speculative verification of a draft tree
     verdicts    the compile-time refusal table, re-derived from ACTION
+    narrowing   a bounded replay's flag, and the two paths that lost it
 
 `verdicts` is the one no other check could catch: the kernels trust that table,
 so every device verification agrees with a wrong entry by construction.
+
+`narrowing` is the one the others cannot catch either, for the opposite reason:
+they run with a window nothing meets, so the flag is never raised and the
+paths that drop it are never taken.
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ CHECKS = [
     ("engrain_lab.verify.conflicts", ["8", "200"], ["3", "60"]),
     ("engrain_lab.verify.mixed", ["6", "24"], ["3", "8"]),
     ("engrain_lab.verify.draft", ["6", "4", "8"], ["3", "2", "4"]),
+    ("engrain_lab.verify.narrowing", ["8", "16", "60", "4"], ["4", "8", "20", "4"]),
 ]
 
 

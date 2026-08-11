@@ -58,7 +58,9 @@ baseline's own corpus documents.
   llguidance spells it `consume_token` and the harness swallowed the
   `AttributeError`.
 - the relaxation list's completeness (`engrain_lab.rigor.relaxation`)
-- `python -m engrain_lab.verify` — six differential verifications, zero failures
+- `python -m engrain_lab.verify` — seven differential verifications, zero
+  failures. The seventh, `narrowing`, forces the replay window small so that
+  ceilings are actually met; the other six never raise the flag at all.
 
 ## Baselines
 
@@ -125,13 +127,29 @@ against a real 7.5. A 1 GiB budget was holding what a 2.6 GiB one had been
 asked for. It is now counted from the arrays the arena uploads and checked
 against them to 100.0%.
 
-**A known wrong mask, reported rather than withheld.** `rigor.online` with
-`ENGRAIN_VERIFY=1` shows a row whose batched mask is missing twelve words of
-bits against the same row computed alone, under continuous batching only, and
-three of 400 requests die with `grammar rejected tokens`. It is not
-root-caused. The correctness results walk the host reference matcher and are
-unaffected; the serving numbers are measured on an engine with this path live
-and the paper says so.
+**A wrong mask, and why six checks could not see it.** `rigor.online` with
+`ENGRAIN_VERIFY=1` showed a row whose batched mask was missing twelve words of
+bits against the same row computed alone, under continuous batching only, with
+three of 400 requests dying on `grammar rejected tokens`; a second instance was
+missing all 4,740 words. The first hypothesis was the shape nothing else tests
+--- rows joining and leaving between steps --- and `rigor.churn` reproduced that
+shape over 600 steps and 4,000 row replacements without a single failure. Shape
+was never the trigger. The cause was a bounded replay's `overflow` flag, which
+is per sequence, not travelling with the mask through the two mechanisms that
+share one: the memo (a narrowed row published a truncated mask under a key
+saying it was exact --- the 4,740-word case is a deep row that stored an
+*empty* one) and the within-step dedupe (a follower copied a narrowed
+representative's row without the flag). A third ceiling, the reduction spin
+bound, raised nothing at all.
+
+Every verification ran with the window the pool sizes from its grammars, and
+nothing meets it, so `overflow` was never raised in any check and a path that
+only misbehaves once it *is* raised was never taken. `verify.narrowing` forces
+the window, reproduces it in 30 steps, and **fails if no row narrows**, because
+a check for a flag that is never raised asserts nothing. Both backends had the
+defect independently: confirmed by reverting the CUDA change alone and watching
+`ENGRAIN_BACKEND=cuda` fail while Triton passed. The serving numbers in table 8
+were measured before the fix and are re-run after it.
 
 **A cross-engine refusal is not automatically the refuser's fault.** The first
 version of `rigor.nonjson` counted every string one engine generated and the

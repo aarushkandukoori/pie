@@ -317,19 +317,44 @@ extern "C" __global__ void en_copy(
     // itself, and this is the next kernel in the chain rather than a node of
     // its own. `en_store` is too late: its rival scan reads *other* sequences'
     // answers, and nothing orders those against a block that has not run.
-    if (blockIdx.x == 0 && threadIdx.x == 0 && slot < 0 && source == sequence) {
-        int32_t count = state->config_count[sequence];
-        int32_t need = 1;
-        bool keep = true;
-        for (int32_t config = 0; config < count; ++config) {
-            int32_t row = sequence * configs + config;
-            int32_t depth = state->depth[row];
-            need = max(need, depth - row_floor[row] + 1);
-            if (depth > memo_stride) {
-                keep = false;
+    //
+    // Written for *every* sequence, not only the ones that compute. The
+    // unfused `en_probe` leaves the rest alone, so a sequence that copied
+    // would carry whatever it wanted a step ago and store its borrowed mask
+    // under that key.
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        int32_t want = -2;
+        // A replay that met a ceiling raised `overflow` and stopped, so this
+        // row's mask is *narrower* than the grammar allows. Remembering it
+        // would publish that truncation under a key saying it is exact, and
+        // the next step's hit is a row nobody warns: `overflow` belongs to the
+        // sequence that met the ceiling, not to the one that reads its answer.
+        // Measured with a forced window: a row 12 words of bits short of the
+        // matcher, unflagged, twenty steps after the row that narrowed it.
+        if (slot < 0 && source == sequence && !state->overflow[sequence]) {
+            int32_t count = state->config_count[sequence];
+            int32_t need = 1;
+            bool keep = true;
+            for (int32_t config = 0; config < count; ++config) {
+                int32_t row = sequence * configs + config;
+                int32_t depth = state->depth[row];
+                need = max(need, depth - row_floor[row] + 1);
+                if (depth > memo_stride) {
+                    keep = false;
+                }
             }
+            want = (keep && need <= suffixes) ? need : (keep ? -1 : -2);
         }
-        memo_want[sequence] = (keep && need <= suffixes) ? need : (keep ? -1 : -2);
+        memo_want[sequence] = want;
+        // And a sequence that deduped onto a narrowed neighbour is narrowed
+        // too. The flag is what a caller refills from, so copying the mask
+        // without it hands over the same truncation silently. Nothing follows
+        // a follower, so `source` has already been swept and its flag is
+        // final; a memo hit needs no such rule because the check above stops
+        // a narrowed mask ever reaching the table.
+        if (slot < 0 && source != sequence && state->overflow[source]) {
+            state->overflow[sequence] = 1;
+        }
     }
     if (slot < 0 && source == sequence) {
         return;
