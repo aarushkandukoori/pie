@@ -48,6 +48,9 @@ struct Shell {
     /// `[model] descriptor` from the boot TOML, for HF snapshots whose
     /// descriptor does not ride inside the checkpoint.
     boot_descriptor: Option<std::path::PathBuf>,
+    /// Does this driver hand its completions to a stream callback and
+    /// return with the fire still queued? See `runahead_env`.
+    runahead: bool,
     /// The loaded model, once `load_model` succeeds.
     model: Option<LoadedModel>,
     /// Registered programs by id — the C3 hash is the dedup key, so
@@ -115,6 +118,9 @@ struct Shell {
     /// `None` until the first launch, because a driver that never fires
     /// should not hold a stream.
     fire_stream: Option<crate::cuda::OwnedStream>,
+    /// The fire that is still running, if any — see [`InFlight`]. One
+    /// slot, so the driver runs exactly one fire ahead.
+    in_flight: Option<InFlight>,
     /// The allocator every fire's transient device memory comes from.
     /// Held for the pool, and dropped with the shell.
     fire_alloc: Option<crate::cuda::Allocator>,
@@ -175,6 +181,7 @@ impl SwapPool {
 
 /// One channel's host endpoint: the pinned mirror and the four control
 /// words, exactly the C++ registry's binding contract.
+#[derive(Clone, Copy)]
 struct ChannelState {
     mirror: *mut std::ffi::c_void,
     words: *mut std::ffi::c_void,
@@ -183,6 +190,127 @@ struct ChannelState {
     /// `capacity + 1` — the ring modulus.
     ring: u32,
     host_role: u8,
+}
+
+/// A fire's transient device memory, kept alive until the fire retires.
+///
+/// **`cudaFree` synchronizes the device.** So a fire that returns with
+/// work still queued and then drops its scratch drains its own stream
+/// inside the call — which is exactly what the first run-ahead attempt
+/// did, and `a_launch_returns_before_its_fire_retires` caught it: the
+/// completion fired on the calling thread because freeing the LSE buffer
+/// waited for the fire that was still using it.
+///
+/// Freeing on the CALLBACK thread is not the fix either: CUDA forbids
+/// calling into the runtime from a host callback, and `cudaFree` is the
+/// runtime.
+///
+/// So the buffers outlive the call and the NEXT launch reclaims them,
+/// after waiting on the event that says the fire they belong to is done.
+/// That wait is where the run-ahead depth lives: with one holder the
+/// driver runs one fire ahead, which is the whole of the property and the
+/// smallest thing that has it.
+struct InFlight {
+    done: crate::cuda::Event,
+    /// Ordinary scratch. Named for what it is rather than listed, because
+    /// the point is that nothing here is read again — it is held only so
+    /// that dropping it does not synchronize at the wrong moment.
+    scratch: Vec<crate::cuda::DeviceBuffer>,
+    /// The peel window word, which owns its own buffer.
+    peel: Option<crate::cuda::PeelWindowWord>,
+}
+
+/// EVERYTHING A FIRE STILL OWES WHEN ITS WORK IS ENQUEUED.
+///
+/// The driver used to pay these debts on the calling thread, after a
+/// `stream.synchronize()`: widen the logits, publish them, mark the
+/// terminal cells, notify. That is why `pie_cuda_launch` was synchronous
+/// and why the engine's `frame_dispatch_depth` was serialized by the
+/// driver — the call that would enqueue fire n+1 had not returned.
+///
+/// So the debts move into a stream-ordered HOST CALLBACK. It runs when
+/// everything queued before it has retired, on a CUDA-owned thread, and
+/// everything it needs is here because a callback cannot borrow.
+///
+/// The staging buffer is the reason this is a struct rather than a
+/// closure: the D2H used to land in a `Vec` on the stack, which is a
+/// use-after-free the moment the call returns before the copy does. The
+/// buffer belongs to the debt now and dies with it.
+struct FireDebt {
+    /// The bf16 logits, D2H'd into here by a stream-ordered copy.
+    ///
+    /// PINNED, and that is the whole reason this type exists rather than
+    /// a `Vec`: `cudaMemcpyAsync` into pageable host memory blocks until
+    /// the copy completes, so a `Vec` here drains the stream inside
+    /// `pie_cuda_launch` and undoes the run-ahead.
+    staging: Option<crate::cuda::PinnedBuf>,
+    /// Where the widened cell goes, and how wide the readout is.
+    channel: Option<ChannelState>,
+    vocab: usize,
+    /// Which row carries the answer — the fire's last.
+    last_row: usize,
+    /// The terminal cells this frame publishes, and the completion the
+    /// runtime is waiting on.
+    cells: Vec<*mut driver_abi::local::PieTerminalCell>,
+    completion: PieCompletion,
+    notify: driver_abi::local::PieRuntimeNotifyFn,
+    notify_ctx: *mut std::ffi::c_void,
+}
+
+// The debt crosses to a CUDA callback thread. Every field is either owned
+// bytes or a raw pointer into memory the runtime keeps alive for the
+// driver's lifetime — the channel's mirror and words are the engine's
+// mapping, the terminal cells are the frame's.
+unsafe impl Send for FireDebt {}
+
+/// The stream-ordered callback: pay the debt, then drop it.
+///
+/// # Safety
+///
+/// `data` is a `Box<FireDebt>` leaked by the enqueuing side. CUDA forbids
+/// calling back into the runtime from here, and nothing below does: this
+/// is host memory, a volatile write and a function pointer.
+unsafe extern "C" fn retire_fire(data: *mut std::ffi::c_void) {
+    if data.is_null() {
+        return;
+    }
+    let debt = unsafe { Box::from_raw(data.cast::<FireDebt>()) };
+
+    // The logits, widened bf16 -> f32 and published. The widening is the
+    // wire's, not the model's: the ring's cell is f32 and the device
+    // wrote bf16, so the shift is the conversion.
+    if let (Some(ch), Some(pin)) = (debt.channel.as_ref(), debt.staging.as_ref())
+        && debt.vocab > 0
+    {
+        let staged = pin.as_slice();
+        let mut cell = vec![0u8; debt.vocab * 4];
+        for t in 0..debt.vocab {
+            let off = (debt.last_row * debt.vocab + t) * 2;
+            if off + 1 < staged.len() {
+                let bits = u16::from_le_bytes([staged[off], staged[off + 1]]);
+                cell[t * 4..t * 4 + 4].copy_from_slice(&(u32::from(bits) << 16).to_le_bytes());
+            }
+        }
+        if !ch.publish(&cell) {
+            eprintln!("[driver-cuda-new] launch: logits ring full; frame dropped its output");
+        }
+    }
+
+    // Then the terminal cells, then the notify — in that order, with a
+    // release between, because the runtime reads the cells the moment the
+    // notify lands.
+    for &cell in &debt.cells {
+        if !cell.is_null() {
+            unsafe {
+                std::ptr::addr_of_mut!((*cell).outcome)
+                    .write_volatile(driver_abi::local::PIE_TERMINAL_OUTCOME_SUCCESS);
+            }
+        }
+    }
+    std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
+    if let Some(notify) = debt.notify {
+        unsafe { notify(debt.notify_ctx, debt.completion.wait_id, debt.completion.target_epoch) };
+    }
 }
 
 impl ChannelState {
@@ -466,23 +594,31 @@ pub extern "C" fn pie_cuda_create(
     if desc.abi_version != PIE_DRIVER_ABI_VERSION {
         return std::ptr::null_mut();
     }
-    // The boot TOML rides in `config_bytes`; `[model] descriptor` is the
-    // one key this shell reads today.
-    let boot_descriptor = (!desc.config_bytes.ptr.is_null())
+    // The boot TOML rides in `config_bytes`. Two keys are read today:
+    // `[model] descriptor` and `[driver] runahead`.
+    let boot = (!desc.config_bytes.ptr.is_null())
         .then(|| unsafe {
             std::slice::from_raw_parts(desc.config_bytes.ptr, desc.config_bytes.len)
         })
         .and_then(|bytes| std::str::from_utf8(bytes).ok())
         .and_then(|text| text.parse::<toml::Table>().ok())
-        .and_then(|v| {
-            v.get("model")?
-                .get("descriptor")?
-                .as_str()
-                .map(std::path::PathBuf::from)
-        });
+        .unwrap_or_default();
+    let boot_descriptor = boot
+        .get("model")
+        .and_then(|m| m.get("descriptor")?.as_str())
+        .map(std::path::PathBuf::from);
+    // PER-DRIVER, not per-process, so a caller that wants asynchronous
+    // completions can ask for them without deciding for every other
+    // driver alive in the same process. The env var is the default the
+    // boot key overrides.
+    let runahead = boot
+        .get("driver")
+        .and_then(|d| d.get("runahead")?.as_bool())
+        .unwrap_or_else(runahead_env);
     let boxed = Box::new(Shell {
         caps: CAPS_JSON.as_bytes().to_vec(),
         boot_descriptor,
+        runahead,
         model: None,
         programs: std::collections::BTreeMap::new(),
         instances: std::collections::BTreeMap::new(),
@@ -497,6 +633,7 @@ pub extern "C" fn pie_cuda_create(
         swap: None,
         scratch: None,
         fire_stream: None,
+        in_flight: None,
         fire_alloc: None,
         ptir: crate::ptir::Runtime::default(),
         ptir_programs: crate::ptir::Programs::new(),
@@ -1314,26 +1451,20 @@ pub extern "C" fn pie_cuda_launch(
     let Some(frame) = (unsafe { frame.as_ref() }) else {
         return PIE_STATUS_INVALID_ARGUMENT;
     };
-    match launch_impl(state, frame) {
-        Ok(()) => {
-            // Publish every member's terminal cell, then notify.
-            if let Some(step) = slice_of(frame.steps.ptr, frame.steps.len).first() {
-                for &cell in slice_of(step.terminal_cells.ptr, step.terminal_cells.len) {
-                    if !cell.is_null() {
-                        unsafe {
-                            std::ptr::addr_of_mut!((*cell).outcome).write_volatile(
-                                driver_abi::local::PIE_TERMINAL_OUTCOME_SUCCESS,
-                            );
-                        }
-                    }
-                }
-            }
-            std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
-            if let Some(notify) = state.notify {
-                unsafe { notify(state.notify_ctx, completion.wait_id, completion.target_epoch) };
-            }
-            PIE_STATUS_OK
-        }
+    // THE CALL RETURNS WITH THE WORK STILL ON THE STREAM.
+    //
+    // Publishing the terminal cells and notifying used to happen here,
+    // after `launch_impl` had synchronized — which made the driver
+    // serialize the engine's `frame_dispatch_depth`, because the call
+    // that would enqueue fire n+1 could not start until fire n had
+    // retired on the GPU.
+    //
+    // Both debts moved into a stream-ordered host callback
+    // (`retire_fire`), so an `Ok` here means ENQUEUED rather than DONE.
+    // An error still returns synchronously: a fire that could not be
+    // built owes nothing and the runtime must hear so on this thread.
+    match launch_impl(state, frame, completion) {
+        Ok(()) => PIE_STATUS_OK,
         Err(code) => code,
     }
 }
@@ -1941,6 +2072,28 @@ fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i
 /// with a trace value — a plan with four billion values would have failed
 /// long before.
 const SCORE_PIN: model_compiler::trace::ValueId = model_compiler::trace::ValueId::MAX;
+
+/// Is the ASYNCHRONOUS completion armed for this process?
+///
+/// `PIE_CUDA_RUNAHEAD=1`. Off by default, and for the reason the
+/// supergraph's gate was off: it changes what an `Ok` from
+/// `pie_cuda_launch` MEANS — enqueued rather than done — and every caller
+/// that reads a result straight after the call is asserting the old
+/// meaning. The engine waits for the notify and is fine; this tree's own
+/// tests read the ring and the terminal cells on the next line and are
+/// not.
+///
+/// What the gate protects is a contract change, so it stays a gate until
+/// the callers have been moved to the contract.
+///
+/// The mechanism underneath it is not conditional and does not need to
+/// be: the fire's debts are the same either way, and the gate only
+/// decides whether they are paid by a stream callback or by this thread
+/// after a synchronize.
+fn runahead_env() -> bool {
+    std::env::var_os("PIE_CUDA_RUNAHEAD")
+        .is_some_and(|v| v == "1" || v == "true" || v == "on")
+}
 
 /// Is the unionized supergraph armed for this process?
 ///
@@ -2782,8 +2935,11 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
 /// The fire itself. Everything here is the proven smoke assembly, run
 /// against the shell's own state.
 #[allow(clippy::too_many_lines)]
-fn launch_impl(state: &mut Shell, frame: &PieFrameDesc) -> Result<(), i32> {
-
+fn launch_impl(
+    state: &mut Shell,
+    frame: &PieFrameDesc,
+    completion: PieCompletion,
+) -> Result<(), i32> {
     let steps = slice_of(frame.steps.ptr, frame.steps.len);
     if steps.is_empty() {
         return Err(PIE_STATUS_INVALID_ARGUMENT);
@@ -2791,10 +2947,14 @@ fn launch_impl(state: &mut Shell, frame: &PieFrameDesc) -> Result<(), i32> {
     // Steps run SEQUENTIALLY, each a fire of its own — the frame's
     // producer→consumer ordering. One shared KV, per-step everything else.
     for step in &steps[..steps.len() - 1] {
-        step_impl(state, frame, step)?;
+        step_impl(state, frame, step, None)?;
     }
+    // The LAST step carries the frame's debt: its terminal cells and the
+    // completion the runtime waits on. Only it enqueues an asynchronous
+    // retire, because a frame completes once.
     let step = steps.last().expect("nonempty");
-    step_impl(state, frame, step)
+    let cells = slice_of(step.terminal_cells.ptr, step.terminal_cells.len).to_vec();
+    step_impl(state, frame, step, Some((completion, cells)))
 }
 
 /// One step's fire — the former single-step body.
@@ -2803,6 +2963,14 @@ fn step_impl(
     state: &mut Shell,
     frame: &PieFrameDesc,
     step: &driver_abi::local::PieStepDesc,
+    // `owes` is the debt this step carries when it is the frame's LAST:
+    // `None` for the earlier steps, which owe nothing because a frame
+    // completes once. A step handed one enqueues an asynchronous
+    // completion and does NOT synchronize; a step handed `None`
+    // synchronizes, because the next step's work depends on it and the
+    // producer→consumer ordering inside a frame is what makes steps
+    // sequential in the first place.
+    owes: Option<(PieCompletion, Vec<*mut driver_abi::local::PieTerminalCell>)>,
 ) -> Result<(), i32> {
     use crate::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use crate::model::executor::{
@@ -2955,6 +3123,17 @@ fn step_impl(
     }
     if state.fire_alloc.is_none() {
         state.fire_alloc = Some(crate::cuda::Allocator::new());
+    }
+    // RECLAIM THE FIRE AHEAD OF THIS ONE, and this is the backpressure.
+    //
+    // Its scratch cannot be freed while it runs and cannot be freed from
+    // the callback, so it is freed here — after waiting on the event that
+    // says it is done. With one holder the driver runs exactly one fire
+    // ahead of the GPU, which is the property and the smallest thing that
+    // has it.
+    if let Some(prev) = state.in_flight.take() {
+        prev.done.synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+        drop(prev);
     }
     let stream = state.fire_stream.as_ref().expect("just ensured");
     let raw_stream = stream.as_ref().as_raw().cast::<std::ffi::c_void>();
@@ -3533,7 +3712,16 @@ fn step_impl(
     } else {
         run(&lowered, &dplan, exec_frame, &mut resolver, &ctx, regions, gdn_ctx.as_ref())
     };
-    let sync = stream.as_ref().synchronize();
+    // A step that owes nothing SYNCHRONIZES, because the next step in the
+    // frame reads what this one wrote. A step that owes the frame's
+    // completion does not: its debt rides a stream-ordered callback and
+    // this call returns with the work still queued, which is the whole
+    // point.
+    let sync = if owes.is_some() && state.runahead {
+        Ok(())
+    } else {
+        stream.as_ref().synchronize()
+    };
     cublas.release(&mut cublas_ops);
     match (result, sync) {
         (Ok(_), Ok(())) => {}
@@ -3546,6 +3734,22 @@ fn step_impl(
             return Err(PIE_STATUS_DRIVER_ERROR);
         }
     }
+
+    // THE FRAME'S DEBT, built before the delivery below because it is
+    // owed whether or not this fire has logits to deliver. Paying it
+    // inside the delivery block meant a fire with no readout channel
+    // never published its terminal cells and never notified — the
+    // runtime waited forever on a frame the driver had finished.
+    let mut debt = owes.map(|(completion, cells)| FireDebt {
+        staging: None,
+        channel: None,
+        vocab: usize::try_from(model.hf.vocab_size).unwrap_or(0),
+        last_row: rows.saturating_sub(1),
+        cells,
+        completion,
+        notify: state.notify,
+        notify_ctx: state.notify_ctx,
+    });
 
     // ── Delivery: the LAST row's logits, out through the instance's
     // reader channel. The convention until the launch package's channel
@@ -3571,23 +3775,87 @@ fn step_impl(
                     && ch.cell_bytes == vocab * 4
             })
         });
+        // THE D2H IS ENQUEUED, NOT AWAITED. Its destination belongs to
+        // the debt rather than to this stack frame — a `Vec` here would
+        // be freed the moment this call returns, which with an
+        // asynchronous completion is before the copy lands.
         if let (Some(ch), Some(buf)) = (target, named_bufs.get(&lv)) {
-            let mut bf16 = vec![0u8; buf.len()];
-            buf.copy_to_host(&mut bf16, stream.as_ref())
-                .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-            stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-            let last = rows - 1;
-            let mut cell = vec![0u8; vocab * 4];
-            for t in 0..vocab {
-                let off = (last * vocab + t) * 2;
-                let bits = u16::from_le_bytes([bf16[off], bf16[off + 1]]);
-                cell[t * 4..t * 4 + 4]
-                    .copy_from_slice(&(u32::from(bits) << 16).to_le_bytes());
-            }
-            if !ch.publish(&cell) {
-                eprintln!("[driver-cuda-new] launch: logits ring full; frame dropped its output");
+            match debt.as_mut() {
+                Some(d) => {
+                    let mut pin = crate::cuda::PinnedBuf::new(buf.len())
+                        .map_err(|_| PIE_STATUS_EXHAUSTED)?;
+                    buf.copy_to_host(pin.as_mut_slice(), stream.as_ref())
+                        .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+                    d.staging = Some(pin);
+                    d.channel = Some(*ch);
+                }
+                None => {
+                    // A step that owes nothing has already synchronized,
+                    // so the old shape is still correct for it.
+                    let mut bf16 = vec![0u8; buf.len()];
+                    buf.copy_to_host(&mut bf16, stream.as_ref())
+                        .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+                    stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+                    let last = rows - 1;
+                    let mut cell = vec![0u8; vocab * 4];
+                    for t in 0..vocab {
+                        let off = (last * vocab + t) * 2;
+                        let bits = u16::from_le_bytes([bf16[off], bf16[off + 1]]);
+                        cell[t * 4..t * 4 + 4]
+                            .copy_from_slice(&(u32::from(bits) << 16).to_le_bytes());
+                    }
+                    if !ch.publish(&cell) {
+                        eprintln!(
+                            "[driver-cuda-new] launch: logits ring full; frame dropped its output"
+                        );
+                    }
+                }
             }
         }
+
+    }
+
+    // The debt goes last in stream order, so it runs after every
+    // launch and after the D2H above.
+    if let Some(d) = debt {
+        let raw = Box::into_raw(Box::new(d)).cast::<std::ffi::c_void>();
+        // ONE SET OF DEBTS, TWO WAYS TO PAY THEM. Gated off, this
+        // thread pays after the synchronize above — which is what the
+        // driver always did, and what every caller reading a result
+        // on the next line still expects. Gated on, a stream-ordered
+        // callback pays them and this call returns with the work
+        // still queued.
+        if !state.runahead {
+            // The D2H above was ENQUEUED, so paying here means waiting
+            // here. Without this the callback's staging is read before
+            // the copy into it has landed.
+            stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+            unsafe { retire_fire(raw) };
+            return Ok(());
+        }
+        if let Err(e) = unsafe { stream.as_ref().host_fn(retire_fire, raw) } {
+            // The callback never ran, so nothing will reclaim the box
+            // or pay the debt — do both here rather than leak a frame
+            // the runtime is waiting on.
+            eprintln!("[driver-cuda-new] launch: cannot enqueue completion: {e:?}");
+            let _ = stream.as_ref().synchronize();
+            unsafe { retire_fire(raw) };
+            return Err(PIE_STATUS_DRIVER_ERROR);
+        }
+        // AND THE SCRATCH SURVIVES THE CALL. Dropping it here would
+        // `cudaFree` while the fire runs, which synchronizes the
+        // device and undoes everything above. The next launch
+        // reclaims it — see `InFlight`.
+        let done = crate::cuda::Event::new().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+        stream.as_ref().record(&done).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+        state.in_flight = Some(InFlight {
+            done,
+            scratch: [Some(lse), Some(d_valid), _slot_ids_buf]
+                .into_iter()
+                .flatten()
+                .collect(),
+            peel: Some(peel_win),
+        });
     }
     Ok(())
 }

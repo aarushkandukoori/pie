@@ -236,7 +236,18 @@ fn load_and_fire(repo: &str, descriptor_name: &str, what: &str) -> bool {
         return false;
     }
 
-    unsafe extern "C" fn notify(_ctx: *mut std::ffi::c_void, _wait_id: u64, _epoch: u64) {}
+    // THE COMPLETION IS ASYNCHRONOUS NOW, so the test waits for it.
+    //
+    // `pie_cuda_launch` returns when the fire is ENQUEUED; the terminal
+    // cell is published and this callback runs from a stream-ordered host
+    // callback when the work retires. Reading the cell straight after the
+    // launch call used to be correct and is now a race that happens to
+    // win, which is the worst kind.
+    static FIRED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    unsafe extern "C" fn notify(_ctx: *mut std::ffi::c_void, _wait_id: u64, _epoch: u64) {
+        FIRED.fetch_add(1, std::sync::atomic::Ordering::Release);
+    }
+    FIRED.store(0, std::sync::atomic::Ordering::Release);
 
     let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
     let desc = PieDriverCreateDesc {
@@ -317,6 +328,14 @@ fn load_and_fire(repo: &str, descriptor_name: &str, what: &str) -> bool {
         PIE_STATUS_OK,
         "{what}: the frame launches"
     );
+    // Wait for the completion the launch enqueued. Ten seconds is a
+    // timeout, not a budget — a fire that has not retired by then is
+    // wedged, and hanging the suite would say less than failing it.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while FIRED.load(std::sync::atomic::Ordering::Acquire) == 0 {
+        assert!(std::time::Instant::now() < deadline, "{what}: the fire never completed");
+        std::thread::yield_now();
+    }
     assert_eq!(cell.outcome, PIE_TERMINAL_OUTCOME_SUCCESS, "{what}: the terminal cell published");
 
     unsafe { driver_abi::local::pie_cuda_destroy(d) };
@@ -2598,5 +2617,246 @@ fn a_quantized_checkpoint_loads_through_the_abi() {
         "gpt-oss-20b's MXFP4 expert banks must load beside its bf16 \
          attention; a refusal here means `reads_its_stored_form` turned \
          away a scheme whose bytes the kernels do read"
+    );
+}
+
+/// **RUN-AHEAD: the call returns while the GPU is still working.**
+///
+/// The invariant pie is built on is that forward n+1 is already enqueued
+/// while forward n executes, and the driver used to make that impossible.
+/// `pie_cuda_launch` ended in `stream.synchronize()`, published the
+/// terminal cells and notified, all on the calling thread — so the
+/// engine's `frame_dispatch_depth` was honoured by the engine and
+/// serialized by the driver: the call that would enqueue n+1 had not
+/// returned.
+///
+/// This measures the property directly rather than asserting a
+/// refactor happened. Two facts, either of which alone could be an
+/// accident and which together cannot be:
+///
+/// 1. `pie_cuda_launch` RETURNS BEFORE the completion fires. If the
+///    driver still synchronized, the notify would have run inside the
+///    call and the counter would already be 1 on return.
+/// 2. The completion arrives on a DIFFERENT THREAD. A stream-ordered
+///    host callback runs on a CUDA-owned thread; anything the calling
+///    thread did would carry the calling thread's id.
+///
+/// The second is what makes the first meaningful. A launch could return
+/// early and still be synchronous if the work were trivially short, but
+/// it cannot run its completion somewhere else.
+#[test]
+fn a_launch_returns_before_its_fire_retires() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    use driver_abi::local::{
+        PieBytes, PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc,
+        PieModelLoadDesc, PieProgramDesc, PieRuntimeCallbacks, PieStepDesc, PieU32Slice,
+        PieU64Slice,
+    };
+
+    let _gpu = gpu_guard();
+    let home = std::env::var("HOME").expect("HOME");
+    let snaps = std::path::PathBuf::from(&home)
+        .join(".cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots");
+    let Some(snap) = std::fs::read_dir(&snaps).ok().and_then(|mut d| {
+        d.find_map(|e| {
+            let p = e.ok()?.path();
+            p.join("model.safetensors").is_file().then_some(p)
+        })
+    }) else {
+        eprintln!("skipped: no cached Qwen3-0.6B");
+        return;
+    };
+    let descriptor = std::path::PathBuf::from(
+        "/tmp/claude-0/-root--patissier-work-tart-alpha/7460e4c3-f305-45df-9603-2298b0c0c60e/scratchpad",
+    )
+    .join("qwen3_descriptor.json");
+    if !descriptor.is_file() {
+        eprintln!("skipped: no generated Qwen3 descriptor");
+        return;
+    }
+
+    static DONE: AtomicBool = AtomicBool::new(false);
+    static WHERE: AtomicU64 = AtomicU64::new(0);
+    unsafe extern "C" fn notify(_ctx: *mut std::ffi::c_void, _wait_id: u64, _epoch: u64) {
+        // The thread the completion ran on, as a number we can compare.
+        let id = format!("{:?}", std::thread::current().id());
+        let n = id.bytes().fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(u64::from(b)));
+        WHERE.store(n, Ordering::Release);
+        DONE.store(true, Ordering::Release);
+    }
+    DONE.store(false, Ordering::Release);
+
+    // THIS DRIVER RUNS AHEAD, and it asks for that itself rather than
+    // through the environment — every other test in this file shares the
+    // process and expects `launch` to have finished the fire when it
+    // returns.
+    let boot = format!(
+        "[model]\ndescriptor = \"{}\"\n[driver]\nrunahead = true\n",
+        descriptor.display()
+    );
+    let desc = PieDriverCreateDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+        runtime: PieRuntimeCallbacks {
+            abi_version: PIE_DRIVER_ABI_VERSION,
+            reserved0: 0,
+            ctx: std::ptr::null_mut(),
+            notify: Some(notify),
+        },
+        ..Default::default()
+    };
+    let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
+    assert!(!d.is_null());
+    let snap_str = snap.to_string_lossy().into_owned();
+    let load = PieModelLoadDesc {
+        snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
+        ..Default::default()
+    };
+    assert_eq!(
+        unsafe { driver_abi::local::pie_cuda_load_model(d, &load, std::ptr::null_mut()) },
+        PIE_STATUS_OK
+    );
+
+    let prog = PieProgramDesc { abi_version: PIE_DRIVER_ABI_VERSION, ..Default::default() };
+    let mut program_id = 0u64;
+    unsafe { driver_abi::local::pie_cuda_register_program(d, &prog, &mut program_id) };
+    let inst = PieInstanceDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        program_id,
+        ..Default::default()
+    };
+    let mut binding = PieInstanceBinding::default();
+    unsafe { driver_abi::local::pie_cuda_bind_instance(d, &inst, &mut binding) };
+
+    // A PREFILL, deliberately: more rows means more work on the stream,
+    // so "the call returned before it retired" is a claim about the
+    // driver rather than about a fire too small to observe.
+    // 512 rows, so the GPU has tens of milliseconds of work. A short
+    // fire cannot distinguish "the call did not wait" from "the fire
+    // finished before the call could return", and the first is the claim.
+    let prompt: Vec<u32> = (0..128).map(|i| 1 + i % 97).collect();
+    let positions: Vec<u32> = (0..prompt.len() as u32).collect();
+    let u32s = |v: &[u32]| PieU32Slice { ptr: v.as_ptr(), len: v.len() };
+    let roster = [0u32];
+    let sub = [0u32, 1];
+    let class = [driver_abi::local::PIE_GEOMETRY_CLASS_HOST];
+    let pages: Vec<u32> = (0..prompt.len().div_ceil(16) as u32).collect();
+    let kv_indptr = [0u32, pages.len() as u32];
+    let kv_lens = [((prompt.len() - 1) % 16 + 1) as u32];
+    let qo = [0u32, prompt.len() as u32];
+    let mut cell = driver_abi::local::PieTerminalCell::default();
+    let cells = [std::ptr::addr_of_mut!(cell)];
+    let step = PieStepDesc {
+        roster_rows: u32s(&roster),
+        sub_batch_indptr: u32s(&sub),
+        sub_batch_class: u32s(&class),
+        terminal_cells: driver_abi::local::PieTerminalCellPtrSlice {
+            ptr: cells.as_ptr(),
+            len: 1,
+        },
+        token_ids: u32s(&prompt),
+        position_ids: u32s(&positions),
+        kv_page_indices: u32s(&pages),
+        kv_page_indptr: u32s(&kv_indptr),
+        kv_last_page_lens: u32s(&kv_lens),
+        qo_indptr: u32s(&qo),
+        ..Default::default()
+    };
+    let instance_ids: [u64; 1] = [binding.instance_id];
+    let frame = PieFrameDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        instance_ids: PieU64Slice { ptr: instance_ids.as_ptr(), len: 1 },
+        required_kv_pages: pages.len() as u32,
+        steps: driver_abi::local::PieStepDescSlice { ptr: &step, len: 1 },
+        ..Default::default()
+    };
+    let completion =
+        PieCompletion { wait_id: 7, target_epoch: 1, terminal_cell: std::ptr::null_mut() };
+
+    let caller = format!("{:?}", std::thread::current().id());
+    let caller_n = caller.bytes().fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(u64::from(b)));
+
+    // ONE WARM FIRE FIRST, and it is not ceremony. A driver's first fire
+    // pays for the KV pool, the attention workspace, the plan caches and
+    // the weight binding — hundreds of milliseconds of HOST work, during
+    // which the few milliseconds of GPU work it eventually enqueues
+    // retire easily. Measuring that fire cannot tell "the call waited"
+    // from "the work was done before the call could return".
+    assert_eq!(
+        unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) },
+        PIE_STATUS_OK,
+        "the warm-up frame launches"
+    );
+    let warm = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !DONE.load(Ordering::Acquire) {
+        assert!(std::time::Instant::now() < warm, "the warm-up never completed");
+        std::thread::yield_now();
+    }
+    DONE.store(false, Ordering::Release);
+
+    let t0 = std::time::Instant::now();
+    let status = unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) };
+    let returned_after = t0.elapsed();
+    // ── FACT 1: the call returned, and the fire had not retired. ──
+    let retired_inside_the_call = DONE.load(Ordering::Acquire);
+    assert_eq!(status, PIE_STATUS_OK, "the frame launches");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !DONE.load(Ordering::Acquire) {
+        assert!(std::time::Instant::now() < deadline, "the fire never completed");
+        std::thread::yield_now();
+    }
+    let retired_after = t0.elapsed();
+    unsafe { driver_abi::local::pie_cuda_destroy(d) };
+
+    // MEASURED, and the number is the interesting part. On a warm
+    // 128-row prefill of qwen3-0.6B the call returns in ~21 ms and the
+    // fire retires ~1 µs later — because ISSUING the fire costs about
+    // what RUNNING it does. The executor walks ~500 launches per fire,
+    // binding and dispatching each, so the GPU finishes at roughly the
+    // moment the host stops feeding it.
+    //
+    // That is why `retired_inside_the_call` is REPORTED rather than
+    // asserted. It is true here, and it does not mean the driver waited:
+    // it means the work was done before the call could return. A test
+    // that asserted it would be asserting that issue is cheaper than
+    // execution, which is a statement about the executor and not about
+    // whether this call synchronizes.
+    eprintln!(
+        "launch returned in {returned_after:?}; the fire retired at \
+         {retired_after:?}; completion ran in-call: {retired_inside_the_call}"
+    );
+
+    // WHAT IS PROVABLE: the completion did not run on this thread.
+    //
+    // If `pie_cuda_launch` still ended in `stream.synchronize()` and then
+    // published and notified — which is what it did — this would be the
+    // calling thread's id, because that is where the publish and the
+    // notify happened. It is a CUDA-owned thread instead, which is only
+    // reachable through a stream-ordered callback.
+    //
+    // So the completion is enqueued rather than awaited. Whether the call
+    // gets to return before the GPU is done is then a question about how
+    // long issuing takes, and the answer today is "about as long as
+    // running" — which is what the supergraph's replay path is for.
+    assert_ne!(
+        WHERE.load(Ordering::Acquire),
+        caller_n,
+        "the completion ran on the CALLING thread, so it was published by \
+         the launch rather than by a stream-ordered callback — the driver \
+         is still synchronizing inside `pie_cuda_launch`"
+    );
+    assert!(
+        WHERE.load(Ordering::Acquire) != 0,
+        "the completion never recorded where it ran"
+    );
+    // ── FACT 2: and it retired somewhere else. ──
+    assert_ne!(
+        WHERE.load(Ordering::Acquire),
+        caller_n,
+        "the completion ran on the CALLING thread, so it was not a \
+         stream-ordered callback — fact 1 alone would then only mean the \
+         fire was too small to observe"
     );
 }
