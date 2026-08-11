@@ -3369,28 +3369,37 @@ fn build_lowering(
 
 /// One step's fire — the former single-step body.
 #[allow(clippy::too_many_lines)]
-fn step_impl(
-    state: &mut Shell,
-    frame: &PieFrameDesc,
-    step: &driver_api::local::PieStepDesc,
-    // `owes` is the debt this step carries when it is the frame's LAST:
-    // `None` for the earlier steps, which owe nothing because a frame
-    // completes once. A step handed one enqueues an asynchronous
-    // completion and does NOT synchronize; a step handed `None`
-    // synchronizes, because the next step's work depends on it and the
-    // producer→consumer ordering inside a frame is what makes steps
-    // sequential in the first place.
-    owes: Option<(PieCompletion, Vec<*mut driver_api::local::PieTerminalCell>)>,
-) -> Result<(), i32> {
-    use crate::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
-    use crate::model::executor::{
-        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, Frame, GdnCtx, PrefillPlan, Resolver,
-        run,
-    };
-    use model_compiler::lower::{Arg, Row};
-    use model_compiler::trace::{FireClass, ValueId};
+/// What a step must satisfy before anything is traced, lowered or
+/// allocated for it — and the handful of facts that survive the asking.
+///
+/// The FIRST of `step_impl`'s phases, promoted out of it. Its boundary is
+/// the one place in the fire path where "this driver cannot serve this"
+/// is still a cheap answer: nothing has been built, nothing has been
+/// bound, and no device memory has moved. Every refusal below is
+/// therefore an early return and not a rollback, which is the north
+/// star's third rule read forwards — decide, then move.
+///
+/// The borrow shape is why this returns indices into `step` rather than
+/// the slices themselves: `state` is `&mut` for the rest of the fire, so
+/// a phase that handed back `&[u32]` borrowed from `state.model` would
+/// pin it. The caller re-slices from `step`, which it owns.
+struct Admitted {
+    /// The service class the row/request ratio implies.
+    class: model_compiler::trace::FireClass,
+    /// Token rows in this step.
+    rows: usize,
+    /// Requests the step's CSR partitions those rows into.
+    requests: usize,
+}
 
-    let t_head = std::time::Instant::now();
+/// See [`Admitted`].
+#[cfg(feature = "abi")]
+fn admit(
+    state: &Shell,
+    step: &driver_api::local::PieStepDesc,
+) -> Result<(Admitted, Box<dyn PlannedFamily>), i32> {
+    use model_compiler::trace::FireClass;
+
     // A USER MASK IS REFUSED, not quietly replaced by a causal one.
     //
     // The engine encodes a program's attention mask as BRLE runs
@@ -3423,7 +3432,6 @@ fn step_impl(
 
     let token_ids = slice_of(step.token_ids.ptr, step.token_ids.len);
     let position_ids = slice_of(step.position_ids.ptr, step.position_ids.len);
-    let kv_indices = slice_of(step.kv_page_indices.ptr, step.kv_page_indices.len);
     let kv_indptr = slice_of(step.kv_page_indptr.ptr, step.kv_page_indptr.len);
     let kv_lens = slice_of(step.kv_last_page_lens.ptr, step.kv_last_page_lens.len);
     let qo_indptr = slice_of(step.qo_indptr.ptr, step.qo_indptr.len);
@@ -3441,9 +3449,8 @@ fn step_impl(
 
     // A family that does not DECLARE a service class must be turned away
     // rather than traced: its text answers the three with `unreachable!`,
-    // and a panic crossing the C ABI aborts the process instead of
-    // returning the status this call has a slot for. Only the MTP family
-    // composes those passes.
+    // and a panic crossing the entry point is caught but costs the whole
+    // request. Only the MTP family composes those passes.
     if !matches!(class, FireClass::Decode | FireClass::Prefill) && !family.recurrent() {
         eprintln!(
             "[driver-cuda-new] launch: {class:?} is an MTP service pass and \
@@ -3451,6 +3458,158 @@ fn step_impl(
         );
         return Err(PIE_STATUS_UNSUPPORTED);
     }
+    Ok((Admitted { class, rows, requests }, family))
+}
+
+/// Publish the fire's readout: the LAST row's logits, out through the
+/// instance's reader channel.
+///
+/// `step_impl`'s DELIVERY phase, promoted out of it. The convention until
+/// the launch package's channel table is parsed: the roster's first
+/// instance, its first registered channel with `host_role == READER`
+/// whose cell is `[vocab]` f32. Device bf16 widens to the f32 wire on the
+/// host.
+///
+/// Takes `debt` by `&mut Option` rather than returning a copy because the
+/// two paths through here differ in WHO waits, not in what is produced: a
+/// step that owes a completion hands the D2H's destination to the debt
+/// and returns with the copy still queued, and a step that owes nothing
+/// has already synchronized and can widen on this stack. Splitting those
+/// into two functions would duplicate the channel search, which is the
+/// part that is actually shared.
+#[cfg(feature = "abi")]
+#[allow(clippy::too_many_arguments)]
+fn deliver_logits(
+    // THE THREE FIELDS OF `Shell` THIS PHASE TOUCHES, and not `&mut
+    // Shell`. Not a style choice: `model` and `named_bufs` below are
+    // borrowed OUT of the shell by the caller, so a `&mut Shell` here is
+    // a borrow conflict, and the fix that keeps working is to name the
+    // disjoint fields rather than to widen the borrow. It also documents
+    // the phase — delivery reads the roster and the channel table and
+    // writes exactly one buffer.
+    instances: &std::collections::BTreeMap<u64, InstanceEntry>,
+    channels: &std::collections::BTreeMap<u64, ChannelState>,
+    logits_staging: &mut Option<crate::cuda::PinnedBuf>,
+    frame: &PieFrameDesc,
+    model: &LoadedModel,
+    lowered: &model_compiler::lower::Lowered,
+    dplan: &crate::model::executor::DispatchPlan,
+    named_bufs: &std::collections::BTreeMap<
+        model_compiler::trace::ValueId,
+        crate::cuda::DeviceBuffer,
+    >,
+    stream: crate::cuda::StreamRef<'_>,
+    rows: usize,
+    debt: &mut Option<FireDebt>,
+) -> Result<(), i32> {
+    use model_compiler::lower::Arg;
+// ── Delivery: the LAST row's logits, out through the instance's
+// reader channel. The convention until the launch package's channel
+// table is parsed: the roster's first instance, its first registered
+// channel with `host_role == READER` whose cell is `[vocab]` f32.
+// Device bf16 widens to the f32 wire on the host.
+let logits_value = (0..lowered.launches.len())
+    .rev()
+    .find_map(|i| {
+        dplan.spec(i).outs.first().and_then(|a| match a {
+            Arg::Named { value, .. } => Some(*value),
+            Arg::Arena { .. } | Arg::Weight(_) => None,
+        })
+    });
+let instance_ids = slice_of(frame.instance_ids.ptr, frame.instance_ids.len);
+if let (Some(lv), Some(&iid)) = (logits_value, instance_ids.first())
+    && let Some(inst) = instances.get(&iid)
+{
+    let vocab = usize::try_from(model.hf.vocab_size).unwrap_or(0);
+    let target = inst.channel_ids.iter().find_map(|cid| {
+        channels.get(cid).filter(|ch| {
+            ch.host_role == driver_api::local::PIE_CHANNEL_HOST_ROLE_READER
+                && ch.cell_bytes == vocab * 4
+        })
+    });
+    // THE D2H IS ENQUEUED, NOT AWAITED. Its destination belongs to
+    // the debt rather than to this stack frame — a `Vec` here would
+    // be freed the moment this call returns, which with an
+    // asynchronous completion is before the copy lands.
+    if let (Some(ch), Some(buf)) = (target, named_bufs.get(&lv)) {
+        match debt.as_mut() {
+            Some(d) => {
+                // The shell's buffer, grown to fit and reused. Not the
+                // debt's: see `FireDebt::staging`.
+                if logits_staging.as_ref().is_none_or(|p| p.len() < buf.len()) {
+                    *logits_staging = Some(
+                        crate::cuda::PinnedBuf::new(buf.len())
+                            .map_err(|_| PIE_STATUS_EXHAUSTED)?,
+                    );
+                }
+                let pin = logits_staging.as_mut().expect("just sized");
+                let view = (pin.as_slice().as_ptr(), buf.len());
+                buf.copy_to_host(&mut pin.as_mut_slice()[..buf.len()], stream)
+                    .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+                d.staging = Some(view);
+                d.channel = Some(*ch);
+            }
+            None => {
+                // A step that owes nothing has already synchronized,
+                // so the old shape is still correct for it.
+                let mut bf16 = vec![0u8; buf.len()];
+                buf.copy_to_host(&mut bf16, stream)
+                    .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+                stream.synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+                let last = rows - 1;
+                let mut cell = vec![0u8; vocab * 4];
+                for t in 0..vocab {
+                    let off = (last * vocab + t) * 2;
+                    let bits = u16::from_le_bytes([bf16[off], bf16[off + 1]]);
+                    cell[t * 4..t * 4 + 4]
+                        .copy_from_slice(&(u32::from(bits) << 16).to_le_bytes());
+                }
+                if !ch.publish(&cell) {
+                    eprintln!(
+                        "[driver-cuda-new] launch: logits ring full; frame dropped its output"
+                    );
+                }
+            }
+        }
+    }
+
+}
+    Ok(())
+}
+
+
+#[cfg(feature = "abi")]
+#[allow(clippy::too_many_lines)]
+fn step_impl(
+    state: &mut Shell,
+    frame: &PieFrameDesc,
+    step: &driver_api::local::PieStepDesc,
+    // `owes` is the debt this step carries when it is the frame's LAST:
+    // `None` for the earlier steps, which owe nothing because a frame
+    // completes once. A step handed one enqueues an asynchronous
+    // completion and does NOT synchronize; a step handed `None`
+    // synchronizes, because the next step's work depends on it and the
+    // producer→consumer ordering inside a frame is what makes steps
+    // sequential in the first place.
+    owes: Option<(PieCompletion, Vec<*mut driver_api::local::PieTerminalCell>)>,
+) -> Result<(), i32> {
+    use crate::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
+    use crate::model::executor::{
+        AttnCtx, AttnRegions, DecodePlan, DispatchCtx, Frame, GdnCtx, PrefillPlan, Resolver,
+        run,
+    };
+    use model_compiler::lower::{Arg, Row};
+    use model_compiler::trace::ValueId;
+
+    let t_head = std::time::Instant::now();
+    let (Admitted { class, rows, requests }, family) = admit(state, step)?;
+    let model = state.model.as_ref().ok_or(PIE_STATUS_INVALID_ARGUMENT)?;
+    let token_ids = slice_of(step.token_ids.ptr, step.token_ids.len);
+    let position_ids = slice_of(step.position_ids.ptr, step.position_ids.len);
+    let kv_indices = slice_of(step.kv_page_indices.ptr, step.kv_page_indices.len);
+    let kv_indptr = slice_of(step.kv_page_indptr.ptr, step.kv_page_indptr.len);
+    let kv_lens = slice_of(step.kv_last_page_lens.ptr, step.kv_last_page_lens.len);
+    let qo_indptr = slice_of(step.qo_indptr.ptr, step.qo_indptr.len);
 
     sg_trace(|| format!("  head {:?}", t_head.elapsed()));
     let t_low = std::time::Instant::now();
@@ -4177,77 +4336,19 @@ fn step_impl(
         notify_ctx: state.notify_ctx,
     });
 
-    // ── Delivery: the LAST row's logits, out through the instance's
-    // reader channel. The convention until the launch package's channel
-    // table is parsed: the roster's first instance, its first registered
-    // channel with `host_role == READER` whose cell is `[vocab]` f32.
-    // Device bf16 widens to the f32 wire on the host.
-    let logits_value = (0..lowered.launches.len())
-        .rev()
-        .find_map(|i| {
-            dplan.spec(i).outs.first().and_then(|a| match a {
-                Arg::Named { value, .. } => Some(*value),
-                Arg::Arena { .. } | Arg::Weight(_) => None,
-            })
-        });
-    let instance_ids = slice_of(frame.instance_ids.ptr, frame.instance_ids.len);
-    if let (Some(lv), Some(&iid)) = (logits_value, instance_ids.first())
-        && let Some(inst) = state.instances.get(&iid)
-    {
-        let vocab = usize::try_from(model.hf.vocab_size).unwrap_or(0);
-        let target = inst.channel_ids.iter().find_map(|cid| {
-            state.channels.get(cid).filter(|ch| {
-                ch.host_role == driver_api::local::PIE_CHANNEL_HOST_ROLE_READER
-                    && ch.cell_bytes == vocab * 4
-            })
-        });
-        // THE D2H IS ENQUEUED, NOT AWAITED. Its destination belongs to
-        // the debt rather than to this stack frame — a `Vec` here would
-        // be freed the moment this call returns, which with an
-        // asynchronous completion is before the copy lands.
-        if let (Some(ch), Some(buf)) = (target, named_bufs.get(&lv)) {
-            match debt.as_mut() {
-                Some(d) => {
-                    // The shell's buffer, grown to fit and reused. Not the
-                    // debt's: see `FireDebt::staging`.
-                    if state.logits_staging.as_ref().is_none_or(|p| p.len() < buf.len()) {
-                        state.logits_staging = Some(
-                            crate::cuda::PinnedBuf::new(buf.len())
-                                .map_err(|_| PIE_STATUS_EXHAUSTED)?,
-                        );
-                    }
-                    let pin = state.logits_staging.as_mut().expect("just sized");
-                    let view = (pin.as_slice().as_ptr(), buf.len());
-                    buf.copy_to_host(&mut pin.as_mut_slice()[..buf.len()], stream.as_ref())
-                        .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-                    d.staging = Some(view);
-                    d.channel = Some(*ch);
-                }
-                None => {
-                    // A step that owes nothing has already synchronized,
-                    // so the old shape is still correct for it.
-                    let mut bf16 = vec![0u8; buf.len()];
-                    buf.copy_to_host(&mut bf16, stream.as_ref())
-                        .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-                    stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-                    let last = rows - 1;
-                    let mut cell = vec![0u8; vocab * 4];
-                    for t in 0..vocab {
-                        let off = (last * vocab + t) * 2;
-                        let bits = u16::from_le_bytes([bf16[off], bf16[off + 1]]);
-                        cell[t * 4..t * 4 + 4]
-                            .copy_from_slice(&(u32::from(bits) << 16).to_le_bytes());
-                    }
-                    if !ch.publish(&cell) {
-                        eprintln!(
-                            "[driver-cuda-new] launch: logits ring full; frame dropped its output"
-                        );
-                    }
-                }
-            }
-        }
-
-    }
+    deliver_logits(
+        &state.instances,
+        &state.channels,
+        &mut state.logits_staging,
+        frame,
+        model,
+        lowered,
+        dplan,
+        named_bufs,
+        stream.as_ref(),
+        rows,
+        &mut debt,
+    )?;
 
     // The debt goes last in stream order, so it runs after every
     // launch and after the D2H above.
