@@ -2,7 +2,7 @@
 //! plan phase D).
 //!
 //! The engine consumes a driver through `pie_driver_abi.h`, whose Rust
-//! source of truth is `driver::local`. This module DEFINES the symbols
+//! source of truth is `driver_api::local`. This module DEFINES the symbols
 //! that crate declares; a test resolving the declaration against these
 //! definitions makes the linker prove the contract, the same way the
 //! launch bridge's shim makes the C++ compiler prove the rows.
@@ -26,12 +26,12 @@
 
 // Every export takes raw pointers by C-ABI necessity and null-checks them
 // before the deref — the same defensive shape the C++ shell has. The
-// caller-side contract is `driver::local`'s `unsafe extern` block;
+// caller-side contract is `driver_api::local`'s `unsafe extern` block;
 // marking the DEFINITIONS `unsafe fn` would change their ABI type for a
 // fact the boundary already states.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
-use driver::local::{
+use driver_api::local::{
     PIE_DRIVER_ABI_VERSION, PIE_STATUS_DRIVER_ERROR, PIE_STATUS_EXHAUSTED,
     PIE_STATUS_INVALID_ARGUMENT, PIE_STATUS_OK,
     PIE_STATUS_UNSUPPORTED, PieChannelDesc, PieChannelEndpointBinding, PieCompletion,
@@ -123,7 +123,7 @@ struct Shell {
     /// simpler, and nothing in the ABI wants them dense).
     next_id: u64,
     /// The runtime's notify callback + its context, from `create`.
-    notify: driver::local::PieRuntimeNotifyFn,
+    notify: driver_api::local::PieRuntimeNotifyFn,
     notify_ctx: *mut std::ffi::c_void,
     /// The hybrid's GDN state slabs, allocated on first hybrid launch.
     gdn: Option<GdnState>,
@@ -202,7 +202,7 @@ struct Shell {
     /// unexecutable plan is still a plan, and the reason it was rejected
     /// is what the launch that needs it has to report — while a
     /// compilation only exists for a program that got that far.
-    ptir_plans: std::collections::BTreeMap<u64, driver_pipeline::ExecPlan>,
+    ptir_plans: std::collections::BTreeMap<u64, driver::ExecPlan>,
 }
 
 /// Driver-lifetime fire scratch.
@@ -345,9 +345,9 @@ struct FireDebt {
     last_row: usize,
     /// The terminal cells this frame publishes, and the completion the
     /// runtime is waiting on.
-    cells: Vec<*mut driver::local::PieTerminalCell>,
+    cells: Vec<*mut driver_api::local::PieTerminalCell>,
     completion: PieCompletion,
-    notify: driver::local::PieRuntimeNotifyFn,
+    notify: driver_api::local::PieRuntimeNotifyFn,
     notify_ctx: *mut std::ffi::c_void,
 }
 
@@ -400,7 +400,7 @@ unsafe extern "C" fn retire_fire(data: *mut std::ffi::c_void) {
         if !cell.is_null() {
             unsafe {
                 std::ptr::addr_of_mut!((*cell).outcome)
-                    .write_volatile(driver::local::PIE_TERMINAL_OUTCOME_SUCCESS);
+                    .write_volatile(driver_api::local::PIE_TERMINAL_OUTCOME_SUCCESS);
             }
         }
     }
@@ -1015,7 +1015,7 @@ fn wire_trace_names(model: &mut LoadedModel) {
         .collect();
 }
 
-/// What `load_model` answers: a `driver::DriverCapabilities` document.
+/// What `load_model` answers: a `driver_api::DriverCapabilities` document.
 ///
 /// **This used to be a five-field summary of the checkpoint** —
 /// `{"model_type":…,"hidden":…,"layers":…,"vocab":…,"weights":…}` — which is
@@ -1148,8 +1148,8 @@ fn capabilities_json(state: &mut Shell, snapshot: &std::path::Path) -> Result<Ve
         .saturating_add(planned.plan.runtime_quant_scratch_bytes);
     let total_pages = planned.budget.saturating_sub(resident_arena) / per_page;
 
-    let caps = driver::DriverCapabilities {
-        abi_version: driver::PIE_DRIVER_ABI_VERSION,
+    let caps = driver_api::DriverCapabilities {
+        abi_version: driver_api::PIE_DRIVER_ABI_VERSION,
         total_pages: u32::try_from(total_pages).unwrap_or(u32::MAX),
         kv_page_size: u32::try_from(planned.plan.kv_page_size).unwrap_or(16),
         // THE LATTICE'S ANSWER, not a stated ceiling. These are what a
@@ -1183,7 +1183,7 @@ fn capabilities_json(state: &mut Shell, snapshot: &std::path::Path) -> Result<Ve
         has_attn_score: false,
         has_attn_page_mask: false,
         has_lora: false,
-        model_site_summary: driver::ModelSiteSummary::default(),
+        model_site_summary: driver_api::ModelSiteSummary::default(),
         device_geometry_port_mask: 0,
         supports_media_encode: false,
         kv_handle: None,
@@ -1255,8 +1255,8 @@ pub fn pie_cuda_register_program(
     // call. Adoption COPIES, so nothing here outlives that window --
     // which is the reason it is done now rather than by holding the
     // descriptor: `PieProgramDesc` is the caller's transient memory.
-    let package = unsafe { driver::adopt_package(&desc.launch) };
-    let kernels = unsafe { driver::adopt_emitted_kernels(desc.emitted_kernels) };
+    let package = unsafe { driver_api::adopt_package(&desc.launch) };
+    let kernels = unsafe { driver_api::adopt_emitted_kernels(desc.emitted_kernels) };
 
     let id = state.next_id;
     state.next_id += 1;
@@ -1298,10 +1298,10 @@ fn adopt_and_compile(
     state: &mut Shell,
     id: u64,
     desc: &PieProgramDesc,
-    package: driver_pipeline::driver::plan::LaunchPackage,
-    kernels: &[driver_pipeline::EmittedKernel],
+    package: driver::driver_api::plan::LaunchPackage,
+    kernels: &[driver_api::EmittedKernel],
 ) -> Result<(), i32> {
-    let plan = match driver_pipeline::adopt_launch_package(package) {
+    let plan = match driver::adopt_launch_package(package) {
         Ok(plan) => plan,
         Err(error) => {
             eprintln!("[driver-cuda-new] register_program: {error}");
@@ -1315,7 +1315,7 @@ fn adopt_and_compile(
     // rather than a diagnostic.
     if plan.executable && state.model.is_some() {
         let target = ptir_target()?;
-        let versions = driver_pipeline::Versions::mirrored(desc.emitter_version);
+        let versions = driver::Versions::mirrored(desc.emitter_version);
         match state
             .ptir
             .compile(desc.program_hash, &plan, kernels, versions, target)
@@ -1403,7 +1403,7 @@ pub fn pie_cuda_register_channel(
     };
     if desc.abi_version != PIE_DRIVER_ABI_VERSION
         || state.channels.contains_key(&desc.channel_id)
-        || desc.dtype > driver::local::PIE_CHANNEL_DTYPE_ACT
+        || desc.dtype > driver_api::local::PIE_CHANNEL_DTYPE_ACT
     {
         return PIE_STATUS_INVALID_ARGUMENT;
     }
@@ -1415,7 +1415,7 @@ pub fn pie_cuda_register_channel(
         };
         numel = next;
     }
-    let wire_bytes: u64 = if desc.dtype == driver::local::PIE_CHANNEL_DTYPE_BOOL {
+    let wire_bytes: u64 = if desc.dtype == driver_api::local::PIE_CHANNEL_DTYPE_BOOL {
         numel.div_ceil(8)
     } else {
         match numel.checked_mul(4) {
@@ -2386,11 +2386,11 @@ pub fn openable_model_types() -> Vec<&'static str> {
 /// a property of the pass, so it is answered here, once, rather than by
 /// every arm that would otherwise find half a fire.
 pub fn fire_class_of(
-    step: &driver::local::PieStepDesc,
+    step: &driver_api::local::PieStepDesc,
     rows: usize,
     requests: usize,
 ) -> Result<model_compiler::trace::FireClass, i32> {
-    use driver::local::{PIE_RS_FLAG_BUFFER_WRITE, PIE_RS_FLAG_FOLD};
+    use driver_api::local::{PIE_RS_FLAG_BUFFER_WRITE, PIE_RS_FLAG_FOLD};
     use model_compiler::trace::FireClass;
 
     let flags = slice_of(step.rs_slot_flags.ptr, step.rs_slot_flags.len);
@@ -3199,7 +3199,7 @@ fn build_lowering(
 fn step_impl(
     state: &mut Shell,
     frame: &PieFrameDesc,
-    step: &driver::local::PieStepDesc,
+    step: &driver_api::local::PieStepDesc,
     // `owes` is the debt this step carries when it is the frame's LAST:
     // `None` for the earlier steps, which owe nothing because a frame
     // completes once. A step handed one enqueues an asynchronous
@@ -3207,7 +3207,7 @@ fn step_impl(
     // synchronizes, because the next step's work depends on it and the
     // producer→consumer ordering inside a frame is what makes steps
     // sequential in the first place.
-    owes: Option<(PieCompletion, Vec<*mut driver::local::PieTerminalCell>)>,
+    owes: Option<(PieCompletion, Vec<*mut driver_api::local::PieTerminalCell>)>,
 ) -> Result<(), i32> {
     use crate::model::attention_workspace::{AttentionWorkspace, LiveStagingOps};
     use crate::model::executor::{
@@ -3648,14 +3648,14 @@ fn step_impl(
             eprintln!("[driver-cuda-new] launch: hybrid fire without rs_slot_ids");
             return Err(PIE_STATUS_INVALID_ARGUMENT);
         }
-        if rs_flags.iter().any(|f| f & !driver::local::PIE_RS_FLAG_RESET != 0) {
+        if rs_flags.iter().any(|f| f & !driver_api::local::PIE_RS_FLAG_RESET != 0) {
             eprintln!("[driver-cuda-new] launch: rs fold/buffer flags await spec-decode");
             return Err(PIE_STATUS_UNSUPPORTED);
         }
         let need_slots = rs_slot_ids.iter().copied().max().map_or(1, |m| m + 1);
         gdn_state.ensure_slots(need_slots, &alloc, &stream)?;
         for (r, &slot) in rs_slot_ids.iter().enumerate() {
-            if rs_flags.get(r).copied().unwrap_or(0) & driver::local::PIE_RS_FLAG_RESET
+            if rs_flags.get(r).copied().unwrap_or(0) & driver_api::local::PIE_RS_FLAG_RESET
                 == 0
             {
                 continue;
@@ -4002,7 +4002,7 @@ fn step_impl(
         let vocab = usize::try_from(model.hf.vocab_size).unwrap_or(0);
         let target = inst.channel_ids.iter().find_map(|cid| {
             state.channels.get(cid).filter(|ch| {
-                ch.host_role == driver::local::PIE_CHANNEL_HOST_ROLE_READER
+                ch.host_role == driver_api::local::PIE_CHANNEL_HOST_ROLE_READER
                     && ch.cell_bytes == vocab * 4
             })
         });
@@ -4440,7 +4440,7 @@ pub fn pie_cuda_copy_kv(
     copy: *const PieKvCopyDesc,
     completion: PieCompletion,
 ) -> i32 {
-    use driver::local::PIE_MEMORY_DOMAIN_CUDA_DEVICE;
+    use driver_api::local::PIE_MEMORY_DOMAIN_CUDA_DEVICE;
 
     let Some(state) = shell(driver) else {
         return PIE_STATUS_INVALID_ARGUMENT;

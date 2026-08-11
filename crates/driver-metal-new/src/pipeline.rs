@@ -19,4 +19,4 @@
 //! rename would have made a move that changes no behaviour look like one that
 //! does.
 
-pub use driver_pipeline::*;
+pub use driver_api::*;

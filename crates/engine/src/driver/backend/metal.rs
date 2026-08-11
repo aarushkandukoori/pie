@@ -54,7 +54,7 @@ pub struct MetalDriver {
     /// the context is what lets one outlive a call.
     stepper: driver_metal_new::metal::Stepper<'static>,
     registry: driver_metal_new::pipeline::Registry,
-    device_facts: ::driver::DeviceFacts,
+    device_facts: ::driver_api::DeviceFacts,
     /// The checkpoint, once one is loaded. Held because every address in its
     /// tensor map points into the region it owns.
     model: Option<driver_metal_new::model::load::Loaded>,
@@ -113,7 +113,7 @@ impl MetalDriver {
     ///
     /// No Metal 4 device, or a device whose queue could not be created. Both
     /// are boot conditions, not runtime ones.
-    pub fn create(config_bytes: &[u8]) -> Result<(Self, ::driver::DeviceFacts)> {
+    pub fn create(config_bytes: &[u8]) -> Result<(Self, ::driver_api::DeviceFacts)> {
         let boot_descriptor = std::str::from_utf8(config_bytes)
             .ok()
             .and_then(|text| text.parse::<toml::Table>().ok())
@@ -138,8 +138,8 @@ impl MetalDriver {
         // `unified_memory` is the one that changes scheduling: on Apple
         // silicon the KV pool and the host share physical memory, so a
         // "device is full" question is a different question here.
-        let device_facts = ::driver::DeviceFacts {
-            abi_version: ::driver::PIE_DRIVER_ABI_VERSION,
+        let device_facts = ::driver_api::DeviceFacts {
+            abi_version: ::driver_api::PIE_DRIVER_ABI_VERSION,
             backend: "metal".to_string(),
             unified_memory: true,
             // Metal has no native fp8 path and no MXFP4 MoE kernel; the table
@@ -176,13 +176,13 @@ impl MetalDriver {
 
     /// The device's stated facts.
     #[must_use]
-    pub fn device_facts(&self) -> &::driver::DeviceFacts {
+    pub fn device_facts(&self) -> &::driver_api::DeviceFacts {
         &self.device_facts
     }
 
     /// Metal exports no KV handle: there is no cross-process sharing path.
     #[must_use]
-    pub fn export_kv_handle(&self) -> Option<::driver::KvHandle> {
+    pub fn export_kv_handle(&self) -> Option<::driver_api::KvHandle> {
         None
     }
 
@@ -210,8 +210,8 @@ impl MetalDriver {
     /// not compile or stage.
     pub fn load_model(
         &mut self,
-        descs: Vec<::driver::ModelLoadDesc>,
-    ) -> Result<::driver::DriverCapabilities> {
+        descs: Vec<::driver_api::ModelLoadDesc>,
+    ) -> Result<::driver_api::DriverCapabilities> {
         let [desc] = descs.as_slice() else {
             bail!(
                 "driver-metal-new holds ONE model; got {} descriptors",
@@ -315,8 +315,8 @@ impl MetalDriver {
         // against what was actually allocated. It read zero while no pool
         // existed, which was the truth then and the reason nothing was
         // admitted.
-        Ok(::driver::DriverCapabilities {
-            abi_version: ::driver::PIE_DRIVER_ABI_VERSION,
+        Ok(::driver_api::DriverCapabilities {
+            abi_version: ::driver_api::PIE_DRIVER_ABI_VERSION,
             total_pages: pages,
             kv_page_size: self.device_facts.page_size,
             swap_pool_size: 0,
@@ -338,7 +338,7 @@ impl MetalDriver {
             has_attn_score: false,
             has_attn_page_mask: false,
             has_lora: false,
-            model_site_summary: ::driver::ModelSiteSummary::default(),
+            model_site_summary: ::driver_api::ModelSiteSummary::default(),
             device_geometry_port_mask: 0,
             // The ceilings a scheduler batches under. Stated rather than
             // unbounded: a fire wider than this has no arena sized for it.
@@ -434,7 +434,7 @@ impl MetalDriver {
             .map_err(|e| anyhow!("metal register_channel: {e:?}"))?;
         Ok(RegisteredChannel {
             driver_id: desc.driver_id,
-            binding: ::driver::PieChannelEndpointBinding {
+            binding: ::driver_api::PieChannelEndpointBinding {
                 channel_id: endpoint.channel_id,
                 mirror_base: endpoint.mirror_base,
                 word_base: endpoint.word_base,
@@ -483,7 +483,7 @@ impl MetalDriver {
                 &seeds,
             )
             .map_err(|e| anyhow!("metal bind_instance: {e:?}"))?;
-        let binding = ::driver::PieInstanceBinding {
+        let binding = ::driver_api::PieInstanceBinding {
             instance_id,
             geometry_class: desc.geometry_class as u32,
             reserved0: 0,
