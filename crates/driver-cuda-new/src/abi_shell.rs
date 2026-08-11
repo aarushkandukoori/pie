@@ -2074,6 +2074,18 @@ fn runahead_env() -> bool {
         .is_some_and(|v| v == "1" || v == "true" || v == "on")
 }
 
+/// `PIE_CUDA_TRACE_SUPERGRAPH=1`: say what each fire did with the graph.
+///
+/// The one instrument that answers the question the measurements raise —
+/// whether a fire REPLAYED or walked its launches, and if it walked, which
+/// clause of the servability test turned it away. Lazy, so an unset variable
+/// costs a `getenv` and no formatting.
+fn sg_trace(what: impl FnOnce() -> String) {
+    if std::env::var_os("PIE_CUDA_TRACE_SUPERGRAPH").is_some() {
+        eprintln!("[sg] {}", what());
+    }
+}
+
 /// Is the unionized supergraph armed for this process?
 ///
 /// **ON by default now**, and `PIE_CUDA_SUPERGRAPH=0` turns it off.
@@ -2819,8 +2831,10 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
     }
 
     if cache.replay(key, epoch, stream).unwrap_or(false) {
+        sg_trace(|| format!("replay {key:?}"));
         return Ok(lowered.launches.len());
     }
+    sg_trace(|| format!("miss {key:?} launches={}", lowered.launches.len()));
 
     // DUAL-PREPARE: one warm fire per variant, each a resolved program.
     // Only variants this fire can PREPARE. A `wants_scores` warm-up would
@@ -3004,13 +3018,24 @@ fn step_impl(
     // cannot be replayed stays eager.
     let mut union =
         supergraph_enabled() && !family.recurrent();
+    if !union {
+        sg_trace(|| {
+            format!(
+                "union off at the gate: enabled={} recurrent={}",
+                supergraph_enabled(),
+                family.recurrent()
+            )
+        });
+    }
     let lower_as = |g: GuardMode| {
         lower_with(&plan, &fire_rows, Fire { captures_across_splits: false }, g).map_err(|e| {
             eprintln!("[driver-cuda-new] launch: uncovered: {e:?}");
             PIE_STATUS_UNSUPPORTED
         })
     };
+    let t_lower = std::time::Instant::now();
     let mut lowered = lower_as(if union { GuardMode::Union } else { GuardMode::Resolve })?;
+    let d_lower = t_lower.elapsed();
 
     // A union this fire cannot record is not a union worth building, and
     // the decision has to be made HERE — before the arena, the pins and
@@ -3057,11 +3082,40 @@ fn step_impl(
                     .is_some_and(|fi| matches!(d.spec(fi).outs.first(), Some(Arg::Arena { .. })))
             };
         if !servable {
+            sg_trace(|| {
+                let name = if lowered
+                    .kernels
+                    .iter()
+                    .any(|k| k == "attn::dispatch_attention_flashinfer_decode")
+                {
+                    "attn::dispatch_attention_flashinfer_decode"
+                } else {
+                    "attn::dispatch_attention_flashinfer_prefill_bf16"
+                };
+                let pos = lowered
+                    .launches
+                    .iter()
+                    .position(|x| lowered.kernels[x.kernel as usize] == name);
+                format!(
+                    "union declined: {name} at {pos:?}, landing slot {:?}",
+                    pos.map(|fi| format!("{:?}", d.spec(fi).outs.first()))
+                )
+            });
+        }
+        if !servable {
             union = false;
             lowered = lower_as(GuardMode::Resolve)?;
         }
     }
+    let t_dp = std::time::Instant::now();
     let dplan = DispatchPlan::new(&plan, &lowered);
+    sg_trace(|| {
+        format!(
+            "lower={d_lower:?} dplan={:?} launches={} union={union}",
+            t_dp.elapsed(),
+            lowered.launches.len()
+        )
+    });
 
     // ── Device state, and all of it PERSISTENT now. ──
     //
