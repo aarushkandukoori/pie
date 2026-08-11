@@ -1392,7 +1392,35 @@ fn adopt_and_compile(
             .ptir
             .compile(desc.program_hash, &plan, kernels, versions, target)
         {
-            Ok(compiled) => state.ptir_programs.insert(id, compiled),
+            Ok(compiled) => {
+                // COMPILED AND NEVER FIRED, which is said out loud because it
+                // is the difference between a driver that cannot run a program
+                // and one that quietly does not.
+                //
+                // `ptir_programs` has exactly one writer -- this line -- and no
+                // reader: `ptir::fire`, `ptir::launch` and `Control::compile`
+                // have no caller in this shell. So a program's stages are
+                // type-checked, lowered and compiled to a cubin, and then the
+                // fire runs the model forward and delivers logits through the
+                // instance's reader channel as if the program were not there.
+                //
+                // What that costs is the north star's first clause. Sampling
+                // lives in the program -- top-p, top-k, temperature, argmax are
+                // PTIR stages, not driver flags -- so a caller's program is
+                // ignored and it gets raw logits back instead. Silence would
+                // make that look like a numerical disagreement rather than a
+                // missing execution.
+                eprintln!(
+                    "[driver-cuda-new] register_program: program {:#018x} \
+                     compiled {} stage(s) and this driver will NOT run them. \
+                     Its outputs -- including any sampling it declares -- will \
+                     not happen; the fire delivers raw logits instead. See \
+                     `ptir-never-fires`.",
+                    desc.program_hash,
+                    plan.stages.len()
+                );
+                state.ptir_programs.insert(id, compiled);
+            }
             Err(failure) => {
                 eprintln!(
                     "[driver-cuda-new] register_program: cannot compile program \
