@@ -725,16 +725,7 @@ impl MetalDriver {
             // production caller at all, and the interpreter was exercised
             // only by tests that built their own inputs.
             let logits = read_logits(&fire.arena, *readout);
-            let inputs = logits.as_ref().map_or_else(
-                driver_metal_new::pipeline::PassInputs::none,
-                |(v, rows, vocab)| driver_metal_new::pipeline::PassInputs {
-                    logits: Some(v),
-                    rows: *rows,
-                    vocab: *vocab,
-                    mtp_draft_row: None,
-                },
-            );
-            Self::run_programs(&mut self.registry, &frame.instance_ids, step, &inputs)?;
+            Self::run_programs(&mut self.registry, &frame.instance_ids, step, logits.as_ref())?;
         }
 
         let (_raw, completion) = self.broker.launch_completion(1);
@@ -844,9 +835,10 @@ impl MetalDriver {
 
     /// Run the channel-plane pass for every program batched into one step.
     ///
-    /// One instance per roster row, in sub-batch order, all over the SAME
-    /// read-out: the fire produced one distribution per request and the
-    /// members of a batch are those requests.
+    /// One instance per roster row, in sub-batch order, each over ITS OWN
+    /// rows of the read-out: the fire produced one distribution per request
+    /// and the members of a batch are those requests, so member `p` reads
+    /// `program_row_indptr[p]..[p+1]` and nothing else.
     ///
     /// A blocked pass is not an error. Readiness is the program's own gate and
     /// missing it means the fire did not happen for that member — the
@@ -863,13 +855,49 @@ impl MetalDriver {
         registry: &mut driver_metal_new::pipeline::Registry,
         instance_ids: &[u64],
         step: &crate::driver::submission::StepSubmission,
-        inputs: &driver_metal_new::pipeline::PassInputs,
+        logits: Option<&(Vec<f32>, u32, u32)>,
     ) -> Result<()> {
-        for &row in &step.roster_rows {
+        for (member, &row) in step.roster_rows.iter().enumerate() {
             let id = *instance_ids
                 .get(row as usize)
                 .ok_or_else(|| anyhow!("roster row {row} is outside the frame's instances"))?;
-            match registry.fire(id, inputs) {
+            // THIS member's rows of the read-out, and nothing else.
+            //
+            // Every instance in the frame used to be handed the whole logits
+            // buffer, and `bind_intrinsic` reads it from `base_row = 0` — so
+            // in an M>1 frame every request sampled the FIRST request's
+            // distribution and returned its token. One fire, N requests, one
+            // answer repeated. Nothing faults, and a single-request frame
+            // (which is what most tests build) cannot tell the difference.
+            //
+            // `program_row_indptr` is the mapping and it was already here:
+            // member `p` owns wire request rows `[indptr[p], indptr[p+1])`.
+            // Slicing rather than passing an offset keeps `base_row = 0`
+            // TRUE for each member instead of making it a parameter every
+            // caller could forget — the interpreter's view is its own rows,
+            // so there is no row it could reach that is not its.
+            let inputs = match logits {
+                None => driver_metal_new::pipeline::PassInputs::none(),
+                Some((values, rows, vocab)) => {
+                    let (start, end) = member_rows(&step.program_row_indptr, member, *rows);
+                    let span = (end - start) as usize * *vocab as usize;
+                    let from = start as usize * *vocab as usize;
+                    if from + span > values.len() {
+                        return Err(anyhow!(
+                            "member {member} claims read-out rows {start}..{end} of {rows}, \
+                             which is past the {} values this fire produced",
+                            values.len()
+                        ));
+                    }
+                    driver_metal_new::pipeline::PassInputs {
+                        logits: Some(&values[from..from + span]),
+                        rows: end - start,
+                        vocab: *vocab,
+                        mtp_draft_row: None,
+                    }
+                }
+            };
+            match registry.fire(id, &inputs) {
                 Ok(driver_metal_new::pipeline::StepOutcome::Committed)
                 | Ok(driver_metal_new::pipeline::StepOutcome::Blocked(_)) => {}
                 Ok(driver_metal_new::pipeline::StepOutcome::Faulted(why)) => {
@@ -968,3 +996,61 @@ fn shader_tree() -> std::path::PathBuf {
         })
 }
 
+
+/// Which rows of a fire's read-out belong to batch member `member`.
+///
+/// `program_row_indptr` is the frame's own attribution CSR — member `p` owns
+/// wire request rows `[indptr[p], indptr[p+1])` — and an empty one is the
+/// single-member case, where the whole read-out is that member's.
+///
+/// Split out from `run_programs` so the M>1 case can be held to a number. It
+/// was wrong in a way no single-instance test could see: every member was
+/// handed the WHOLE buffer and `bind_intrinsic` reads from `base_row = 0`, so
+/// each request in a batched frame sampled the first request's distribution.
+fn member_rows(program_row_indptr: &[u32], member: usize, rows: u32) -> (u32, u32) {
+    match (
+        program_row_indptr.get(member),
+        program_row_indptr.get(member + 1),
+    ) {
+        (Some(&s), Some(&e)) if e >= s => (s, e),
+        _ => (0, rows),
+    }
+}
+
+#[cfg(test)]
+mod readout_rows {
+    use super::member_rows;
+
+    /// Three requests batched into one fire, one read-out row each.
+    ///
+    /// The defect this pins: every member used to get `(0, 3)`, so all three
+    /// sampled row 0 and returned the same token. One fire, three requests,
+    /// one answer repeated — and nothing faults.
+    #[test]
+    fn each_member_of_a_batched_frame_reads_its_own_row() {
+        let indptr = [0, 1, 2, 3];
+        assert_eq!(member_rows(&indptr, 0, 3), (0, 1));
+        assert_eq!(member_rows(&indptr, 1, 3), (1, 2));
+        assert_eq!(member_rows(&indptr, 2, 3), (2, 3));
+    }
+
+    /// A member may own several rows — a speculative fire reads out more than
+    /// one row per request — and the span is the CSR's, not one row.
+    #[test]
+    fn a_member_that_owns_several_rows_gets_all_of_them() {
+        let indptr = [0, 4, 5];
+        assert_eq!(member_rows(&indptr, 0, 5), (0, 4));
+        assert_eq!(member_rows(&indptr, 1, 5), (4, 5));
+    }
+
+    /// No attribution CSR is the single-member case, and the whole read-out
+    /// is that member's — the behaviour every frame used to get.
+    #[test]
+    fn an_absent_csr_gives_the_whole_readout_to_the_one_member() {
+        assert_eq!(member_rows(&[], 0, 7), (0, 7));
+        // A CSR too short for this member is the same answer rather than a
+        // panic: it is a frame the scheduler built inconsistently, and the
+        // row-range check in `run_programs` is what refuses it.
+        assert_eq!(member_rows(&[0, 1], 5, 7), (0, 7));
+    }
+}
