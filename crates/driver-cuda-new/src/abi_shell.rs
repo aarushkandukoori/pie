@@ -761,6 +761,32 @@ pub fn pie_cuda_create(
         .unwrap_or(false);
     let tp_size = driver_u32("tp_size", 1).max(1);
     let tp_rank = driver_u32("tp_rank", 0).min(tp_size - 1);
+    // A GROUP OF MORE THAN ONE IS REFUSED, and refusing is the whole point.
+    //
+    // The LAYOUT half of tensor parallelism works: `tp_rank`/`tp_size` reach
+    // `cuda_storage_target`, so a rank compiles a plan that reads only its own
+    // bands, and `store::kv_geometry` divides the cache the same way. A rank
+    // therefore holds a SHARD of every projection.
+    //
+    // The COLLECTIVE that puts the shards back together does not exist. The
+    // three `comm::`/`dist::` all-reduce rows are declared in
+    // `kernels-cuda/src/gemm.rs` and no launch reaches them; there is no NCCL
+    // in this tree and no `CustomAllReduce` handle to pass. So a rank that
+    // accepted `tp_size > 1` would run its own shard, skip the reduction, and
+    // return an answer that is a fraction of the real one -- with no error
+    // anywhere, which is the worst failure a driver has.
+    //
+    // Silence is the bug. Until a collective lands, this is a refusal.
+    if tp_size > 1 {
+        eprintln!(
+            "[driver-cuda-new] create: [driver] tp_size = {tp_size} is refused. \
+             This driver shards a rank's WEIGHTS and its KV cache correctly, and \
+             has no all-reduce to combine the shards -- so serving would return \
+             one rank's partial answer as if it were the whole one. See \
+             .wiki/new-driver/next.md, Priority 3."
+        );
+        return std::ptr::null_mut();
+    }
     let boxed = Box::new(Shell {
         caps: CAPS_JSON.as_bytes().to_vec(),
         boot_descriptor,

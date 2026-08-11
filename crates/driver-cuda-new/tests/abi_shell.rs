@@ -74,6 +74,45 @@ fn fire_and_wait(
 
 
 
+
+/// A tensor-parallel group of more than one is REFUSED, not served wrongly.
+///
+/// The layout half works — a rank compiles a plan that reads only its own
+/// bands, and the KV cache is divided the same way — so a rank holds a shard
+/// of every projection. The collective that adds the shards back together does
+/// not exist: the three all-reduce rows are declared and no launch reaches
+/// them.
+///
+/// A driver that accepted the group would run its own shard, skip the
+/// reduction, and return a fraction of the real answer with no error anywhere.
+/// That is worse than not starting, which is what this pins.
+#[test]
+fn a_tensor_parallel_group_is_refused_rather_than_answered_wrongly() {
+    use driver_api::local::PieBytes;
+
+    let _gpu = gpu_guard();
+    let boot = "[driver]\ntp_size = 2\n";
+    let desc = PieDriverCreateDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+        ..Default::default()
+    };
+    let d = unsafe { driver_cuda_new::abi_shell::pie_cuda_create(&desc, std::ptr::null_mut()) };
+    assert!(d.is_null(), "tp_size = 2 must refuse; there is no all-reduce to serve it");
+
+    // And one rank still boots, so the refusal is about the GROUP and not
+    // about the keys being present.
+    let solo = "[driver]\ntp_size = 1\n";
+    let desc = PieDriverCreateDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        config_bytes: PieBytes { ptr: solo.as_ptr(), len: solo.len() },
+        ..Default::default()
+    };
+    let d = unsafe { driver_cuda_new::abi_shell::pie_cuda_create(&desc, std::ptr::null_mut()) };
+    assert!(!d.is_null(), "one rank is the served configuration");
+    unsafe { driver_cuda_new::abi_shell::pie_cuda_destroy(d) };
+}
+
 /// The cached Qwen3-0.6B snapshot and its generated descriptor, or `None`.
 fn qwen3_fixture() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     let home = std::env::var("HOME").ok()?;
