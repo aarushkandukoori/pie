@@ -105,6 +105,14 @@ struct Shell {
     /// flag is parsed and nothing acts on it until the fire path refuses.
     #[allow(dead_code)]
     calibrating: bool,
+    /// The CUDA device ordinal this driver binds, from `[driver] device`.
+    ///
+    /// It was hardwired to 0 in both places that bind, which is wrong on any
+    /// box with more than one GPU: an operator who asks for device 1 gets
+    /// device 0 and no diagnostic. A rank of a tensor-parallel group would
+    /// need one per rank; that is refused for other reasons, so this is the
+    /// single-device answer and honest about being one.
+    device_ordinal: i32,
     /// This driver's place in its tensor-parallel group, from
     /// `[driver] tp_rank` / `tp_size`. One rank, rank zero, unless told
     /// otherwise — and the two numbers travel together into both the load
@@ -826,8 +834,26 @@ pub fn pie_cuda_create(
         .get("driver")
         .and_then(|d| d.get("calibrate_planner")?.as_bool())
         .unwrap_or(false);
+    let device_ordinal = boot
+        .get("driver")
+        .and_then(|d| d.get("device")?.as_integer())
+        .and_then(|v| i32::try_from(v).ok())
+        .unwrap_or(0);
     let tp_size = driver_u32("tp_size", 1).max(1);
     let tp_rank = driver_u32("tp_rank", 0).min(tp_size - 1);
+    // BIND THE DEVICE HERE, on the thread that will fire.
+    //
+    // `cudaSetDevice` is per-THREAD, so binding it only inside `load_model`
+    // would leave every later call on whatever device the thread last had --
+    // which is device 0, which is why the hardwiring was invisible. Doing it
+    // at create is what makes `[driver] device` mean anything.
+    if let Err(e) = crate::cuda::Device::bind(device_ordinal) {
+        eprintln!(
+            "[driver-cuda-new] create: cannot bind CUDA device {device_ordinal}: {e}"
+        );
+        return std::ptr::null_mut();
+    }
+
     // A GROUP OF MORE THAN ONE IS REFUSED, and refusing is the whole point.
     //
     // The LAYOUT half of tensor parallelism works: `tp_rank`/`tp_size` reach
@@ -861,6 +887,7 @@ pub fn pie_cuda_create(
         cublas: None,
         lowerings: std::collections::BTreeMap::new(),
         calibrating,
+        device_ordinal,
         preds: None,
         peel_win: None,
         logits_staging: None,
@@ -1158,7 +1185,8 @@ fn capabilities_json(state: &mut Shell, snapshot: &std::path::Path) -> Result<Ve
     let hf = model.hf.clone();
     let hf = &hf;
     let model_tp = model.tp_size;
-    let device = crate::cuda::Device::bind(0).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+    let device =
+        crate::cuda::Device::bind(state.device_ordinal).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
     let (free, total) = device.memory_info().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
     let (major, minor) = device.compute_capability().unwrap_or((0, 0));
     let cfg = PlannerConfig {
@@ -1425,7 +1453,7 @@ fn adopt_and_compile(
     // guessing an architecture would produce a cubin for the wrong GPU
     // rather than a diagnostic.
     if plan.executable && state.model.is_some() {
-        let target = ptir_target()?;
+        let target = ptir_target(state.device_ordinal)?;
         let versions = driver::Versions::mirrored(desc.emitter_version);
         match state
             .ptir
@@ -1494,8 +1522,8 @@ fn adopt_and_compile(
 /// version — is a `dlopen`'d call the loader has already resolved by the
 /// second registration. Caching it would trade nothing for a field that
 /// can go stale against a runtime swap.
-fn ptir_target() -> Result<crate::ptir::Target, i32> {
-    let device = crate::cuda::Device::bind(0).map_err(|error| {
+fn ptir_target(ordinal: i32) -> Result<crate::ptir::Target, i32> {
+    let device = crate::cuda::Device::bind(ordinal).map_err(|error| {
         eprintln!("[driver-cuda-new] register_program: no device to compile for: {error}");
         PIE_STATUS_DRIVER_ERROR
     })?;
