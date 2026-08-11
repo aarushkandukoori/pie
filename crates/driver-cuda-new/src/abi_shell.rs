@@ -1023,9 +1023,10 @@ fn wire_trace_names(model: &mut LoadedModel) {
 /// here rather than hidden in a constant.
 fn capabilities_json(model: &LoadedModel, snapshot: &std::path::Path) -> Result<Vec<u8>, i32> {
     use crate::store::memory_planner::{
-        DeviceMemory, DeviceProps, Family, ModelCosts, ModelShape, NoProfiles, PlannerConfig, plan,
+        DeviceMemory, DeviceProps, Family, ModelCosts, ModelShape, NoProfiles, PlannerConfig,
+        ProfileSource, plan,
     };
-    use crate::store::model_costs::CheckpointCosts;
+    use crate::store::model_costs::{CheckpointCosts, DiskProfiles};
 
     let hf = &model.hf;
     let device = crate::cuda::Device::bind(0).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
@@ -1069,7 +1070,14 @@ fn capabilities_json(model: &LoadedModel, snapshot: &std::path::Path) -> Result<
     };
     // MEASURED AFTER THE WEIGHTS ARE RESIDENT, so `cudaMemGetInfo`'s free
     // figure already has them subtracted and the budget is what is left.
-    let planned = plan(&cfg, &shape, &props, mem, Family::Generic, &costs, &NoProfiles)
+    // A MEASUREMENT BEATS THE SCORE, when there is one. `DiskProfiles` reads
+    // the cache a calibration boot writes; a machine that has never
+    // calibrated has no file, which is a miss and not an error, and the
+    // planner falls back to the analytic pick. `NoProfiles` is the honest
+    // stand-in when no cache directory can even be derived.
+    let disk = DiskProfiles::discover("").ok();
+    let profiles: &dyn ProfileSource = disk.as_ref().map_or(&NoProfiles, |d| d);
+    let planned = plan(&cfg, &shape, &props, mem, Family::Generic, &costs, profiles)
         .map_err(|e| {
             eprintln!("[driver-cuda-new] load_model: memory planner: {e:?}");
             PIE_STATUS_EXHAUSTED

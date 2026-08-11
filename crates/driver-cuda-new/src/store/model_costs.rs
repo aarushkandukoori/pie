@@ -276,3 +276,39 @@ mod tests {
         assert!(b < 1 << 20, "and it is kilobytes, not megabytes");
     }
 }
+
+/// The planner's read side of the on-disk profile cache.
+///
+/// [`ProfileSource`](super::memory_planner::ProfileSource) is a trait so the
+/// lattice can be verified without a file on disk; this is the one that reads
+/// the real file. A cache that is missing, unreadable or written at a schema
+/// version this build does not know degrades to "no measurement", which is
+/// what [`Lookup`](super::profile_cache::Lookup) already expresses and what
+/// the planner already handles: it falls back to the analytic score.
+pub struct DiskProfiles {
+    cache: super::profile_cache::ProfileCache,
+}
+
+impl DiskProfiles {
+    /// The cache at the configured directory, or wherever `cache_path`
+    /// derives from the environment.
+    ///
+    /// # Errors
+    ///
+    /// No cache directory could be derived.
+    pub fn discover(configured_dir: &str) -> Result<Self, super::profile_cache::StoreError> {
+        Ok(Self {
+            cache: super::profile_cache::ProfileCache::discover(configured_dir)?,
+        })
+    }
+}
+
+impl super::memory_planner::ProfileSource for DiskProfiles {
+    fn lookup(&self, key: &super::profile_key::ProfileKey) -> super::memory_planner::ProfileRead {
+        self.cache.lookup(key).into()
+    }
+
+    fn path(&self) -> String {
+        self.cache.path().display().to_string()
+    }
+}
