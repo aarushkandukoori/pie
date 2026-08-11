@@ -7,7 +7,7 @@ set -euo pipefail
 # Run from the repo root: bash ios/demo-app/build-app.sh
 PIE=.
 APPDIR=target/PieDemo.app
-SHIMLIB=$PIE/ios/pie-shim/target/aarch64-apple-ios-sim/debug
+SHIMLIB=$PIE/ios/pie-shim/target/aarch64-apple-ios-sim/release
 
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR"
