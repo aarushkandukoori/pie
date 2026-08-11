@@ -2685,7 +2685,7 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
     ctx: &crate::model::executor::DispatchCtx,
     regions: crate::model::executor::AttnRegions<'_>,
     gdn: Option<&crate::model::executor::GdnCtx>,
-    alloc: &crate::cuda::Allocator,
+    alloc: &mut crate::cuda::Allocator,
     stream: crate::cuda::StreamRef<'_>,
     requests: usize,
     rows: usize,
@@ -2704,7 +2704,7 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
 
     // The fire's own bits, and the only thing that differs between two
     // replays of one exec.
-    let mut preds = match crate::cuda::PredicateWord::new(alloc) {
+    let mut preds = match crate::cuda::PredicateWord::new(&*alloc) {
         Ok(p) => p,
         Err(_) => return run(lowered, dplan, frame, resolver, ctx, regions, gdn),
     };
@@ -2747,8 +2747,16 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
     }
 
     let captured = {
-        let mut a = crate::cuda::Allocator::new();
-        let Ok(scope) = a.begin_capture(stream) else {
+        // THE CAPTURE OPENS ON THE FIRE'S OWN ALLOCATOR, and it used to open
+        // on a throwaway one made right here. That looked harmless — nothing
+        // allocates during a capture — but the flag it raises is what makes a
+        // `cudaFree` DEFER, and the deferral has to happen on the allocator
+        // that OWNS the buffer. A temporary dropped inside `run_captured`
+        // therefore freed immediately, in the middle of an open stream
+        // capture, and the graph that came out faulted when it was destroyed.
+        //
+        // Phi-3's decode found it, because no decode had ever been captured.
+        let Ok(scope) = alloc.begin_capture(stream) else {
             return run(lowered, dplan, frame, resolver, ctx, regions, gdn);
         };
         let mut b = crate::cuda::SupergraphBuilder::new(scope.stream(), &preds);
@@ -2770,9 +2778,28 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
         // and the same one the C++ arc gives mixed peels: what cannot be
         // replayed stays eager. The alternative — failing the fire — would
         // make an optimisation into a correctness requirement.
-        match (ran, scope.end()) {
+        let ended = scope.end();
+        sg_trace(|| format!("capture ran={ran:?} ended_ok={}", ended.is_ok()));
+        match (ran, ended) {
             (Ok(n), Ok(g)) => Some((n, g)),
-            (Err(_) | Ok(_), _) => None,
+            (Err(_) | Ok(_), Ok(g)) => {
+                // AN ABANDONED CAPTURE IS NOT DESTROYED, it is forgotten.
+                //
+                // A run that refused part-way leaves a recording whose nodes
+                // the builder has already dropped, and `cudaGraphDestroy` on
+                // that faults inside the CUDA driver — no device error, a
+                // host segfault. Found through phi-3, where an unservable
+                // arm made every decode capture abandon.
+                //
+                // Leaking one graph template per abandoned capture is the
+                // cheaper wrong answer: captures are per (bucket, epoch) and
+                // a refusal is meant to be rare. The refusals that are NOT
+                // rare belong in the servability test above, which is where
+                // phi-3's went.
+                std::mem::forget(g);
+                None
+            }
+            (Err(_) | Ok(_), Err(_)) => None,
         }
     };
     let Some((ran, graph)) = captured else {
@@ -2949,7 +2976,15 @@ fn step_impl(
         // because every arm is present and the neighbour belongs to some
         // other body. A deployment that states its attention as [q, o]
         // records no output in the join and has only the neighbour.
-        let servable = !lowered.kernels.iter().any(|k| k.contains("_capture"))
+        // `_custom` joins `_capture`, and for the same reason. A
+        // custom-MASK dispatch wants a mask the fire did not build, and
+        // under `Union` both arms are present whether or not this fire
+        // takes them — so the capture runs the one that cannot run and the
+        // whole recording is abandoned. Phi-3's decode is the live case.
+        let servable = !lowered
+            .kernels
+            .iter()
+            .any(|k| k.contains("_capture") || k.contains("_custom"))
             && {
                 let name = if lowered
                     .kernels
@@ -3596,13 +3631,18 @@ fn step_impl(
 
     let mut resolver = LiveResolver { model, named: &named_bufs };
     let regions = AttnRegions::whole(Some(&attn));
+    // The last use of `alloc` is above, so the shared borrow is dead and the
+    // capture can take the same allocator mutably — which is the point: a
+    // capture has to be opened on the allocator that owns what the fire
+    // frees, or the frees are not deferred.
+    let capture_alloc = state.fire_alloc.as_mut().expect("the fire allocator exists");
     let result = if union {
         capture_or_replay(
             &mut state.supergraph,
             state.fire_arrays.epoch,
             u64::from(model.hf.num_hidden_layers.unsigned_abs()),
             &plan, &fire_rows, &lowered, &dplan, exec_frame, &mut resolver, &ctx,
-            regions, gdn_ctx.as_ref(), &alloc, stream.as_ref(), requests, rows, class,
+            regions, gdn_ctx.as_ref(), capture_alloc, stream.as_ref(), requests, rows, class,
         )
     } else {
         run(&lowered, &dplan, exec_frame, &mut resolver, &ctx, regions, gdn_ctx.as_ref())

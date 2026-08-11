@@ -251,7 +251,9 @@ impl DispatchPlan {
             //
             // So the line stays out until (2) is understood. See
             // `.wiki/new-driver/next.md`.
-            if let OpKind::Guard { arms, else_ops } = &op.kind {
+            if let OpKind::Guard { arms, else_ops } = &op.kind
+                && !op.outputs.is_empty()
+            {
                 let span = arms.iter().map(|a| a.ops as usize).sum::<usize>()
                     + *else_ops as usize;
                 for slot in guard_of.iter_mut().skip(g + 1).take(span) {
