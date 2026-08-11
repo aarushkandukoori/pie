@@ -119,18 +119,22 @@ pub static KERNELS: &[KernelSig] = &[
     // advances it with a scalar `dA` from a per-token `dt` -- a selective
     // scan, not a delta rule. A different state SHAPE, which is why none of
     // the GDN or KDA rows stand in for it.
+    // Every extent comes off an operand, which is unusual for this
+    // module: a three-way cut states all three destinations, so the
+    // widths that say where the cuts fall are the results' own. Nothing
+    // here needs the GDN context that blocks the rest of `ssm`.
     kernel!(nemotron_mamba_split "ssm::nemotron_mamba_split_bf16",
         operands = operands![
-            projected: Buf,
-            gate: BufMut,
-            conv_in: BufMut,
-            dt: BufMut,
-            n: I32,
-            projection_dim: I32,
-            intermediate: I32,
-            conv_dim: I32,
-            num_heads: I32,
-            stream: Stream,
+            projected: Buf <- Source::In(0),
+            gate: BufMut <- Source::Out(0),
+            conv_in: BufMut <- Source::Out(1),
+            dt: BufMut <- Source::Out(2),
+            n: I32 <- Source::Rows,
+            projection_dim: I32 <- Source::InWidth(0),
+            intermediate: I32 <- Source::OutWidth(0),
+            conv_dim: I32 <- Source::OutWidth(1),
+            num_heads: I32 <- Source::OutWidth(2),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     kernel!(nemotron_prepare_mamba_params "ssm::nemotron_prepare_mamba_params",
         operands = operands![

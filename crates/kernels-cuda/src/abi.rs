@@ -457,6 +457,9 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         Source::In(i) => format!("b.args[{i}].ptr"),
         Source::Out(i) => format!("b.args[n_in + {i}].ptr"),
         Source::Weight(i) => format!("b.args[n_in + n_out + {i}].ptr"),
+        // Resolved ONCE before the match, so the guard below can test it
+        // and so a branch does not re-look-up a name per launch.
+        Source::WeightNamed => "w_named".to_string(),
         Source::Param(i) => format!("i32::try_from(spec.params[{i}]).unwrap_or(0)"),
         Source::ParamF32(i) => format!("f32::from_bits(spec.params[{i}])"),
         // Rows times a param — the MoE aligned path's route count, and
@@ -699,6 +702,13 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
         ));
         if need_ps > 0 {
             guard.push_str(&format!(" && spec.params.len() >= {need_ps}"));
+        }
+        // A NAME THE STORE LACKS IS DRIFT, not absence, and the right
+        // answer is the hand arm's `UnknownWeight` rather than a null
+        // bound into a kernel. So the branch declines and says nothing;
+        // the fallthrough is what reports.
+        if k.operands.iter().any(|o| o.source == Source::WeightNamed) {
+            guard.push_str(" && !w_named.is_null()");
         }
         // A field a family zeroes to say "not mine" — and a divisor,
         // which is the same test for a different reason: a width divided

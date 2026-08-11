@@ -627,6 +627,23 @@ pub enum Source {
     /// The `i`-th weight the statement NAMES, resolved through the
     /// binder.
     Weight(u8),
+    /// The weight the statement names on `spec.weight` — a NAME the
+    /// binder resolves, not a slot in the argument run.
+    ///
+    /// The other spelling, and both are live. A weight reaches a launch
+    /// two ways: as an operand the trace placed in the run, which is
+    /// [`Source::Weight`], or as the statement's own named weight, which
+    /// is this. `layout::embed_bf16` only ever has the second — a vocab
+    /// table is not something a trace produces — and it is the first
+    /// launch of every fire.
+    ///
+    /// The cost this admits is that a generated branch now needs the
+    /// RESOLVER, which is the one thing it had been able to do without.
+    /// The resolve happens once before the match rather than inside a
+    /// branch, so the guard can test it: a name the store lacks is
+    /// DRIFT, and declining to a hand arm that will say
+    /// `UnknownWeight` is a better answer than binding null.
+    WeightNamed,
     /// The `i`-th scalar the statement carries (`Launch`'s params).
     Param(u8),
     /// The KEY pages of the layer this statement runs in.

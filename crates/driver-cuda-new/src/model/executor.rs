@@ -985,10 +985,11 @@ pub enum DispatchRefusal {
 /// tables the shim and the bindings come from — one read of one table in
 /// one build script, so the three cannot disagree with each other.
 #[cfg(feature = "bridge")]
-fn dispatch_generated(
+fn dispatch_generated<R: Resolver>(
     b: &BoundLaunch<'_>,
     spec: &LaunchSpec,
     ctx: &DispatchCtx,
+    resolver: &mut R,
     rows: i32,
 ) -> bool {
     // What a generated branch may read about an operand: its row width,
@@ -1118,6 +1119,18 @@ fn dispatch_generated(
 
     let n_in = spec.n_in;
     let n_out = spec.n_out;
+    // `Source::WeightNamed`'s resolve, done ONCE and before the match so
+    // that a branch's guard can test it. Null when the statement names no
+    // weight OR when the store lacks the name — the two are different
+    // situations and the same answer here, because the branch declines in
+    // both and the hand arm below reports the second as `UnknownWeight`.
+    // A `None` from the resolver is DRIFT, not absence, and saying so is
+    // the fallthrough's job.
+    let w_named: *const c_void = spec
+        .weight
+        .as_deref()
+        .and_then(|n| resolver.weight(n))
+        .unwrap_or(core::ptr::null());
     include!(concat!(env!("OUT_DIR"), "/rust_dispatch.rs"))
 }
 
@@ -1153,7 +1166,7 @@ pub fn dispatch<R: Resolver>(
     // needs no arm, and the branch for it is emitted from the row — so
     // the hand-written match below is what is LEFT, not what is normal.
     // It shrinks as rows state their sources, which is a row's work.
-    if dispatch_generated(bound, spec, ctx, rows) {
+    if dispatch_generated(bound, spec, ctx, resolver, rows) {
         return Ok(());
     }
 
@@ -1223,24 +1236,6 @@ pub fn dispatch<R: Resolver>(
     };
 
     match bound.kernel {
-        // args: [y]. The token ids are the fire's input and the weight is
-        // the op's — both context, neither an arg.
-        "layout::embed_bf16" => {
-            need(1)?;
-            let y = bound.args[0];
-            let w = weight(resolver)?;
-            unsafe {
-                ffi::pie_k_layout_embed_bf16(
-                    ctx.token_ids.cast_const().cast(),
-                    w,
-                    y.ptr,
-                    rows,
-                    i32::try_from(y.width).expect("hidden fits i32"),
-                    ctx.vocab,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [table]; positions are the fire's.
         "rope::rope_standard_table" => {
             need(1)?;
@@ -1714,23 +1709,6 @@ pub fn dispatch<R: Resolver>(
         // rows already state their sources; staging is the whole
         // difference, and it is `stage_d2d` in both.
 
-        // args: [x, out] — out = x + bias, the bias being the op's weight.
-        // The kernel is in-place, so: stage x→out, add.
-        "norm::add_bias_bf16" => {
-            need(2)?;
-            let (x_in, out_arg) = (bound.args[0], bound.args[1]);
-            let w = weight(resolver)?;
-            stage_d2d(ctx, &bound.rows, out_arg, x_in);
-            unsafe {
-                ffi::pie_k_norm_add_bias_bf16(
-                    out_arg.ptr,
-                    w,
-                    rows,
-                    i32::try_from(out_arg.width).expect("dim"),
-                    ctx.stream,
-                );
-            }
-        }
         // args: [packed, padded] / [padded, packed]. What
         // `head_dim_padded` COSTS, for a deployment whose logical head
         // width is not one this build instantiated — phi3's 96 rounding
@@ -2382,28 +2360,6 @@ pub fn dispatch<R: Resolver>(
                     rows,
                     i32::try_from(x.width).expect("hidden fits i32"),
                     ctx.eps,
-                    ctx.stream,
-                );
-            }
-        }
-        // ── nemotron_h's arms ────────────────────────────────────────
-        // args: [packed, gate, conv_in, dt] — the in-projection's three
-        // riders, split out. Every dim is an arg's width.
-        "ssm::nemotron_mamba_split_bf16" => {
-            need(4)?;
-            let (packed, gate, conv_in, dt) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            unsafe {
-                ffi::pie_k_ssm_nemotron_mamba_split_bf16(
-                    packed.ptr.cast_const(),
-                    gate.ptr,
-                    conv_in.ptr,
-                    dt.ptr,
-                    rows,
-                    i32::try_from(packed.width).expect("width"),
-                    i32::try_from(gate.width).expect("width"),
-                    i32::try_from(conv_in.width).expect("width"),
-                    i32::try_from(dt.width).expect("width"),
                     ctx.stream,
                 );
             }

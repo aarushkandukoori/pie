@@ -112,14 +112,31 @@ pub static DRIVER_KERNELS: &[KernelSig] = &[
     // and the executor binds it to `gemm::act_x_wt_bf16` — which
     // `gemm.hpp` defines as `act_x_w` with `WeightView::raw(W, BF16)`,
     // the one view the dense arm ever built.
+    // The first launch of every fire, and the row that forced
+    // `WeightNamed`: a vocab table is not something a trace produces, so
+    // the embedding's weight is only ever the statement's own NAME and
+    // never a slot in the argument run.
     kernel!(embed "layout::embed_bf16",
         operands = operands![
-            token_ids: I32s, weight: Buf, y: BufMut,
-            num_tokens: I32, hidden: I32, vocab: I32, stream: Stream,
+            token_ids: I32s <- Source::Ctx("token_ids"),
+            weight: Buf <- Source::WeightNamed,
+            y: BufMut <- Source::Out(0),
+            num_tokens: I32 <- Source::Rows,
+            hidden: I32 <- Source::OutWidth(0),
+            vocab: I32 <- Source::Ctx("vocab"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
-    kernel!(add_bias "norm::add_bias_bf16",
+    // In place over the value it biases — one operand, one result, the
+    // same bytes — so `out` binds from `Out(0)` and the staging comes off
+    // the pair. The bias is the statement's named weight, like the
+    // embedding's table.
+    kernel!(add_bias "norm::add_bias_bf16", in_place = &[(0, 0)],
         operands = operands![
-            out: BufMut, bias: Buf, num_rows: I32, dim: I32, stream: Stream,
+            out: BufMut <- Source::Out(0),
+            bias: Buf <- Source::WeightNamed,
+            num_rows: I32 <- Source::Rows,
+            dim: I32 <- Source::OutWidth(0),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // qwen3_5's four, all read off a semantic kind the same way. They
     // arrived together because the family's declaration stopped naming
