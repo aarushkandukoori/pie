@@ -160,6 +160,20 @@ jobs:
       - name: kernel table (every symbol carries its family)
         run: cargo test -p model --features forward --test kernels_table
 
+      # The SEAM between the two vocabularies that name the same tensors:
+      # the trace names a forward pass invents, and the published names a
+      # load contract invents. `weight_names::wire()` is the only bridge,
+      # and it fails SILENTLY by construction -- `Wiring::alias` records a
+      # row only if the name was published, so a name the contract never
+      # published is dropped with no diagnostic and surfaces one at a time
+      # at FIRE time as `UnknownWeight`. Detecting drift one request too
+      # late is what this moves to CI.
+      #
+      # It needs `contract` as well as `forward` because it reaches the
+      # descriptor schema `HfConfig` lives in.
+      - name: weight-name seam (a trace name a checkpoint can never answer)
+        run: cargo test -p model --features forward,contract --test seam_names
+
       # driver-cuda-new is excluded from the two sweeps above because it has no
       # default feature and refuses to build until one of `cuda-12` / `cuda-13`
       # is chosen. That is deliberate: the CUDA runtime API is not ABI-stable
