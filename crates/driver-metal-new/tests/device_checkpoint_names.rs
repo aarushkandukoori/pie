@@ -284,9 +284,16 @@ fn check_one_snapshot(dir: &std::path::Path) {
     // text states is one this checkpoint's shape actually asks for.
     let model_facts = driver_metal_new::facts::ModelFacts::from_descriptor(&descriptor)
         .expect("the descriptor states the model's facts");
-    let Ok(geometry) = driver_metal_new::batch::geometry_from_facts(&model_facts) else {
-        eprintln!("    SKIP: no decodable shape (an architecture no text serves)");
-        return;
+    // A refusal is a FINDING and not a skip. The message says which fact the
+    // geometry could not express, and swallowing it is how a checkpoint stops
+    // being covered without anyone noticing -- the gate keeps passing and one
+    // fewer model is held to it.
+    let geometry = match driver_metal_new::batch::geometry_from_facts(&model_facts) {
+        Ok(g) => g,
+        Err(why) => {
+            eprintln!("    SKIP: the geometry refuses this checkpoint -- {}", why.0);
+            return;
+        }
     };
     // Which weights the plan leaves in MXFP4, asked the same way the seam
     // asks it. Without this the text states an AFFINE routed projection at
