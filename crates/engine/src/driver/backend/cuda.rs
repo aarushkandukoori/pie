@@ -15,9 +15,20 @@ use crate::driver::instance::{BoundInstance, InstanceBindingPlan};
 use crate::driver::submission::FrameSubmission;
 use driver_abi::{
     PieBytes, PieChannelEndpointBinding, PieDriver, PieDriverCaps, PieDriverCreateDesc,
-    PieModelLoadDesc, pie_cuda_bind_instance, pie_cuda_close_channel, pie_cuda_close_instance,
-    pie_cuda_copy_kv, pie_cuda_copy_state, pie_cuda_create, pie_cuda_destroy, pie_cuda_encode,
-    pie_cuda_launch, pie_cuda_load_model, pie_cuda_register_channel, pie_cuda_register_program,
+    PieModelLoadDesc,
+};
+// THE DRIVER'S OWN FUNCTIONS, called directly.
+//
+// These used to arrive through an `unsafe extern "C"` block declaring thirteen
+// `pie_cuda_*` symbols, which the linker resolved against this same workspace.
+// Both sides were Rust: the declaration existed because the driver on the far
+// side used to be C++, and it outlived it. A Rust crate calling a Rust crate
+// through a C linkage gets no type checking across the call, no lifetimes, and
+// a `*mut PieDriver` where a `&mut Shell` would do.
+use driver_cuda_new::abi_shell::{
+    pie_cuda_bind_instance, pie_cuda_close_channel, pie_cuda_close_instance, pie_cuda_copy_kv,
+    pie_cuda_copy_state, pie_cuda_create, pie_cuda_destroy, pie_cuda_encode, pie_cuda_launch,
+    pie_cuda_load_model, pie_cuda_register_channel, pie_cuda_register_program,
     pie_cuda_resize_pool,
 };
 

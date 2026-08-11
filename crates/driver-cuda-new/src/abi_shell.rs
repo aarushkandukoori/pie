@@ -718,8 +718,7 @@ fn shell(driver: *mut PieDriver) -> Option<&'static mut Shell> {
 
 /// Create the driver. Refuses a null descriptor or a mismatched ABI
 /// version by returning null, as the C++ shell does.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_create(
+pub fn pie_cuda_create(
     desc: *const PieDriverCreateDesc,
     caps: *mut PieDriverCaps,
 ) -> *mut PieDriver {
@@ -803,8 +802,7 @@ pub extern "C" fn pie_cuda_create(
 }
 
 /// Tear the driver down. Null is a no-op, as everywhere in the ABI.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_destroy(driver: *mut PieDriver) {
+pub fn pie_cuda_destroy(driver: *mut PieDriver) {
     if !driver.is_null() {
         let mut shell = unsafe { Box::from_raw(driver.cast::<Shell>()) };
         for ch in shell.channels.values() {
@@ -836,8 +834,7 @@ pub extern "C" fn pie_cuda_destroy(driver: *mut PieDriver) {
 ///
 /// Still awaited here: quantized encodings (refused, not mis-loaded),
 /// the memory plan, and KV materialization — those land with `launch`.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_load_model(
+pub fn pie_cuda_load_model(
     driver: *mut PieDriver,
     load: *const PieModelLoadDesc,
     caps: *mut PieDriverCaps,
@@ -1227,8 +1224,7 @@ fn capabilities_json(state: &mut Shell, snapshot: &std::path::Path) -> Result<Ve
 /// will run the code, never a guess — so a shell with no model loaded has
 /// not bound one yet and defers the compile to the first launch rather
 /// than compiling for an architecture it made up.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_register_program(
+pub fn pie_cuda_register_program(
     driver: *mut PieDriver,
     program: *const PieProgramDesc,
     program_id: *mut u64,
@@ -1391,8 +1387,7 @@ fn ptir_target() -> Result<crate::ptir::Target, i32> {
 /// the wire-cell math reproduced exactly (bool bit-packs, everything
 /// else is four bytes per element; `capacity + 1 ≤ 64`). Device-side
 /// rings and fire delivery ride with the launch integration.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_register_channel(
+pub fn pie_cuda_register_channel(
     driver: *mut PieDriver,
     channel: *const PieChannelDesc,
     binding: *mut PieChannelEndpointBinding,
@@ -1484,8 +1479,7 @@ pub extern "C" fn pie_cuda_register_channel(
 /// Bind an instance to a registered program: the id lifecycle, honoring
 /// a nonzero `requested_instance_id` and echoing the geometry class.
 /// KV-slot and adapter state ride in with the `launch` arm.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_bind_instance(
+pub fn pie_cuda_bind_instance(
     driver: *mut PieDriver,
     instance: *const PieInstanceDesc,
     binding: *mut PieInstanceBinding,
@@ -1538,8 +1532,7 @@ pub extern "C" fn pie_cuda_bind_instance(
 /// frames, device-geometry sub-batches and channel-delivered outputs
 /// refuse with UNSUPPORTED until their machinery lands — logits stay in
 /// the shell until channels exist to carry them out.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_launch(
+pub fn pie_cuda_launch(
     driver: *mut PieDriver,
     frame: *const PieFrameDesc,
     completion: PieCompletion,
@@ -4244,8 +4237,7 @@ fn encode_gemma4_audio_arm(
 /// The MULTIMODAL encode: image/audio media in, embedding rows out —
 /// the towers behind `vision::gemma4_*_encode`. One media kind per call
 /// today; mixed batches await the offset plumbing.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_encode(
+pub fn pie_cuda_encode(
     driver: *mut PieDriver,
     encode: *const PieEncodeDesc,
     completion: PieCompletion,
@@ -4443,8 +4435,7 @@ pub extern "C" fn pie_cuda_encode(
 /// moves through the bridged `copy_kv_cells_bf16`. Host-pinned domains
 /// refuse until the swap pool wires in — a swap, not a copy, and its
 /// store is ported but not yet mounted here.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_copy_kv(
+pub fn pie_cuda_copy_kv(
     driver: *mut PieDriver,
     copy: *const PieKvCopyDesc,
     completion: PieCompletion,
@@ -4666,8 +4657,7 @@ pub extern "C" fn pie_cuda_copy_kv(
 /// (`context.cpp` ignores the token fields — those ride for the rs
 /// BUFFER pool, spec-decode machinery). Slot ids are the engine's; the
 /// slabs grow with migration to cover them.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_copy_state(
+pub fn pie_cuda_copy_state(
     driver: *mut PieDriver,
     copy: *const PieStateCopyDesc,
     _completion: PieCompletion,
@@ -4738,8 +4728,7 @@ pub extern "C" fn pie_cuda_copy_state(
 /// drop the tail; `map_ranges`/`unmap_ranges` (the elastic-VMM form) are
 /// accepted but the shell's pools are plain allocations, so the target
 /// page count is the whole contract here — stated, not hidden.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_resize_pool(
+pub fn pie_cuda_resize_pool(
     driver: *mut PieDriver,
     resize: *const PiePoolResizeDesc,
     completion: PieCompletion,
@@ -4855,8 +4844,7 @@ pub extern "C" fn pie_cuda_resize_pool(
 
 /// Close an instance — idempotently, the C++'s reading: closing what is
 /// not open is not an error.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_close_instance(driver: *mut PieDriver, instance_id: u64) -> i32 {
+pub fn pie_cuda_close_instance(driver: *mut PieDriver, instance_id: u64) -> i32 {
     let Some(state) = shell(driver) else {
         return PIE_STATUS_INVALID_ARGUMENT;
     };
@@ -4865,8 +4853,7 @@ pub extern "C" fn pie_cuda_close_instance(driver: *mut PieDriver, instance_id: u
 }
 
 /// Close a channel — idempotently, freeing its pinned endpoint.
-#[unsafe(no_mangle)]
-pub extern "C" fn pie_cuda_close_channel(driver: *mut PieDriver, channel_id: u64) -> i32 {
+pub fn pie_cuda_close_channel(driver: *mut PieDriver, channel_id: u64) -> i32 {
     let Some(state) = shell(driver) else {
         return PIE_STATUS_INVALID_ARGUMENT;
     };

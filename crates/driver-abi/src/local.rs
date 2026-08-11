@@ -2775,60 +2775,17 @@ pub fn validate_create_out_params(caps: *mut PieDriverCaps) -> PieAbiValidationR
     validate_mut_ptr(caps, "driver create caps output pointer must be non-null")
 }
 
-unsafe extern "C" {
-    pub fn pie_cuda_create(
-        desc: *const PieDriverCreateDesc,
-        caps: *mut PieDriverCaps,
-    ) -> *mut PieDriver;
-    pub fn pie_cuda_load_model(
-        driver: *mut PieDriver,
-        load: *const PieModelLoadDesc,
-        caps: *mut PieDriverCaps,
-    ) -> i32;
-    pub fn pie_cuda_register_program(
-        driver: *mut PieDriver,
-        program: *const PieProgramDesc,
-        program_id: *mut u64,
-    ) -> i32;
-    pub fn pie_cuda_register_channel(
-        driver: *mut PieDriver,
-        channel: *const PieChannelDesc,
-        binding: *mut PieChannelEndpointBinding,
-    ) -> i32;
-    pub fn pie_cuda_bind_instance(
-        driver: *mut PieDriver,
-        instance: *const PieInstanceDesc,
-        binding: *mut PieInstanceBinding,
-    ) -> i32;
-    pub fn pie_cuda_launch(
-        driver: *mut PieDriver,
-        frame: *const PieFrameDesc,
-        completion: PieCompletion,
-    ) -> i32;
-    pub fn pie_cuda_encode(
-        driver: *mut PieDriver,
-        encode: *const PieEncodeDesc,
-        completion: PieCompletion,
-    ) -> i32;
-    pub fn pie_cuda_copy_kv(
-        driver: *mut PieDriver,
-        copy: *const PieKvCopyDesc,
-        completion: PieCompletion,
-    ) -> i32;
-    pub fn pie_cuda_copy_state(
-        driver: *mut PieDriver,
-        copy: *const PieStateCopyDesc,
-        completion: PieCompletion,
-    ) -> i32;
-    pub fn pie_cuda_resize_pool(
-        driver: *mut PieDriver,
-        resize: *const PiePoolResizeDesc,
-        completion: PieCompletion,
-    ) -> i32;
-    pub fn pie_cuda_close_instance(driver: *mut PieDriver, instance_id: u64) -> i32;
-    pub fn pie_cuda_close_channel(driver: *mut PieDriver, channel_id: u64) -> i32;
-    pub fn pie_cuda_destroy(driver: *mut PieDriver);
-}
+// THE THIRTEEN `pie_cuda_*` DECLARATIONS ARE GONE.
+//
+// They were an `unsafe extern "C"` block, and the linker resolved them
+// against `driver-cuda-new` -- in this same workspace, in Rust. The
+// declaration existed because the driver on the far side used to be C++, and
+// it outlived the C++ by the length of the cutover.
+//
+// A Rust crate calling a Rust crate through a C linkage buys nothing and
+// costs the type system: no checking across the call, no lifetimes, and a
+// `*mut PieDriver` where a `&mut Shell` would do. The engine calls
+// `driver_cuda_new::abi_shell::*` directly now.
 
 unsafe extern "C" {
     pub fn pie_metal_create(
