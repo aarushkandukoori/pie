@@ -73,6 +73,7 @@ fn fire_and_wait(
 }
 
 
+
 /// The cached Qwen3-0.6B snapshot and its generated descriptor, or `None`.
 fn qwen3_fixture() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     let home = std::env::var("HOME").ok()?;

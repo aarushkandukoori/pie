@@ -93,6 +93,18 @@ struct Shell {
     /// reused. The shell's rather than the fire's because a stream
     /// callback may not free it — see `FireDebt::staging`.
     logits_staging: Option<crate::cuda::PinnedBuf>,
+    /// Is this boot MEASURING rather than serving? `[driver]
+    /// calibrate_planner`.
+    ///
+    /// READ BY NOTHING YET, and the reason is recorded in
+    /// `.wiki/new-driver/next.md`: the sweep works — it measures a ladder and
+    /// stores a winner — but only below the shape this driver ADVERTISES,
+    /// because a fire it cannot bind aborts inside a CUDA seam
+    /// (`attention_workspace`'s `assert!` on the runtime status) instead of
+    /// returning one. A probe that cannot fail safely cannot probe, so the
+    /// flag is parsed and nothing acts on it until the fire path refuses.
+    #[allow(dead_code)]
+    calibrating: bool,
     /// This driver's place in its tensor-parallel group, from
     /// `[driver] tp_rank` / `tp_size`. One rank, rank zero, unless told
     /// otherwise — and the two numbers travel together into both the load
@@ -744,6 +756,10 @@ pub extern "C" fn pie_cuda_create(
             .and_then(|v| u32::try_from(v).ok())
             .unwrap_or(default)
     };
+    let calibrating = boot
+        .get("driver")
+        .and_then(|d| d.get("calibrate_planner")?.as_bool())
+        .unwrap_or(false);
     let tp_size = driver_u32("tp_size", 1).max(1);
     let tp_rank = driver_u32("tp_rank", 0).min(tp_size - 1);
     let boxed = Box::new(Shell {
@@ -752,6 +768,7 @@ pub extern "C" fn pie_cuda_create(
         runahead,
         cublas: None,
         lowerings: std::collections::BTreeMap::new(),
+        calibrating,
         preds: None,
         peel_win: None,
         logits_staging: None,
@@ -923,8 +940,11 @@ fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
         tp_size: state.tp_size,
     };
     wire_trace_names(&mut model);
-    model.load_caps = capabilities_json(&model, snapshot)?;
     state.model = Some(model);
+    // AFTER the model is stored, because a calibration boot fires through the
+    // ordinary path and that path reads `state.model`.
+    let caps = capabilities_json(state, snapshot)?;
+    state.model.as_mut().expect("just stored").load_caps = caps;
     Ok(())
 }
 
@@ -1021,14 +1041,17 @@ fn wire_trace_names(model: &mut LoadedModel) {
 /// arena, because the arena is a property of the LOWERING and no fire has
 /// been lowered yet; a fifth is the C++'s own rule of thumb and it is stated
 /// here rather than hidden in a constant.
-fn capabilities_json(model: &LoadedModel, snapshot: &std::path::Path) -> Result<Vec<u8>, i32> {
+fn capabilities_json(state: &mut Shell, snapshot: &std::path::Path) -> Result<Vec<u8>, i32> {
     use crate::store::memory_planner::{
         DeviceMemory, DeviceProps, Family, ModelCosts, ModelShape, NoProfiles, PlannerConfig,
         ProfileSource, plan,
     };
     use crate::store::model_costs::{CheckpointCosts, DiskProfiles};
 
-    let hf = &model.hf;
+    let model = state.model.as_ref().expect("the model is stored");
+    let hf = model.hf.clone();
+    let hf = &hf;
+    let model_tp = model.tp_size;
     let device = crate::cuda::Device::bind(0).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
     let (free, total) = device.memory_info().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
     let (major, minor) = device.compute_capability().unwrap_or((0, 0));
@@ -1043,13 +1066,27 @@ fn capabilities_json(model: &LoadedModel, snapshot: &std::path::Path) -> Result<
         // sizes would have it answer a geometry the driver does not build.
         kv_page_size: 16,
         kv_cache_dtype: "bf16".to_owned(),
-        tp_size: i32::try_from(model.tp_size).unwrap_or(1),
+        tp_size: i32::try_from(model_tp).unwrap_or(1),
         mtp_num_drafts: 0,
+        // FALSE EVEN WHEN CALIBRATING, and the divergence is deliberate.
+        //
+        // `calibrating` makes the planner build the CEILING of the feasible
+        // region — the largest rectangle whose `arena + persistent` fits the
+        // budget — on the reasoning that a bigger arena can run a smaller
+        // shape. That holds when the arena is the only limit. It is not here:
+        // the attention workspace is a FIXED 32 MB the shell allocates, and a
+        // fire wider than it supports fails inside CUDA rather than returning
+        // a status. On an L40S the ceiling is N=65536, whose logits buffer
+        // alone is twenty gigabytes and whose fire aborts.
+        //
+        // So the sweep explores at or below the shape the driver is built to
+        // fire, which is the scored pick. It measures which of the REACHABLE
+        // shapes is fastest — a smaller claim than the C++'s and a true one.
         calibrating: false,
         rs_slot_mult: 1,
         nccl_unique_id_hex: String::new(),
     };
-    let costs = CheckpointCosts::new(hf, model.tp_size);
+    let costs = CheckpointCosts::new(hf, model_tp);
     let shape = ModelShape {
         hidden_size: hf.hidden_size,
         num_hidden_layers: hf.num_hidden_layers,
@@ -3184,7 +3221,7 @@ fn step_impl(
         AttnCtx, AttnRegions, DecodePlan, DispatchCtx, Frame, GdnCtx, PrefillPlan, Resolver,
         run,
     };
-    use model_compiler::lower::{Arg, Fire, GuardMode, Row, lower_with};
+    use model_compiler::lower::{Arg, Row};
     use model_compiler::trace::{FireClass, ValueId};
 
     let t_head = std::time::Instant::now();
