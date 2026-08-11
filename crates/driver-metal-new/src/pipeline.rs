@@ -19,4 +19,8 @@
 //! rename would have made a move that changes no behaviour look like one that
 //! does.
 
-pub use driver_api::*;
+// `driver`, not `driver_api`. The move landed as `crates/driver-pipeline` and
+// then consolidated into `driver`; this file kept pointing at the crate the
+// first draft named, so every one of the twenty-odd `pipeline::` imports in
+// `src/metal/` failed to resolve and the LIBRARY did not build.
+pub use driver::*;
