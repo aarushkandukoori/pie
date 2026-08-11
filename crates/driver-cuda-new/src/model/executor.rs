@@ -2674,21 +2674,6 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [packed, y] — GeGLU over the packed gate‖up bank.
-        "mlp::chunked_geglu_tanh_bf16" => {
-            need(2)?;
-            let (packed, y) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_mlp_chunked_geglu_tanh_bf16(
-                    packed.ptr.cast_const(),
-                    y.ptr,
-                    rows,
-                    i32::try_from(y.width).expect("I fits i32"),
-                    ctx.stream,
-                    ctx.gate_second,
-                );
-            }
-        }
         // args: [x, y] — the weightless per-head V-norm (`v / rms(v)`).
         "norm::rmsnorm_no_scale_bf16" => {
             need(2)?;
@@ -2841,20 +2826,6 @@ pub fn dispatch<R: Resolver>(
                     i32::try_from(gate.width).expect("width"),
                     hidden / g.n_groups.max(1),
                     ctx.eps,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [x, y] — elementwise ReLU²; the total is rows × width
-        // whichever way the shape folded its routes.
-        "mlp::relu2_bf16" => {
-            need(2)?;
-            let (x, y) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_mlp_relu2_bf16(
-                    x.ptr.cast_const(),
-                    y.ptr,
-                    rows * i32::try_from(x.width).expect("width"),
                     ctx.stream,
                 );
             }
@@ -3018,26 +2989,6 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [x, y, W] — a norm over a WINDOW of a wider row: the
-        // strides are the two operands' own widths, which is the whole
-        // reason this kernel is not the plain one.
-        "norm::rmsnorm_strided_bf16" => {
-            need(3)?;
-            let (x, y, w) = (bound.args[0], bound.args[1], bound.args[2]);
-            unsafe {
-                ffi::pie_k_norm_rmsnorm_strided_bf16(
-                    x.ptr.cast_const(),
-                    w.ptr.cast_const(),
-                    y.ptr,
-                    rows,
-                    i32::try_from(y.width).expect("hidden"),
-                    i32::try_from(x.width).expect("x stride"),
-                    i32::try_from(y.width).expect("y stride"),
-                    ctx.eps,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [attn_out, lse, out, W sink] — the sink correction, in
         // place over the dispatch's output (gpt-oss's twin under a
         // different name and a different LSE convention).
@@ -3180,38 +3131,6 @@ pub fn dispatch<R: Resolver>(
                 }
             }
         }
-        // args: [packed, y] — the CHUNKED forms need no aux: one packed
-        // operand in, half-width out.
-        "mlp::chunked_swiglu_clamp_bf16" => {
-            need(2)?;
-            let (packed, y) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_mlp_chunked_swiglu_clamp_bf16(
-                    packed.ptr.cast_const(),
-                    y.ptr,
-                    rows,
-                    i32::try_from(y.width).expect("i"),
-                    ctx.glu_limit,
-                    ctx.stream,
-                );
-            }
-        }
-        "mlp::chunked_situ_bf16" => {
-            need(2)?;
-            let (packed, y) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_mlp_chunked_situ_bf16(
-                    packed.ptr.cast_const(),
-                    y.ptr,
-                    rows,
-                    i32::try_from(y.width).expect("i"),
-                    ctx.situ_beta,
-                    ctx.situ_linear_beta,
-                    ctx.gate_second,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [logits, idx, w] or [logits, idx, w, W bias] — the two
         // bias-capable routers; the bias is null when unstated.
         "moe::topk_sigmoid_bf16" | "moe::topk_sqrtsoftplus_bf16" => {
@@ -3346,35 +3265,6 @@ pub fn dispatch<R: Resolver>(
                     rows,
                     i32::try_from(o_out.width).expect("width") / ctx.head_dim.max(1),
                     ctx.head_dim,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [logits, topk_idx, topk_w] — the plain softmax router.
-        "moe::topk_softmax_bf16" => {
-            need(3)?;
-            let (logits, idx, w) = (bound.args[0], bound.args[1], bound.args[2]);
-            unsafe {
-                ffi::pie_k_moe_topk_softmax_bf16(
-                    logits.ptr.cast_const(),
-                    idx.ptr.cast(),
-                    w.ptr.cast(),
-                    rows,
-                    i32::try_from(logits.width).expect("experts"),
-                    i32::try_from(idx.width).expect("top_k"),
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [in_bf16, out_fp16] — the activation the MXFP4 GEMVs read.
-        "quant::bf16_to_fp16" => {
-            need(2)?;
-            let (src, dst) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_quant_bf16_to_fp16(
-                    src.ptr.cast_const(),
-                    dst.ptr,
-                    rows as usize * src.width as usize,
                     ctx.stream,
                 );
             }
@@ -3577,59 +3467,6 @@ pub fn dispatch<R: Resolver>(
                     rows,
                     i32::try_from(x_out.width).expect("dim"),
                     std_mult,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [in_bf16, out_fp32] — the CORRECT coefficients are one
-        // per stream, so the width IS K.
-        "norm::altup_unpack_correct_coefs" => {
-            need(2)?;
-            let (src, dst) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_norm_altup_unpack_correct_coefs(
-                    src.ptr.cast_const(),
-                    dst.ptr.cast(),
-                    rows,
-                    i32::try_from(src.width).expect("k"),
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [predictions, activated, coefs, corrected] — correct every
-        // stream from the body's result. `h` is the ACTIVATED value's
-        // width (the `[K, …]` values state none); the active index is the
-        // deployment's.
-        "norm::altup_correct_bf16" => {
-            need(4)?;
-            let (preds, activated, coefs, corrected) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            unsafe {
-                ffi::pie_k_norm_altup_correct_bf16(
-                    preds.ptr.cast_const(),
-                    activated.ptr.cast_const(),
-                    coefs.ptr.cast_const().cast(),
-                    corrected.ptr,
-                    i32::try_from(coefs.width).expect("k"),
-                    rows,
-                    i32::try_from(activated.width).expect("hidden"),
-                    ctx.altup_active,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [reference, target_rms_out] — the magnitude the rescale
-        // below restores. `kAltupEps` is the C++'s own constexpr.
-        "norm::compute_rms_bf16" => {
-            need(2)?;
-            let (reference, out) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_norm_compute_rms_bf16(
-                    reference.ptr.cast_const(),
-                    out.ptr.cast(),
-                    rows,
-                    i32::try_from(reference.width).expect("hidden"),
-                    ALTUP_EPS,
                     ctx.stream,
                 );
             }
