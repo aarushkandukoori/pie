@@ -51,6 +51,20 @@ struct Shell {
     /// Does this driver hand its completions to a stream callback and
     /// return with the fire still queued? See `runahead_env`.
     runahead: bool,
+    /// The fire's predicate word, allocated once.
+    ///
+    /// PERSISTENT for two reasons, and the second is correctness. It used to
+    /// be built and dropped inside every `capture_or_replay`, which is a
+    /// `cudaMalloc` and a `cudaFree` per fire — and `cudaFree` SYNCHRONIZES
+    /// THE DEVICE, so the run-ahead the rest of this file is built around was
+    /// being undone by the graph path. It is also the address a captured
+    /// graph BAKES: a word that is freed and reallocated between two replays
+    /// is one whose address the exec has no reason to still be right about.
+    preds: Option<crate::cuda::PredicateWord>,
+    /// The fire's peel-window word, allocated once. Same reasoning as
+    /// [`Shell::preds`]: it was a `cudaMalloc` and a `cudaFree` per fire, and
+    /// `cudaFree` synchronizes the device.
+    peel_win: Option<crate::cuda::PeelWindowWord>,
     /// The pinned host buffer the logits D2H lands in, grown to fit and
     /// reused. The shell's rather than the fire's because a stream
     /// callback may not free it — see `FireDebt::staging`.
@@ -227,8 +241,6 @@ struct InFlight {
     /// the point is that nothing here is read again — it is held only so
     /// that dropping it does not synchronize at the wrong moment.
     scratch: Vec<crate::cuda::DeviceBuffer>,
-    /// The peel window word, which owns its own buffer.
-    peel: Option<crate::cuda::PeelWindowWord>,
 }
 
 /// EVERYTHING A FIRE STILL OWES WHEN ITS WORK IS ENQUEUED.
@@ -661,6 +673,8 @@ pub extern "C" fn pie_cuda_create(
         caps: CAPS_JSON.as_bytes().to_vec(),
         boot_descriptor,
         runahead,
+        preds: None,
+        peel_win: None,
         logits_staging: None,
         tp_rank,
         tp_size,
@@ -2686,6 +2700,7 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
     regions: crate::model::executor::AttnRegions<'_>,
     gdn: Option<&crate::model::executor::GdnCtx>,
     alloc: &mut crate::cuda::Allocator,
+    preds: &mut crate::cuda::PredicateWord,
     stream: crate::cuda::StreamRef<'_>,
     requests: usize,
     rows: usize,
@@ -2703,14 +2718,11 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
     );
 
     // The fire's own bits, and the only thing that differs between two
-    // replays of one exec.
-    let mut preds = match crate::cuda::PredicateWord::new(&*alloc) {
-        Ok(p) => p,
-        Err(_) => return run(lowered, dplan, frame, resolver, ctx, regions, gdn),
-    };
-    if fire_predicates(rows_desc, &lowered.conds, &mut preds).is_err()
+    // replays of one exec. NOT synchronized after: the upload and the replay
+    // are ordered on the same stream, so waiting here only made the call
+    // block on work it had just enqueued.
+    if fire_predicates(rows_desc, &lowered.conds, preds).is_err()
         || preds.upload(stream).is_err()
-        || stream.synchronize().is_err()
     {
         return run(lowered, dplan, frame, resolver, ctx, regions, gdn);
     }
@@ -2759,7 +2771,7 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
         let Ok(scope) = alloc.begin_capture(stream) else {
             return run(lowered, dplan, frame, resolver, ctx, regions, gdn);
         };
-        let mut b = crate::cuda::SupergraphBuilder::new(scope.stream(), &preds);
+        let mut b = crate::cuda::SupergraphBuilder::new(scope.stream(), preds);
         let ran = crate::model::executor::run_captured(
             lowered, dplan, frame, resolver, ctx, regions, gdn, &mut b,
         );
@@ -3029,6 +3041,11 @@ fn step_impl(
     }
     let t_dp = std::time::Instant::now();
     let dplan = DispatchPlan::new(&plan, &lowered);
+    let mut phase = std::time::Instant::now();
+    let mut lap = |what: &str| {
+        sg_trace(|| format!("  {what} {:?}", phase.elapsed()));
+        phase = std::time::Instant::now();
+    };
     sg_trace(|| {
         format!(
             "lower={d_lower:?} dplan={:?} launches={} union={union}",
@@ -3200,6 +3217,7 @@ fn step_impl(
         .copy_from_host(&vec![1u8; rows], stream.as_ref())
         .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
 
+    lap("kv+arrays");
     // ── Workspace + plan caches: DRIVER-lifetime, first-launch built. ──
     let mut sops = LiveStagingOps;
     if state.scratch.is_none() {
@@ -3339,6 +3357,7 @@ fn step_impl(
 
     let named_bufs = &state.fire_arrays.named;
 
+    lap("attn-plan");
     // ── The hybrid's GDN context: driver-owned slabs, instance slots. ──
     let mut gdn_ctx: Option<GdnCtx> = None;
     let mut _slot_ids_buf: Option<crate::cuda::DeviceBuffer> = None;
@@ -3584,10 +3603,15 @@ fn step_impl(
     // engine does not yet mark rows, so the window is the whole fire —
     // which is what an unpeeled fire means and what the lowering's own
     // prefix/tail split degenerates to.
-    let mut peel_win =
-        crate::cuda::PeelWindowWord::new(&alloc).map_err(|_| PIE_STATUS_EXHAUSTED)?;
+    if state.peel_win.is_none() {
+        state.peel_win = Some(
+            crate::cuda::PeelWindowWord::new(alloc).map_err(|_| PIE_STATUS_EXHAUSTED)?,
+        );
+    }
+    let peel_win = state.peel_win.as_mut().expect("just ensured");
     peel_win.set(0, u32::try_from(rows).unwrap_or(0));
     peel_win.upload(stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+    let peel_window_ptr = peel_win.device_ptr();
 
     let ctx = DispatchCtx {
         stream: raw_stream,
@@ -3625,28 +3649,41 @@ fn step_impl(
         // do NOT carry the axis's mark, so the tail begins where the
         // marked suffix does; with no marked rows there is no split and
         // the word says the whole fire.
-        peel_window: peel_win.device_ptr(),
+        peel_window: peel_window_ptr,
         rows_total: i32::try_from(rows).unwrap_or(0),
     };
 
+    lap("bind");
     let mut resolver = LiveResolver { model, named: &named_bufs };
     let regions = AttnRegions::whole(Some(&attn));
     // The last use of `alloc` is above, so the shared borrow is dead and the
     // capture can take the same allocator mutably — which is the point: a
     // capture has to be opened on the allocator that owns what the fire
     // frees, or the frees are not deferred.
-    let capture_alloc = state.fire_alloc.as_mut().expect("the fire allocator exists");
+    if state.preds.is_none() {
+        state.preds = crate::cuda::PredicateWord::new(
+            state.fire_alloc.as_ref().expect("the fire allocator exists"),
+        )
+        .ok();
+    }
+    let (capture_alloc, capture_preds) = match (&mut state.fire_alloc, &mut state.preds) {
+        (Some(a), Some(p)) => (a, p),
+        _ => return Err(PIE_STATUS_EXHAUSTED),
+    };
+    lap("ctx");
     let result = if union {
         capture_or_replay(
             &mut state.supergraph,
             state.fire_arrays.epoch,
             u64::from(model.hf.num_hidden_layers.unsigned_abs()),
             &plan, &fire_rows, &lowered, &dplan, exec_frame, &mut resolver, &ctx,
-            regions, gdn_ctx.as_ref(), capture_alloc, stream.as_ref(), requests, rows, class,
+            regions, gdn_ctx.as_ref(), capture_alloc, capture_preds, stream.as_ref(),
+            requests, rows, class,
         )
     } else {
         run(&lowered, &dplan, exec_frame, &mut resolver, &ctx, regions, gdn_ctx.as_ref())
     };
+    lap("run");
     // A step that owes nothing SYNCHRONIZES, because the next step in the
     // frame reads what this one wrote. A step that owes the frame's
     // completion does not: its debt rides a stream-ordered callback and
@@ -3797,7 +3834,6 @@ fn step_impl(
                 .into_iter()
                 .flatten()
                 .collect(),
-            peel: Some(peel_win),
         });
     }
     Ok(())
