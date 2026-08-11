@@ -193,6 +193,28 @@ pub fn facts_from(
     model::families::llama_like::forward::facts::LlamaLikeFacts,
     model::families::llama_like::forward::facts::LlamaLikeMetalFacts,
 ) {
+    facts_from_with(geometry, has_tensor, |_| false)
+}
+
+/// [`facts_from`], told which weights the load left in MXFP4.
+///
+/// The second probe is the one a mixture needs. A checkpoint need not
+/// quantize uniformly -- `mlx-community/gpt-oss-20b-MXFP4-Q4` names 98
+/// tensors as affine/64/4 and leaves the expert banks out, so they take the
+/// top-level default, mxfp4/32 -- and reading a bank with the dense format is
+/// 909,207 NaNs rather than a near miss.
+///
+/// `Loaded::mxfp4` is what answers it: the LOAD gets the bytes onto the
+/// device unchanged and says what they are, and this is the binder deciding
+/// what they mean.
+pub fn facts_from_with(
+    geometry: &crate::batch::DecodeGeometry,
+    has_tensor: impl Fn(&str) -> bool,
+    is_mxfp4: impl Fn(&str) -> bool,
+) -> (
+    model::families::llama_like::forward::facts::LlamaLikeFacts,
+    model::families::llama_like::forward::facts::LlamaLikeMetalFacts,
+) {
     use model::families::llama_like::forward::facts::{LlamaLikeFacts, LlamaLikeMetalFacts};
     use model_compiler::dsl::{ScaleLayout, WeightRepr};
 
@@ -272,8 +294,12 @@ pub fn facts_from(
         // way that lands -- the loader transcodes, or this driver grows the
         // native kernel and states the bank's own format here -- the text can
         // express it.
-        moe_repr: None,
-        moe_bits: 0,
+        // The expert bank's OWN format, asked of the checkpoint. `None` is
+        // "the same as the dense projections", which is every checkpoint but
+        // gpt-oss.
+        moe_repr: is_mxfp4("layers.0.mlp.experts.gate_proj.weight")
+            .then_some(model_compiler::dsl::WeightRepr::Mxfp4Marlin),
+        moe_bits: 4,
         // The narrowest rung, which is what a short window fires; `bn = 32` is
         // the only column tile the residual GEMM is instantiated at.
         qmm_tile: (16, 32),

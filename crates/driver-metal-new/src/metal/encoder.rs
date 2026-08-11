@@ -383,6 +383,76 @@ impl<'ctx> Stepper<'ctx> {
         Ok(self.timing(value, committed - encode_begin, committed.elapsed()))
     }
 
+    /// Encode one step and COMMIT it, without waiting for the GPU.
+    ///
+    /// The half of [`run`](Self::run) that run-ahead needs. `run` ends in
+    /// `await_value`, so a caller cannot queue step n+1 until step n has
+    /// FINISHED -- the call that would queue it has not returned. That makes
+    /// the engine's `frame_dispatch_depth` a number the engine honours and
+    /// the driver serialises, which is the invariant pie is built on
+    /// (`.wiki/new-driver/next.md`, priority 1).
+    ///
+    /// Returns the timeline value this step signals. Hand it to
+    /// [`has_passed`](Self::has_passed) to ask whether the GPU is done with
+    /// it, or to [`wait_for`](Self::wait_for) to block.
+    ///
+    /// # The allocator is why this is bounded
+    ///
+    /// A step encodes against `context.allocator(committed)`, which alternates
+    /// over [`ALLOCATOR_COUNT`](super::context::ALLOCATOR_COUNT) = 2, and this
+    /// RESETS it first. Resetting an allocator whose command buffer is still
+    /// executing is a use-after-free, so a caller may have at most
+    /// `ALLOCATOR_COUNT - 1` steps outstanding. This checks rather than
+    /// trusting: the step two back must have passed, and if it has not this
+    /// waits for it.
+    ///
+    /// One in flight while one runs is exactly the shape run-ahead wants; a
+    /// deeper pipeline wants more allocators, and that is the constant to
+    /// change.
+    ///
+    /// # Errors
+    ///
+    /// A wedged context, a fault reported since the last step, or an encode
+    /// that failed. As [`run`](Self::run).
+    pub fn submit<F>(&mut self, encode: F) -> Result<u64>
+    where
+        F: FnOnce(&mut StepEncoder<'_>) -> Result<()>,
+    {
+        self.preflight()?;
+        // The allocator this step is about to reset was last used by the step
+        // `ALLOCATOR_COUNT` back. Nothing may reset it while its buffer runs.
+        let reused = self
+            .committed
+            .checked_sub(super::context::ALLOCATOR_COUNT as u64);
+        if let Some(value) = reused {
+            self.await_value(value)?;
+        }
+        let allocator = self.allocator();
+        allocator.reset();
+        let buffer = self.encode_one(allocator, encode)?;
+        Ok(self.commit(std::slice::from_ref(&buffer)))
+    }
+
+    /// Whether the GPU has passed `value`. Does not block.
+    ///
+    /// The completion path run-ahead needs: a fire retires when its event
+    /// value is reached, which is a read of the shared event's counter and
+    /// not a wait on it.
+    #[must_use]
+    pub fn has_passed(&self, value: u64) -> bool {
+        self.event.signaledValue() >= value
+    }
+
+    /// Block until the GPU passes `value`.
+    ///
+    /// # Errors
+    ///
+    /// The context wedged: the GPU did not reach `value` within the probe
+    /// budget, after which nothing more will run.
+    pub fn wait_for(&mut self, value: u64) -> Result<()> {
+        self.await_value(value)
+    }
+
     /// Encode `count` command buffers and submit them in ONE commit.
     ///
     /// The buffers execute with NO ordering guarantee relative to one another

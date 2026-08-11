@@ -2926,11 +2926,22 @@ pub mod metal {
         // no shader defines, which fails at pipeline construction with the
         // name in hand -- the refusal `moe.rs` already promised and was not
         // getting.
-        let point = affine_point(w.repr, bits);
-        let sym = if biased {
-            format!("affine_qmv_routed_bias{point}")
-        } else {
-            format!("affine_qmv_routed{point}")
+        let sym = match w.repr {
+            // MXFP4's E2M1 mantissas with E8M0 block exponents. Not affine at
+            // some other point -- different arithmetic -- so it is a different
+            // symbol, and `quantized_qmv.metal` exports exactly one:
+            // `mxfp4_qmv_routed_bias`, at group 32 and 4 bits, which is the
+            // only shape MXFP4 has. There is no unbiased twin, which is why
+            // this arm ignores `biased`.
+            WeightRepr::Mxfp4Marlin => "mxfp4_qmv_routed_bias".to_string(),
+            repr => {
+                let point = affine_point(repr, bits);
+                if biased {
+                    format!("affine_qmv_routed_bias{point}")
+                } else {
+                    format!("affine_qmv_routed{point}")
+                }
+            }
         };
         let sym = sym.as_str();
         let in_w = in_width(x);

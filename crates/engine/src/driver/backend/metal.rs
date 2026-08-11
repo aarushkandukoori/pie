@@ -256,9 +256,14 @@ impl MetalDriver {
         // the tensors the checkpoint actually shipped. The three binding facts
         // — qk-norm, fused QKV, attention bias — ask the TENSORS, because a
         // config states an architecture and a tensor states a binding.
-        self.deployment = Some(driver_metal_new::model::text::facts_from(
+        // Two probes: which tensors the checkpoint shipped, and which of them
+        // the load left in MXFP4. The second is what a MIXTURE needs -- a
+        // checkpoint need not quantize uniformly, and reading an expert bank
+        // with the dense format is NaNs rather than a near miss.
+        self.deployment = Some(driver_metal_new::model::text::facts_from_with(
             &geometry,
             |name| loaded.tensors.contains_key(name),
+            |name| loaded.mxfp4.contains(name),
         ));
         self.inv_freq = driver_metal_new::model::rope::frequencies(
             geometry.head_dim,
