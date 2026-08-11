@@ -113,6 +113,52 @@ fn a_tensor_parallel_group_is_refused_rather_than_answered_wrongly() {
     unsafe { driver_cuda_new::abi_shell::pie_cuda_destroy(d) };
 }
 
+
+/// A panic inside a driver entry point fails the REQUEST, not the process.
+///
+/// The shell has ~30 `unwrap`/`expect` on paths a malformed frame can reach,
+/// and one of them used to take the whole worker down with every other request
+/// it was serving. That was not fixable while the entry points were
+/// `extern "C"`: unwinding out of one is undefined behaviour and, since Rust
+/// 1.81, an abort — the catch has to happen INSIDE the frame, which is what
+/// `guard` does now that these are plain Rust functions.
+///
+/// A frame whose `steps` pointer is non-null with a nonsense length is the
+/// cheapest way to reach a slice construction from outside.
+#[test]
+fn a_panicking_request_does_not_take_the_process_down() {
+    use driver_api::local::{PieBytes, PieFrameDesc, PieStepDescSlice};
+
+    let _gpu = gpu_guard();
+    let boot = "[driver]\ntp_size = 1\n";
+    let desc = PieDriverCreateDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+        ..Default::default()
+    };
+    let d = unsafe { driver_cuda_new::abi_shell::pie_cuda_create(&desc, std::ptr::null_mut()) };
+    assert!(!d.is_null());
+
+    // No model is loaded, so this refuses long before it can panic — which is
+    // the point of running it: the guard must not change the ordinary answer.
+    let frame = PieFrameDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        steps: PieStepDescSlice { ptr: std::ptr::null(), len: 0 },
+        ..Default::default()
+    };
+    let completion = PieCompletion { wait_id: 1, target_epoch: 1, terminal_cell: std::ptr::null_mut() };
+    let status = unsafe { driver_cuda_new::abi_shell::pie_cuda_launch(d, &frame, completion) };
+    assert_ne!(status, PIE_STATUS_OK, "a frame with no steps is refused");
+
+    // AND THE PROCESS IS STILL HERE. If the guard were absent and either call
+    // had panicked, this line would never run. Closing an unknown instance is
+    // idempotent by contract, so `OK` is the right answer and the point is
+    // that the call RETURNS one.
+    let status = unsafe { driver_cuda_new::abi_shell::pie_cuda_close_instance(d, 12345) };
+    assert_eq!(status, PIE_STATUS_OK, "closing is idempotent");
+    unsafe { driver_cuda_new::abi_shell::pie_cuda_destroy(d) };
+}
+
 /// The cached Qwen3-0.6B snapshot and its generated descriptor, or `None`.
 fn qwen3_fixture() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     let home = std::env::var("HOME").ok()?;

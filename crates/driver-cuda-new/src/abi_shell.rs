@@ -716,6 +716,48 @@ fn shell(driver: *mut PieDriver) -> Option<&'static mut Shell> {
     unsafe { driver.cast::<Shell>().as_mut() }
 }
 
+/// Run a driver entry point, turning a panic into a status rather than into
+/// the caller's problem.
+///
+/// # Why this is here now and was not before
+///
+/// The thirteen entry points used to be `extern "C"`, where a Rust panic is
+/// not a recoverable event: unwinding out of one was undefined behaviour and
+/// then, from Rust 1.81, an abort. So the C++ shell's `try/catch` on every
+/// export had no counterpart on this side and could not have one -- catching
+/// would have to happen INSIDE the frame, which is what this does.
+///
+/// They are plain Rust functions now, so a panic unwinds normally into the
+/// engine. That makes catching possible; this makes it the contract. Every one
+/// of these already answers a status code, and "the driver hit a bug" is a
+/// status, not a reason to take the process down with the other requests it
+/// was serving.
+///
+/// **This does not make a panic safe to ignore.** A caught panic means the
+/// shell's invariants are in an unknown state -- a half-built plan, a stream
+/// with work queued, an arena mid-resize -- so it is reported loudly and the
+/// driver should be considered untrustworthy afterwards. What it buys is that
+/// the OTHER requests in flight get to finish, and that the operator gets a
+/// message naming the entry point instead of a bare SIGABRT.
+fn guard<T>(what: &str, on_panic: T, body: impl FnOnce() -> T) -> T {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(value) => value,
+        Err(payload) => {
+            let why = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a panic with no message".to_owned());
+            eprintln!(
+                "[driver-cuda-new] {what}: PANICKED: {why}. The request is failed \
+                 rather than the process; this driver's state is no longer \
+                 trustworthy and it should be recreated."
+            );
+            on_panic
+        }
+    }
+}
+
 /// Create the driver. Refuses a null descriptor or a mismatched ABI
 /// version by returning null, as the C++ shell does.
 pub fn pie_cuda_create(
@@ -865,32 +907,34 @@ pub fn pie_cuda_load_model(
     load: *const PieModelLoadDesc,
     caps: *mut PieDriverCaps,
 ) -> i32 {
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(load) = (unsafe { load.as_ref() }) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let snapshot = (!load.snapshot_dir.ptr.is_null())
-        .then(|| unsafe {
-            std::slice::from_raw_parts(load.snapshot_dir.ptr, load.snapshot_dir.len)
-        })
-        .and_then(|b| std::str::from_utf8(b).ok())
-        .map(std::path::PathBuf::from);
-    let Some(snapshot) = snapshot else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    match load_impl(state, &snapshot) {
-        Ok(()) => {
-            let m = state.model.as_ref().expect("load_impl stored the model");
-            if let Some(out) = unsafe { caps.as_mut() } {
-                out.json_bytes = m.load_caps.as_ptr();
-                out.json_len = m.load_caps.len();
+    guard("pie_cuda_load_model", PIE_STATUS_DRIVER_ERROR, move || {
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(load) = (unsafe { load.as_ref() }) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let snapshot = (!load.snapshot_dir.ptr.is_null())
+            .then(|| unsafe {
+                std::slice::from_raw_parts(load.snapshot_dir.ptr, load.snapshot_dir.len)
+            })
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .map(std::path::PathBuf::from);
+        let Some(snapshot) = snapshot else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        match load_impl(state, &snapshot) {
+            Ok(()) => {
+                let m = state.model.as_ref().expect("load_impl stored the model");
+                if let Some(out) = unsafe { caps.as_mut() } {
+                    out.json_bytes = m.load_caps.as_ptr();
+                    out.json_len = m.load_caps.len();
+                }
+                PIE_STATUS_OK
             }
-            PIE_STATUS_OK
+            Err(code) => code,
         }
-        Err(code) => code,
-    }
+    })
 }
 
 /// The load itself; `i32` errors are the ABI's status codes.
@@ -1255,64 +1299,66 @@ pub fn pie_cuda_register_program(
     program: *const PieProgramDesc,
     program_id: *mut u64,
 ) -> i32 {
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(desc) = (unsafe { program.as_ref() }) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    if desc.abi_version != PIE_DRIVER_ABI_VERSION {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    }
-    if let Some(id) = state
-        .programs
-        .iter()
-        .find(|(_, p)| p.program_hash == desc.program_hash)
-        .map(|(&id, _)| id)
-    {
+    guard("pie_cuda_register_program", PIE_STATUS_DRIVER_ERROR, move || {
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(desc) = (unsafe { program.as_ref() }) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        if desc.abi_version != PIE_DRIVER_ABI_VERSION {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        }
+        if let Some(id) = state
+            .programs
+            .iter()
+            .find(|(_, p)| p.program_hash == desc.program_hash)
+            .map(|(&id, _)| id)
+        {
+            if let Some(out) = unsafe { program_id.as_mut() } {
+                *out = id;
+            }
+            return PIE_STATUS_OK;
+        }
+
+        // SAFETY: the engine's contract for `register_program` is that every
+        // array reachable from the descriptor is live for the duration of the
+        // call. Adoption COPIES, so nothing here outlives that window --
+        // which is the reason it is done now rather than by holding the
+        // descriptor: `PieProgramDesc` is the caller's transient memory.
+        let package = unsafe { driver_api::adopt_package(&desc.launch) };
+        let kernels = unsafe { driver_api::adopt_emitted_kernels(desc.emitted_kernels) };
+
+        let id = state.next_id;
+        state.next_id += 1;
+
+        // A package with NO STAGES is not a malformed program; it is the
+        // absence of one. The engine registers such a descriptor for a
+        // forward-only deployment — the model runs, the logits come back
+        // through the instance's reader channel, and no user program sits
+        // around the fire. `adopt_launch_package` refuses an empty stage list
+        // because an ExecPlan with nothing to execute is not a plan, and it is
+        // right to; the judgement that this is not an ERROR belongs here,
+        // where the difference between "the host sent a broken program" and
+        // "the host sent no program" is visible.
+        if !package.stages.is_empty() {
+            if let Err(code) = adopt_and_compile(state, id, desc, package, &kernels) {
+                return code;
+            }
+        }
+
+        state.programs.insert(
+            id,
+            ProgramEntry {
+                program_hash: desc.program_hash,
+                emitter_version: desc.emitter_version,
+            },
+        );
         if let Some(out) = unsafe { program_id.as_mut() } {
             *out = id;
         }
-        return PIE_STATUS_OK;
-    }
-
-    // SAFETY: the engine's contract for `register_program` is that every
-    // array reachable from the descriptor is live for the duration of the
-    // call. Adoption COPIES, so nothing here outlives that window --
-    // which is the reason it is done now rather than by holding the
-    // descriptor: `PieProgramDesc` is the caller's transient memory.
-    let package = unsafe { driver_api::adopt_package(&desc.launch) };
-    let kernels = unsafe { driver_api::adopt_emitted_kernels(desc.emitted_kernels) };
-
-    let id = state.next_id;
-    state.next_id += 1;
-
-    // A package with NO STAGES is not a malformed program; it is the
-    // absence of one. The engine registers such a descriptor for a
-    // forward-only deployment — the model runs, the logits come back
-    // through the instance's reader channel, and no user program sits
-    // around the fire. `adopt_launch_package` refuses an empty stage list
-    // because an ExecPlan with nothing to execute is not a plan, and it is
-    // right to; the judgement that this is not an ERROR belongs here,
-    // where the difference between "the host sent a broken program" and
-    // "the host sent no program" is visible.
-    if !package.stages.is_empty() {
-        if let Err(code) = adopt_and_compile(state, id, desc, package, &kernels) {
-            return code;
-        }
-    }
-
-    state.programs.insert(
-        id,
-        ProgramEntry {
-            program_hash: desc.program_hash,
-            emitter_version: desc.emitter_version,
-        },
-    );
-    if let Some(out) = unsafe { program_id.as_mut() } {
-        *out = id;
-    }
-    PIE_STATUS_OK
+        PIE_STATUS_OK
+    })
 }
 
 /// Adopt one non-empty launch package and compile what it generates.
@@ -1418,88 +1464,90 @@ pub fn pie_cuda_register_channel(
     channel: *const PieChannelDesc,
     binding: *mut PieChannelEndpointBinding,
 ) -> i32 {
-    use crate::model::attention_workspace::{LiveStagingOps, StagingOps};
+    guard("pie_cuda_register_channel", PIE_STATUS_DRIVER_ERROR, move || {
+        use crate::model::attention_workspace::{LiveStagingOps, StagingOps};
 
-    const MAX_RING: u64 = 64;
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(desc) = (unsafe { channel.as_ref() }) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    if desc.abi_version != PIE_DRIVER_ABI_VERSION
-        || state.channels.contains_key(&desc.channel_id)
-        || desc.dtype > driver_api::local::PIE_CHANNEL_DTYPE_ACT
-    {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    }
-    let shape = slice_of(desc.shape.ptr, desc.shape.len);
-    let mut numel: u64 = 1;
-    for &d in shape {
-        let Some(next) = numel.checked_mul(u64::from(d)) else {
+        const MAX_RING: u64 = 64;
+        let Some(state) = shell(driver) else {
             return PIE_STATUS_INVALID_ARGUMENT;
         };
-        numel = next;
-    }
-    let wire_bytes: u64 = if desc.dtype == driver_api::local::PIE_CHANNEL_DTYPE_BOOL {
-        numel.div_ceil(8)
-    } else {
-        match numel.checked_mul(4) {
-            Some(b) => b,
-            None => return PIE_STATUS_INVALID_ARGUMENT,
-        }
-    };
-    let ring = u64::from(desc.capacity) + 1;
-    if wire_bytes == 0 || ring > MAX_RING {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    }
-    let Some(mirror_bytes) = wire_bytes.checked_mul(ring) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Ok(mirror_bytes) = usize::try_from(mirror_bytes) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-
-    let mut ops = LiveStagingOps;
-    let Some(mirror) = ops.malloc_host(mirror_bytes) else {
-        return PIE_STATUS_EXHAUSTED;
-    };
-    let word_bytes = 4 * std::mem::size_of::<u64>();
-    let Some(words) = ops.malloc_host(word_bytes) else {
-        ops.free_host(mirror);
-        return PIE_STATUS_EXHAUSTED;
-    };
-    unsafe {
-        std::ptr::write_bytes(mirror.cast::<u8>(), 0, mirror_bytes);
-        std::ptr::write_bytes(words.cast::<u8>(), 0, word_bytes);
-    }
-    state.channels.insert(
-        desc.channel_id,
-        ChannelState {
-            mirror,
-            words,
-            mirror_bytes,
-            cell_bytes: usize::try_from(wire_bytes).unwrap_or(usize::MAX),
-            ring: u32::try_from(ring).expect("ring fits u32"),
-            host_role: desc.host_role,
-        },
-    );
-    if let Some(out) = unsafe { binding.as_mut() } {
-        *out = PieChannelEndpointBinding {
-            channel_id: desc.channel_id,
-            mirror_base: mirror as u64,
-            word_base: words as u64,
-            mirror_bytes: mirror_bytes as u64,
-            word_bytes: word_bytes as u64,
-            cell_bytes: u32::try_from(wire_bytes).unwrap_or(u32::MAX),
-            capacity: desc.capacity,
-            head_word_index: 0,
-            tail_word_index: 1,
-            poison_word_index: 2,
-            closed_word_index: 3,
+        let Some(desc) = (unsafe { channel.as_ref() }) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
         };
-    }
-    PIE_STATUS_OK
+        if desc.abi_version != PIE_DRIVER_ABI_VERSION
+            || state.channels.contains_key(&desc.channel_id)
+            || desc.dtype > driver_api::local::PIE_CHANNEL_DTYPE_ACT
+        {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        }
+        let shape = slice_of(desc.shape.ptr, desc.shape.len);
+        let mut numel: u64 = 1;
+        for &d in shape {
+            let Some(next) = numel.checked_mul(u64::from(d)) else {
+                return PIE_STATUS_INVALID_ARGUMENT;
+            };
+            numel = next;
+        }
+        let wire_bytes: u64 = if desc.dtype == driver_api::local::PIE_CHANNEL_DTYPE_BOOL {
+            numel.div_ceil(8)
+        } else {
+            match numel.checked_mul(4) {
+                Some(b) => b,
+                None => return PIE_STATUS_INVALID_ARGUMENT,
+            }
+        };
+        let ring = u64::from(desc.capacity) + 1;
+        if wire_bytes == 0 || ring > MAX_RING {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(mirror_bytes) = wire_bytes.checked_mul(ring) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Ok(mirror_bytes) = usize::try_from(mirror_bytes) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+
+        let mut ops = LiveStagingOps;
+        let Some(mirror) = ops.malloc_host(mirror_bytes) else {
+            return PIE_STATUS_EXHAUSTED;
+        };
+        let word_bytes = 4 * std::mem::size_of::<u64>();
+        let Some(words) = ops.malloc_host(word_bytes) else {
+            ops.free_host(mirror);
+            return PIE_STATUS_EXHAUSTED;
+        };
+        unsafe {
+            std::ptr::write_bytes(mirror.cast::<u8>(), 0, mirror_bytes);
+            std::ptr::write_bytes(words.cast::<u8>(), 0, word_bytes);
+        }
+        state.channels.insert(
+            desc.channel_id,
+            ChannelState {
+                mirror,
+                words,
+                mirror_bytes,
+                cell_bytes: usize::try_from(wire_bytes).unwrap_or(usize::MAX),
+                ring: u32::try_from(ring).expect("ring fits u32"),
+                host_role: desc.host_role,
+            },
+        );
+        if let Some(out) = unsafe { binding.as_mut() } {
+            *out = PieChannelEndpointBinding {
+                channel_id: desc.channel_id,
+                mirror_base: mirror as u64,
+                word_base: words as u64,
+                mirror_bytes: mirror_bytes as u64,
+                word_bytes: word_bytes as u64,
+                cell_bytes: u32::try_from(wire_bytes).unwrap_or(u32::MAX),
+                capacity: desc.capacity,
+                head_word_index: 0,
+                tail_word_index: 1,
+                poison_word_index: 2,
+                closed_word_index: 3,
+            };
+        }
+        PIE_STATUS_OK
+    })
 }
 
 /// Bind an instance to a registered program: the id lifecycle, honoring
@@ -1510,41 +1558,43 @@ pub fn pie_cuda_bind_instance(
     instance: *const PieInstanceDesc,
     binding: *mut PieInstanceBinding,
 ) -> i32 {
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(desc) = (unsafe { instance.as_ref() }) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    if desc.abi_version != PIE_DRIVER_ABI_VERSION
-        || !state.programs.contains_key(&desc.program_id)
-    {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    }
-    let id = if desc.requested_instance_id != 0 {
-        desc.requested_instance_id
-    } else {
-        let id = state.next_id;
-        state.next_id += 1;
-        id
-    };
-    if state.instances.contains_key(&id) {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    }
-    state.instances.insert(
-        id,
-        InstanceEntry {
-            program_id: desc.program_id,
-            geometry_class: desc.geometry_class,
-            channel_ids: slice_of(desc.channel_ids.ptr, desc.channel_ids.len).to_vec(),
-        },
-    );
-    if let Some(out) = unsafe { binding.as_mut() } {
-        out.instance_id = id;
-        out.geometry_class = desc.geometry_class;
-        out.reserved0 = 0;
-    }
-    PIE_STATUS_OK
+    guard("pie_cuda_bind_instance", PIE_STATUS_DRIVER_ERROR, move || {
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(desc) = (unsafe { instance.as_ref() }) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        if desc.abi_version != PIE_DRIVER_ABI_VERSION
+            || !state.programs.contains_key(&desc.program_id)
+        {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        }
+        let id = if desc.requested_instance_id != 0 {
+            desc.requested_instance_id
+        } else {
+            let id = state.next_id;
+            state.next_id += 1;
+            id
+        };
+        if state.instances.contains_key(&id) {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        }
+        state.instances.insert(
+            id,
+            InstanceEntry {
+                program_id: desc.program_id,
+                geometry_class: desc.geometry_class,
+                channel_ids: slice_of(desc.channel_ids.ptr, desc.channel_ids.len).to_vec(),
+            },
+        );
+        if let Some(out) = unsafe { binding.as_mut() } {
+            out.instance_id = id;
+            out.geometry_class = desc.geometry_class;
+            out.reserved0 = 0;
+        }
+        PIE_STATUS_OK
+    })
 }
 
 /// Launch a frame: the executor's fire assembly, promoted from the
@@ -1563,28 +1613,30 @@ pub fn pie_cuda_launch(
     frame: *const PieFrameDesc,
     completion: PieCompletion,
 ) -> i32 {
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(frame) = (unsafe { frame.as_ref() }) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    // THE CALL RETURNS WITH THE WORK STILL ON THE STREAM.
-    //
-    // Publishing the terminal cells and notifying used to happen here,
-    // after `launch_impl` had synchronized — which made the driver
-    // serialize the engine's `frame_dispatch_depth`, because the call
-    // that would enqueue fire n+1 could not start until fire n had
-    // retired on the GPU.
-    //
-    // Both debts moved into a stream-ordered host callback
-    // (`retire_fire`), so an `Ok` here means ENQUEUED rather than DONE.
-    // An error still returns synchronously: a fire that could not be
-    // built owes nothing and the runtime must hear so on this thread.
-    match launch_impl(state, frame, completion) {
-        Ok(()) => PIE_STATUS_OK,
-        Err(code) => code,
-    }
+    guard("pie_cuda_launch", PIE_STATUS_DRIVER_ERROR, move || {
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(frame) = (unsafe { frame.as_ref() }) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        // THE CALL RETURNS WITH THE WORK STILL ON THE STREAM.
+        //
+        // Publishing the terminal cells and notifying used to happen here,
+        // after `launch_impl` had synchronized — which made the driver
+        // serialize the engine's `frame_dispatch_depth`, because the call
+        // that would enqueue fire n+1 could not start until fire n had
+        // retired on the GPU.
+        //
+        // Both debts moved into a stream-ordered host callback
+        // (`retire_fire`), so an `Ok` here means ENQUEUED rather than DONE.
+        // An error still returns synchronously: a fire that could not be
+        // built owes nothing and the runtime must hear so on this thread.
+        match launch_impl(state, frame, completion) {
+            Ok(()) => PIE_STATUS_OK,
+            Err(code) => code,
+        }
+    })
 }
 
 /// A borrowed ABI slice as a Rust slice; empty for null.
@@ -4268,192 +4320,194 @@ pub fn pie_cuda_encode(
     encode: *const PieEncodeDesc,
     completion: PieCompletion,
 ) -> i32 {
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(desc) = (unsafe { encode.as_ref() }) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(model) = state.model.as_ref() else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let num_images = desc.image_anchor_rows.len;
-    let num_clips = desc.audio_anchor_rows.len;
-    if num_images == 0 && num_clips == 0 {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    }
-    if desc.output_row_indptr.len < num_images + num_clips + 1 {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    }
-    let notify_done = |state: &Shell| {
-        std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
-        if let Some(notify) = state.notify {
-            unsafe { notify(state.notify_ctx, completion.wait_id, completion.target_epoch) };
-        }
-    };
-    if num_images == 0 {
-        // Audio only: the helper writes the whole CSR itself.
-        let st = encode_gemma4_audio_arm(
-            model,
-            desc,
-            desc.output_rows.ptr.cast(),
-            desc.output_rows.len,
-            desc.output_row_indptr.ptr,
-        );
-        if st != PIE_STATUS_OK {
-            return st;
-        }
-        notify_done(state);
-        return PIE_STATUS_OK;
-    }
-    let Some(vc) = model.hf.gemma_vision.as_ref() else {
-        eprintln!("[driver-cuda-new] encode: this deployment carries no vision tower");
-        return PIE_STATUS_UNSUPPORTED;
-    };
-    // The vision table, `vision/gemma4_towers_c.hpp`'s stride-41 layout,
-    // built per call from the loaded weights — name lookups, no stored
-    // pointers. The binder mapping is `bind_gemma4_vision`'s.
-    let need = |n: &str| -> Result<*const std::ffi::c_void, i32> {
-        model.weights.get(n).map(|b| b.ptr.cast_const()).ok_or_else(|| {
-            eprintln!("[driver-cuda-new] encode: missing vision weight {n}");
-            PIE_STATUS_UNSUPPORTED
-        })
-    };
-    let opt = |n: String| -> *const std::ffi::c_void {
-        model.weights.get(&n).map_or(core::ptr::null(), |b| b.ptr.cast_const())
-    };
-    let vp = "model.vision_tower";
-    let patch_w = match need(&format!("{vp}.patch_embedder.input_proj.weight")) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-    let pos_table = match need(&format!("{vp}.patch_embedder.position_embedding_table")) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-    let embed_proj = match need("model.embed_vision.embedding_projection.weight") {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-    let depth = usize::try_from(vc.num_hidden_layers).unwrap_or(0);
-    let mut table: Vec<*const std::ffi::c_void> = Vec::with_capacity(depth * 41);
-    for l in 0..depth {
-        let lp = format!("{vp}.encoder.layers.{l}");
-        for norm in [
-            "input_layernorm",
-            "post_attention_layernorm",
-            "pre_feedforward_layernorm",
-            "post_feedforward_layernorm",
-        ] {
-            match need(&format!("{lp}.{norm}.weight")) {
-                Ok(p) => table.push(p),
-                Err(e) => return e,
-            }
-        }
-        for norm in ["self_attn.q_norm", "self_attn.k_norm"] {
-            match need(&format!("{lp}.{norm}.weight")) {
-                Ok(p) => table.push(p),
-                Err(e) => return e,
-            }
-        }
-        for clip in [
-            "self_attn.q_proj",
-            "self_attn.k_proj",
-            "self_attn.v_proj",
-            "self_attn.o_proj",
-            "mlp.gate_proj",
-            "mlp.up_proj",
-            "mlp.down_proj",
-        ] {
-            match need(&format!("{lp}.{clip}.linear.weight")) {
-                Ok(p) => table.push(p),
-                Err(e) => return e,
-            }
-            for m in ["input_min", "input_max", "output_min", "output_max"] {
-                table.push(opt(format!("{lp}.{clip}.{m}")));
-            }
-        }
-    }
-    // pos_table is `[2, S, hidden]` bf16 — S from the buffer itself; the
-    // media row width from the projection (`[text_hidden, hidden]`).
-    let hidden = usize::try_from(vc.hidden_size.max(1)).unwrap_or(1);
-    let pos_table_size = model
-        .weights
-        .get(&format!("{vp}.patch_embedder.position_embedding_table"))
-        .map_or(0, |b| b.bytes / (2 * hidden * 2));
-    let text_hidden = model
-        .weights
-        .get("model.embed_vision.embedding_projection.weight")
-        .map_or(0, |b| b.bytes / (hidden * 2));
-
-    let Ok(stream) = crate::cuda::OwnedStream::new(0) else {
-        return PIE_STATUS_DRIVER_ERROR;
-    };
-    let mut vis_bounds = vec![0u32; num_images + 1];
-    unsafe {
-        crate::launch::ffi::pie_k_vision_gemma4_vision_encode(
-            patch_w,
-            pos_table,
-            embed_proj,
-            table.as_ptr(),
-            vc.num_hidden_layers,
-            vc.hidden_size,
-            vc.num_attention_heads,
-            vc.intermediate_size,
-            i32::try_from(pos_table_size).unwrap_or(0),
-            i32::try_from(text_hidden).unwrap_or(0),
-            vc.pooling_kernel_size,
-            vc.rms_norm_eps,
-            vc.rope_theta,
-            desc.image_pixels.ptr.cast(),
-            desc.image_pixel_indptr.ptr,
-            desc.image_patch_positions.ptr,
-            desc.image_anchor_rows.ptr,
-            i32::try_from(num_images).unwrap_or(0),
-            desc.output_rows.ptr.cast(),
-            desc.output_rows.len,
-            vis_bounds.as_mut_ptr(),
-            stream.as_ref().as_raw().cast(),
-        );
-    }
-    if stream.as_ref().synchronize().is_err() {
-        return PIE_STATUS_DRIVER_ERROR;
-    }
-    // Compose the shared CSR the C++ `Context::encode` writes: the
-    // vision segment's boundaries verbatim, then the audio segment's
-    // shifted by the vision row count.
-    let indptr = desc.output_row_indptr.ptr;
-    unsafe {
-        for (i, b) in vis_bounds.iter().enumerate() {
-            *indptr.add(i) = *b;
-        }
-    }
-    if num_clips > 0 {
-        let row_offset = *vis_bounds.last().unwrap_or(&0) as usize;
-        let consumed = row_offset * text_hidden * 2;
-        if consumed > desc.output_rows.len {
+    guard("pie_cuda_encode", PIE_STATUS_DRIVER_ERROR, move || {
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(desc) = (unsafe { encode.as_ref() }) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(model) = state.model.as_ref() else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let num_images = desc.image_anchor_rows.len;
+        let num_clips = desc.audio_anchor_rows.len;
+        if num_images == 0 && num_clips == 0 {
             return PIE_STATUS_INVALID_ARGUMENT;
         }
-        let mut audio_bounds = vec![0u32; num_clips + 1];
-        let st = encode_gemma4_audio_arm(
-            model,
-            desc,
-            unsafe { desc.output_rows.ptr.add(consumed) }.cast(),
-            desc.output_rows.len - consumed,
-            audio_bounds.as_mut_ptr(),
-        );
-        if st != PIE_STATUS_OK {
-            return st;
+        if desc.output_row_indptr.len < num_images + num_clips + 1 {
+            return PIE_STATUS_INVALID_ARGUMENT;
         }
-        unsafe {
-            for c in 0..num_clips {
-                *indptr.add(num_images + 1 + c) =
-                    u32::try_from(row_offset).unwrap_or(u32::MAX) + audio_bounds[c + 1];
+        let notify_done = |state: &Shell| {
+            std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
+            if let Some(notify) = state.notify {
+                unsafe { notify(state.notify_ctx, completion.wait_id, completion.target_epoch) };
+            }
+        };
+        if num_images == 0 {
+            // Audio only: the helper writes the whole CSR itself.
+            let st = encode_gemma4_audio_arm(
+                model,
+                desc,
+                desc.output_rows.ptr.cast(),
+                desc.output_rows.len,
+                desc.output_row_indptr.ptr,
+            );
+            if st != PIE_STATUS_OK {
+                return st;
+            }
+            notify_done(state);
+            return PIE_STATUS_OK;
+        }
+        let Some(vc) = model.hf.gemma_vision.as_ref() else {
+            eprintln!("[driver-cuda-new] encode: this deployment carries no vision tower");
+            return PIE_STATUS_UNSUPPORTED;
+        };
+        // The vision table, `vision/gemma4_towers_c.hpp`'s stride-41 layout,
+        // built per call from the loaded weights — name lookups, no stored
+        // pointers. The binder mapping is `bind_gemma4_vision`'s.
+        let need = |n: &str| -> Result<*const std::ffi::c_void, i32> {
+            model.weights.get(n).map(|b| b.ptr.cast_const()).ok_or_else(|| {
+                eprintln!("[driver-cuda-new] encode: missing vision weight {n}");
+                PIE_STATUS_UNSUPPORTED
+            })
+        };
+        let opt = |n: String| -> *const std::ffi::c_void {
+            model.weights.get(&n).map_or(core::ptr::null(), |b| b.ptr.cast_const())
+        };
+        let vp = "model.vision_tower";
+        let patch_w = match need(&format!("{vp}.patch_embedder.input_proj.weight")) {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+        let pos_table = match need(&format!("{vp}.patch_embedder.position_embedding_table")) {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+        let embed_proj = match need("model.embed_vision.embedding_projection.weight") {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+        let depth = usize::try_from(vc.num_hidden_layers).unwrap_or(0);
+        let mut table: Vec<*const std::ffi::c_void> = Vec::with_capacity(depth * 41);
+        for l in 0..depth {
+            let lp = format!("{vp}.encoder.layers.{l}");
+            for norm in [
+                "input_layernorm",
+                "post_attention_layernorm",
+                "pre_feedforward_layernorm",
+                "post_feedforward_layernorm",
+            ] {
+                match need(&format!("{lp}.{norm}.weight")) {
+                    Ok(p) => table.push(p),
+                    Err(e) => return e,
+                }
+            }
+            for norm in ["self_attn.q_norm", "self_attn.k_norm"] {
+                match need(&format!("{lp}.{norm}.weight")) {
+                    Ok(p) => table.push(p),
+                    Err(e) => return e,
+                }
+            }
+            for clip in [
+                "self_attn.q_proj",
+                "self_attn.k_proj",
+                "self_attn.v_proj",
+                "self_attn.o_proj",
+                "mlp.gate_proj",
+                "mlp.up_proj",
+                "mlp.down_proj",
+            ] {
+                match need(&format!("{lp}.{clip}.linear.weight")) {
+                    Ok(p) => table.push(p),
+                    Err(e) => return e,
+                }
+                for m in ["input_min", "input_max", "output_min", "output_max"] {
+                    table.push(opt(format!("{lp}.{clip}.{m}")));
+                }
             }
         }
-    }
-    notify_done(state);
-    PIE_STATUS_OK
+        // pos_table is `[2, S, hidden]` bf16 — S from the buffer itself; the
+        // media row width from the projection (`[text_hidden, hidden]`).
+        let hidden = usize::try_from(vc.hidden_size.max(1)).unwrap_or(1);
+        let pos_table_size = model
+            .weights
+            .get(&format!("{vp}.patch_embedder.position_embedding_table"))
+            .map_or(0, |b| b.bytes / (2 * hidden * 2));
+        let text_hidden = model
+            .weights
+            .get("model.embed_vision.embedding_projection.weight")
+            .map_or(0, |b| b.bytes / (hidden * 2));
+
+        let Ok(stream) = crate::cuda::OwnedStream::new(0) else {
+            return PIE_STATUS_DRIVER_ERROR;
+        };
+        let mut vis_bounds = vec![0u32; num_images + 1];
+        unsafe {
+            crate::launch::ffi::pie_k_vision_gemma4_vision_encode(
+                patch_w,
+                pos_table,
+                embed_proj,
+                table.as_ptr(),
+                vc.num_hidden_layers,
+                vc.hidden_size,
+                vc.num_attention_heads,
+                vc.intermediate_size,
+                i32::try_from(pos_table_size).unwrap_or(0),
+                i32::try_from(text_hidden).unwrap_or(0),
+                vc.pooling_kernel_size,
+                vc.rms_norm_eps,
+                vc.rope_theta,
+                desc.image_pixels.ptr.cast(),
+                desc.image_pixel_indptr.ptr,
+                desc.image_patch_positions.ptr,
+                desc.image_anchor_rows.ptr,
+                i32::try_from(num_images).unwrap_or(0),
+                desc.output_rows.ptr.cast(),
+                desc.output_rows.len,
+                vis_bounds.as_mut_ptr(),
+                stream.as_ref().as_raw().cast(),
+            );
+        }
+        if stream.as_ref().synchronize().is_err() {
+            return PIE_STATUS_DRIVER_ERROR;
+        }
+        // Compose the shared CSR the C++ `Context::encode` writes: the
+        // vision segment's boundaries verbatim, then the audio segment's
+        // shifted by the vision row count.
+        let indptr = desc.output_row_indptr.ptr;
+        unsafe {
+            for (i, b) in vis_bounds.iter().enumerate() {
+                *indptr.add(i) = *b;
+            }
+        }
+        if num_clips > 0 {
+            let row_offset = *vis_bounds.last().unwrap_or(&0) as usize;
+            let consumed = row_offset * text_hidden * 2;
+            if consumed > desc.output_rows.len {
+                return PIE_STATUS_INVALID_ARGUMENT;
+            }
+            let mut audio_bounds = vec![0u32; num_clips + 1];
+            let st = encode_gemma4_audio_arm(
+                model,
+                desc,
+                unsafe { desc.output_rows.ptr.add(consumed) }.cast(),
+                desc.output_rows.len - consumed,
+                audio_bounds.as_mut_ptr(),
+            );
+            if st != PIE_STATUS_OK {
+                return st;
+            }
+            unsafe {
+                for c in 0..num_clips {
+                    *indptr.add(num_images + 1 + c) =
+                        u32::try_from(row_offset).unwrap_or(u32::MAX) + audio_bounds[c + 1];
+                }
+            }
+        }
+        notify_done(state);
+        PIE_STATUS_OK
+    })
 }
 
 /// KV copies within the device domain: whole-page copies (`src_page_ids`
@@ -4466,216 +4520,218 @@ pub fn pie_cuda_copy_kv(
     copy: *const PieKvCopyDesc,
     completion: PieCompletion,
 ) -> i32 {
-    use driver_api::local::PIE_MEMORY_DOMAIN_CUDA_DEVICE;
+    guard("pie_cuda_copy_kv", PIE_STATUS_DRIVER_ERROR, move || {
+        use driver_api::local::PIE_MEMORY_DOMAIN_CUDA_DEVICE;
 
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(desc) = (unsafe { copy.as_ref() }) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let host_src = desc.src_domain != PIE_MEMORY_DOMAIN_CUDA_DEVICE;
-    let host_dst = desc.dst_domain != PIE_MEMORY_DOMAIN_CUDA_DEVICE;
-    if host_src && host_dst {
-        eprintln!("[driver-cuda-new] copy_kv: host-to-host moves have no device leg");
-        return PIE_STATUS_UNSUPPORTED;
-    }
-    let (Some(model), Some(_kv)) = (state.model.as_ref(), state.kv.as_ref()) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let src_pages = slice_of(desc.src_page_ids.ptr, desc.src_page_ids.len);
-    let dst_pages = slice_of(desc.dst_page_ids.ptr, desc.dst_page_ids.len);
-    if src_pages.len() != dst_pages.len() {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    }
-    let cells = slice_of(desc.cells.ptr, desc.cells.len);
-    if (host_src || host_dst) && !cells.is_empty() {
-        return PIE_STATUS_INVALID_ARGUMENT; // cell moves are device-only
-    }
-    let (kv_heads, head_dim) =
-        (model.hf.num_key_value_heads, model.hf.head_dim_kernel.max(model.hf.head_dim));
-    let page_size: i32 = 16;
-    let page_bytes = page_size as usize * kv_heads as usize * head_dim as usize * 2;
-    let layers_n = model.hf.num_hidden_layers as usize;
-
-    // Non-uniform pools (gemma-4: per-layer head dims, shared layers
-    // owning no pages) fit the DEVICE legs below — the per-layer bytes
-    // derive from each pool — but the host swap pool is a uniform-stride
-    // store. Refuse the host domains there until it learns per-layer
-    // strides; a wrong-sized host page is corruption, not degradation.
-    {
-        let kv_ref = state.kv.as_ref().expect("checked");
-        let uniform = kv_ref
-            .pools
-            .iter()
-            .all(|p| p.as_ref().is_some_and(|(k, _)| k.len() == page_bytes * kv_ref.num_pages as usize));
-        if !uniform && (host_src || host_dst) {
-            eprintln!("[driver-cuda-new] copy_kv: host swap awaits per-layer strides");
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(desc) = (unsafe { copy.as_ref() }) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let host_src = desc.src_domain != PIE_MEMORY_DOMAIN_CUDA_DEVICE;
+        let host_dst = desc.dst_domain != PIE_MEMORY_DOMAIN_CUDA_DEVICE;
+        if host_src && host_dst {
+            eprintln!("[driver-cuda-new] copy_kv: host-to-host moves have no device leg");
             return PIE_STATUS_UNSUPPORTED;
         }
-    }
+        let (Some(model), Some(_kv)) = (state.model.as_ref(), state.kv.as_ref()) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let src_pages = slice_of(desc.src_page_ids.ptr, desc.src_page_ids.len);
+        let dst_pages = slice_of(desc.dst_page_ids.ptr, desc.dst_page_ids.len);
+        if src_pages.len() != dst_pages.len() {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        }
+        let cells = slice_of(desc.cells.ptr, desc.cells.len);
+        if (host_src || host_dst) && !cells.is_empty() {
+            return PIE_STATUS_INVALID_ARGUMENT; // cell moves are device-only
+        }
+        let (kv_heads, head_dim) =
+            (model.hf.num_key_value_heads, model.hf.head_dim_kernel.max(model.hf.head_dim));
+        let page_size: i32 = 16;
+        let page_bytes = page_size as usize * kv_heads as usize * head_dim as usize * 2;
+        let layers_n = model.hf.num_hidden_layers as usize;
 
-    // The swap pool: ensured to cover the highest HOST page id touched.
-    if host_src || host_dst {
-        use crate::model::attention_workspace::{LiveStagingOps, StagingOps};
-        let host_ids = if host_src { src_pages } else { dst_pages };
-        let need = host_ids.iter().copied().max().map_or(1, |m| m + 1);
-        let grow = !matches!(&state.swap, Some(sp) if sp.num_pages >= need
-            && sp.page_bytes == page_bytes);
-        if grow {
-            let mut ops = LiveStagingOps;
-            let mut blocks = Vec::new();
-            for _ in 0..layers_n {
-                let Some(b) = ops.malloc_host(2 * need as usize * page_bytes) else {
-                    for &p in &blocks {
-                        ops.free_host(p);
-                    }
-                    return PIE_STATUS_EXHAUSTED;
-                };
-                blocks.push(b);
+        // Non-uniform pools (gemma-4: per-layer head dims, shared layers
+        // owning no pages) fit the DEVICE legs below — the per-layer bytes
+        // derive from each pool — but the host swap pool is a uniform-stride
+        // store. Refuse the host domains there until it learns per-layer
+        // strides; a wrong-sized host page is corruption, not degradation.
+        {
+            let kv_ref = state.kv.as_ref().expect("checked");
+            let uniform = kv_ref
+                .pools
+                .iter()
+                .all(|p| p.as_ref().is_some_and(|(k, _)| k.len() == page_bytes * kv_ref.num_pages as usize));
+            if !uniform && (host_src || host_dst) {
+                eprintln!("[driver-cuda-new] copy_kv: host swap awaits per-layer strides");
+                return PIE_STATUS_UNSUPPORTED;
             }
-            if let Some(old) = state.swap.take() {
-                // Migrate what fits: the retained host pages keep their ids.
-                let keep = old.num_pages.min(need) as usize * old.page_bytes;
-                if old.page_bytes == page_bytes {
-                    for (l, &nb) in blocks.iter().enumerate() {
-                        for plane in 0..2usize {
-                            unsafe {
-                                std::ptr::copy_nonoverlapping(
-                                    old.page(l, plane, 0),
-                                    nb.cast::<u8>()
-                                        .add(plane * need as usize * page_bytes),
-                                    keep,
-                                );
+        }
+
+        // The swap pool: ensured to cover the highest HOST page id touched.
+        if host_src || host_dst {
+            use crate::model::attention_workspace::{LiveStagingOps, StagingOps};
+            let host_ids = if host_src { src_pages } else { dst_pages };
+            let need = host_ids.iter().copied().max().map_or(1, |m| m + 1);
+            let grow = !matches!(&state.swap, Some(sp) if sp.num_pages >= need
+                && sp.page_bytes == page_bytes);
+            if grow {
+                let mut ops = LiveStagingOps;
+                let mut blocks = Vec::new();
+                for _ in 0..layers_n {
+                    let Some(b) = ops.malloc_host(2 * need as usize * page_bytes) else {
+                        for &p in &blocks {
+                            ops.free_host(p);
+                        }
+                        return PIE_STATUS_EXHAUSTED;
+                    };
+                    blocks.push(b);
+                }
+                if let Some(old) = state.swap.take() {
+                    // Migrate what fits: the retained host pages keep their ids.
+                    let keep = old.num_pages.min(need) as usize * old.page_bytes;
+                    if old.page_bytes == page_bytes {
+                        for (l, &nb) in blocks.iter().enumerate() {
+                            for plane in 0..2usize {
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(
+                                        old.page(l, plane, 0),
+                                        nb.cast::<u8>()
+                                            .add(plane * need as usize * page_bytes),
+                                        keep,
+                                    );
+                                }
                             }
                         }
                     }
+                    old.free();
                 }
-                old.free();
+                state.swap = Some(SwapPool { blocks, num_pages: need, page_bytes });
             }
-            state.swap = Some(SwapPool { blocks, num_pages: need, page_bytes });
         }
-    }
 
-    let stream = match crate::cuda::OwnedStream::new(0) {
-        Ok(s) => s,
-        Err(_) => return PIE_STATUS_DRIVER_ERROR,
-    };
-    use cudarc::runtime::sys::{cudaError, cudaMemcpyAsync, cudaMemcpyKind};
-    let kv_ref = state.kv.as_ref().expect("checked");
-    for (s_id, d_id) in src_pages.iter().zip(dst_pages) {
-        if (!host_src && *s_id >= kv_ref.num_pages)
-            || (!host_dst && *d_id >= kv_ref.num_pages)
-        {
-            return PIE_STATUS_INVALID_ARGUMENT;
-        }
-        for (l, pools) in kv_ref.pools.iter().enumerate() {
-            // A layer that owns no pages has none to move.
-            let Some((k, v)) = pools.as_ref() else { continue };
-            // THIS layer's page bytes — the pool's own stride, so the
-            // two-head-dim families move the right amount per layer.
-            let pb = k.len() / kv_ref.num_pages as usize;
-            for (plane, pool) in [k, v].into_iter().enumerate() {
-                let dev = pool.as_ptr().cast::<u8>();
-                let (dst, src, kind) = if host_dst {
-                    (
-                        state.swap.as_ref().expect("ensured").page(l, plane, *d_id),
-                        unsafe { dev.add(*s_id as usize * pb) },
-                        cudaMemcpyKind::cudaMemcpyDeviceToHost,
-                    )
-                } else if host_src {
-                    (
-                        unsafe { dev.add(*d_id as usize * pb) },
-                        state.swap.as_ref().expect("ensured").page(l, plane, *s_id),
-                        cudaMemcpyKind::cudaMemcpyHostToDevice,
-                    )
-                } else {
-                    (
-                        unsafe { dev.add(*d_id as usize * pb) },
-                        unsafe { dev.add(*s_id as usize * pb) },
-                        cudaMemcpyKind::cudaMemcpyDeviceToDevice,
-                    )
-                };
-                let code = unsafe {
-                    cudaMemcpyAsync(dst.cast(), src.cast_const().cast(), pb, kind,
-                        stream.as_ref().as_raw())
-                };
-                if code != cudaError::cudaSuccess {
-                    return PIE_STATUS_DRIVER_ERROR;
+        let stream = match crate::cuda::OwnedStream::new(0) {
+            Ok(s) => s,
+            Err(_) => return PIE_STATUS_DRIVER_ERROR,
+        };
+        use cudarc::runtime::sys::{cudaError, cudaMemcpyAsync, cudaMemcpyKind};
+        let kv_ref = state.kv.as_ref().expect("checked");
+        for (s_id, d_id) in src_pages.iter().zip(dst_pages) {
+            if (!host_src && *s_id >= kv_ref.num_pages)
+                || (!host_dst && *d_id >= kv_ref.num_pages)
+            {
+                return PIE_STATUS_INVALID_ARGUMENT;
+            }
+            for (l, pools) in kv_ref.pools.iter().enumerate() {
+                // A layer that owns no pages has none to move.
+                let Some((k, v)) = pools.as_ref() else { continue };
+                // THIS layer's page bytes — the pool's own stride, so the
+                // two-head-dim families move the right amount per layer.
+                let pb = k.len() / kv_ref.num_pages as usize;
+                for (plane, pool) in [k, v].into_iter().enumerate() {
+                    let dev = pool.as_ptr().cast::<u8>();
+                    let (dst, src, kind) = if host_dst {
+                        (
+                            state.swap.as_ref().expect("ensured").page(l, plane, *d_id),
+                            unsafe { dev.add(*s_id as usize * pb) },
+                            cudaMemcpyKind::cudaMemcpyDeviceToHost,
+                        )
+                    } else if host_src {
+                        (
+                            unsafe { dev.add(*d_id as usize * pb) },
+                            state.swap.as_ref().expect("ensured").page(l, plane, *s_id),
+                            cudaMemcpyKind::cudaMemcpyHostToDevice,
+                        )
+                    } else {
+                        (
+                            unsafe { dev.add(*d_id as usize * pb) },
+                            unsafe { dev.add(*s_id as usize * pb) },
+                            cudaMemcpyKind::cudaMemcpyDeviceToDevice,
+                        )
+                    };
+                    let code = unsafe {
+                        cudaMemcpyAsync(dst.cast(), src.cast_const().cast(), pb, kind,
+                            stream.as_ref().as_raw())
+                    };
+                    if code != cudaError::cudaSuccess {
+                        return PIE_STATUS_DRIVER_ERROR;
+                    }
                 }
             }
         }
-    }
-    // Cell moves: the bridged beam-repair launcher, per layer. Disjoint
-    // spans are the CALLER's contract, as the kernel's header states.
-    if !cells.is_empty() {
-        let alloc = crate::cuda::Allocator::new();
-        let up = |vals: &[u32]| -> Result<crate::cuda::DeviceBuffer, i32> {
-            let bytes: Vec<u8> = vals.iter().flat_map(|x| x.to_le_bytes()).collect();
-            let mut b = alloc.alloc(bytes.len()).map_err(|_| PIE_STATUS_EXHAUSTED)?;
-            b.copy_from_host(&bytes, stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-            Ok(b)
-        };
-        let dp: Vec<u32> = cells.iter().map(|c| c.dst_page_id).collect();
-        let doff: Vec<u32> = cells.iter().map(|c| c.dst_token_offset).collect();
-        let sp: Vec<u32> = cells.iter().map(|c| c.src_page_id).collect();
-        let soff: Vec<u32> = cells.iter().map(|c| c.src_token_offset).collect();
-        let (d_dp, d_doff, d_sp, d_soff) = match (up(&dp), up(&doff), up(&sp), up(&soff)) {
-            (Ok(a), Ok(b), Ok(c), Ok(d)) => (a, b, c, d),
-            _ => return PIE_STATUS_EXHAUSTED,
-        };
-        for (i, pools) in kv_ref.pools.iter().enumerate() {
-            let Some((k, v)) = pools.as_ref() else { continue };
-            // THIS layer's head dim, derived from its own pool — the
-            // two-head-dim families' rows disagree and the stride must
-            // follow the pool, not the config's single number.
-            let d = (k.len()
-                / kv_ref.num_pages as usize
-                / page_size as usize
-                / kv_heads.max(1) as usize
-                / 2) as i32;
-            let layer = crate::launch::KvCacheLayerView {
-                layer: i as i32,
-                source_layer: i as i32,
-                num_pages: kv_ref.num_pages as i32,
-                page_size,
-                num_kv_heads: kv_heads,
-                head_dim: d,
-                scheme: crate::launch::KvCacheScheme::Native,
-                storage_dtype: crate::dtype::DType::Bf16,
-                block_size: 0,
-                k_pages: k.as_ptr(),
-                v_pages: v.as_ptr(),
-                k_scales: core::ptr::null_mut(),
-                v_scales: core::ptr::null_mut(),
-                k_bf16_pages: k.as_ptr(),
-                v_bf16_pages: v.as_ptr(),
-                k_env_min: core::ptr::null_mut(),
-                k_env_max: core::ptr::null_mut(),
-                hnd_layout: false,
-                native_bf16: true,
+        // Cell moves: the bridged beam-repair launcher, per layer. Disjoint
+        // spans are the CALLER's contract, as the kernel's header states.
+        if !cells.is_empty() {
+            let alloc = crate::cuda::Allocator::new();
+            let up = |vals: &[u32]| -> Result<crate::cuda::DeviceBuffer, i32> {
+                let bytes: Vec<u8> = vals.iter().flat_map(|x| x.to_le_bytes()).collect();
+                let mut b = alloc.alloc(bytes.len()).map_err(|_| PIE_STATUS_EXHAUSTED)?;
+                b.copy_from_host(&bytes, stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+                Ok(b)
             };
-            unsafe {
-                crate::launch::ffi::pie_k_attn_copy_kv_cells_bf16(
-                    layer,
-                    d_dp.as_ptr().cast(),
-                    d_doff.as_ptr().cast(),
-                    d_sp.as_ptr().cast(),
-                    d_soff.as_ptr().cast(),
-                    i32::try_from(cells.len()).unwrap_or(i32::MAX),
-                    stream.as_ref().as_raw().cast(),
-                );
+            let dp: Vec<u32> = cells.iter().map(|c| c.dst_page_id).collect();
+            let doff: Vec<u32> = cells.iter().map(|c| c.dst_token_offset).collect();
+            let sp: Vec<u32> = cells.iter().map(|c| c.src_page_id).collect();
+            let soff: Vec<u32> = cells.iter().map(|c| c.src_token_offset).collect();
+            let (d_dp, d_doff, d_sp, d_soff) = match (up(&dp), up(&doff), up(&sp), up(&soff)) {
+                (Ok(a), Ok(b), Ok(c), Ok(d)) => (a, b, c, d),
+                _ => return PIE_STATUS_EXHAUSTED,
+            };
+            for (i, pools) in kv_ref.pools.iter().enumerate() {
+                let Some((k, v)) = pools.as_ref() else { continue };
+                // THIS layer's head dim, derived from its own pool — the
+                // two-head-dim families' rows disagree and the stride must
+                // follow the pool, not the config's single number.
+                let d = (k.len()
+                    / kv_ref.num_pages as usize
+                    / page_size as usize
+                    / kv_heads.max(1) as usize
+                    / 2) as i32;
+                let layer = crate::launch::KvCacheLayerView {
+                    layer: i as i32,
+                    source_layer: i as i32,
+                    num_pages: kv_ref.num_pages as i32,
+                    page_size,
+                    num_kv_heads: kv_heads,
+                    head_dim: d,
+                    scheme: crate::launch::KvCacheScheme::Native,
+                    storage_dtype: crate::dtype::DType::Bf16,
+                    block_size: 0,
+                    k_pages: k.as_ptr(),
+                    v_pages: v.as_ptr(),
+                    k_scales: core::ptr::null_mut(),
+                    v_scales: core::ptr::null_mut(),
+                    k_bf16_pages: k.as_ptr(),
+                    v_bf16_pages: v.as_ptr(),
+                    k_env_min: core::ptr::null_mut(),
+                    k_env_max: core::ptr::null_mut(),
+                    hnd_layout: false,
+                    native_bf16: true,
+                };
+                unsafe {
+                    crate::launch::ffi::pie_k_attn_copy_kv_cells_bf16(
+                        layer,
+                        d_dp.as_ptr().cast(),
+                        d_doff.as_ptr().cast(),
+                        d_sp.as_ptr().cast(),
+                        d_soff.as_ptr().cast(),
+                        i32::try_from(cells.len()).unwrap_or(i32::MAX),
+                        stream.as_ref().as_raw().cast(),
+                    );
+                }
             }
         }
-    }
-    if stream.as_ref().synchronize().is_err() {
-        return PIE_STATUS_DRIVER_ERROR;
-    }
-    std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
-    if let Some(notify) = state.notify {
-        unsafe { notify(state.notify_ctx, completion.wait_id, completion.target_epoch) };
-    }
-    PIE_STATUS_OK
+        if stream.as_ref().synchronize().is_err() {
+            return PIE_STATUS_DRIVER_ERROR;
+        }
+        std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
+        if let Some(notify) = state.notify {
+            unsafe { notify(state.notify_ctx, completion.wait_id, completion.target_epoch) };
+        }
+        PIE_STATUS_OK
+    })
 }
 
 /// Direct recurrent-state copies: WHOLE-SLOT d2d over the hybrid's GDN
@@ -4688,65 +4744,67 @@ pub fn pie_cuda_copy_state(
     copy: *const PieStateCopyDesc,
     _completion: PieCompletion,
 ) -> i32 {
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(desc) = (unsafe { copy.as_ref() }) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(gdn) = state.gdn.as_mut() else {
-        // No recurrent family is loaded — the C++ shape: state copies
-        // only mean something once the rs cache exists.
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let ranges = slice_of(desc.slot_ranges.ptr, desc.slot_ranges.len);
-    let Ok(stream) = crate::cuda::OwnedStream::new(0) else {
-        return PIE_STATUS_DRIVER_ERROR;
-    };
-    let alloc = crate::cuda::Allocator::new();
-    let need = ranges
-        .iter()
-        .map(|r| r.src_slot_id.max(r.dst_slot_id) + 1)
-        .max()
-        .unwrap_or(0);
-    if let Err(code) = gdn.ensure_slots(need, &alloc, &stream) {
-        return code;
-    }
-    use cudarc::runtime::sys::{cudaError, cudaMemcpyAsync, cudaMemcpyKind};
-    for range in ranges {
-        // The C++ (`context.cpp::copy_state`) copies WHOLE SLOTS
-        // (`rs_cache->copy_slot_d2d(src, dst)`) — the token fields ride
-        // for the rs BUFFER pool, which is spec-decode machinery.
-        let conv_bytes = gdn.conv_stride_elems as usize * 2;
-        let st_bytes = gdn.state_stride_elems as usize * gdn.state_elem_bytes;
-        for slab in gdn.slabs.iter().flatten() {
-            for (buf, stride) in [(&slab.0, conv_bytes), (&slab.1, st_bytes)] {
-                let code = unsafe {
-                    cudaMemcpyAsync(
-                        buf.as_ptr()
-                            .cast::<u8>()
-                            .add(range.dst_slot_id as usize * stride)
-                            .cast(),
-                        buf.as_ptr()
-                            .cast::<u8>()
-                            .add(range.src_slot_id as usize * stride)
-                            .cast_const()
-                            .cast(),
-                        stride,
-                        cudaMemcpyKind::cudaMemcpyDeviceToDevice,
-                        stream.as_ref().as_raw().cast(),
-                    )
-                };
-                if code != cudaError::cudaSuccess {
-                    return PIE_STATUS_DRIVER_ERROR;
+    guard("pie_cuda_copy_state", PIE_STATUS_DRIVER_ERROR, move || {
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(desc) = (unsafe { copy.as_ref() }) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(gdn) = state.gdn.as_mut() else {
+            // No recurrent family is loaded — the C++ shape: state copies
+            // only mean something once the rs cache exists.
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let ranges = slice_of(desc.slot_ranges.ptr, desc.slot_ranges.len);
+        let Ok(stream) = crate::cuda::OwnedStream::new(0) else {
+            return PIE_STATUS_DRIVER_ERROR;
+        };
+        let alloc = crate::cuda::Allocator::new();
+        let need = ranges
+            .iter()
+            .map(|r| r.src_slot_id.max(r.dst_slot_id) + 1)
+            .max()
+            .unwrap_or(0);
+        if let Err(code) = gdn.ensure_slots(need, &alloc, &stream) {
+            return code;
+        }
+        use cudarc::runtime::sys::{cudaError, cudaMemcpyAsync, cudaMemcpyKind};
+        for range in ranges {
+            // The C++ (`context.cpp::copy_state`) copies WHOLE SLOTS
+            // (`rs_cache->copy_slot_d2d(src, dst)`) — the token fields ride
+            // for the rs BUFFER pool, which is spec-decode machinery.
+            let conv_bytes = gdn.conv_stride_elems as usize * 2;
+            let st_bytes = gdn.state_stride_elems as usize * gdn.state_elem_bytes;
+            for slab in gdn.slabs.iter().flatten() {
+                for (buf, stride) in [(&slab.0, conv_bytes), (&slab.1, st_bytes)] {
+                    let code = unsafe {
+                        cudaMemcpyAsync(
+                            buf.as_ptr()
+                                .cast::<u8>()
+                                .add(range.dst_slot_id as usize * stride)
+                                .cast(),
+                            buf.as_ptr()
+                                .cast::<u8>()
+                                .add(range.src_slot_id as usize * stride)
+                                .cast_const()
+                                .cast(),
+                            stride,
+                            cudaMemcpyKind::cudaMemcpyDeviceToDevice,
+                            stream.as_ref().as_raw().cast(),
+                        )
+                    };
+                    if code != cudaError::cudaSuccess {
+                        return PIE_STATUS_DRIVER_ERROR;
+                    }
                 }
             }
         }
-    }
-    if stream.as_ref().synchronize().is_err() {
-        return PIE_STATUS_DRIVER_ERROR;
-    }
-    PIE_STATUS_OK
+        if stream.as_ref().synchronize().is_err() {
+            return PIE_STATUS_DRIVER_ERROR;
+        }
+        PIE_STATUS_OK
+    })
 }
 
 /// Resize the KV pool to `target_pages`, MIGRATING the surviving pages —
@@ -4759,134 +4817,140 @@ pub fn pie_cuda_resize_pool(
     resize: *const PiePoolResizeDesc,
     completion: PieCompletion,
 ) -> i32 {
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Some(desc) = (unsafe { resize.as_ref() }) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let Ok(target) = u32::try_from(desc.target_pages) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    if target == 0 {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    }
-    let Some(model) = state.model.as_ref() else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    let (kv_heads, head_dim) =
-        (model.hf.num_key_value_heads, model.hf.head_dim_kernel.max(model.hf.head_dim));
-    let page_size: usize = 16;
-    let page_bytes = page_size * kv_heads as usize * head_dim as usize * 2;
+    guard("pie_cuda_resize_pool", PIE_STATUS_DRIVER_ERROR, move || {
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Some(desc) = (unsafe { resize.as_ref() }) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let Ok(target) = u32::try_from(desc.target_pages) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        if target == 0 {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        }
+        let Some(model) = state.model.as_ref() else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        let (kv_heads, head_dim) =
+            (model.hf.num_key_value_heads, model.hf.head_dim_kernel.max(model.hf.head_dim));
+        let page_size: usize = 16;
+        let page_bytes = page_size * kv_heads as usize * head_dim as usize * 2;
 
-    let stream = match crate::cuda::OwnedStream::new(0) {
-        Ok(s) => s,
-        Err(_) => return PIE_STATUS_DRIVER_ERROR,
-    };
-    let alloc = crate::cuda::Allocator::new();
-    let old = state.kv.take();
-    // Per-layer page bytes: an existing pool states its own stride (the
-    // two-head-dim families' rows disagree); before any pool exists the
-    // config decides — gemma-4 by its layer kinds and shared tail, every
-    // other family uniformly.
-    let is_gemma4 =
-        model.weights.contains_key("model.language_model.embed_tokens_per_layer.weight");
-    let n_layers = model.hf.num_hidden_layers as usize;
-    let first_shared =
-        n_layers.saturating_sub(usize::try_from(model.hf.num_kv_shared_layers).unwrap_or(0));
-    let layer_page_bytes = |i: usize| -> Option<usize> {
-        if let Some(old_kv) = &old {
-            return old_kv.pools[i]
-                .as_ref()
-                .map(|(k, _)| k.len() / old_kv.num_pages.max(1) as usize);
-        }
-        if !is_gemma4 {
-            return Some(page_bytes);
-        }
-        if i >= first_shared {
-            return None;
-        }
-        let full = model.hf.layer_types.get(i).is_some_and(|t| t == "full_attention");
-        let d = if full {
-            model.hf.gemma4_global_head_dim.max(model.hf.head_dim)
-        } else {
-            model.hf.head_dim
+        let stream = match crate::cuda::OwnedStream::new(0) {
+            Ok(s) => s,
+            Err(_) => return PIE_STATUS_DRIVER_ERROR,
         };
-        Some(page_size * kv_heads as usize * d as usize * 2)
-    };
-    let mut pools = Vec::new();
-    for i in 0..n_layers {
-        let Some(pb) = layer_page_bytes(i) else {
-            pools.push(None);
-            continue;
+        let alloc = crate::cuda::Allocator::new();
+        let old = state.kv.take();
+        // Per-layer page bytes: an existing pool states its own stride (the
+        // two-head-dim families' rows disagree); before any pool exists the
+        // config decides — gemma-4 by its layer kinds and shared tail, every
+        // other family uniformly.
+        let is_gemma4 =
+            model.weights.contains_key("model.language_model.embed_tokens_per_layer.weight");
+        let n_layers = model.hf.num_hidden_layers as usize;
+        let first_shared =
+            n_layers.saturating_sub(usize::try_from(model.hf.num_kv_shared_layers).unwrap_or(0));
+        let layer_page_bytes = |i: usize| -> Option<usize> {
+            if let Some(old_kv) = &old {
+                return old_kv.pools[i]
+                    .as_ref()
+                    .map(|(k, _)| k.len() / old_kv.num_pages.max(1) as usize);
+            }
+            if !is_gemma4 {
+                return Some(page_bytes);
+            }
+            if i >= first_shared {
+                return None;
+            }
+            let full = model.hf.layer_types.get(i).is_some_and(|t| t == "full_attention");
+            let d = if full {
+                model.hf.gemma4_global_head_dim.max(model.hf.head_dim)
+            } else {
+                model.hf.head_dim
+            };
+            Some(page_size * kv_heads as usize * d as usize * 2)
         };
-        let Ok(mut k) = alloc.alloc(target as usize * pb) else {
-            return PIE_STATUS_EXHAUSTED;
-        };
-        let Ok(mut v) = alloc.alloc(target as usize * pb) else {
-            return PIE_STATUS_EXHAUSTED;
-        };
-        if k.memset(0, stream.as_ref()).is_err() || v.memset(0, stream.as_ref()).is_err() {
-            return PIE_STATUS_DRIVER_ERROR;
-        }
-        if let Some(old_kv) = &old
-            && let Some((ok_, ov)) = &old_kv.pools[i]
-        {
-            let keep = old_kv.num_pages.min(target) as usize * pb;
-            use cudarc::runtime::sys::{cudaError, cudaMemcpyAsync, cudaMemcpyKind};
-            for (dst, src) in [(&mut k, ok_), (&mut v, ov)] {
-                let code = unsafe {
-                    cudaMemcpyAsync(
-                        dst.as_ptr(),
-                        src.as_ptr().cast_const(),
-                        keep,
-                        cudaMemcpyKind::cudaMemcpyDeviceToDevice,
-                        stream.as_ref().as_raw(),
-                    )
-                };
-                if code != cudaError::cudaSuccess {
-                    return PIE_STATUS_DRIVER_ERROR;
+        let mut pools = Vec::new();
+        for i in 0..n_layers {
+            let Some(pb) = layer_page_bytes(i) else {
+                pools.push(None);
+                continue;
+            };
+            let Ok(mut k) = alloc.alloc(target as usize * pb) else {
+                return PIE_STATUS_EXHAUSTED;
+            };
+            let Ok(mut v) = alloc.alloc(target as usize * pb) else {
+                return PIE_STATUS_EXHAUSTED;
+            };
+            if k.memset(0, stream.as_ref()).is_err() || v.memset(0, stream.as_ref()).is_err() {
+                return PIE_STATUS_DRIVER_ERROR;
+            }
+            if let Some(old_kv) = &old
+                && let Some((ok_, ov)) = &old_kv.pools[i]
+            {
+                let keep = old_kv.num_pages.min(target) as usize * pb;
+                use cudarc::runtime::sys::{cudaError, cudaMemcpyAsync, cudaMemcpyKind};
+                for (dst, src) in [(&mut k, ok_), (&mut v, ov)] {
+                    let code = unsafe {
+                        cudaMemcpyAsync(
+                            dst.as_ptr(),
+                            src.as_ptr().cast_const(),
+                            keep,
+                            cudaMemcpyKind::cudaMemcpyDeviceToDevice,
+                            stream.as_ref().as_raw(),
+                        )
+                    };
+                    if code != cudaError::cudaSuccess {
+                        return PIE_STATUS_DRIVER_ERROR;
+                    }
                 }
             }
+            pools.push(Some((k, v)));
         }
-        pools.push(Some((k, v)));
-    }
-    if stream.as_ref().synchronize().is_err() {
-        return PIE_STATUS_DRIVER_ERROR;
-    }
-    state.kv = Some(KvState { pools, num_pages: target });
-    // A RESIZE MOVES THE KV PAGES, and a captured graph baked their old
-    // addresses into every attention launch. Bumping the epoch is what tells
-    // `SupergraphCache` to recapture instead of replaying into memory the
-    // pool no longer owns — which showed up as a segfault the moment decode
-    // fires became capturable at all.
-    state.fire_arrays.epoch += 1;
-    std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
-    if let Some(notify) = state.notify {
-        unsafe { notify(state.notify_ctx, completion.wait_id, completion.target_epoch) };
-    }
-    PIE_STATUS_OK
+        if stream.as_ref().synchronize().is_err() {
+            return PIE_STATUS_DRIVER_ERROR;
+        }
+        state.kv = Some(KvState { pools, num_pages: target });
+        // A RESIZE MOVES THE KV PAGES, and a captured graph baked their old
+        // addresses into every attention launch. Bumping the epoch is what tells
+        // `SupergraphCache` to recapture instead of replaying into memory the
+        // pool no longer owns — which showed up as a segfault the moment decode
+        // fires became capturable at all.
+        state.fire_arrays.epoch += 1;
+        std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
+        if let Some(notify) = state.notify {
+            unsafe { notify(state.notify_ctx, completion.wait_id, completion.target_epoch) };
+        }
+        PIE_STATUS_OK
+    })
 }
 
 /// Close an instance — idempotently, the C++'s reading: closing what is
 /// not open is not an error.
 pub fn pie_cuda_close_instance(driver: *mut PieDriver, instance_id: u64) -> i32 {
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    state.instances.remove(&instance_id);
-    PIE_STATUS_OK
+    guard("pie_cuda_close_instance", PIE_STATUS_DRIVER_ERROR, move || {
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        state.instances.remove(&instance_id);
+        PIE_STATUS_OK
+    })
 }
 
 /// Close a channel — idempotently, freeing its pinned endpoint.
 pub fn pie_cuda_close_channel(driver: *mut PieDriver, channel_id: u64) -> i32 {
-    let Some(state) = shell(driver) else {
-        return PIE_STATUS_INVALID_ARGUMENT;
-    };
-    if let Some(ch) = state.channels.remove(&channel_id) {
-        ch.free();
-    }
-    PIE_STATUS_OK
+    guard("pie_cuda_close_channel", PIE_STATUS_DRIVER_ERROR, move || {
+        let Some(state) = shell(driver) else {
+            return PIE_STATUS_INVALID_ARGUMENT;
+        };
+        if let Some(ch) = state.channels.remove(&channel_id) {
+            ch.free();
+        }
+        PIE_STATUS_OK
+    })
 }
 
 #[cfg(test)]
