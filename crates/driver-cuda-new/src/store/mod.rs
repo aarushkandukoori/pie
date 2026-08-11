@@ -25,6 +25,7 @@ pub mod memory_planner;
 pub mod plan;
 pub mod planner_policy;
 pub mod calibrate;
+pub mod model_costs;
 pub mod profile_cache;
 pub mod profile_key;
 pub mod recurrent_layout;

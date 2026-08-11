@@ -1022,17 +1022,25 @@ fn wire_trace_names(model: &mut LoadedModel) {
 /// been lowered yet; a fifth is the C++'s own rule of thumb and it is stated
 /// here rather than hidden in a constant.
 fn capabilities_json(model: &LoadedModel, snapshot: &std::path::Path) -> Result<Vec<u8>, i32> {
-    use crate::store::memory_planner::{DeviceMemory, PlannerConfig, budget_for};
+    use crate::store::memory_planner::{
+        DeviceMemory, DeviceProps, Family, ModelCosts, ModelShape, NoProfiles, PlannerConfig, plan,
+    };
+    use crate::store::model_costs::CheckpointCosts;
 
     let hf = &model.hf;
     let device = crate::cuda::Device::bind(0).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
     let (free, total) = device.memory_info().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+    let (major, minor) = device.compute_capability().unwrap_or((0, 0));
     let cfg = PlannerConfig {
         gpu_mem_utilization: 0.90,
         memory_profile: "auto".to_owned(),
         max_forward_tokens: 0,
         max_forward_requests: 0,
-        kv_page_size: 0,
+        // PINNED, and this is a coupling rather than a preference: the fire
+        // path builds 16-token pages by construction (`page_size: usize = 16`
+        // in `step_impl` and in `resize_pool`). Letting the lattice sweep page
+        // sizes would have it answer a geometry the driver does not build.
+        kv_page_size: 16,
         kv_cache_dtype: "bf16".to_owned(),
         tp_size: i32::try_from(model.tp_size).unwrap_or(1),
         mtp_num_drafts: 0,
@@ -1040,46 +1048,90 @@ fn capabilities_json(model: &LoadedModel, snapshot: &std::path::Path) -> Result<
         rs_slot_mult: 1,
         nccl_unique_id_hex: String::new(),
     };
-    let budget = budget_for(&cfg, DeviceMemory {
+    let costs = CheckpointCosts::new(hf, model.tp_size);
+    let shape = ModelShape {
+        hidden_size: hf.hidden_size,
+        num_hidden_layers: hf.num_hidden_layers,
+        num_attention_heads: hf.num_attention_heads,
+        num_key_value_heads: hf.num_key_value_heads,
+        head_dim_kernel: hf.head_dim_kernel.max(hf.head_dim),
+        model_type: hf.model_type.clone(),
+    };
+    let props = DeviceProps {
+        name: String::new(),
+        major,
+        minor,
+        sm_count: device.sm_count().unwrap_or(0),
+    };
+    let mem = DeviceMemory {
         free_bytes: free as u64,
         total_bytes: total as u64,
-    })
-    .unwrap_or(0);
+    };
+    // MEASURED AFTER THE WEIGHTS ARE RESIDENT, so `cudaMemGetInfo`'s free
+    // figure already has them subtracted and the budget is what is left.
+    let planned = plan(&cfg, &shape, &props, mem, Family::Generic, &costs, &NoProfiles)
+        .map_err(|e| {
+            eprintln!("[driver-cuda-new] load_model: memory planner: {e:?}");
+            PIE_STATUS_EXHAUSTED
+        })?;
+    for note in &planned.notes {
+        eprintln!("[driver-cuda-new] {note}");
+    }
 
-    // The page geometry the fire path already builds — one place decides it.
-    let page_size: u64 = 16;
-    let kv_heads = u64::from(hf.num_key_value_heads.unsigned_abs());
-    let head_dim = u64::from(hf.head_dim_kernel.max(hf.head_dim).unsigned_abs());
-    let layers = u64::from(hf.num_hidden_layers.unsigned_abs());
-    // K and V, two bytes each.
-    let page_bytes = page_size * kv_heads * head_dim * 2 * 2 * layers.max(1);
-    let for_kv = budget.saturating_sub(budget / 5);
-    let total_pages = if page_bytes == 0 { 0 } else { for_kv / page_bytes };
+    // PAGES AGAINST WHAT THE ARENA LEAVES, and this is a deliberate
+    // divergence from the planner's own rule.
+    //
+    // The planner sizes pages against the FULL budget, and says why: "the
+    // arena is a transient graph workspace that is freed between fires, while
+    // the KV pool is the resident one". That was true of the C++. It is not
+    // true here — `FireArrays` keeps the arena, the named seam buffers and
+    // the descriptor arrays for the life of the driver, because a captured
+    // graph bakes the addresses it recorded and a freed arena can never be
+    // replayed into. Persistence is the precondition for the supergraph and
+    // for run-ahead, and it is not negotiable.
+    //
+    // So the two resident allocations share one budget, and charging only one
+    // of them would advertise a page count whose pool cannot be built: on
+    // qwen3-0.6B the full-budget figure is 22,016 pages against a budget the
+    // arena also has to come out of.
+    let per_page = planned.plan.kv_page_bytes.max(1);
+    let resident_arena = costs
+        .arena_bytes(
+            planned.plan.capacity.max_forward_tokens,
+            planned.plan.capacity.max_logit_rows,
+            0,
+        )
+        .saturating_add(planned.plan.attn_float_workspace_bytes)
+        .saturating_add(planned.plan.persistent_input_bytes)
+        .saturating_add(planned.plan.runtime_quant_scratch_bytes);
+    let total_pages = planned.budget.saturating_sub(resident_arena) / per_page;
 
     let caps = driver_abi::DriverCapabilities {
         abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
         total_pages: u32::try_from(total_pages).unwrap_or(u32::MAX),
-        kv_page_size: u32::try_from(page_size).unwrap_or(16),
-        // No swap pool, no elastic accounting, no MTP or value head, and no
-        // sink this shell honours yet. Every one of these is a claim a
-        // program BINDS against, so a false advertisement is a program that
-        // runs as a silent no-op rather than one that is refused.
-        max_forward_tokens: 4096,
-        max_forward_requests: 256,
-        max_page_refs: u32::try_from(total_pages).unwrap_or(u32::MAX),
+        kv_page_size: u32::try_from(planned.plan.kv_page_size).unwrap_or(16),
+        // THE LATTICE'S ANSWER, not a stated ceiling. These are what a
+        // scheduler batches under, and the arena the planner chose is sized
+        // for exactly this rectangle — a fire wider than it has no workspace.
+        max_forward_tokens: u32::try_from(planned.plan.capacity.max_forward_tokens).unwrap_or(0),
+        max_forward_requests: u32::try_from(planned.plan.capacity.max_forward_requests)
+            .unwrap_or(0),
+        max_page_refs: u32::try_from(planned.plan.capacity.max_page_refs).unwrap_or(0),
         arch_name: hf.model_type.clone(),
         vocab_size: u32::try_from(hf.vocab_size).unwrap_or(0),
         max_model_len: u32::try_from(hf.max_position_embeddings).unwrap_or(0),
         activation_dtype: "bf16".to_owned(),
         hidden_size: u32::try_from(hf.hidden_size).unwrap_or(0),
-        // The recurrent families need slots assigned; `layer_types` naming a
-        // linear-attention layer IS the signature.
-        rs_cache_required: hf.layer_types.iter().any(|t| t == "linear_attention"),
+        rs_cache_required: costs.has_linear_state(),
         snapshot_dir: snapshot.display().to_string(),
+        // No swap pool, no elastic accounting, no MTP or value head, and no
+        // sink this shell honours yet. Every one of these is a claim a
+        // program BINDS against, so a false advertisement is a program that
+        // runs as a silent no-op rather than one that is refused.
         swap_pool_size: 0,
         kv_copy_domain_mask: 0,
         rs_cache_slots: 0,
-        rs_cache_slot_bytes: 0,
+        rs_cache_slot_bytes: costs.state_slot_bytes(),
         elastic_page_bytes: 0,
         elastic_budget_pages: 0,
         has_mtp_logits: false,
@@ -2980,8 +3032,9 @@ fn capture_or_replay<R: crate::model::executor::Resolver>(
                 // cheaper wrong answer: captures are per (bucket, epoch) and
                 // a refusal is meant to be rare. The refusals that are NOT
                 // rare belong in the servability test above, which is where
-                // phi-3's went.
-                std::mem::forget(g);
+                // phi-3's went. `ManuallyDrop` rather than `mem::forget`
+                // because the leak is the POINT and should read as one.
+                let _leaked = std::mem::ManuallyDrop::new(g);
                 None
             }
             (_, Err(_)) => None,

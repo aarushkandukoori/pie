@@ -141,6 +141,31 @@ fn load_model_answers_capabilities_an_engine_can_parse() {
     // answer — and was the state before this.
     assert!(parsed.total_pages > 0, "the device holds no KV pages");
     assert_eq!(parsed.kv_page_size, 16, "the page size the fire path builds");
+    // THE LATTICE ANSWERED THESE, and that is the point of running it. A
+    // stated ceiling would be the same on every device; these are what the
+    // planner's search chose for this card and this checkpoint, and the arena
+    // it sized is sized for exactly this rectangle.
+    assert!(parsed.max_forward_tokens > 0, "a fire may carry no tokens");
+    assert!(parsed.max_forward_requests > 0, "a fire may carry no requests");
+    assert!(
+        parsed.max_page_refs >= parsed.total_pages,
+        "a fire cannot reference fewer pages than the pool holds"
+    );
+    // The pool and the arena are BOTH resident here, so the pages advertised
+    // have to leave room for the workspace. On an L40S with qwen3-0.6B the
+    // full-budget figure is ~22k pages and the honest one is ~20k; a driver
+    // that advertised the first would fail to build the pool it promised.
+    let page_bytes = u64::from(parsed.kv_page_size)
+        * 8   // kv heads
+        * 128 // head dim
+        * 2   // bytes per element
+        * 2   // K and V
+        * 28; // layers
+    let pool = u64::from(parsed.total_pages) * page_bytes;
+    assert!(
+        pool < 42 * 1024 * 1024 * 1024,
+        "the pool alone is {pool} bytes on a 46 GB card, with an arena still to come"
+    );
     assert_eq!(parsed.arch_name, "qwen3");
     assert_eq!(parsed.vocab_size, 151_936);
     assert_eq!(parsed.hidden_size, 1024);
