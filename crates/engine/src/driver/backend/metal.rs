@@ -530,6 +530,28 @@ impl MetalDriver {
             .ok_or_else(|| anyhow!("driver-metal-new: launch before load_model"))?;
         let named = std::collections::HashMap::new();
 
+        // ONE timeline for the whole frame, so a step is QUEUED while the
+        // previous one runs rather than after it finishes.
+        //
+        // Every step used to build its own `Stepper` and end in a wait, which
+        // made the frame N submissions and N full GPU stalls. `Stepper` is
+        // bounded internally -- it waits for the step two back, because there
+        // are two command allocators -- so this is one fire in flight while
+        // one runs, which is the shape run-ahead wants
+        // (`.wiki/new-driver/next.md`, priority 1).
+        //
+        // Command buffers committed to one queue execute in submission order,
+        // which is what makes this SAFE for steps that depend on each other:
+        // step n+1 reads the KV step n appended.
+        //
+        // Still per-FRAME rather than per-driver, and the reason is a
+        // lifetime: `Stepper<'ctx>` borrows the `Context` this struct owns, so
+        // holding one across `launch` calls is a self-reference. Making it own
+        // an `Arc<Context>` is what across-frame run-ahead needs next.
+        let mut stepper = driver_metal_new::metal::Stepper::new(&self.context)
+            .map_err(|e| anyhow!("metal stepper: {e:?}"))?;
+        let mut in_flight: Vec<(&crate::driver::submission::StepSubmission, _)> = Vec::new();
+
         for step in &frame.steps {
             let s = driver_metal_new::model::frame::Step {
                 token_ids: &step.plan.token_ids,
@@ -624,10 +646,11 @@ impl MetalDriver {
                     // answers zero, and a zero seq stride is every step of the
                     // scan reading the same token.
                     .with_pool(pool.shape());
-            let arena = driver_metal_new::model::run::run_keeping_arena(
+            let fire = driver_metal_new::model::run::submit(
                 &self.context,
                 &self.compiler,
                 &mut self.pipelines,
+                &mut stepper,
                 &lowered,
                 geometry,
                 &mut store,
@@ -642,18 +665,29 @@ impl MetalDriver {
                 } else {
                     anyhow!("metal fire: {e:?}; unresolved names: {missed:?}")
                 }
-            })?
-            .1;
+            })?;
+            // Committed, not waited for. `lowered` is dropped at the end of
+            // this iteration, so the read-out's shape is carried forward with
+            // the fire rather than looked up again.
+            in_flight.push((step, (fire, lowered.readout)));
+        }
 
-            // ── The read-out, and the channel plane over it. ──
-            //
+        // ── The read-outs, and the channel plane over them. ──
+        //
+        // After the whole frame is committed, in submission order. Reading an
+        // arena before its fire retires is reading whatever the last fire left
+        // there, which is a plausible tensor and the wrong one.
+        for (step, (fire, readout)) in &in_flight {
+            stepper
+                .wait_for(fire.value)
+                .map_err(|e| anyhow!("metal fire {}: {e:?}", fire.value))?;
             // What the fire COMPUTED, handed to the programs bound to this
             // frame. Until this landed the seam ran every launch and dropped
             // the arena, so a green frame and a frame that computed the wrong
             // thing were the same observation — `pipeline::step` had no
             // production caller at all, and the interpreter was exercised
             // only by tests that built their own inputs.
-            let logits = read_logits(&arena, &lowered);
+            let logits = read_logits(&fire.arena, *readout);
             let inputs = logits.as_ref().map_or_else(
                 driver_metal_new::pipeline::PassInputs::none,
                 |(v, rows, vocab)| driver_metal_new::pipeline::PassInputs {
@@ -830,9 +864,9 @@ impl MetalDriver {
 /// was lost in the kernel.
 fn read_logits(
     arena: &driver_metal_new::metal::Handle,
-    lowered: &model_compiler::lower::Lowered,
+    readout: Option<model_compiler::lower::Readout>,
 ) -> Option<(Vec<f32>, u32, u32)> {
-    let r = lowered.readout?;
+    let r = readout?;
     let span = r.rows as usize * r.vocab as usize * r.bytes as usize;
     if r.at + span > arena.len() as usize {
         return None;
