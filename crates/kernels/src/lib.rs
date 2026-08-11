@@ -712,6 +712,39 @@ pub enum Source {
     /// is exactly that operand's element count. A product the table has
     /// no arithmetic for, read off a value that already is it.
     InElements(u8),
+    /// The `i`-th result's width in HEADS — its row width divided by the
+    /// fire's head dim.
+    ///
+    /// Not the same question as [`Source::OutDim`], and that is why it is
+    /// its own source rather than a use of one. `OutDim(i, 1)` asks the
+    /// PLAN what the second extent of a `[Tokens, heads, dim]` value is,
+    /// and the join does not carry it; this asks the BINDER how many
+    /// head-dims fit in a row it already holds the width of. Nine hand
+    /// arms compute `width / ctx.head_dim.max(1)` — rope's q and k
+    /// counts, the attention sink correction, the per-head norms — and
+    /// every one of them was blocked on a shape the join has never had to
+    /// carry.
+    ///
+    /// The `max(1)` is the driver's, not the row's: a fire that states no
+    /// head dim would divide by zero, and where that guard lives is the
+    /// same question `is_set` answers for [`Source::CtxNonZero`].
+    OutHeads(u8),
+    /// The same for the `i`-th operand. See [`Source::OutHeads`].
+    InHeads(u8),
+    /// A context field the fire holds PER LAYER, read at the statement's
+    /// own layer.
+    ///
+    /// Rope theta is the example that forces it: gemma-4 splits theta by
+    /// layer kind, so `ctx.rope_theta` is right for a uniform family and
+    /// wrong for that one, and six hand arms call a `theta_of(layer)`
+    /// helper to say so. The field is the DRIVER's — the table has no
+    /// business knowing whether a family's per-layer vector has a
+    /// fallback, a filter or a refusal behind it — so this names an
+    /// ACCESSOR the driver implements, exactly as [`Source::CtxNonZero`]
+    /// names an `is_set` the driver implements. The generator's whole
+    /// claim is "this value is indexed by the statement's layer", which
+    /// is the part it can know.
+    CtxByLayer(&'static str),
     /// Dimension `d` of the `i`-th operand. The routed combine reads
     /// `[Tokens, top_k, H]` and both extents come off it.
     InDim(u8, u8),

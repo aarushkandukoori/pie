@@ -1022,8 +1022,15 @@ fn every_lowered_symbol_has_an_arm() {
         kernels_cuda::driver_internal::DRIVER_KERNELS,
     ]);
     for line in generated.lines() {
-        // A branch opens `"symbol" if ... => unsafe {`.
-        if !line.trim_start().starts_with('"') || !line.contains("=> unsafe") {
+        // A branch opens `"symbol" if ... => {`.
+        //
+        // It used to open `=> unsafe {`, and matching on that is what
+        // this line said. Then the in-place rows gained their staging and
+        // the branch became a block with the `unsafe` inside it — at
+        // which point the scraper matched NOTHING and every generated
+        // symbol looked unarmed. Matching the arrow and the block is the
+        // stable half of the shape; what is inside it is the emitter's.
+        if !line.trim_start().starts_with('"') || !line.trim_end().ends_with("=> {") {
             continue;
         }
         if let Some(sym) = line.split('"').nth(1)

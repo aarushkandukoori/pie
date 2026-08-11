@@ -776,7 +776,14 @@ impl DispatchCtx {
     /// The theta a layer-tagged rope launch fires with: the per-layer
     /// entry when the family splits theta by layer kind, else the
     /// uniform value.
-    fn theta_of(&self, layer: usize) -> f32 {
+    ///
+    /// Named `theta` and not `theta_of` because a row says
+    /// `Source::CtxByLayer("theta")` and the generated branch calls
+    /// `ctx.theta(layer)`. The fallback is deliberately on this side —
+    /// the table states that the value is indexed by the statement's
+    /// layer, which is all it can know, and whether a family's vector is
+    /// short is the driver's to answer.
+    pub(crate) fn theta(&self, layer: usize) -> f32 {
         self.rope_theta_by_layer
             .get(layer)
             .copied()
@@ -1004,6 +1011,17 @@ fn dispatch_generated(
     }
     fn elems_of(b: &BoundLaunch<'_>, i: usize, rows: i32) -> usize {
         (rows.max(0) as usize) * (width_of(b, i).max(0) as usize)
+    }
+    /// `Source::InHeads`/`OutHeads`: an operand's row width counted in
+    /// head-dims.
+    ///
+    /// The `max(1)` is here rather than in the row for the reason
+    /// [`IsSet`] is: what a fire that states no head dim means is the
+    /// fire's business, and a table that spelled the guard would be
+    /// stating a driver's policy. A zero head dim yields the flat width,
+    /// which is what the nine hand arms this replaces all did.
+    fn heads_of(b: &BoundLaunch<'_>, i: usize, head_dim: i32) -> i32 {
+        width_of(b, i) / head_dim.max(1)
     }
 
     /// `Source::CtxNonZero`'s test: a family zeroes a context field to
@@ -1279,21 +1297,6 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [packed, y].
-        "mlp::chunked_swiglu_bf16" => {
-            need(2)?;
-            let (packed, y) = (bound.args[0], bound.args[1]);
-            unsafe {
-                ffi::pie_k_mlp_chunked_swiglu_bf16(
-                    packed.ptr,
-                    y.ptr,
-                    rows,
-                    i32::try_from(y.width).expect("I fits i32"),
-                    ctx.stream,
-                    ctx.gate_second,
-                );
-            }
-        }
         // args: [packed, rope_table, q_norm_w, k_norm_w]; the q output is
         // the observed-query PIN (outs[0], Named); the KV pages, CSRs and
         // write descriptors are the fire's ([`AttnCtx`]).
@@ -1331,7 +1334,7 @@ pub fn dispatch<R: Resolver>(
                     layer.head_dim,
                     layer.page_size,
                     layer.hnd_layout,
-                    ctx.theta_of(bound.layers.start as usize),
+                    ctx.theta(bound.layers.start as usize),
                     ctx.eps,
                     ctx.stream,
                 );
@@ -1537,7 +1540,7 @@ pub fn dispatch<R: Resolver>(
                     i32::try_from(q_out.width).expect("q width") / ctx.head_dim.max(1),
                     i32::try_from(k_out.width).expect("k width") / ctx.head_dim.max(1),
                     ctx.head_dim,
-                    ctx.theta_of(bound.layers.start as usize),
+                    ctx.theta(bound.layers.start as usize),
                     ctx.eps,
                     ctx.stream,
                 );
@@ -1749,81 +1752,9 @@ pub fn dispatch<R: Resolver>(
                     i32::try_from(q_out.width).expect("q width") / ctx.head_dim.max(1),
                     i32::try_from(k_out.width).expect("k width") / ctx.head_dim.max(1),
                     ctx.head_dim,
-                    ctx.theta_of(bound.layers.start as usize),
+                    ctx.theta(bound.layers.start as usize),
                     ctx.stream,
                     ctx.rope_interleaved,
-                );
-            }
-        }
-        // args: [act, expert_ids, stage, out] — the grouped expert GEMM,
-        // one launch for every (block, expert) route.
-        //
-        // `stage` is the DESTINATION the pointer build named and `out`
-        // aliases it (`in_place = &[(0, 2)]`), so the arm stages only if
-        // the assignment did not give them one buffer.
-        //
-        // THE PREDICATE IS THE POINT. The launcher opens with
-        // `if (max_blocks <= 0 || !supported(M, N, K)) return;` — it
-        // DECLINES by doing nothing. Qwen3.5-35B-A3B's gate_up is exactly
-        // such a shape (`K = hidden = 2048`, and the kernel bounds
-        // `K <= 512` because past that cuBLAS wins; the measurements are
-        // in `moe_grouped_gemm.cu`'s header). So an arm that just called
-        // it would write nothing for gate_up and the mixture would answer
-        // fluently from an untouched buffer.
-        //
-        // The C++ path reads the same predicate and falls back to a
-        // batched cuBLAS over the pointer arrays `build_moe_ptrs_aligned`
-        // fills. That symbol has no arm yet, so this one REFUSES instead
-        // of guessing — and the two are therefore coupled: the pointer
-        // build is the keystone of the aligned path, not its leftover.
-        "moe::moe_grouped_gemm_bf16" => {
-            need(4)?;
-            let (a_in, expert_ids, stage, out) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            let w = weight(resolver)?;
-            #[allow(clippy::cast_possible_wrap)]
-            let block = spec.params.first().copied().unwrap_or(0) as i32;
-            #[allow(clippy::cast_possible_wrap)]
-            let max_blocks = spec.params.get(1).copied().unwrap_or(0) as i32;
-            let n = i32::try_from(out.width).expect("dim");
-            let k = i32::try_from(a_in.width).expect("dim");
-            // Mirrors `moe_grouped_gemm_bf16_supported`. Duplicated on
-            // purpose and marked as such: the alternative is a launcher
-            // that answers "did nothing" the same way it answers "done".
-            const FRAG: i32 = 16;
-            const SHORT_K: i32 = 512;
-            const N_TILE: i32 = 64;
-            if max_blocks <= 0
-                || block != FRAG
-                || k > SHORT_K
-                || n % N_TILE != 0
-                || k % FRAG != 0
-            {
-                return Err(DispatchRefusal::ShapeDeclined {
-                    kernel: "moe::moe_grouped_gemm_bf16".into(),
-                    why: format!(
-                        "the grouped kernel serves M == {FRAG}, K <= {SHORT_K}, \
-                         N % {N_TILE} == 0 and K % {FRAG} == 0; this launch is \
-                         M = {block}, N = {n}, K = {k} over {max_blocks} blocks. \
-                         The batched-cuBLAS fallback needs \
-                         moe::build_moe_ptrs_aligned_bf16, which has no arm yet"
-                    ),
-                });
-            }
-            if stage.ptr != out.ptr {
-                stage_d2d(ctx, &bound.rows, out, stage);
-            }
-            unsafe {
-                ffi::pie_k_moe_moe_grouped_gemm_bf16(
-                    a_in.ptr,
-                    w,
-                    out.ptr,
-                    expert_ids.ptr.cast::<i32>(),
-                    max_blocks,
-                    block,
-                    n,
-                    k,
-                    ctx.stream,
                 );
             }
         }
@@ -1860,39 +1791,6 @@ pub fn dispatch<R: Resolver>(
                     hidden,
                     ctx.stream,
                 );
-            }
-        }
-        // args: [x, y, out] — the SHARED expert's landing, and the
-        // operand order is the trap the row's own comment names: `y` is
-        // the ADDEND, not the accumulator. `out = out + sigmoid(x·gate) *
-        // y`, so the routed block's output stages into `out` and the
-        // shared expert's contribution is gated onto it.
-        "mlp::sigmoid_dot_scalar_gate_add_bf16" => {
-            need(3)?;
-            let (x, y, out) = (bound.args[0], bound.args[1], bound.args[2]);
-            let w = weight(resolver)?;
-            stage_d2d(ctx, &bound.rows, out, y);
-            unsafe {
-                ffi::pie_k_mlp_sigmoid_dot_scalar_gate_add_bf16(
-                    x.ptr,
-                    w,
-                    out.ptr,
-                    y.ptr,
-                    rows,
-                    i32::try_from(out.width).expect("dim"),
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [a, b, out] — out = a + b. The kernel is the in-place
-        // `y += x` over flat elements, so: stage a→out, add b.
-        "norm::residual_add_bf16" => {
-            need(3)?;
-            let (a_in, b_in, out_arg) = (bound.args[0], bound.args[1], bound.args[2]);
-            stage_d2d(ctx, &bound.rows, out_arg, a_in);
-            let n = (bound.rows.end - bound.rows.start) as usize * out_arg.width as usize;
-            unsafe {
-                ffi::pie_k_norm_residual_add_bf16(out_arg.ptr, b_in.ptr, n, ctx.stream);
             }
         }
         // args: [x, out] — out = x + bias, the bias being the op's weight.
@@ -2087,7 +1985,7 @@ pub fn dispatch<R: Resolver>(
                     kv_heads,
                     layer.head_dim,
                     i32::try_from(rotary).expect("rotary fits i32"),
-                    ctx.theta_of(bound.layers.start as usize),
+                    ctx.theta(bound.layers.start as usize),
                     ctx.stream,
                 );
             }
@@ -2378,38 +2276,6 @@ pub fn dispatch<R: Resolver>(
                 ffi::pie_k_norm_scalar_mul_bf16(x_out.ptr, s, n, ctx.stream);
             }
         }
-        // args: [gate, up, y] — gemma's GeGLU (tanh approximation); the
-        // lowering lands y on the gate's bytes (the kernel's in-place
-        // contract), staged when it assigned distinct buffers.
-        //
-        // TWO sites share this symbol and the arm no longer tells them
-        // apart, which is the point. The PLE gate's second operand used
-        // to be the WHOLE `[L, Tokens, ple_dim]` relay, so this arm added
-        // `layer * N * ple_dim` to reach the layer's slice — and to know
-        // WHEN to add it, forked on the out width against `ctx.ple_dim`.
-        // The declaration states a `select` at `l` now; the layer axis
-        // leads, so the slice IS a select, and `Buffers::assign` places it
-        // at `offset(relay) + l · N · ple_dim` without being told. A
-        // select allocates nothing.
-        //
-        // What went with the arithmetic is worth naming: the width fork
-        // was a driver deciding which SITE it was serving from a number,
-        // and the two sites now differ only in which values they name.
-        "mlp::geglu_tanh_bf16" => {
-            need(3)?;
-            let (gate, up, y) = (bound.args[0], bound.args[1], bound.args[2]);
-            stage_d2d(ctx, &bound.rows, y, gate);
-            let n = rows * i32::try_from(y.width).expect("width fits i32");
-            unsafe {
-                ffi::pie_k_mlp_geglu_tanh_bf16(
-                    y.ptr.cast_const(),
-                    up.ptr.cast_const(),
-                    y.ptr,
-                    n,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [x_in, x_out] — `cap * tanh(x / cap)` over the logits;
         // the cap is the deployment's final-softcap fact.
         "attn::logit_softcap_bf16" => {
@@ -2459,7 +2325,7 @@ pub fn dispatch<R: Resolver>(
                     layer.head_dim,
                     layer.page_size,
                     layer.hnd_layout,
-                    ctx.theta_of(bound.layers.start as usize),
+                    ctx.theta(bound.layers.start as usize),
                     ctx.eps,
                     ctx.stream,
                 );
@@ -2525,7 +2391,7 @@ pub fn dispatch<R: Resolver>(
                     i32::try_from(q.width).expect("q width") / layer.head_dim.max(1),
                     kv_heads,
                     layer.head_dim,
-                    ctx.theta_of(bound.layers.start as usize),
+                    ctx.theta(bound.layers.start as usize),
                     ctx.eps,
                     ctx.stream,
                 );
@@ -2650,47 +2516,6 @@ pub fn dispatch<R: Resolver>(
                     norm_out.ptr,
                     rows,
                     i32::try_from(x.width).expect("hidden fits i32"),
-                    ctx.eps,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [x, hidden_in, hidden_out, w] — the two-statement form:
-        // norm x, land on the stream (gemma-4's post-feedforward norm).
-        "norm::rmsnorm_residual_add_bf16" => {
-            need(4)?;
-            let (x, hid_in, hid_out, w) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            stage_d2d(ctx, &bound.rows, hid_out, hid_in);
-            unsafe {
-                ffi::pie_k_norm_rmsnorm_residual_add_bf16(
-                    x.ptr.cast_const(),
-                    w.ptr.cast_const(),
-                    hid_out.ptr,
-                    rows,
-                    i32::try_from(x.width).expect("hidden fits i32"),
-                    ctx.eps,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [x, y] — the weightless per-head V-norm (`v / rms(v)`).
-        "norm::rmsnorm_no_scale_bf16" => {
-            need(2)?;
-            let (x, y) = (bound.args[0], bound.args[1]);
-            let (num_rows, hidden) = match spec.per_head_dim {
-                Some(d) => (
-                    rows * (i32::try_from(x.width).expect("width") / i32::try_from(d).expect("d")),
-                    i32::try_from(d).expect("head_dim fits i32"),
-                ),
-                None => (rows, i32::try_from(x.width).expect("hidden fits i32")),
-            };
-            unsafe {
-                ffi::pie_k_norm_rmsnorm_no_scale_bf16(
-                    x.ptr.cast_const(),
-                    y.ptr,
-                    num_rows,
-                    hidden,
                     ctx.eps,
                     ctx.stream,
                 );
@@ -2971,44 +2796,6 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [x_in, x_out, W ""] — the WEIGHTLESS per-head norm; the
-        // third arg is the statement's empty weight slot, and the row
-        // takes no weight at all. In place, so staged.
-        "norm::per_head_rmsnorm_bf16" => {
-            need(3)?;
-            let (x_in, x_out) = (bound.args[0], bound.args[1]);
-            stage_d2d(ctx, &bound.rows, x_out, x_in);
-            unsafe {
-                ffi::pie_k_norm_per_head_rmsnorm_bf16(
-                    x_out.ptr,
-                    rows,
-                    i32::try_from(x_out.width).expect("width") / ctx.head_dim.max(1),
-                    ctx.head_dim,
-                    ctx.eps,
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [attn_out, lse, out, W sink] — the sink correction, in
-        // place over the dispatch's output (gpt-oss's twin under a
-        // different name and a different LSE convention).
-        "norm::attn_sink_correction_bf16" => {
-            need(4)?;
-            let (o_in, lse, o_out, sink) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            stage_d2d(ctx, &bound.rows, o_out, o_in);
-            unsafe {
-                ffi::pie_k_norm_attn_sink_correction_bf16(
-                    o_out.ptr,
-                    lse.ptr.cast_const().cast(),
-                    sink.ptr.cast_const().cast(),
-                    rows,
-                    i32::try_from(o_out.width).expect("width") / ctx.head_dim.max(1),
-                    ctx.head_dim,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [prefix, blocks, out, W norm, W proj] — the residual
         // blend over a block-structured prefix. `B` is how many blocks
         // the prefix holds, `block_rows` how many rows each one spans.
@@ -3250,25 +3037,6 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [o_in, lse, o_out, W sinks] — the attention sink's
-        // rescale, in place over the dispatch's output.
-        "attn::attention_sink_rescale_bf16" => {
-            need(4)?;
-            let (o_in, lse, o_out, sinks) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            stage_d2d(ctx, &bound.rows, o_out, o_in);
-            unsafe {
-                ffi::pie_k_attn_attention_sink_rescale_bf16(
-                    o_out.ptr,
-                    lse.ptr.cast_const().cast(),
-                    sinks.ptr.cast_const(),
-                    rows,
-                    i32::try_from(o_out.width).expect("width") / ctx.head_dim.max(1),
-                    ctx.head_dim,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [topk_idx, act_fp16, gate_out, up_out, W bank] — the
         // packed-expert GEMV. The C++ reaches FOUR per-expert pointer
         // arrays off its layer struct ("they are per-expert pointer
@@ -3385,20 +3153,6 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [x_in, x_out] — elementwise, in place; staged because the
-        // lowering assigned distinct buffers.
-        "norm::tanh_bf16" => {
-            need(2)?;
-            let (x_in, x_out) = (bound.args[0], bound.args[1]);
-            stage_d2d(ctx, &bound.rows, x_out, x_in);
-            unsafe {
-                ffi::pie_k_norm_tanh_bf16(
-                    x_out.ptr,
-                    rows * i32::try_from(x_out.width).expect("width"),
-                    ctx.stream,
-                );
-            }
-        }
         // args: [in_bf16, out_fp32] — the PREDICT coefficients are
         // `[K, K]` per token, so `k` is the square root of the width.
         "norm::altup_unpack_predict_coefs" => {
@@ -3493,32 +3247,10 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [x_in, target_rms, x_out] — in place over the projected
-        // stream, restoring the magnitude `compute_rms` measured.
-        "norm::magnitude_rescale_bf16" => {
-            need(3)?;
-            let (x_in, target, x_out) = (bound.args[0], bound.args[1], bound.args[2]);
-            stage_d2d(ctx, &bound.rows, x_out, x_in);
-            unsafe {
-                ffi::pie_k_norm_magnitude_rescale_bf16(
-                    x_out.ptr,
-                    target.ptr.cast_const().cast(),
-                    rows,
-                    i32::try_from(x_out.width).expect("hidden"),
-                    ALTUP_EPS,
-                    ctx.stream,
-                );
-            }
-        }
         other => return Err(DispatchRefusal::NoArm(other.to_string())),
     }
     Ok(())
 }
-
-/// gemma3n's AltUp epsilon — `constexpr float kAltupEps` in `gemma3n.cpp`,
-/// a family constant rather than a config value.
-#[cfg(feature = "bridge")]
-const ALTUP_EPS: f32 = 1e-5;
 
 /// `sqrt(w)` when `w` is a perfect square — how a `[K, K]` coefficient
 /// block states its K.

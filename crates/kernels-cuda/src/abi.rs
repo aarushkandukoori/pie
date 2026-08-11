@@ -470,6 +470,17 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         Source::InRows(i) => format!("rows_of(b, {i}, rows)"),
         Source::OutWidth(i) => format!("width_of(b, n_in + {i})"),
         Source::InWidth(i) => format!("width_of(b, {i})"),
+        // The `max(1)` is inside `heads_of`, on the driver's side, for
+        // the reason `is_set` is: the row states which value's width to
+        // read and in what unit, and what a zero head dim means is the
+        // fire's business.
+        Source::OutHeads(i) => format!("heads_of(b, n_in + {i}, ctx.head_dim)"),
+        Source::InHeads(i) => format!("heads_of(b, {i}, ctx.head_dim)"),
+        // An ACCESSOR, not a field: the driver decides whether its
+        // per-layer vector falls back, filters or refuses, and the
+        // generator's claim is only that the statement's layer is the
+        // index.
+        Source::CtxByLayer(f) => format!("ctx.{f}(b.layers.start as usize)"),
         // An element COUNT is a `usize` here and the row decides how wide
         // the launcher wants it — some spell `std::size_t`, some `int`.
         // The C++ emitter can cast unconditionally because C++ narrows
@@ -588,25 +599,6 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
          match b.kernel {\n",
     );
     for k in stated(tables) {
-        // AN IN-PLACE ROW NEEDS ITS STAGING, and a generated branch has
-        // none.
-        //
-        // `in_place = &[(0, 0)]` says output 0 aliases input 0 — a fact
-        // about the KERNEL, which reads and writes one buffer. The
-        // lowering honours it where it can, and where it cannot (the
-        // input is live elsewhere) it assigns distinct buffers and the
-        // arm copies before launching. The generated branch binds
-        // `Out(0)` and calls, so the destination holds whatever was
-        // there.
-        //
-        // This is what the qwen3_5 A/B caught and gemma-4's did not:
-        // `norm::residual_add_bf16` is in every layer of both, and the
-        // difference was only whether that fire's buffer assignment
-        // happened to alias. A bug whose reproduction depends on an
-        // allocator is exactly the kind to refuse rather than to test.
-        if !k.in_place.is_empty() {
-            continue;
-        }
         let binds: Option<Vec<String>> =
             k.operands.iter().map(rust_bind_expr).collect();
         let Some(binds) = binds else { continue };
@@ -622,10 +614,12 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
                 Source::In(i)
                 | Source::InRows(i)
                 | Source::InElements(i)
+                | Source::InHeads(i)
                 | Source::InWidth(i) => need_in = need_in.max(i + 1),
                 Source::Out(i)
                 | Source::OutRows(i)
                 | Source::OutWidth(i)
+                | Source::OutHeads(i)
                 | Source::OutElements(i) => need_out = need_out.max(i + 1),
                 Source::Weight(i) => need_w = need_w.max(i + 1),
                 Source::Param(i) | Source::ParamF32(i) | Source::RoutesOfParam(i) => {
@@ -633,6 +627,47 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
                 }
                 _ => {}
             }
+        }
+        // AN IN-PLACE ROW IS STAGED, and the staging is the row's too.
+        //
+        // `in_place = &[(0, 0)]` says result 0 aliases operand 0 — a fact
+        // about the KERNEL, which reads and writes one buffer. The
+        // lowering honours it where it can, and where it cannot (the
+        // operand is live elsewhere) it assigns distinct buffers and
+        // SOMETHING has to copy before the launch. That something used to
+        // be a hand-written arm, and the row was skipped here for exactly
+        // that reason.
+        //
+        // It is a convention, not a decision: `stage_d2d` is a no-op when
+        // the two already alias, so emitting it is right in both the
+        // honoured and the un-honoured case, and the driver owns what a
+        // copy costs. Which is what makes this generatable at all —
+        // nothing about WHICH buffers alias is knowable here, and nothing
+        // about it needs to be.
+        //
+        // THE PAIR IS ARITY-DEPENDENT, and the runtime test is `lower.rs`'s
+        // verbatim: *"a pair outside this statement's arity is not an
+        // error: one symbol serves a q-only site and a q/k pair, and the
+        // row states the widest form."* `mlp::chunked_swiglu_bf16` is that
+        // case — `swiglu_aligned` states the block-major staging buffer as
+        // its second operand and the activation must land on it, while
+        // plain `swiglu` states one operand and there is nothing to alias.
+        // So the indices are tested and not asserted, which is also why
+        // they must NOT raise the arity guard: a row that demanded its
+        // widest form would decline the narrow site outright.
+        //
+        // This is what the qwen3_5 A/B caught and gemma-4's did not:
+        // `norm::residual_add_bf16` is in every layer of both, and the
+        // difference was only whether that fire's buffer assignment
+        // happened to alias. A bug whose reproduction depends on an
+        // allocator is one to make structurally impossible, which is what
+        // staging every in-place row from the row does.
+        let mut stage = String::new();
+        for (out, inp) in k.in_place {
+            stage.push_str(&format!(
+                "    if n_in > {inp} && n_out > {out} {{\n        \
+                 stage_d2d(ctx, &b.rows, b.args[n_in + {out}], b.args[{inp}]);\n    }}\n"
+            ));
         }
         // THE RECTANGLE, and the guard that is no longer here.
         //
@@ -677,9 +712,10 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
         }
 
         out.push_str(&format!(
-            "\"{}\"{} => unsafe {{\n    {}(\n        {},\n    );\n    true\n}}\n",
+            "\"{}\"{} => {{\n{}    unsafe {{ {}(\n        {},\n    ) }};\n    true\n}}\n",
             k.symbol,
             guard,
+            stage,
             format!("crate::launch::ffi::{}", entry_name(k.symbol)),
             binds.join(",\n        "),
         ));
