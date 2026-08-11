@@ -824,9 +824,7 @@ fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
         gemma_layer_scalars: Vec::new(),
         tp_size: state.tp_size,
     };
-    name_llama_like(&mut model);
-    name_gemma4(&mut model);
-    name_qwen3_5(&mut model);
+    wire_trace_names(&mut model);
     model.load_caps = format!(
         r#"{{"model_type":"{}","hidden":{},"layers":{},"vocab":{},"weights":{}}}"#,
         model.hf.model_type,
@@ -840,241 +838,74 @@ fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
     Ok(())
 }
 
-/// Build the llama-like fused trace names beside the checkpoint names —
-/// the A/B harness's binder, generalized over `HfConfig` and promoted
-/// into the shell. Families beyond llama-like keep their raw names; a
-/// later launch asking for an unfused trace name gets the resolver's
-/// drift refusal, which is the honest state until their binders land.
-/// Name a fused bank the plan laid out CONTIGUOUSLY but never joined.
+/// Answer the trace names a launch will ask for, from `model`'s tables.
 ///
-/// `Projections::Fused` publishes `…qkv_proj.fused.weight` when it joins the
-/// parts itself, and that is the usual answer. It declines when the parts are
-/// not source tensors — Phi-3 ships ONE `gate_up_proj` tensor and its contract
-/// splits it into `gate_proj` and `up_proj`, so there is nothing to join: the
-/// bytes were already adjacent in the file and the plan wrote them once.
+/// The driver's whole part in naming, and it is deliberately small: which
+/// trace name means which published tensor is FAMILY knowledge and lives in
+/// `model::weight_names`, beside the DSL that invents the trace names and the
+/// contract author that invents the published ones. What is left here is the
+/// two things only a driver can answer.
 ///
-/// So the fused operand exists; it just has no name. This gives it one,
-/// without moving a byte, when the spans really do abut. It refuses silently
-/// when they do not, because a GEMM handed a discontiguous operand reads
-/// whatever sits between the parts.
-fn name_contiguous_join(model: &mut LoadedModel, trace: &str, parts: &[String]) {
-    let mut spans = Vec::with_capacity(parts.len());
-    for p in parts {
-        let Some(span) = model.weights.get(p).copied() else {
-            return;
-        };
-        spans.push(span);
-    }
-    let mut bytes = spans[0].bytes;
-    for pair in spans.windows(2) {
-        if !std::ptr::eq(
-            pair[0].ptr.wrapping_byte_add(pair[0].bytes).cast_const(),
-            pair[1].ptr.cast_const(),
-        ) {
-            return;
-        }
-        bytes += pair[1].bytes;
-    }
-    model.weights.insert(
-        trace.to_string(),
-        crate::loader::stage::WeightSpan {
-            ptr: spans[0].ptr,
-            bytes,
-        },
-    );
-}
+/// **Whether a join is a rename or nothing.** A checkpoint that ships its
+/// projections pre-joined (Phi-3) has its contract SPLIT them, so
+/// `Projections::Fused` has nothing to fuse and the halves are merely
+/// adjacent. They are adjacent IN THE ARENA — the plan wrote them once, in
+/// file order — so the fused operand exists and only wants a name. Only the
+/// driver holds the addresses that decide it, and it checks rather than
+/// assumes: a GEMM handed a discontiguous operand reads what lies between.
+///
+/// **Reading a load-time scalar to the host.** gemma-4's per-layer
+/// `layer_scalar` is one bf16 on the device; `model` says which tensors they
+/// are and in what order, and the copy is CUDA's.
+fn wire_trace_names(model: &mut LoadedModel) {
+    let published: Vec<String> = model.weights.keys().cloned().collect();
+    let set: std::collections::BTreeSet<&str> =
+        published.iter().map(String::as_str).collect();
+    let has = |n: &str| set.contains(n);
+    let wiring = model::weight_names::wire(&model.hf, &has);
 
-fn name_llama_like(model: &mut LoadedModel) {
-    let has = |m: &LoadedModel, n: &str| m.weights.contains_key(n);
-    if !has(model, "model.embed_tokens.weight") {
-        return; // not an HF llama-like naming scheme; leave raw
+    for (trace, name) in wiring.aliases {
+        model.aliases.insert(trace, name);
     }
-    let alias = |model: &mut LoadedModel, trace: String, ckpt: String| {
-        if model.weights.contains_key(&ckpt) {
-            model.aliases.insert(trace, ckpt);
+    for (trace, parts) in wiring.joins {
+        let mut spans = Vec::with_capacity(parts.len());
+        for p in &parts {
+            let Some(span) = model.weights.get(p).copied() else {
+                spans.clear();
+                break;
+            };
+            spans.push(span);
         }
-    };
-
-    alias(model, "embed".into(), "model.embed_tokens.weight".into());
-    alias(model, "final_norm".into(), "model.norm.weight".into());
-    if model.weights.contains_key("lm_head.weight") {
-        alias(model, "lm_head".into(), "lm_head.weight".into());
-    } else {
-        // Tied embeddings: the trace's lm_head name IS "embed".
-        alias(model, "lm_head".into(), "model.embed_tokens.weight".into());
-    }
-    let layers = usize::try_from(model.hf.num_hidden_layers).unwrap_or(0);
-    for i in 0..layers {
-        let n = |s: &str| format!("model.layers.{i}.{s}");
-        // THE PLAN ALREADY JOINED THESE. `Projections::Fused` stages
-        // `…qkv_proj.fused.weight` and `…gate_up_proj.fused.weight`
-        // beside the split tensors, laid out in the arena in the order
-        // the GEMM wants — so the trace name is a RENAME, where the
-        // driver used to read three tensors back off the device and
-        // upload their concatenation.
-        alias(model, format!("layer.{i}.qkv"), n("self_attn.qkv_proj.fused.weight"));
-        alias(model, format!("layer.{i}.gate_up"), n("mlp.gate_up_proj.fused.weight"));
-        // Some checkpoints ship the fused projections ALREADY (phi3's
-        // `qkv_proj` and `gate_up_proj`), in the same concatenation order
-        // the fuse above builds. Those want an alias, not a copy -- and
-        // `alias` is a no-op when the name is absent, so this costs the
-        // deployments that split nothing.
-        alias(model, format!("layer.{i}.qkv"), n("self_attn.qkv_proj.weight"));
-        alias(model, format!("layer.{i}.gate_up"), n("mlp.gate_up_proj.weight"));
-        // …and the third case: the parts abut in the arena but were never
-        // given a joined name. See `name_contiguous_join`.
-        if !model.aliases.contains_key(&format!("layer.{i}.qkv")) {
-            name_contiguous_join(model, &format!("layer.{i}.qkv"), &[
-                n("self_attn.q_proj.weight"),
-                n("self_attn.k_proj.weight"),
-                n("self_attn.v_proj.weight"),
-            ]);
+        if spans.len() != parts.len() {
+            continue;
         }
-        if !model.aliases.contains_key(&format!("layer.{i}.gate_up")) {
-            name_contiguous_join(model, &format!("layer.{i}.gate_up"), &[
-                n("mlp.gate_proj.weight"),
-                n("mlp.up_proj.weight"),
-            ]);
-        }
-        // The norm placement decides the mapping, and `input_layernorm`'s
-        // presence IS the placement: pre-norm has it (attn_norm=input,
-        // mlp_norm=post_attention); post-norm (olmo2) lacks it
-        // (attn_norm=post_attention, mlp_norm=post_feedforward) — the
-        // bind_olmo3 convention the A/B verified.
-        if model.weights.contains_key(&n("input_layernorm.weight")) {
-            alias(model, format!("layer.{i}.attn_norm"), n("input_layernorm.weight"));
-            alias(model, format!("layer.{i}.mlp_norm"), n("post_attention_layernorm.weight"));
-        } else {
-            alias(model, format!("layer.{i}.attn_norm"), n("post_attention_layernorm.weight"));
-            alias(model, format!("layer.{i}.mlp_norm"), n("post_feedforward_layernorm.weight"));
-        }
-        for (trace, ckpt) in [
-            ("q_norm", "self_attn.q_norm.weight"),
-            ("k_norm", "self_attn.k_norm.weight"),
-            ("o_proj", "self_attn.o_proj.weight"),
-            ("down", "mlp.down_proj.weight"),
-            ("q_proj", "self_attn.q_proj.weight"),
-            ("k_proj", "self_attn.k_proj.weight"),
-            ("v_proj", "self_attn.v_proj.weight"),
-            ("q_bias", "self_attn.q_proj.bias"),
-            ("k_bias", "self_attn.k_proj.bias"),
-            ("v_bias", "self_attn.v_proj.bias"),
-        ] {
-            alias(model, format!("layer.{i}.{trace}"), n(ckpt));
-        }
-    }
-
-}
-
-/// Build the qwen3_5 hybrid's trace names — the `real_hybrid` A/B's
-/// binder vocabulary, promoted into the shell. The checkpoint naming is
-/// the VL config's (`model.language_model.*`); the vision tower and the
-/// MTP block stay untouched under their raw names.
-/// Build the gemma-4 trace names beside the checkpoint names —
-/// `gemma4.cpp`'s binder plus the engine's `dense_fused_projection_joins`
-/// (q‖k‖v on the layers that project their own KV, gate‖up everywhere),
-/// as the real-weight A/B proved them. Also reads the per-layer
-/// `layer_scalar` [1] tensors to host — the load-time
-/// `read_bf16_scalar_once`, stashed for the fire's `scales` map.
-#[allow(clippy::too_many_lines)]
-fn name_gemma4(model: &mut LoadedModel) {
-    let p = "model.language_model";
-    if !model.weights.contains_key(&format!("{p}.embed_tokens_per_layer.weight")) {
-        return; // the PLE table IS the family's signature
-    }
-    let alias = |model: &mut LoadedModel, trace: String, ckpt: String| {
-        if model.weights.contains_key(&ckpt) {
-            model.aliases.insert(trace, ckpt);
-        }
-    };
-    alias(model, "embed".into(), format!("{p}.embed_tokens.weight"));
-    alias(model, "embed_per_layer".into(), format!("{p}.embed_tokens_per_layer.weight"));
-    alias(model, "ple_model_proj".into(), format!("{p}.per_layer_model_projection.weight"));
-    alias(model, "ple_model_norm".into(), format!("{p}.per_layer_projection_norm.weight"));
-    alias(model, "final_norm".into(), format!("{p}.norm.weight"));
-    let layers = usize::try_from(model.hf.num_hidden_layers).unwrap_or(0);
-    let first_shared =
-        layers.saturating_sub(usize::try_from(model.hf.num_kv_shared_layers).unwrap_or(0));
-    let mut scalars = Vec::with_capacity(layers);
-    for i in 0..layers {
-        let n = |sfx: &str| format!("{p}.layers.{i}.{sfx}");
-        alias(model, format!("layer.{i}.attn_norm"), n("input_layernorm.weight"));
-        alias(model, format!("layer.{i}.post_attn_norm"), n("post_attention_layernorm.weight"));
-        alias(model, format!("layer.{i}.pre_ffw_norm"), n("pre_feedforward_layernorm.weight"));
-        alias(model, format!("layer.{i}.post_ffw_norm"), n("post_feedforward_layernorm.weight"));
-        alias(model, format!("layer.{i}.q_norm"), n("self_attn.q_norm.weight"));
-        alias(model, format!("layer.{i}.o_proj"), n("self_attn.o_proj.weight"));
-        alias(model, format!("layer.{i}.down"), n("mlp.down_proj.weight"));
-        alias(model, format!("layer.{i}.ple_gate"), n("per_layer_input_gate.weight"));
-        alias(model, format!("layer.{i}.ple_proj"), n("per_layer_projection.weight"));
-        alias(model, format!("layer.{i}.ple_norm"), n("post_per_layer_input_norm.weight"));
-        if i >= first_shared {
-            // A KV-shared layer states only the Q leg.
-            alias(model, format!("layer.{i}.q_proj"), n("self_attn.q_proj.weight"));
-        } else {
-            alias(model, format!("layer.{i}.k_norm"), n("self_attn.k_norm.weight"));
-            alias(model, format!("layer.{i}.qkv"), n("self_attn.qkv_proj.fused.weight"));
-        }
-        alias(model, format!("layer.{i}.gate_up"), n("mlp.gate_up_proj.fused.weight"));
-        // The layer scalar, host-read: one bf16.
-        let s = model.weights.get(&n("layer_scalar")).map_or(1.0f32, |b| {
-            match crate::loader::stage::read_span(*b) {
-                Ok(back) if back.len() == 2 => {
-                    f32::from_bits(u32::from(u16::from_le_bytes([back[0], back[1]])) << 16)
-                }
-                _ => 1.0,
-            }
+        let abut = spans.windows(2).all(|p| {
+            std::ptr::eq(
+                p[0].ptr.wrapping_byte_add(p[0].bytes).cast_const(),
+                p[1].ptr.cast_const(),
+            )
         });
-        scalars.push(s);
-    }
-    model.gemma_layer_scalars = scalars;
-}
-
-fn name_qwen3_5(model: &mut LoadedModel) {
-    let p = "model.language_model";
-    if !model.weights.contains_key(&format!("{p}.embed_tokens.weight")) {
-        return; // not the qwen3_5 naming scheme; leave raw
-    }
-    if model.weights.contains_key(&format!("{p}.embed_tokens_per_layer.weight")) {
-        return; // gemma-4 shares the prefix; its aliases are its own
-    }
-    let alias = |model: &mut LoadedModel, trace: String, ckpt: String| {
-        if model.weights.contains_key(&ckpt) {
-            model.aliases.insert(trace, ckpt);
+        if abut {
+            model.weights.insert(trace, crate::loader::stage::WeightSpan {
+                ptr: spans[0].ptr,
+                bytes: spans.iter().map(|s| s.bytes).sum(),
+            });
         }
-    };
-    alias(model, "embed".into(), format!("{p}.embed_tokens.weight"));
-    alias(model, "final_norm".into(), format!("{p}.norm.weight"));
-    let layers = usize::try_from(model.hf.num_hidden_layers).unwrap_or(0);
-    for i in 0..layers {
-        let n = |sfx: &str| format!("{p}.layers.{i}.{sfx}");
-        alias(model, format!("layer.{i}.attn_norm"), n("input_layernorm.weight"));
-        alias(model, format!("layer.{i}.mlp_norm"), n("post_attention_layernorm.weight"));
-        alias(model, format!("layer.{i}.down"), n("mlp.down_proj.weight"));
-        let full = model
-            .hf
-            .layer_types
-            .get(i)
-            .is_some_and(|t| t == "full_attention");
-        if full {
-            for f in ["q_proj", "k_proj", "v_proj", "o_proj", "q_norm", "k_norm"] {
-                alias(model, format!("layer.{i}.{f}"), n(&format!("self_attn.{f}.weight")));
-            }
-        } else {
-            for f in ["in_proj_qkv", "in_proj_z", "in_proj_a", "in_proj_b"] {
-                alias(model, format!("layer.{i}.{f}"), n(&format!("linear_attn.{f}.weight")));
-            }
-            alias(model, format!("layer.{i}.conv"), n("linear_attn.conv1d.weight"));
-            alias(model, format!("layer.{i}.conv_bias"), n("linear_attn.conv1d.bias"));
-            alias(model, format!("layer.{i}.a_log"), n("linear_attn.A_log"));
-            alias(model, format!("layer.{i}.dt_bias"), n("linear_attn.dt_bias"));
-            alias(model, format!("layer.{i}.gate_norm"), n("linear_attn.norm.weight"));
-            alias(model, format!("layer.{i}.o_proj"), n("linear_attn.out_proj.weight"));
-        }
-        // The fused gate‖up bank, gate first — the dense MLP's binding,
-        // laid out by the plan.
-        alias(model, format!("layer.{i}.gate_up"), n("mlp.gate_up_proj.fused.weight"));
     }
+    model.gemma_layer_scalars = wiring
+        .scalars
+        .iter()
+        .map(|n| {
+            model.weights.get(n).map_or(1.0f32, |b| {
+                match crate::loader::stage::read_span(*b) {
+                    Ok(back) if back.len() == 2 => {
+                        f32::from_bits(u32::from(u16::from_le_bytes([back[0], back[1]])) << 16)
+                    }
+                    _ => 1.0,
+                }
+            })
+        })
+        .collect();
 }
 
 /// Register a program: adopt its launch package, compile its generated
