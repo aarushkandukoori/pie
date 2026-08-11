@@ -42,7 +42,6 @@ mod handle;
 mod heap;
 mod keepalive;
 mod memory;
-mod paging;
 mod pipeline;
 mod pool;
 mod program;
@@ -70,7 +69,6 @@ pub use handle::Handle;
 pub use heap::{Heap, Slot};
 pub use keepalive::{Keepalive, MIN_DEPTH, MIN_THREADGROUPS, THREADS_PER_THREADGROUP};
 pub use memory::{Memory, Pages, reclaimable_pages};
-pub use paging::fire_paged;
 pub use pipeline::{Archived, Compiled, Compiler, Math};
 pub use pool::{DEFAULT_CAPACITY, Pool, PoolStats, SMALLEST_CLASS, Transient};
 pub use program::{
