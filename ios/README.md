@@ -10,8 +10,17 @@ Runs the Pie runtime — wasmtime executing inferlets — inside an iOS app.
   `target/qwen3-tok/` and the helloworld + marketing-tab2-watermark
   inferlets built for `wasm32-wasip2`).
 
-Status: engine + WebSocket control plane + wasm inferlets (Pulley
-interpreter, no JIT) + dummy driver run end-to-end in the iOS Simulator.
-iOS-specific changes so far: Pulley engine target (runtime/src/bootstrap.rs),
-file-backed mmap fallback for POSIX shmem (driver/bridge/src/ipc/posix.rs).
-Next: ggml-based driver (CPU, then Metal) for real model inference.
+Status: REAL MODEL INFERENCE WORKS in the iOS Simulator — Qwen3-0.6B
+Q4_K_M GGUF through the portable (ggml, CPU) driver, streaming tokens
+into a SwiftUI chat view via the text-completion inferlet running under
+wasmtime Pulley. Build the shim with --release: ggml at -O0 is unusably
+slow.
+
+iOS-specific changes so far:
+- Pulley engine target (runtime/src/bootstrap.rs)
+- file-backed mmap fallback for POSIX shmem (driver/bridge/src/ipc/posix.rs)
+- iOS cross-compile support for the portable driver's CMake build
+  (server/build.rs: SDK sysroot defines + ios system-libs arm)
+
+Next: ggml Metal backend on iOS, physical-device deployment, Android
+(llama.cpp Vulkan or ggml), durable-inferlet migration demo.

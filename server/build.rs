@@ -85,6 +85,37 @@ fn build_portable() {
     if metal_enabled && target_os != "macos" {
         panic!("PIE_PORTABLE_METAL is only valid on macOS (got target_os={target_os:?})");
     }
+
+    // iOS cross-compile (device or simulator): steer CMake at the right
+    // SDK explicitly — the cmake crate doesn't infer Apple mobile
+    // sysroots from the Rust target triple. CPU-only ggml for now;
+    // Metal-on-iOS is a follow-up.
+    let mut ios_cmake_defines: Vec<(String, String)> = Vec::new();
+    if target_os == "ios" {
+        let target = std::env::var("TARGET").unwrap_or_default();
+        let sdk = if target.ends_with("-sim") {
+            "iphonesimulator"
+        } else {
+            "iphoneos"
+        };
+        let sdk_path = std::process::Command::new("xcrun")
+            .args(["--sdk", sdk, "--show-sdk-path"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_else(|| panic!("xcrun --sdk {sdk} --show-sdk-path failed"));
+        ios_cmake_defines.push(("CMAKE_SYSTEM_NAME".into(), "iOS".into()));
+        ios_cmake_defines.push(("CMAKE_OSX_SYSROOT".into(), sdk_path));
+        ios_cmake_defines.push(("CMAKE_OSX_ARCHITECTURES".into(), "arm64".into()));
+        ios_cmake_defines.push(("CMAKE_OSX_DEPLOYMENT_TARGET".into(), "16.0".into()));
+        // try_compile as a static lib: avoids link/codesign probes that
+        // fail under CMAKE_SYSTEM_NAME=iOS.
+        ios_cmake_defines.push((
+            "CMAKE_TRY_COMPILE_TARGET_TYPE".into(),
+            "STATIC_LIBRARY".into(),
+        ));
+    }
     if cuda_enabled && target_os == "macos" {
         panic!(
             "PIE_PORTABLE_CUDA is not supported on macOS — use \
@@ -123,6 +154,9 @@ fn build_portable() {
     cfg.build_target("pie_driver_portable_lib")
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("PIE_BRIDGE_INCLUDE_DIR", pie_bridge_include_dir());
+    for (k, v) in &ios_cmake_defines {
+        cfg.define(k, v);
+    }
     enable_position_independent_archives(&mut cfg);
     // CMake caches option values under OUT_DIR. Define every backend flag
     // explicitly so flipping PIE_PORTABLE_* between builds cannot leave stale
@@ -192,8 +226,10 @@ fn build_portable() {
     }
     // ggml-cpu's macOS build pulls in the BLAS backend (calls
     // `_ggml_backend_blas_reg`); ggml-cpu uses Apple's Accelerate
-    // framework for vDSP. Both need explicit links on macOS.
-    if target_os == "macos" {
+    // framework for vDSP. Both need explicit links on macOS. The same
+    // holds on iOS, which ships Accelerate as well (Metal-on-iOS is a
+    // follow-up, so only the Accelerate leg applies there).
+    if target_os == "macos" || target_os == "ios" {
         println!("cargo:rustc-link-lib=static=ggml-blas");
         println!("cargo:rustc-link-arg=-framework");
         println!("cargo:rustc-link-arg=Accelerate");
@@ -597,6 +633,11 @@ fn add_system_libs(metal: bool) {
                 println!("cargo:rustc-link-lib=framework=MetalKit");
                 println!("cargo:rustc-link-lib=framework=Foundation");
             }
+        }
+        "ios" => {
+            // CPU-only ggml for now (no Metal-on-iOS yet); the C++
+            // driver still needs the C++ runtime.
+            println!("cargo:rustc-link-lib=c++");
         }
         "windows" => {}
         other => {

@@ -10,7 +10,10 @@ name = "pie_ios_shim"
 crate-type = ["staticlib"]
 
 [dependencies]
-pie-server = { path = "../../server", default-features = false }
+# driver-portable: the ggml-backed driver (CPU-only on iOS for now).
+# The Rust dummy driver stays linked either way; dispatch is runtime
+# config (`[model.driver] type = ...`).
+pie-server = { path = "../../server", features = ["driver-portable"] }
 pie-client = { path = "../../client/rust" }
 anyhow = "1"
 tokio = { version = "1", features = ["full"] }

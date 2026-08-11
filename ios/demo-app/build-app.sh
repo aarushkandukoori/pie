@@ -18,7 +18,8 @@ xcrun -sdk iphonesimulator swiftc \
   "ios/demo-app/main.swift" \
   -L "$SHIMLIB" -lpie_ios_shim \
   -framework Security -framework CoreFoundation -framework SystemConfiguration \
-  -lresolv \
+  -framework Accelerate \
+  -lresolv -lc++ \
   -Xlinker -U -Xlinker _SCDynamicStoreCopyComputerName \
   -o "$APPDIR/PieDemo"
 
@@ -30,9 +31,11 @@ cp "$PIE/inferlets/helloworld/Pie.toml" "$APPDIR/helloworld-Pie.toml"
 cp "$PIE/inferlets/marketing-tab2-watermark/target/wasm32-wasip2/release/marketing_tab2_watermark.wasm" "$APPDIR/"
 cp "$PIE/inferlets/marketing-tab2-watermark/Pie.toml" "$APPDIR/tab2-Pie.toml"
 
-# Tokenizer snapshot for the dummy driver's runtime tokenizer
-mkdir -p "$APPDIR/qwen3-tok"
-cp "target/qwen3-tok/tokenizer.json" "$APPDIR/qwen3-tok/"
+# Real model: Qwen3-0.6B Q4_K_M GGUF for the portable (ggml) driver
+mkdir -p "$APPDIR/qwen3-gguf"
+cp "target/qwen3-gguf/Qwen3-0.6B-Q4_K_M.gguf" "$APPDIR/qwen3-gguf/"
+cp "$PIE/inferlets/text-completion/target/wasm32-wasip2/release/text_completion.wasm" "$APPDIR/"
+cp "$PIE/inferlets/text-completion/Pie.toml" "$APPDIR/text-completion-Pie.toml"
 
 # Ad-hoc sign (sufficient for the simulator)
 codesign --force --sign - "$APPDIR"
