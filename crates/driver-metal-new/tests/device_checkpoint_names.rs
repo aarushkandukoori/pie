@@ -288,8 +288,28 @@ fn check_one_snapshot(dir: &std::path::Path) {
         eprintln!("    SKIP: no decodable shape (an architecture no text serves)");
         return;
     };
-    let (facts, metal) =
-        driver_metal_new::model::text::facts_from(&geometry, |t| published.contains(t));
+    // Which weights the plan leaves in MXFP4, asked the same way the seam
+    // asks it. Without this the text states an AFFINE routed projection at
+    // gpt-oss's real group (32) -- a symbol no `kernel!` row declares, which
+    // the declaration checker refuses by name. That refusal is correct and
+    // the fix is to state the format the bank actually has.
+    let mxfp4: std::collections::HashSet<&str> = plan
+        .tensors
+        .iter()
+        .filter(|t| {
+            matches!(
+                &t.encoding,
+                model_loader::types::Encoding::Quant(spec)
+                    if spec.scheme == model_loader::types::QuantScheme::Mxfp4E2M1E8M0
+            )
+        })
+        .map(|t| t.name.as_str())
+        .collect();
+    let (facts, metal) = driver_metal_new::model::text::facts_from_with(
+        &geometry,
+        |t| published.contains(t),
+        |t| mxfp4.contains(t),
+    );
 
     let tensors = HashMap::new();
     let named = HashMap::new();

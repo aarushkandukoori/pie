@@ -12,7 +12,7 @@
 
 use crate::facts::ModelFacts;
 
-use super::geometry::DecodeGeometry;
+use super::geometry::{AffineFormat, DecodeGeometry};
 
 /// The router kernel's two hard bounds (`moe_route.metal`), mirrored so
 /// the geometry that refuses an oversized config and the launch shape read
@@ -291,6 +291,60 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
         // ACTIVATION, the way `silu`'s sigmoid is, and a deployment that
         // changed it would be a different activation.
         swiglu_alpha: 1.702,
+        // The checkpoint's affine point, which nothing read either.
+        //
+        // `DecodeGeometry::default` is G64_B4, which is what every MLX 4-bit
+        // llama ships -- so the default was right by coincidence for the one
+        // checkpoint the reference gate runs, and wrong for anything else. An
+        // 8-bit checkpoint would have been dequantised as 4-bit, which is not
+        // a near miss: the symbol carries the point
+        // (`affine_qmv_fast_bfloat16_gs_64_b_4`), so a wrong point either
+        // names a pipeline that reads the wrong bytes or names nothing at all.
+        //
+        // Zero means the config declared no quantization, which is a dense
+        // checkpoint; the default stands there rather than a `gs_0_b_0`
+        // symbol no shader exports.
+        quant: match (positive(f.quant_bits), positive(f.quant_group_size)) {
+            (Some(bits), Some(group)) => AffineFormat { bits, group },
+            _ => DecodeGeometry::default().quant,
+        },
+        // The rope BASE, which nothing read.
+        //
+        // Measured on `mlx-community/Llama-3.2-1B-Instruct-4bit`: its config
+        // says 500000, `ModelFacts` reads 500000, and the geometry answered
+        // **10000000** -- `DecodeGeometry::default`'s value, because no
+        // assignment existed. Every deployment ran at one theta.
+        //
+        // Nothing fails on a wrong theta. The rotated channels come out wrong
+        // by a factor that grows with position, so position ZERO is exactly
+        // right and everything after it drifts -- which is why the reference
+        // gate, whose first test is one token at position zero, agreed with
+        // MLX while this was broken.
+        //
+        // The family block first, the top level second: `from_descriptor`
+        // fills `ll_`/`go_`/`g4_` inside the branch it took and also reads the
+        // flat key for every config, so preferring the block gets the value a
+        // family-specific reader validated and falls back to the one every
+        // config states.
+        // Keyed on the MARKER field, not on "which value is non-zero": every
+        // family block's theta has a non-zero DEFAULT (`ll_` is 500000), so
+        // picking the first positive one gives llama's answer to a gpt-oss
+        // config. The marker says which block `from_descriptor` actually
+        // filled, and it is the same question `geometry_from_facts` already
+        // asks three times above to project the shape.
+        rope_theta: if f.go_num_hidden_layers > 0 {
+            f.go_rope_theta
+        } else if f.g4_num_hidden_layers > 0 {
+            // gemma4 alternates a sliding base and a full one per layer. The
+            // FULL base is the one a text with no window states; the sliding
+            // one is `g4_rope_theta_sliding` and wants a per-layer fact this
+            // geometry has nowhere to put.
+            f.g4_rope_theta_full
+        } else if f.ll_num_hidden_layers > 0 {
+            f.ll_rope_theta
+        } else {
+            f.rope_theta
+        },
         // The rope RESCALING, when the config states one. `llama3` is the
         // only kind whose four numbers this reads; a config that states
         // another kind gets a factor of zero, which the derivation treats as
@@ -407,6 +461,83 @@ mod tests {
             q35_tied_embeddings: true,
             ..ModelFacts::default()
         }
+    }
+
+    /// The rope base and the affine point come from the CONFIG.
+    ///
+    /// Both were unassigned, so every deployment ran at
+    /// `DecodeGeometry::default`'s theta (1e7) and its point (g64/b4)
+    /// whatever its config said. Measured before the fix:
+    /// `Llama-3.2-1B-Instruct-4bit` states 500000 and the geometry answered
+    /// 10000000.
+    ///
+    /// Neither FAILS when wrong, which is why they survived. A wrong theta
+    /// rotates by a factor that grows with position, so position ZERO is
+    /// exactly right -- and the reference gate's first test is one token at
+    /// position zero, which agreed with MLX throughout. A wrong affine point
+    /// names a symbol that reads the wrong bytes, and g64/b4 is what every
+    /// MLX 4-bit llama ships, so the default was right by coincidence for the
+    /// one checkpoint anything ran.
+    ///
+    /// Per FAMILY, because each block has its own non-zero default: reading
+    /// "the first positive theta" gives llama's 500000 to a gpt-oss config
+    /// that states 150000. The marker field says which block was filled.
+    #[test]
+    fn the_rope_base_and_the_affine_point_come_from_the_config() {
+        let llama = ModelFacts {
+            ll_num_hidden_layers: 24,
+            ll_hidden_size: 1024,
+            ll_num_attention_heads: 8,
+            ll_num_key_value_heads: 2,
+            ll_head_dim: 128,
+            ll_vocab_size: 32_000,
+            ll_intermediate_size: 3584,
+            ll_rope_theta: 500_000.0,
+            quant_bits: 4,
+            quant_group_size: 64,
+            ..ModelFacts::default()
+        };
+        let g = geometry_from_facts(&llama).expect("a llama config");
+        assert_eq!(g.rope_theta, 500_000.0, "the llama block's theta");
+        assert_eq!(g.quant, AffineFormat { bits: 4, group: 64 });
+
+        // gpt-oss states its own of both, and `ll_rope_theta` still holds its
+        // 500000 default -- so this is the case that "first positive wins"
+        // gets wrong.
+        let gptoss = ModelFacts {
+            go_num_hidden_layers: 24,
+            go_hidden_size: 2880,
+            go_num_attention_heads: 64,
+            go_num_key_value_heads: 8,
+            go_head_dim: 64,
+            go_vocab_size: 201_088,
+            go_intermediate_size: 2880,
+            go_num_local_experts: 32,
+            go_num_experts_per_tok: 4,
+            go_rope_theta: 150_000.0,
+            quant_bits: 4,
+            quant_group_size: 32,
+            ..ModelFacts::default()
+        };
+        let g = geometry_from_facts(&gptoss).expect("a gpt-oss config");
+        assert_eq!(
+            g.rope_theta, 150_000.0,
+            "gpt-oss got another family's theta, so the marker field is not \
+             deciding"
+        );
+        assert_eq!(g.quant, AffineFormat { bits: 4, group: 32 });
+
+        // A config that states no quantization is DENSE, and the default
+        // stands rather than a `gs_0_b_0` symbol no shader exports.
+        let dense = ModelFacts {
+            quant_bits: 0,
+            quant_group_size: 0,
+            ..llama
+        };
+        assert_eq!(
+            geometry_from_facts(&dense).expect("a dense config").quant,
+            DecodeGeometry::default().quant
+        );
     }
 
     #[test]

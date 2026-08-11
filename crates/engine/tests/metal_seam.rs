@@ -91,7 +91,7 @@ fn load_model_takes_one_descriptor_because_this_backend_holds_one_model() {
         snapshot_dir: std::path::PathBuf::from("/nonesuch"),
         runtime_quant: String::new(),
         mxfp4_moe: ::driver_api::Mxfp4MoeRequest::Auto,
-        component: ::driver::ModelComponent::Full,
+        component: driver_api::ModelComponent::Full,
     };
     let why = format!(
         "{}",
@@ -195,10 +195,10 @@ fn a_program_a_channel_and_an_instance_all_register() {
             driver_id: 0,
             channel_id: 7,
             shape: vec![4],
-            dtype: ::driver::PIE_CHANNEL_DTYPE_U32,
-            host_role: ::driver::PIE_CHANNEL_HOST_ROLE_READER,
+            dtype: driver_api::PIE_CHANNEL_DTYPE_U32,
+            host_role: driver_api::PIE_CHANNEL_HOST_ROLE_READER,
             seeded: false,
-            extern_dir: ::driver::PIE_CHANNEL_EXTERN_EXPORT,
+            extern_dir: driver_api::PIE_CHANNEL_EXTERN_EXPORT,
             capacity: 2,
             reader_wait_id: 11,
             writer_wait_id: 12,
@@ -304,7 +304,7 @@ fn a_frame_reaches_the_device_through_the_seam() {
             snapshot_dir: snapshot.clone(),
             runtime_quant: String::new(),
             mxfp4_moe: ::driver_api::Mxfp4MoeRequest::Auto,
-            component: ::driver::ModelComponent::Full,
+            component: driver_api::ModelComponent::Full,
         }])
         .expect("the checkpoint loads through the seam");
 
