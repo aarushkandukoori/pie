@@ -58,10 +58,15 @@ pub fn cuda_storage_target() -> StorageTarget {
         max_tile_bytes: CUDA_MAX_TILE_BYTES,
         preferred_alignment: CUDA_PREFERRED_ALIGNMENT,
         tile_map_mask: CUDA_TILE_MAP_MASK,
-        // The published MXFP4 checkpoints bind AS STORED here — the expert
-        // banks are `U8` tensors the matvec indexes directly — so the loader
-        // is told the backend reads them natively and emits no re-encode.
-        native_mxfp4_moe: true,
+        // FALSE, and the name is the trap. `native_mxfp4_moe` does not mean
+        // "reads MXFP4"; it means "has a native MXFP4 *GEMM*", which in
+        // gpt-oss's contract selects a Marlin REPACK of the expert banks —
+        // `transcode_engine.hpp`'s work, which this tree did not port.
+        //
+        // This driver takes the other branch: `_blocks`/`_scales`/`_bias`
+        // pass through as three plain tensors and `quant::mxfp4_moe_*_decode`
+        // indexes the stored layout directly. So the honest answer is no.
+        native_mxfp4_moe: false,
         // No fused transcode kernels; `PIE_CUDA_DISABLE_FUSED_TRANSCODE` was
         // the C++ knob for the ones that no longer exist.
         fusion_mask: 0,
@@ -197,6 +202,10 @@ mod tests {
         assert_eq!(t.backend, BackendKind::Cuda);
         assert_eq!(t.preferred_alignment, 256);
         assert_eq!(t.fusion_mask, 0, "no fused transcode kernels here");
-        assert!(t.native_mxfp4_moe, "gpt-oss binds its expert banks as stored");
+        assert!(
+            !t.native_mxfp4_moe,
+            "the routed-decode path reads the stored banks; the native GEMM \
+             would want a Marlin repack no kernel here implements"
+        );
     }
 }

@@ -206,3 +206,33 @@ pub fn stage_plan_weights(
 fn cuda(e: crate::Error) -> Error {
     Error::Contract(format!("staging: {e:?}"))
 }
+
+/// Read a staged tensor's bytes back to the host.
+///
+/// For the handful of load-time scalars a family needs on the HOST — gemma-4's
+/// per-layer `layer_scalar`, the C++ `read_bf16_scalar_once`. Synchronous, and
+/// meant to be: it runs a few dozen times at load and never again.
+///
+/// # Errors
+///
+/// The copy faulted.
+pub fn read_span(span: WeightSpan) -> Result<Vec<u8>, Error> {
+    let mut out = vec![0u8; span.bytes];
+    let stream = OwnedStream::new(0).map_err(cuda)?;
+    // SAFETY: `span` names a live device allocation of `bytes` bytes, and the
+    // destination is a host `Vec` of the same length.
+    let status = unsafe {
+        cudarc::runtime::sys::cudaMemcpyAsync(
+            out.as_mut_ptr().cast(),
+            span.ptr,
+            span.bytes,
+            cudarc::runtime::sys::cudaMemcpyKind::cudaMemcpyDeviceToHost,
+            stream.as_ref().as_raw(),
+        )
+    };
+    if status != cudarc::runtime::sys::cudaError::cudaSuccess {
+        return Err(Error::Contract(format!("read_span: {status:?}")));
+    }
+    stream.as_ref().synchronize().map_err(cuda)?;
+    Ok(out)
+}

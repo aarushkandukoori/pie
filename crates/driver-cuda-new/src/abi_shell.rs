@@ -542,7 +542,15 @@ struct LoadedModel {
     hf: crate::model::config::HfConfig,
     /// The caps JSON `load_model` answered with; owned like `Shell::caps`.
     load_caps: Vec<u8>,
-    weights: std::collections::BTreeMap<String, crate::cuda::DeviceBuffer>,
+    /// Every tensor the plan named, as a span of the arena. A SPAN and not
+    /// an allocation: a resident plan lays the whole model out contiguously,
+    /// so a weight is an offset into one buffer rather than one of a thousand
+    /// `cudaMalloc`s.
+    weights: std::collections::BTreeMap<String, crate::loader::stage::WeightSpan>,
+    /// The arena, and anything the plan published outside it. Held so the
+    /// spans above stay valid; never indexed.
+    #[allow(dead_code)]
+    owned: Vec<crate::cuda::DeviceBuffer>,
     /// Trace-name RENAMES onto checkpoint names (`layer.3.attn_norm` →
     /// `model.layers.3.input_layernorm.weight`); concats get buffers of
     /// their own in `weights`, renames get a row here — no second copy of
@@ -563,10 +571,10 @@ impl LoadedModel {
     #[allow(dead_code)]
     fn weight(&self, name: &str) -> Option<*const std::ffi::c_void> {
         if let Some(b) = self.weights.get(name) {
-            return Some(b.as_ptr().cast_const());
+            return Some(b.ptr.cast_const());
         }
         let target = self.aliases.get(name)?;
-        self.weights.get(target).map(|b| b.as_ptr().cast_const())
+        self.weights.get(target).map(|b| b.ptr.cast_const())
     }
 }
 
@@ -713,7 +721,6 @@ pub extern "C" fn pie_cuda_load_model(
 /// The load itself; `i32` errors are the ABI's status codes.
 fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
     use model_loader::checkpoint::read::{parse_checkpoint_metadata, read_meta};
-    use model_loader::types::Encoding;
 
     let meta = parse_checkpoint_metadata(snapshot).map_err(|e| {
         eprintln!("[driver-cuda-new] load_model: checkpoint parse: {e:?}");
@@ -744,85 +751,44 @@ fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
             PIE_STATUS_INVALID_ARGUMENT
         })?;
 
-    // Every raw bf16/fp32 weight, uploaded through one stream — fp32 is
-    // the GDN parameter side of the `gdn_fp32_parameters` contract
-    // (`A_log`, the gate norm), consumed as fp32 by its kernels.
-    // Quantized encodings refuse rather than mis-load.
-    let stream = crate::cuda::OwnedStream::new(0).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+    // THE LOAD IS `model-loader`'s PLAN, EXECUTED ONTO THE DEVICE.
+    //
+    // What this replaced: a loop that read each checkpoint tensor into a
+    // host `Vec`, uploaded it, and then read three of them BACK off the
+    // device to concatenate a `qkv` and uploaded that — three round trips
+    // for bytes a plan lays out once, and a thousand `cudaMalloc`s where
+    // a resident plan wants one arena.
+    //
+    // The plan also decides what the driver used to decide by hand: which
+    // encodings are loadable (a transform outside `CUDA_TILE_MAP_MASK` is
+    // refused when the plan COMPILES, with the tensor named, rather than
+    // mis-bound at launch), and which projections are fused.
+    let target = crate::loader::plan::cuda_storage_target();
+    let (plan, _moe) =
+        crate::loader::plan::compile_load_plan(snapshot, &meta, &target, &descriptor_json)
+            .map_err(|e| {
+                eprintln!("[driver-cuda-new] load_model: {e}");
+                PIE_STATUS_UNSUPPORTED
+            })?;
     let alloc = crate::cuda::Allocator::new();
-    let mut weights = std::collections::BTreeMap::new();
-    let mut host = Vec::new();
-    for t in meta.weights() {
-        // WHAT A LOAD CAN HAND THE KERNELS, and nothing else.
-        //
-        // Two answers, and the difference is whether the driver has to
-        // change the bytes.
-        //
-        // RAW bf16/f32 is what most of a checkpoint is. (f32 is the GDN
-        // parameter side of the `gdn_fp32_parameters` contract — `A_log`,
-        // the gate norm — consumed as f32 by its kernels.)
-        //
-        // A BYTE PAYLOAD is also loadable, and finding out why took
-        // reading the file. gpt-oss's MXFP4 expert banks are not a
-        // `Quant` encoding at all — safetensors stores them as `U8`
-        // tensors (`…experts.down_proj_blocks`, `U8 [32, 2880, 90, 16]`,
-        // beside a `_scales` companion), and the MXFP4 MEANING lives in
-        // the checkpoint's `quantization_config`, which the contract
-        // reads. The tensor's dtype says only "bytes".
-        //
-        // That is the right division and it makes the load's job small:
-        // get the bytes on the device unchanged. What they MEAN is the
-        // binder's business, and `quant::mxfp4_moe_gate_up_decode_bf16`
-        // indexes the stored layout directly.
-        //
-        // What still refuses is an encoding whose kernels want a
-        // DIFFERENT layout than the file has — a Marlin repack, an FP8
-        // re-encode, a GGUF block unpack. That is `transcode_engine`'s
-        // work in the retired C++ tree and it is not ported, so a
-        // checkpoint needing it is turned away at load rather than
-        // mis-bound at launch.
-        match &t.encoding {
-            Encoding::Raw(d)
-                if matches!(format!("{d:?}").as_str(), "BF16" | "F32" | "U8") => {}
-            Encoding::Quant(spec) if reads_its_stored_form(spec.scheme) => {}
-            other => {
-                eprintln!(
-                    "[driver-cuda-new] load_model: {}: unsupported encoding {other:?}. \
-                     Raw bf16/f32 and packed schemes the kernels read as stored \
-                     load; anything needing a transcode does not.",
-                    t.name
-                );
-                return Err(PIE_STATUS_UNSUPPORTED);
-            }
-        }
-        let file = meta
-            .files
-            .iter()
-            .find(|f| f.id == t.file_id)
-            .ok_or(PIE_STATUS_DRIVER_ERROR)?;
-        use std::io::{Read, Seek, SeekFrom};
-        let mut f = std::fs::File::open(snapshot.join(&file.path))
-            .or_else(|_| std::fs::File::open(&file.path))
-            .map_err(|_| PIE_STATUS_INVALID_ARGUMENT)?;
-        f.seek(SeekFrom::Start(t.file_offset)).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        host.resize(usize::try_from(t.span_bytes).map_err(|_| PIE_STATUS_DRIVER_ERROR)?, 0);
-        f.read_exact(&mut host).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        let mut buf = alloc.alloc(host.len()).map_err(|_| PIE_STATUS_EXHAUSTED)?;
-        buf.copy_from_host(&host, stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        weights.insert(t.name.clone(), buf);
-    }
-    stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+    let staged = crate::loader::stage::stage_plan_weights(&plan, snapshot, &alloc).map_err(
+        |e| {
+            eprintln!("[driver-cuda-new] load_model: staging: {e:?}");
+            PIE_STATUS_EXHAUSTED
+        },
+    )?;
 
     let mut model = LoadedModel {
         hf,
         load_caps: Vec::new(),
-        weights,
+        weights: staged.spans,
+        owned: staged.owned,
         aliases: std::collections::BTreeMap::new(),
         gemma_layer_scalars: Vec::new(),
     };
-    fuse_llama_like(&mut model, &alloc, &stream)?;
-    alias_gemma4(&mut model, &alloc, &stream)?;
-    alias_qwen3_5(&mut model, &alloc, &stream)?;
+    name_llama_like(&mut model);
+    name_gemma4(&mut model);
+    name_qwen3_5(&mut model);
     model.load_caps = format!(
         r#"{{"model_type":"{}","hidden":{},"layers":{},"vocab":{},"weights":{}}}"#,
         model.hf.model_type,
@@ -841,41 +807,56 @@ fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
 /// into the shell. Families beyond llama-like keep their raw names; a
 /// later launch asking for an unfused trace name gets the resolver's
 /// drift refusal, which is the honest state until their binders land.
-fn fuse_llama_like(
-    model: &mut LoadedModel,
-    alloc: &crate::cuda::Allocator,
-    stream: &crate::cuda::OwnedStream,
-) -> Result<(), i32> {
+/// Name a fused bank the plan laid out CONTIGUOUSLY but never joined.
+///
+/// `Projections::Fused` publishes `…qkv_proj.fused.weight` when it joins the
+/// parts itself, and that is the usual answer. It declines when the parts are
+/// not source tensors — Phi-3 ships ONE `gate_up_proj` tensor and its contract
+/// splits it into `gate_proj` and `up_proj`, so there is nothing to join: the
+/// bytes were already adjacent in the file and the plan wrote them once.
+///
+/// So the fused operand exists; it just has no name. This gives it one,
+/// without moving a byte, when the spans really do abut. It refuses silently
+/// when they do not, because a GEMM handed a discontiguous operand reads
+/// whatever sits between the parts.
+fn name_contiguous_join(model: &mut LoadedModel, trace: &str, parts: &[String]) {
+    let mut spans = Vec::with_capacity(parts.len());
+    for p in parts {
+        let Some(span) = model.weights.get(p).copied() else {
+            return;
+        };
+        spans.push(span);
+    }
+    let mut bytes = spans[0].bytes;
+    for pair in spans.windows(2) {
+        if !std::ptr::eq(
+            pair[0].ptr.wrapping_byte_add(pair[0].bytes).cast_const(),
+            pair[1].ptr.cast_const(),
+        ) {
+            return;
+        }
+        bytes += pair[1].bytes;
+    }
+    model.weights.insert(
+        trace.to_string(),
+        crate::loader::stage::WeightSpan {
+            ptr: spans[0].ptr,
+            bytes,
+        },
+    );
+}
+
+fn name_llama_like(model: &mut LoadedModel) {
     let has = |m: &LoadedModel, n: &str| m.weights.contains_key(n);
     if !has(model, "model.embed_tokens.weight") {
-        return Ok(()); // not an HF llama-like naming scheme; leave raw
+        return; // not an HF llama-like naming scheme; leave raw
     }
     let alias = |model: &mut LoadedModel, trace: String, ckpt: String| {
         if model.weights.contains_key(&ckpt) {
             model.aliases.insert(trace, ckpt);
         }
     };
-    let fuse = |model: &mut LoadedModel,
-                trace: String,
-                parts: &[String]|
-     -> Result<(), i32> {
-        if parts.iter().any(|p| !model.weights.contains_key(p)) {
-            return Ok(()); // this deployment lacks the part; skip
-        }
-        let mut host = Vec::new();
-        for p in parts {
-            let src = &model.weights[p];
-            let mut back = vec![0u8; src.len()];
-            src.copy_to_host(&mut back, stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-            stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-            host.extend_from_slice(&back);
-        }
-        let mut buf = alloc.alloc(host.len()).map_err(|_| PIE_STATUS_EXHAUSTED)?;
-        buf.copy_from_host(&host, stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        model.weights.insert(trace, buf);
-        Ok(())
-    };
+
     alias(model, "embed".into(), "model.embed_tokens.weight".into());
     alias(model, "final_norm".into(), "model.norm.weight".into());
     if model.weights.contains_key("lm_head.weight") {
@@ -887,15 +868,14 @@ fn fuse_llama_like(
     let layers = usize::try_from(model.hf.num_hidden_layers).unwrap_or(0);
     for i in 0..layers {
         let n = |s: &str| format!("model.layers.{i}.{s}");
-        fuse(model, format!("layer.{i}.qkv"), &[
-            n("self_attn.q_proj.weight"),
-            n("self_attn.k_proj.weight"),
-            n("self_attn.v_proj.weight"),
-        ])?;
-        fuse(model, format!("layer.{i}.gate_up"), &[
-            n("mlp.gate_proj.weight"),
-            n("mlp.up_proj.weight"),
-        ])?;
+        // THE PLAN ALREADY JOINED THESE. `Projections::Fused` stages
+        // `…qkv_proj.fused.weight` and `…gate_up_proj.fused.weight`
+        // beside the split tensors, laid out in the arena in the order
+        // the GEMM wants — so the trace name is a RENAME, where the
+        // driver used to read three tensors back off the device and
+        // upload their concatenation.
+        alias(model, format!("layer.{i}.qkv"), n("self_attn.qkv_proj.fused.weight"));
+        alias(model, format!("layer.{i}.gate_up"), n("mlp.gate_up_proj.fused.weight"));
         // Some checkpoints ship the fused projections ALREADY (phi3's
         // `qkv_proj` and `gate_up_proj`), in the same concatenation order
         // the fuse above builds. Those want an alias, not a copy -- and
@@ -903,6 +883,21 @@ fn fuse_llama_like(
         // deployments that split nothing.
         alias(model, format!("layer.{i}.qkv"), n("self_attn.qkv_proj.weight"));
         alias(model, format!("layer.{i}.gate_up"), n("mlp.gate_up_proj.weight"));
+        // …and the third case: the parts abut in the arena but were never
+        // given a joined name. See `name_contiguous_join`.
+        if !model.aliases.contains_key(&format!("layer.{i}.qkv")) {
+            name_contiguous_join(model, &format!("layer.{i}.qkv"), &[
+                n("self_attn.q_proj.weight"),
+                n("self_attn.k_proj.weight"),
+                n("self_attn.v_proj.weight"),
+            ]);
+        }
+        if !model.aliases.contains_key(&format!("layer.{i}.gate_up")) {
+            name_contiguous_join(model, &format!("layer.{i}.gate_up"), &[
+                n("mlp.gate_proj.weight"),
+                n("mlp.up_proj.weight"),
+            ]);
+        }
         // The norm placement decides the mapping, and `input_layernorm`'s
         // presence IS the placement: pre-norm has it (attn_norm=input,
         // mlp_norm=post_attention); post-norm (olmo2) lacks it
@@ -930,7 +925,7 @@ fn fuse_llama_like(
             alias(model, format!("layer.{i}.{trace}"), n(ckpt));
         }
     }
-    Ok(())
+
 }
 
 /// Build the qwen3_5 hybrid's trace names — the `real_hybrid` A/B's
@@ -944,38 +939,15 @@ fn fuse_llama_like(
 /// `layer_scalar` [1] tensors to host — the load-time
 /// `read_bf16_scalar_once`, stashed for the fire's `scales` map.
 #[allow(clippy::too_many_lines)]
-fn alias_gemma4(
-    model: &mut LoadedModel,
-    alloc: &crate::cuda::Allocator,
-    stream: &crate::cuda::OwnedStream,
-) -> Result<(), i32> {
+fn name_gemma4(model: &mut LoadedModel) {
     let p = "model.language_model";
     if !model.weights.contains_key(&format!("{p}.embed_tokens_per_layer.weight")) {
-        return Ok(()); // the PLE table IS the family's signature
+        return; // the PLE table IS the family's signature
     }
     let alias = |model: &mut LoadedModel, trace: String, ckpt: String| {
         if model.weights.contains_key(&ckpt) {
             model.aliases.insert(trace, ckpt);
         }
-    };
-    let fuse = |model: &mut LoadedModel, trace: String, parts: &[String]| -> Result<(), i32> {
-        if parts.iter().any(|q| !model.weights.contains_key(q)) {
-            return Ok(());
-        }
-        let mut host = Vec::new();
-        for q in parts {
-            let src = &model.weights[q];
-            let mut back = vec![0u8; src.len()];
-            src.copy_to_host(&mut back, stream.as_ref())
-                .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-            stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-            host.extend_from_slice(&back);
-        }
-        let mut buf = alloc.alloc(host.len()).map_err(|_| PIE_STATUS_EXHAUSTED)?;
-        buf.copy_from_host(&host, stream.as_ref()).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-        model.weights.insert(trace, buf);
-        Ok(())
     };
     alias(model, "embed".into(), format!("{p}.embed_tokens.weight"));
     alias(model, "embed_per_layer".into(), format!("{p}.embed_tokens_per_layer.weight"));
@@ -1003,45 +975,30 @@ fn alias_gemma4(
             alias(model, format!("layer.{i}.q_proj"), n("self_attn.q_proj.weight"));
         } else {
             alias(model, format!("layer.{i}.k_norm"), n("self_attn.k_norm.weight"));
-            fuse(model, format!("layer.{i}.qkv"), &[
-                n("self_attn.q_proj.weight"),
-                n("self_attn.k_proj.weight"),
-                n("self_attn.v_proj.weight"),
-            ])?;
+            alias(model, format!("layer.{i}.qkv"), n("self_attn.qkv_proj.fused.weight"));
         }
-        fuse(model, format!("layer.{i}.gate_up"), &[
-            n("mlp.gate_proj.weight"),
-            n("mlp.up_proj.weight"),
-        ])?;
+        alias(model, format!("layer.{i}.gate_up"), n("mlp.gate_up_proj.fused.weight"));
         // The layer scalar, host-read: one bf16.
         let s = model.weights.get(&n("layer_scalar")).map_or(1.0f32, |b| {
-            let mut back = [0u8; 2];
-            if b.len() == 2
-                && b.copy_to_host(&mut back, stream.as_ref()).is_ok()
-                && stream.as_ref().synchronize().is_ok()
-            {
-                f32::from_bits(u32::from(u16::from_le_bytes(back)) << 16)
-            } else {
-                1.0
+            match crate::loader::stage::read_span(*b) {
+                Ok(back) if back.len() == 2 => {
+                    f32::from_bits(u32::from(u16::from_le_bytes([back[0], back[1]])) << 16)
+                }
+                _ => 1.0,
             }
         });
         scalars.push(s);
     }
     model.gemma_layer_scalars = scalars;
-    Ok(())
 }
 
-fn alias_qwen3_5(
-    model: &mut LoadedModel,
-    alloc: &crate::cuda::Allocator,
-    stream: &crate::cuda::OwnedStream,
-) -> Result<(), i32> {
+fn name_qwen3_5(model: &mut LoadedModel) {
     let p = "model.language_model";
     if !model.weights.contains_key(&format!("{p}.embed_tokens.weight")) {
-        return Ok(()); // not the qwen3_5 naming scheme; leave raw
+        return; // not the qwen3_5 naming scheme; leave raw
     }
     if model.weights.contains_key(&format!("{p}.embed_tokens_per_layer.weight")) {
-        return Ok(()); // gemma-4 shares the prefix; its aliases are its own
+        return; // gemma-4 shares the prefix; its aliases are its own
     }
     let alias = |model: &mut LoadedModel, trace: String, ckpt: String| {
         if model.weights.contains_key(&ckpt) {
@@ -1076,26 +1033,10 @@ fn alias_qwen3_5(
             alias(model, format!("layer.{i}.gate_norm"), n("linear_attn.norm.weight"));
             alias(model, format!("layer.{i}.o_proj"), n("linear_attn.out_proj.weight"));
         }
-        // The fused gate‖up bank, gate first — the dense MLP's binding.
-        let parts = [n("mlp.gate_proj.weight"), n("mlp.up_proj.weight")];
-        if parts.iter().all(|q| model.weights.contains_key(q)) {
-            let mut host = Vec::new();
-            for q in &parts {
-                let src = &model.weights[q];
-                let mut back = vec![0u8; src.len()];
-                src.copy_to_host(&mut back, stream.as_ref())
-                    .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-                stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-                host.extend_from_slice(&back);
-            }
-            let mut buf = alloc.alloc(host.len()).map_err(|_| PIE_STATUS_EXHAUSTED)?;
-            buf.copy_from_host(&host, stream.as_ref())
-                .map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-            stream.as_ref().synchronize().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
-            model.weights.insert(format!("layer.{i}.gate_up"), buf);
-        }
+        // The fused gate‖up bank, gate first — the dense MLP's binding,
+        // laid out by the plan.
+        alias(model, format!("layer.{i}.gate_up"), n("mlp.gate_up_proj.fused.weight"));
     }
-    Ok(())
 }
 
 /// Register a program: adopt its launch package, compile its generated
@@ -2624,31 +2565,6 @@ fn gemma3n_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, 
     }))
 }
 
-/// Whether a quantized scheme's STORED bytes are what its kernels read.
-///
-/// The dividing line for what a load can accept without a transcode
-/// engine. A scheme here is uploaded verbatim; anything else needs its
-/// layout changed on the way in, which is `transcode_engine.hpp`'s job in
-/// the retired C++ tree and is not ported.
-///
-/// Note this is the arm for a checkpoint that DECLARES its scheme in the
-/// tensor encoding. gpt-oss does not — its MXFP4 banks arrive as plain
-/// `U8` and the scheme is in `quantization_config` — so the live MXFP4
-/// path is the `Raw(U8)` arm above. This one is for the encodings the
-/// loader does tag, and it is a MATCH rather than a default-allow for the
-/// same reason: a scheme nobody has checked should refuse, because
-/// guessing hands a kernel a layout it was not compiled for, which is not
-/// a crash but wrong numbers.
-///
-/// Deliberately a MATCH rather than a default-allow: a scheme nobody has
-/// checked should refuse, because the failure mode of guessing is a
-/// kernel reading a layout it was not compiled for — which is not a
-/// crash, it is wrong numbers.
-const fn reads_its_stored_form(scheme: model_loader::types::QuantScheme) -> bool {
-    use model_loader::types::QuantScheme as Q;
-    matches!(scheme, Q::Mxfp4E2M1E8M0 | Q::MlxAffineU4)
-}
-
 /// THE GQA RATIO, refused at LOAD rather than discovered at launch.
 ///
 /// FlashInfer's decode instantiates group sizes {1, 2, 3, 4, 8} and
@@ -2728,7 +2644,7 @@ fn llama_like_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily
     let elems_of = |trace: &str| -> Option<usize> {
         let ckpt = model.aliases.get(trace)?;
         // bf16 gammas throughout this family.
-        Some(model.weights.get(ckpt)?.len() / 2)
+        Some(model.weights.get(ckpt)?.bytes / 2)
     };
     let qk_norm = match elems_of("layer.0.q_norm") {
         None => QkNorm::Off,
@@ -3881,13 +3797,13 @@ fn encode_gemma4_audio_arm(
         return PIE_STATUS_UNSUPPORTED;
     };
     let need = |n: &str| -> Result<*const std::ffi::c_void, i32> {
-        model.weights.get(n).map(|b| b.as_ptr().cast_const()).ok_or_else(|| {
+        model.weights.get(n).map(|b| b.ptr.cast_const()).ok_or_else(|| {
             eprintln!("[driver-cuda-new] encode: missing audio weight {n}");
             PIE_STATUS_UNSUPPORTED
         })
     };
     let opt = |n: String| -> *const std::ffi::c_void {
-        model.weights.get(&n).map_or(core::ptr::null(), |b| b.as_ptr().cast_const())
+        model.weights.get(&n).map_or(core::ptr::null(), |b| b.ptr.cast_const())
     };
     let ap = "model.audio_tower";
     let g = |n: &str| need(&format!("{ap}.{n}"));
@@ -3948,7 +3864,7 @@ fn encode_gemma4_audio_arm(
     let text_hidden = model
         .weights
         .get("model.embed_audio.embedding_projection.weight")
-        .map_or(0, |b| b.len() / (usize::try_from(ac.output_proj_dims.max(1)).unwrap_or(1) * 2));
+        .map_or(0, |b| b.bytes / (usize::try_from(ac.output_proj_dims.max(1)).unwrap_or(1) * 2));
     let Ok(stream) = crate::cuda::OwnedStream::new(0) else {
         return PIE_STATUS_DRIVER_ERROR;
     };
@@ -4049,13 +3965,13 @@ pub extern "C" fn pie_cuda_encode(
     // built per call from the loaded weights — name lookups, no stored
     // pointers. The binder mapping is `bind_gemma4_vision`'s.
     let need = |n: &str| -> Result<*const std::ffi::c_void, i32> {
-        model.weights.get(n).map(|b| b.as_ptr().cast_const()).ok_or_else(|| {
+        model.weights.get(n).map(|b| b.ptr.cast_const()).ok_or_else(|| {
             eprintln!("[driver-cuda-new] encode: missing vision weight {n}");
             PIE_STATUS_UNSUPPORTED
         })
     };
     let opt = |n: String| -> *const std::ffi::c_void {
-        model.weights.get(&n).map_or(core::ptr::null(), |b| b.as_ptr().cast_const())
+        model.weights.get(&n).map_or(core::ptr::null(), |b| b.ptr.cast_const())
     };
     let vp = "model.vision_tower";
     let patch_w = match need(&format!("{vp}.patch_embedder.input_proj.weight")) {
@@ -4115,11 +4031,11 @@ pub extern "C" fn pie_cuda_encode(
     let pos_table_size = model
         .weights
         .get(&format!("{vp}.patch_embedder.position_embedding_table"))
-        .map_or(0, |b| b.len() / (2 * hidden * 2));
+        .map_or(0, |b| b.bytes / (2 * hidden * 2));
     let text_hidden = model
         .weights
         .get("model.embed_vision.embedding_projection.weight")
-        .map_or(0, |b| b.len() / (hidden * 2));
+        .map_or(0, |b| b.bytes / (hidden * 2));
 
     let Ok(stream) = crate::cuda::OwnedStream::new(0) else {
         return PIE_STATUS_DRIVER_ERROR;
