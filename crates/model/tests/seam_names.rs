@@ -44,40 +44,61 @@ use model::config::HfConfig;
 use model_compiler::lower::{Arg, Fire, Row, lower};
 use model_compiler::trace::{FireClass, ForwardPlan};
 
-/// The three naming schemes `wire()` recognises, each by the one tensor
-/// only it ships.
+/// Which naming scheme a family's checkpoint follows.
 ///
-/// They have to be given separately rather than as one all-true
-/// predicate, because the schemes are mutually exclusive BY DESIGN:
-/// `qwen3_5` returns early when the gemma-4 per-layer embedding table is
-/// present, since the two share a prefix. An all-true predicate would
-/// therefore suppress qwen3.5's aliases entirely and understate the
-/// reachable set — which would report holes that are not there.
-fn schemes() -> [(&'static str, fn(&str) -> bool); 3] {
-    [
-        ("llama-like", |n: &str| !n.starts_with("model.language_model.")),
-        ("gemma-4", |n: &str| n.starts_with("model.language_model.")),
-        ("qwen3.5", |n: &str| {
-            n.starts_with("model.language_model.")
-                && n != "model.language_model.embed_tokens_per_layer.weight"
-        }),
-    ]
+/// `wire()` picks its builders by SIGNATURE — one tensor only that family
+/// ships — so which builders run is a property of the checkpoint, and the
+/// reachable set has to be computed the same way or the test answers a
+/// different question than the driver does.
+///
+/// An earlier draft used one all-true predicate and took the union over
+/// schemes. That opened every gate at once, so `gpt_oss`'s builder ran for
+/// every family and its `layer.*.router` made nemotron-h's router look
+/// answerable — which it is not, because a nemotron checkpoint ships no
+/// attention sinks and that builder never runs for it. The union answers
+/// "can `wire()` emit this SPELLING for anyone", and the question worth
+/// asking is "can it emit this name for THIS family's checkpoint".
+#[derive(Clone, Copy)]
+enum Scheme {
+    /// Plain HF: `model.embed_tokens.weight`, `model.layers.N.…`.
+    LlamaLike,
+    /// Plain HF plus the per-head attention sink only gpt-oss ships.
+    GptOss,
+    /// The VL prefix WITH the per-layer embedding table.
+    Gemma4,
+    /// The VL prefix WITHOUT it.
+    Qwen35,
 }
 
-/// Every trace name `wire()` can emit under any scheme, layer-normalised.
-fn answerable() -> BTreeSet<String> {
-    let hf = HfConfig { num_hidden_layers: 4, ..HfConfig::default() };
-    let mut out = BTreeSet::new();
-    for (_, published) in schemes() {
-        let w = model::weight_names::wire(&hf, &published);
-        for (trace, _) in &w.aliases {
-            out.insert(normalise(trace));
-        }
-        for (trace, _) in &w.joins {
-            out.insert(normalise(trace));
+impl Scheme {
+    /// A checkpoint that publishes everything its scheme allows, and
+    /// nothing another scheme's gate would recognise.
+    fn published(self) -> fn(&str) -> bool {
+        match self {
+            Self::LlamaLike => |n: &str| {
+                !n.starts_with("model.language_model.") && !n.ends_with("self_attn.sinks")
+            },
+            Self::GptOss => |n: &str| !n.starts_with("model.language_model."),
+            Self::Gemma4 => |n: &str| n.starts_with("model.language_model."),
+            Self::Qwen35 => |n: &str| {
+                n.starts_with("model.language_model.")
+                    && n != "model.language_model.embed_tokens_per_layer.weight"
+            },
         }
     }
-    out
+}
+
+/// Every trace name `wire()` can emit for a checkpoint of this scheme,
+/// layer-normalised.
+fn answerable(scheme: Scheme) -> BTreeSet<String> {
+    let hf = HfConfig { num_hidden_layers: 4, ..HfConfig::default() };
+    let published = scheme.published();
+    let w = model::weight_names::wire(&hf, &published);
+    w.aliases
+        .iter()
+        .map(|(t, _)| normalise(t))
+        .chain(w.joins.iter().map(|(t, _)| normalise(t)))
+        .collect()
 }
 
 /// `layer.3.qkv` -> `layer.*.qkv`.
@@ -135,7 +156,7 @@ fn stems(plan: &ForwardPlan) -> BTreeSet<String> {
 /// The same eleven `golden_plans.rs` holds — deliberately, because a
 /// family that has a golden and no row here is a family whose seam nobody
 /// is checking, and the two lists diverging is itself the bug.
-fn corpus() -> Vec<(&'static str, ForwardPlan)> {
+fn corpus() -> Vec<(&'static str, Scheme, ForwardPlan)> {
     use model::families::llama_like::forward::facts::{LlamaLikeCudaFacts, LlamaLikeFacts};
     use model::gemma_4::forward::facts::{Gemma4CudaFacts, Gemma4Facts};
     use model::gpt_oss::forward::facts::{GptOssCudaFacts, GptOssFacts};
@@ -144,6 +165,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
     vec![
         (
             "llama_like",
+            Scheme::LlamaLike,
             model::families::llama_like::forward::llama_like_cuda(
                 &LlamaLikeFacts::qwen3_0_6b(),
                 &LlamaLikeCudaFacts::qwen3_0_6b_l40s(),
@@ -152,6 +174,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "qwen3_5",
+            Scheme::Qwen35,
             model::qwen_3_5::forward::qwen3_5_hybrid_cuda(
                 &Qwen35HybridFacts::qwen3_5_0_8b(),
                 &Qwen35CudaFacts::qwen3_5_0_8b_synthetic(),
@@ -160,6 +183,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "gemma_4",
+            Scheme::Gemma4,
             model::gemma_4::forward::gemma4_cuda(
                 &Gemma4Facts::gemma_4_e4b(),
                 &Gemma4CudaFacts::gemma_4_e4b_synthetic(),
@@ -168,6 +192,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "gpt_oss",
+            Scheme::GptOss,
             model::gpt_oss::forward::gpt_oss_cuda(
                 &GptOssFacts::gpt_oss_20b(),
                 &GptOssCudaFacts::gpt_oss_20b_synthetic(),
@@ -176,6 +201,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "gemma_2",
+            Scheme::LlamaLike,
             model::gemma_2::forward::gemma2_cuda(
                 &model::gemma_2::forward::facts::Gemma2Facts::gemma_2_9b(),
                 FireClass::Decode,
@@ -183,6 +209,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "gemma3n",
+            Scheme::LlamaLike,
             model::gemma3n::forward::gemma3n_cuda(
                 &model::gemma3n::forward::facts::Gemma3nFacts::gemma3n_synthetic(),
                 FireClass::Decode,
@@ -190,6 +217,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "deepseek_v4",
+            Scheme::LlamaLike,
             model::deepseek_v4::forward::dsv4_cuda(
                 &model::deepseek_v4::forward::facts::Dsv4Facts::dsv4_synthetic(),
                 FireClass::Decode,
@@ -197,6 +225,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "glm5",
+            Scheme::LlamaLike,
             model::glm5::forward::glm5_cuda(
                 &model::glm5::forward::facts::Glm5Facts::glm5_106b_a12b(),
                 FireClass::Decode,
@@ -204,6 +233,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "kimi_k2",
+            Scheme::LlamaLike,
             model::kimi_k2::forward::kimi_cuda(
                 &model::kimi_k2::forward::facts::KimiFacts::kimi_k2(),
                 &model::kimi_k2::forward::facts::KimiCudaFacts::kimi_k2_synthetic(),
@@ -212,6 +242,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "kimi_k3",
+            Scheme::LlamaLike,
             model::kimi_k3::forward::kimi_k3_cuda(
                 &model::kimi_k3::forward::facts::KimiK3Facts::kimi_k3_synthetic(),
                 FireClass::Decode,
@@ -219,6 +250,7 @@ fn corpus() -> Vec<(&'static str, ForwardPlan)> {
         ),
         (
             "nemotron_h",
+            Scheme::LlamaLike,
             model::nemotron_h::forward::nemotron_h_cuda(
                 &model::nemotron_h::forward::facts::NemotronHFacts::nemotron_h_synthetic(),
                 FireClass::Decode,
@@ -247,29 +279,26 @@ const NOT_YET_WIRED: &[(&str, &[&str])] = &[
     ("llama_like", &[]),
     ("qwen3_5", &[]),
     ("gemma_4", &[]),
-    // ONE STEM, AND IT IS A SPELLING. `llama_like`'s gemma branch wires
-    // `post_feedforward_layernorm` to the trace name `mlp_norm`, and
-    // gemma-2's forward asks for `post_mlp_norm`. The tensor is staged
-    // and named; the two halves of the seam simply chose different
-    // words for it, which is the cheapest possible instance of exactly
-    // what this test exists to catch.
-    ("gemma_2", &["layer.*.post_mlp_norm"]),
-    // THE ROW THAT BITES. gpt_oss is the only family below with both a
-    // `FACTS_ROWS` entry in the CUDA shell and a Prefill arm, so a
-    // gpt-oss checkpoint LOADS, reports itself healthy, and dies at its
-    // first fire on `UnknownWeight("layer.0.router")`. The other six owe
-    // the same debt and are not yet reachable, so theirs is not yet due.
-    ("gpt_oss", &[
-        "layer.*.attn_sinks",
-        "layer.*.expert_down_bank",
-        "layer.*.expert_gate_up_bank",
-        "layer.*.router",
-        "layer.*.router_bias",
-    ]),
+    // TWO STEMS, AND BOTH ARE SPELLINGS. `llama_like`'s gemma branch
+    // wires `post_attention_layernorm` to `attn_norm` and
+    // `post_feedforward_layernorm` to `mlp_norm`; gemma-2's forward asks
+    // for `post_attn_norm` and `post_mlp_norm`. Both tensors are staged
+    // and named — the two halves of the seam simply chose different
+    // words, which is the cheapest possible instance of what this test
+    // exists to catch. `gemma_4`'s builder DOES emit these two spellings,
+    // which is how the union-of-schemes draft hid them.
+    ("gemma_2", &["layer.*.post_attn_norm", "layer.*.post_mlp_norm"]),
+    // WAS the row that bit: the only family with both a `FACTS_ROWS`
+    // entry in the CUDA shell and a Prefill arm, so a gpt-oss checkpoint
+    // loaded, reported itself healthy, and died at its first fire on
+    // `UnknownWeight("layer.0.router")`. Wired now. The families below
+    // owe the same debt and are not yet reachable, so theirs is not due.
+    ("gpt_oss", &[]),
     ("gemma3n", &[
         "layer.*.altup_correct_norm",
         "layer.*.altup_norm",
         "layer.*.laurel_post_norm",
+        "layer.*.post_attn_norm",
         "layer.*.post_mlp_norm",
     ]),
     // MLA and the latent cache: three families, one shape. `kv_b_proj`
@@ -338,11 +367,11 @@ const NOT_YET_WIRED: &[(&str, &[&str])] = &[
 /// a name that LEFT means a builder landed and the line should go.
 #[test]
 fn every_traced_weight_is_a_name_wire_can_emit() {
-    let can = answerable();
+    let anchors = answerable(Scheme::LlamaLike);
     assert!(
-        can.contains("layer.*.qkv") && can.contains("embed"),
+        anchors.contains("layer.*.qkv") && anchors.contains("embed"),
         "the answerable set lost its anchors, so `wire()`'s shape changed \
-         rather than a family's: {can:?}"
+         rather than a family's: {anchors:?}"
     );
 
     let expected: BTreeMap<&str, BTreeSet<&str>> = NOT_YET_WIRED
@@ -351,7 +380,8 @@ fn every_traced_weight_is_a_name_wire_can_emit() {
         .collect();
 
     let mut actual: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
-    for (family, plan) in corpus() {
+    for (family, scheme, plan) in corpus() {
+        let can = answerable(scheme);
         let missing: BTreeSet<String> =
             stems(&plan).into_iter().filter(|s| !can.contains(s)).collect();
         actual.insert(family, missing);
@@ -400,7 +430,7 @@ fn every_traced_weight_is_a_name_wire_can_emit() {
 /// derivation starts telling the truth for the first time.
 #[test]
 fn kimis_fused_latent_projection_is_still_unreachable() {
-    let can = answerable();
+    let can = answerable(Scheme::LlamaLike);
     assert!(
         !can.contains("layer.*.q_kv_a_fused"),
         "a kimi builder landed: `wire()` can now emit `q_kv_a_fused`, so \
