@@ -295,6 +295,15 @@ pub struct Layer {
     pub shared_gate_proj: MatW,
     pub attn_norm: NormW,
     pub mlp_norm: NormW,
+    /// The norm on the ATTENTION's output, before the residual add.
+    ///
+    /// `NormPlacement::Sandwich` only — gemma's `post_attention_layernorm`
+    /// under a placement where `mlp_norm` is already spoken for by
+    /// `pre_feedforward_layernorm`. A `Pre` or `Post` text never names it.
+    pub post_attn_norm: NormW,
+    /// The norm on the FFN's output, before the residual add. gemma's
+    /// `post_feedforward_layernorm`; see [`Layer::post_attn_norm`].
+    pub post_mlp_norm: NormW,
     pub q_norm: NormW,
     pub k_norm: NormW,
     pub kv: Kv,
@@ -465,6 +474,8 @@ impl M {
             shared_gate_proj: mat("shared_gate_proj", 1),
             attn_norm: row_norm("attn_norm"),
             mlp_norm: row_norm("mlp_norm"),
+            post_attn_norm: row_norm("post_attn_norm"),
+            post_mlp_norm: row_norm("post_mlp_norm"),
             q_norm: qk_norm("q_norm"),
             k_norm: qk_norm("k_norm"),
             kv: Kv {

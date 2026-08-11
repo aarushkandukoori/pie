@@ -314,6 +314,10 @@ fn llama_like_metal_text(
         let q_w = f.q_width();
         let kv_w = f.kv_width();
         let post_norm = f.norm_placement == NormPlacement::Post;
+        // gemma's four-norm block. `post_norm` stays false under it — the
+        // stream is normed on the way IN as well, so the input side reads
+        // exactly like `Pre` and only the output side is new.
+        let sandwich = f.norm_placement == NormPlacement::Sandwich;
 
         // The projection this deployment takes: MLX's steel GEMM above the
         // batch gate, the GEMV below it.
@@ -666,7 +670,7 @@ fn llama_like_metal_text(
                 &q,
                 &k,
                 multi_batch,
-                metal.rope_theta,
+                metal.rope_theta_at(l),
                 1.0,
                 f.head_dim,
                 metal.rope_freq_table,
@@ -701,6 +705,34 @@ fn llama_like_metal_text(
                 let h = gated(&y, &w);
                 let ffn = if owes_down { gemm(&h, &w.down) } else { h };
                 let d = dsl::metal::rms_norm(&ffn, &w.mlp_norm, f.hidden, metal.rms_eps);
+                y = dsl::metal::residual_add(&d, &y);
+            } else if sandwich {
+                // gemma's FOUR norms. The stream was normed on the way IN
+                // (`x`, above, from `attn_norm`); each sub-layer's output is
+                // normed again on the way OUT, and only then does the residual
+                // add land it.
+                //
+                // Why this is its own arm and not `post_norm` with more
+                // weights: `post_norm` reads the stream RAW into each
+                // sub-layer, and gemma does not — it norms both ways. Folding
+                // them would need a text that norms the input under one flag
+                // and the output under another, which is two facts pretending
+                // to be one.
+                //
+                // Nothing here can fuse the residual into the projection
+                // (`gemm_add`): a norm sits between them. That is arithmetic,
+                // not a missed optimisation.
+                let o = dsl::metal::rms_norm(
+                    &gemm(&a, &w.o_proj),
+                    &w.post_attn_norm,
+                    f.hidden,
+                    metal.rms_eps,
+                );
+                y = dsl::metal::residual_add(&o, &y);
+                let x = dsl::metal::rms_norm(&y, &w.mlp_norm, f.hidden, metal.rms_eps);
+                let h = gated(&x, &w);
+                let ffn = if owes_down { gemm(&h, &w.down) } else { h };
+                let d = dsl::metal::rms_norm(&ffn, &w.post_mlp_norm, f.hidden, metal.rms_eps);
                 y = dsl::metal::residual_add(&d, &y);
             } else {
                 y = gemm_add(&a, &w.o_proj, &y);

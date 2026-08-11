@@ -99,6 +99,34 @@ pub struct DecodeGeometry {
     pub sliding_window: u32,
     /// gemma's readout SOFTCAP — `cap * tanh(x / cap)` — or zero for none.
     pub final_logit_softcap: f32,
+    /// The rotary base a SLIDING layer takes, when the config states a second
+    /// one, or zero for a stack whose layers all share [`Self::rope_theta`].
+    ///
+    /// gemma-4 states both, and it is not a corner case: gemma-4-31b slides
+    /// fifty of its sixty layers, so reading one base was wrong on 83% of the
+    /// stack — 1e6 where the config says 1e4.
+    pub rope_theta_sliding: f32,
+    /// Whether the config read as GEMMA, which decides three facts no other
+    /// field carries: the `(1 + w)` norm scale, the four-norm sandwich, and
+    /// the GEGLU activation.
+    ///
+    /// A marker rather than three booleans because they are one fact — a
+    /// checkpoint is gemma or it is not — and because a driver that got two
+    /// of the three right would be silently wrong in a way no shape check
+    /// can see. Every one of the three runs, produces finite numbers, and
+    /// answers a different model.
+    pub gemma: bool,
+    /// gemma's per-layer embedding width (`hidden_size_per_layer_input`), or
+    /// zero for a deployment with no PLE side network.
+    ///
+    /// Zero for gemma-4-31b, which states `hidden_size_per_layer_input: 0` —
+    /// so "gemma" and "has a PLE" are NOT the same question, which is why
+    /// this is read rather than implied by [`Self::gemma`].
+    pub per_layer_emb_dim: u32,
+    /// How many layers share their neighbour's KV pages
+    /// (`num_kv_shared_layers`), or zero for a stack where every layer writes
+    /// its own. Zero for gemma-4-31b.
+    pub kv_shared_layers: u32,
     /// gpt-oss's SwiGLU constants, or zero for a deployment that takes the
     /// plain gated activation.
     ///
@@ -205,6 +233,10 @@ impl Default for DecodeGeometry {
             full_attn_every: 0,
             sliding_window: 0,
             final_logit_softcap: 0.0,
+            rope_theta_sliding: 0.0,
+            gemma: false,
+            per_layer_emb_dim: 0,
+            kv_shared_layers: 0,
             swiglu_limit: 0.0,
             swiglu_alpha: 0.0,
             rope_freq_factor: 0.0,

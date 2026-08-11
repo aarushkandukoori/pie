@@ -281,8 +281,22 @@ pub fn facts_from_with(
         intermediate: geometry.intermediate,
         vocab: geometry.vocab,
         rope: model_compiler::trace::RopeKind::Standard,
-        norm_variant: model_compiler::trace::NormVariant::Plain,
-        norm_placement: model::families::llama_like::forward::facts::NormPlacement::Pre,
+        // gemma scales by `(1 + w)` and every other family by `w`, and gemma
+        // norms BOTH ways round each sub-layer where llama norms once. Both
+        // were hardcoded to llama's answer, so a gemma checkpoint passed
+        // `serves` and then ran as a llama: the `(1 + w)` became `w`, and the
+        // two output norms were dropped while `pre_feedforward_layernorm` was
+        // bound where the attention's output norm belonged. Nothing faults.
+        norm_variant: if geometry.gemma {
+            model_compiler::trace::NormVariant::Gemma
+        } else {
+            model_compiler::trace::NormVariant::Plain
+        },
+        norm_placement: if geometry.gemma {
+            model::families::llama_like::forward::facts::NormPlacement::Sandwich
+        } else {
+            model::families::llama_like::forward::facts::NormPlacement::Pre
+        },
         qk_norm: if has_tensor("layers.0.self_attn.q_norm.weight") {
             model_compiler::facts::QkNorm::PerHead
         } else {
@@ -368,33 +382,49 @@ pub fn facts_from_with(
         rms_eps: geometry.eps,
         // The checkpoint's own rotary base.
         rope_theta: geometry.rope_theta,
+        // The SLIDING layers' base, when the deployment states a second one.
+        // `rope_theta_at` picks between them off the window list.
+        rope_theta_sliding: geometry.rope_theta_sliding,
         // Whether the ladder is RESCALED, in which case no base expresses it
         // and the driver hands over a table instead.
         rope_freq_table: geometry.rope_freq_factor > 0.0,
         // gemma's side network, asked of the TENSORS: a checkpoint that ships
         // a per-layer embedding table is a deployment that has one.
-        per_layer_emb_dim: 0,
-        per_layer_scalar: false,
+        per_layer_emb_dim: geometry.per_layer_emb_dim,
+        // gemma's per-layer SCALAR, asked of the tensors for the same reason
+        // the PLE is: `layer_scalar` ships with gemma-4-31b, which states
+        // `hidden_size_per_layer_input: 0` and so has no PLE at all. The two
+        // are alternatives in the text's tail, and hardcoding this one false
+        // dropped the tail entirely for every gemma deployment.
+        per_layer_scalar: has_tensor("layers.0.layer_scalar"),
         dense_beside_moe: false,
         // The CONFIG's, not a tensor's. Asking layer 0 was the first draft
         // and it is a SLIDING layer, which ships its `v_proj` — only the full
         // ones do not, and a fact derived from the wrong layer is false for
         // exactly the deployment it describes.
         v_from_k: geometry.attention_k_eq_v,
-        kv_shared_layers: 0,
+        kv_shared_layers: geometry.kv_shared_layers,
         // gemma's readout cap. Zero is "none" and the text names nothing.
         logit_softcap: geometry.final_logit_softcap,
         // Asked of the TENSORS: a sink is a weight, and a checkpoint that
         // ships one is a deployment that has them.
         attn_sinks: has_tensor("layers.0.self_attn.sinks"),
-        // WHICH activation. A swiglu limit of zero is "this deployment is not
-        // gpt-oss" and not a clamp at zero, which would zero the gate branch
-        // entirely. `Geglu` is gemma's and reaches here when a gemma text does.
+        // WHICH activation, and every branch is reachable. A swiglu limit of
+        // zero is "this deployment is not gpt-oss" and not a clamp at zero,
+        // which would zero the gate branch entirely.
+        //
+        // `Geglu` is gemma's, and it had no way to be selected at all: this
+        // read `swiglu_limit > 0.0` and fell through to `SiluMul`, so every
+        // gemma checkpoint ran GELU's gate as SiLU. The two agree to about
+        // 2% at the origin and diverge from there — finite, plausible, wrong.
+        // `hidden_activation: gelu_pytorch_tanh` is what gemma-4 states.
         activation: if geometry.swiglu_limit > 0.0 {
             model::families::llama_like::forward::facts::Activation::SwiGlu {
                 limit: geometry.swiglu_limit,
                 alpha: geometry.swiglu_alpha,
             }
+        } else if geometry.gemma {
+            model::families::llama_like::forward::facts::Activation::Geglu
         } else {
             model::families::llama_like::forward::facts::Activation::SiluMul
         },

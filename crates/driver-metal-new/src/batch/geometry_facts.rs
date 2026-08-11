@@ -279,6 +279,18 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
         } else {
             0.0
         },
+        // WHICH family this config read as, and the same marker the softcap
+        // above keys on. Three facts hang off it that nothing else carries —
+        // the `(1 + w)` norm, the four-norm sandwich, and GEGLU — and every
+        // one of them was hardcoded to llama's answer, so a gemma checkpoint
+        // passed `serves` and then ran as a llama. Finite numbers, fluent
+        // text, a different model.
+        gemma: f.g4_num_hidden_layers > 0,
+        // The PLE's width and the KV sharing, both already parsed off the
+        // descriptor and neither ever assigned. Zero for gemma-4-31b, which
+        // is why "is gemma" cannot stand in for either.
+        per_layer_emb_dim: u32::try_from(f.g4_per_layer_emb_dim.max(0)).unwrap_or(0),
+        kv_shared_layers: u32::try_from(f.g4_num_kv_shared_layers.max(0)).unwrap_or(0),
         // gpt-oss's activation constants, when the config read as gpt-oss.
         // `go_num_hidden_layers` is the marker its own doc describes.
         swiglu_limit: if f.go_num_hidden_layers > 0 {
@@ -335,15 +347,23 @@ pub fn geometry_from_facts(f: &ModelFacts) -> Result<DecodeGeometry, GeometryRef
         rope_theta: if f.go_num_hidden_layers > 0 {
             f.go_rope_theta
         } else if f.g4_num_hidden_layers > 0 {
-            // gemma4 alternates a sliding base and a full one per layer. The
-            // FULL base is the one a text with no window states; the sliding
-            // one is `g4_rope_theta_sliding` and wants a per-layer fact this
-            // geometry has nowhere to put.
+            // gemma4 alternates a sliding base and a full one per layer. This
+            // is the FULL one; the sliding layers take `rope_theta_sliding`,
+            // and `LlamaLikeMetalFacts::rope_theta_at` picks between them off
+            // the same window list that decides which layers slide.
             f.g4_rope_theta_full
         } else if f.ll_num_hidden_layers > 0 {
             f.ll_rope_theta
         } else {
             f.rope_theta
+        },
+        // The SLIDING base, where the single-base reading was wrong on fifty
+        // of gemma-4-31b's sixty layers. Zero for every stack that states one
+        // base, which `rope_theta_at` reads as "the same everywhere".
+        rope_theta_sliding: if f.g4_num_hidden_layers > 0 {
+            f.g4_rope_theta_sliding
+        } else {
+            0.0
         },
         // The rope RESCALING, when the config states one. `llama3` is the
         // only kind whose four numbers this reads; a config that states
@@ -538,6 +558,83 @@ mod tests {
             geometry_from_facts(&dense).expect("a dense config").quant,
             DecodeGeometry::default().quant
         );
+    }
+
+    /// gemma is a DIFFERENT model, and the geometry has to say so.
+    ///
+    /// Three facts hang off `gemma` that nothing else in the geometry
+    /// carries — the `(1 + w)` norm scale, the four-norm sandwich, and the
+    /// GEGLU activation — and all three were hardcoded to llama's answer in
+    /// `model::text`. So a gemma checkpoint passed `serves`, loaded, fired,
+    /// and produced finite plausible tokens from a model that was not the
+    /// one on disk. This asserts the two families get DIFFERENT answers,
+    /// because a test that only asks "does gemma resolve" passes either way.
+    #[test]
+    fn a_gemma_config_is_not_read_as_a_llama() {
+        let llama = ModelFacts {
+            ll_num_hidden_layers: 24,
+            ll_hidden_size: 1024,
+            ll_num_attention_heads: 8,
+            ll_num_key_value_heads: 2,
+            ll_head_dim: 128,
+            ll_vocab_size: 32_000,
+            ll_intermediate_size: 3584,
+            ll_rope_theta: 500_000.0,
+            ..ModelFacts::default()
+        };
+        let g = geometry_from_facts(&llama).expect("a llama config");
+        assert!(!g.gemma, "a llama config is not gemma");
+
+        // `mlx-community/gemma-4-31b-it-4bit`'s own `text_config`, and the
+        // two zeros are the measurement: it states `num_kv_shared_layers: 0`
+        // and `hidden_size_per_layer_input: 0`, so "is gemma" does NOT imply
+        // "has a PLE" and neither can stand in for the other.
+        let gemma = ModelFacts {
+            g4_num_hidden_layers: 60,
+            g4_hidden_size: 5376,
+            g4_num_attention_heads: 32,
+            g4_num_key_value_heads: 16,
+            g4_head_dim: 256,
+            vocab_size: 262_144,
+            g4_intermediate_size: 21504,
+            g4_final_softcap: 30.0,
+            g4_attention_k_eq_v: true,
+            g4_sliding_window: 1024,
+            g4_full_attn_interval: 6,
+            g4_rope_theta_full: 1_000_000.0,
+            g4_rope_theta_sliding: 10_000.0,
+            g4_per_layer_emb_dim: 0,
+            g4_num_kv_shared_layers: 0,
+            ..ModelFacts::default()
+        };
+        let g = geometry_from_facts(&gemma).expect("a gemma-4 config");
+        assert!(g.gemma, "a gemma config that reads as a llama runs as one");
+        assert_eq!(g.final_logit_softcap, 30.0);
+        assert!(g.attention_k_eq_v);
+        assert_eq!(g.per_layer_emb_dim, 0, "gemma-4-31b states no PLE width");
+        assert_eq!(g.kv_shared_layers, 0, "gemma-4-31b shares no KV");
+        // TWO bases, and the second is not a corner: gemma-4-31b's
+        // `layer_types` slides fifty of its sixty layers, so reading one base
+        // was wrong on 83% of the stack, by two orders of magnitude.
+        assert_eq!(g.rope_theta, 1_000_000.0, "the FULL layers' base");
+        assert_eq!(g.rope_theta_sliding, 10_000.0, "the SLIDING layers' base");
+
+        // The gemma release that DOES state both, so the fields are read and
+        // not merely defaulted to the same zero the hardcode produced.
+        let ple = ModelFacts {
+            g4_per_layer_emb_dim: 256,
+            g4_num_kv_shared_layers: 4,
+            ..gemma
+        };
+        let g = geometry_from_facts(&ple).expect("a gemma-4 config with a PLE");
+        assert_eq!(g.per_layer_emb_dim, 256);
+        assert_eq!(g.kv_shared_layers, 4);
+
+        // A llama config states ONE base for every layer, which is what zero
+        // means — and `rope_theta_at` reads it that way rather than as a base
+        // of zero.
+        let g = geometry_from_facts(&llama).expect("a llama config");
+        assert_eq!(g.rope_theta_sliding, 0.0);
     }
 
     #[test]

@@ -698,6 +698,21 @@ pub struct LlamaLikeMetalFacts {
     /// layer until the activations saturate.
     #[serde(default)]
     pub rope_theta: f32,
+    /// The rotary base the SLIDING layers take, when a deployment states a
+    /// second one, or zero for a stack whose layers all share [`Self::rope_theta`].
+    ///
+    /// gemma-4 states both — `rope_parameters` gives `full_attention` a base
+    /// of 1e6 and `sliding_attention` a base of 1e4 — and it is not a corner:
+    /// gemma-4-31b slides fifty of its sixty layers, so the single-base
+    /// reading was wrong on 83% of the stack. Two orders of magnitude apart,
+    /// which is not a near miss; the rotation is wrong from the second
+    /// channel on and compounds layer over layer.
+    ///
+    /// Keyed off [`Self::window_left_at`] rather than a second per-layer list,
+    /// because "does this layer slide" is already answered there and two
+    /// lists could disagree.
+    #[serde(default)]
+    pub rope_theta_sliding: f32,
     /// Whether the FULL-attention layers take V from the K projection.
     ///
     /// PER LAYER, and measured: `mlx-community/gemma-4-26b-a4b-it-4bit` ships
@@ -838,6 +853,9 @@ impl LlamaLikeMetalFacts {
             dense_beside_moe: true,
             window_left: (0..24).map(|l| if l % 6 == 5 { -1 } else { 512 }).collect(),
             rope_theta: 1_000_000.0,
+            // The SLIDING layers' base. gemma states both, and this fixture
+            // slides twenty of its twenty-four layers.
+            rope_theta_sliding: 10_000.0,
             ..Self::synthetic()
         }
     }
@@ -845,6 +863,15 @@ impl LlamaLikeMetalFacts {
     /// This layer's window, `-1` for all of it. See [`Self::window_left`].
     pub fn window_left_at(&self, l: u32) -> i32 {
         model_compiler::facts::window_left_at(&self.window_left, l)
+    }
+
+    /// This layer's rotary base. See [`Self::rope_theta_sliding`].
+    pub fn rope_theta_at(&self, l: u32) -> f32 {
+        if self.rope_theta_sliding > 0.0 && self.window_left_at(l) >= 0 {
+            self.rope_theta_sliding
+        } else {
+            self.rope_theta
+        }
     }
 
     /// A SYNTHETIC fixture, not a measurement — see the struct comment.
@@ -882,6 +909,8 @@ impl LlamaLikeMetalFacts {
             // statement hands it `log2(theta)`; handing theta rotates by a
             // frequency ladder that is wrong from the second channel on.
             rope_theta: 1_000_000.0,
+            // qwen3 states ONE base for every layer, which is what zero means.
+            rope_theta_sliding: 0.0,
             // qwen3's mixture replaces its dense MLP rather than sitting
             // beside it, and it has no per-layer embeddings or scalar and
             // shares no KV.
