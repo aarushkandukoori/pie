@@ -20,40 +20,17 @@ use crate::config::{
 };
 use crate::driver_ffi::Flavor;
 
-/// Anchors the loader ABI's C entry points into the final binary.
-///
-/// `model-loader-capi` is an rlib and the only callers of
-/// `pie_loader_compile_model` and friends are the C++ drivers, which link
-/// *after* Rust. A linker never pulls an rlib member in on behalf of a C++
-/// reference, so without a reference from reachable Rust the entry points are
-/// simply absent and the failure surfaces as an undefined symbol at final
-/// link (`loader/architecture.md` §3.4). The `#[used]` table inside
-/// `model_loader_capi::entry` keeps all six alive once the object is pulled in;
-/// this static is what pulls it in.
-///
-/// **This is load-bearing.** No Rust in this process calls the loader any more —
-/// §12 step 2 moved plan compilation behind the FFI, and the boot's request
-/// entry is `pie_loader_compile_model` (`plan/model-in-rust.md` §6) — so this
-/// reference is the only thing keeping the object file in the link.
-#[used]
-static PIE_LOADER_ENTRY_ANCHOR: unsafe extern "C" fn(
-    *const model_loader_capi::model::PieLoaderModelRequest,
-    *mut *mut model_loader_capi::PieLoaderPlan,
-    *mut u32,
-    *mut *mut model_loader_capi::PieLoaderDiagnostics,
-) -> model_loader_capi::PieLoaderStatus = model_loader_capi::model::pie_loader_compile_model;
-
-/// Same story for the forward toolchain (tart): the drivers trace a
-/// family's declaration over `pie_forward.h`, no Rust in this process
-/// calls it, and the crate-side `#[used] KEEP_ALIVE` only keeps symbols
-/// alive once the object file is in the link — this reference is what
-/// puts it there.
-#[used]
-static PIE_FORWARD_ENTRY_ANCHOR: unsafe extern "C" fn(
-    *const model::ffi::entry::PieForwardLlamaLikeFacts,
-    *mut model::ffi::PieForwardPlan,
-) -> model::ffi::entry::PieForwardStatus =
-    model::ffi::entry::pie_forward_trace_llama_like;
+// THE TWO LINK ANCHORS ARE GONE WITH THE C++ THEY SERVED.
+//
+// `PIE_LOADER_ENTRY_ANCHOR` and `PIE_FORWARD_ENTRY_ANCHOR` existed because a
+// linker never pulls an rlib member in on behalf of a C++ reference: the only
+// callers of `pie_loader_compile_model` and `pie_forward_trace_llama_like`
+// were the C++ drivers, which link after Rust, so without a reference from
+// reachable Rust the entry points were simply absent at final link.
+//
+// Both drivers are Rust now. `model-loader` and `model` are called directly,
+// through their own types, and there is nothing on the far side of an FFI
+// boundary to keep alive.
 
 #[cfg(feature = "driver-cuda")]
 #[repr(C)]
