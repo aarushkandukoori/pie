@@ -324,6 +324,18 @@ impl MetalDriver {
             rs_cache_required: facts.has_linear_attn,
             rs_cache_slots: 0,
             rs_cache_slot_bytes: 0,
+            // Zero because nothing here GROWS a pool, not because the
+            // machinery is missing. `metal::elastic` is a complete
+            // subsystem -- arena, budget, pressure, `create_elastic` -- with
+            // 452 lines of tests and no production caller: `Pool::allocate`
+            // above takes a fixed page count and never revisits it.
+            //
+            // Stated rather than left blank, because a zero that means "not
+            // wired" and a zero that means "not supported" read identically
+            // to a scheduler and only one of them is a TODO. Advertising a
+            // non-zero budget before the pool can honour it would be the
+            // worse error: the scheduler would admit against pages that
+            // never arrive.
             elastic_page_bytes: 0,
             elastic_budget_pages: 0,
             has_mtp_logits: false,
