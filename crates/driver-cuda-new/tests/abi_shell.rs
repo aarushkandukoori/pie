@@ -72,6 +72,85 @@ fn fire_and_wait(
     status
 }
 
+
+/// The cached Qwen3-0.6B snapshot and its generated descriptor, or `None`.
+fn qwen3_fixture() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let home = std::env::var("HOME").ok()?;
+    let snaps = std::path::PathBuf::from(home)
+        .join(".cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots");
+    let snap = std::fs::read_dir(&snaps).ok()?.find_map(|e| {
+        let p = e.ok()?.path();
+        p.join("model.safetensors").is_file().then_some(p)
+    })?;
+    let descriptor = std::path::PathBuf::from(
+        "/tmp/claude-0/-root--patissier-work-tart-alpha/\
+         7460e4c3-f305-45df-9603-2298b0c0c60e/scratchpad",
+    )
+    .join("qwen3_descriptor.json");
+    descriptor.is_file().then_some((snap, descriptor))
+}
+
+/// What `load_model` answers is what an ENGINE will parse.
+///
+/// This driver answered a five-field summary of the checkpoint —
+/// `{"model_type":…,"hidden":…,"layers":…,"vocab":…,"weights":…}` — and
+/// `driver_abi::DriverCapabilities` rejects that at its first field. So no
+/// engine could load a model through this driver at all, and every test here
+/// missed it by passing `null` for the caps out-parameter and reading the
+/// status instead.
+///
+/// The fix is not "parse harder": it is that `total_pages` is a real answer
+/// about this device, and answering it means sizing the KV pool. This holds
+/// the payload against the type the engine deserializes it into, and holds
+/// the two fields a scheduler cannot work without.
+#[test]
+fn load_model_answers_capabilities_an_engine_can_parse() {
+    use driver_abi::local::{PieBytes, PieModelLoadDesc};
+
+    let _gpu = gpu_guard();
+    let Some((snap, descriptor)) = qwen3_fixture() else {
+        eprintln!("skipped: no cached Qwen3-0.6B or descriptor");
+        return;
+    };
+    let boot = format!("[model]\ndescriptor = \"{}\"\n", descriptor.display());
+    let desc = PieDriverCreateDesc {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+        ..Default::default()
+    };
+    let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
+    assert!(!d.is_null());
+    let snap_str = snap.to_string_lossy().into_owned();
+    let load = PieModelLoadDesc {
+        snapshot_dir: PieBytes { ptr: snap_str.as_ptr(), len: snap_str.len() },
+        ..Default::default()
+    };
+    let mut caps = driver_abi::local::PieDriverCaps::default();
+    assert_eq!(
+        unsafe { driver_abi::local::pie_cuda_load_model(d, &load, &mut caps) },
+        PIE_STATUS_OK
+    );
+    assert!(!caps.json_bytes.is_null(), "load_model published no capabilities");
+    let bytes = unsafe { std::slice::from_raw_parts(caps.json_bytes, caps.json_len) };
+    let parsed: driver_abi::DriverCapabilities = serde_json::from_slice(bytes)
+        .expect("the engine deserializes this exact payload into this exact type");
+
+    assert_eq!(parsed.abi_version, PIE_DRIVER_ABI_VERSION);
+    // WHAT A SCHEDULER ADMITS AGAINST. Zero pages is a driver that can hold
+    // no context, which is indistinguishable from a driver that did not
+    // answer — and was the state before this.
+    assert!(parsed.total_pages > 0, "the device holds no KV pages");
+    assert_eq!(parsed.kv_page_size, 16, "the page size the fire path builds");
+    assert_eq!(parsed.arch_name, "qwen3");
+    assert_eq!(parsed.vocab_size, 151_936);
+    assert_eq!(parsed.hidden_size, 1024);
+    assert!(parsed.max_model_len > 0, "the scheduler's context ceiling");
+    assert_eq!(parsed.activation_dtype, "bf16");
+    // Qwen3-0.6B is dense attention throughout, so no recurrent slots.
+    assert!(!parsed.rs_cache_required);
+    unsafe { driver_abi::local::pie_cuda_destroy(d) };
+}
+
 #[test]
 fn the_shell_answers_the_engines_own_declarations() {
     // Force the defining objects into this binary: an rlib's members are
@@ -176,10 +255,15 @@ fn load_model_loads_a_real_snapshot_through_the_abi() {
     let mut caps = PieDriverCaps { json_bytes: std::ptr::null(), json_len: 0 };
     let status = unsafe { driver_abi::local::pie_cuda_load_model(d, &load, &mut caps) };
     assert_eq!(status, PIE_STATUS_OK, "the real snapshot loads");
+    // The payload is a `DriverCapabilities`, which is what the engine
+    // deserializes it into — `load_model_answers_capabilities_an_engine_can_parse`
+    // holds the whole shape. Here it is only "the load answered about THIS
+    // checkpoint", so the two fields the descriptor pins are enough.
     let json = unsafe { std::slice::from_raw_parts(caps.json_bytes, caps.json_len) };
-    let json = std::str::from_utf8(json).expect("utf8");
-    assert!(json.contains("\"model_type\":\"qwen3\""), "caps carry the parsed facts: {json}");
-    assert!(json.contains("\"layers\":28"), "{json}");
+    let caps: driver_abi::DriverCapabilities =
+        serde_json::from_slice(json).expect("capabilities parse");
+    assert_eq!(caps.arch_name, "qwen3", "caps carry the parsed facts");
+    assert_eq!(caps.hidden_size, 1024);
 
     unsafe { driver_abi::local::pie_cuda_destroy(d) };
 }

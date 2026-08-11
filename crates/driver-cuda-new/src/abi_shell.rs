@@ -923,15 +923,7 @@ fn load_impl(state: &mut Shell, snapshot: &std::path::Path) -> Result<(), i32> {
         tp_size: state.tp_size,
     };
     wire_trace_names(&mut model);
-    model.load_caps = format!(
-        r#"{{"model_type":"{}","hidden":{},"layers":{},"vocab":{},"weights":{}}}"#,
-        model.hf.model_type,
-        model.hf.hidden_size,
-        model.hf.num_hidden_layers,
-        model.hf.vocab_size,
-        model.weights.len(),
-    )
-    .into_bytes();
+    model.load_caps = capabilities_json(&model, snapshot)?;
     state.model = Some(model);
     Ok(())
 }
@@ -1004,6 +996,108 @@ fn wire_trace_names(model: &mut LoadedModel) {
             })
         })
         .collect();
+}
+
+/// What `load_model` answers: a `driver_abi::DriverCapabilities` document.
+///
+/// **This used to be a five-field summary of the checkpoint** —
+/// `{"model_type":…,"hidden":…,"layers":…,"vocab":…,"weights":…}` — which is
+/// not a capability payload and which `DriverCapabilities` rejects outright,
+/// field by field, at `unknown field \`model_type\``. So no engine could load
+/// a model through this driver; the ABI tests call `pie_cuda_load_model`
+/// directly and pass `null` for the caps, so nothing here noticed.
+///
+/// # The KV pool is SIZED HERE, and that is the substance
+///
+/// `total_pages` is what a scheduler admits against, so answering it is
+/// answering how much context this device holds. The budget comes from
+/// `store::memory_planner::budget_for` — the ported planner's own reserve
+/// arithmetic, which until now had no live caller — measured AFTER the
+/// weights are resident, so `cudaMemGetInfo`'s free figure already has them
+/// subtracted.
+///
+/// What the budget then has to cover is the KV pool and the fire's
+/// activations. The activation share is a fraction rather than a computed
+/// arena, because the arena is a property of the LOWERING and no fire has
+/// been lowered yet; a fifth is the C++'s own rule of thumb and it is stated
+/// here rather than hidden in a constant.
+fn capabilities_json(model: &LoadedModel, snapshot: &std::path::Path) -> Result<Vec<u8>, i32> {
+    use crate::store::memory_planner::{DeviceMemory, PlannerConfig, budget_for};
+
+    let hf = &model.hf;
+    let device = crate::cuda::Device::bind(0).map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+    let (free, total) = device.memory_info().map_err(|_| PIE_STATUS_DRIVER_ERROR)?;
+    let cfg = PlannerConfig {
+        gpu_mem_utilization: 0.90,
+        memory_profile: "auto".to_owned(),
+        max_forward_tokens: 0,
+        max_forward_requests: 0,
+        kv_page_size: 0,
+        kv_cache_dtype: "bf16".to_owned(),
+        tp_size: i32::try_from(model.tp_size).unwrap_or(1),
+        mtp_num_drafts: 0,
+        calibrating: false,
+        rs_slot_mult: 1,
+        nccl_unique_id_hex: String::new(),
+    };
+    let budget = budget_for(&cfg, DeviceMemory {
+        free_bytes: free as u64,
+        total_bytes: total as u64,
+    })
+    .unwrap_or(0);
+
+    // The page geometry the fire path already builds — one place decides it.
+    let page_size: u64 = 16;
+    let kv_heads = u64::from(hf.num_key_value_heads.unsigned_abs());
+    let head_dim = u64::from(hf.head_dim_kernel.max(hf.head_dim).unsigned_abs());
+    let layers = u64::from(hf.num_hidden_layers.unsigned_abs());
+    // K and V, two bytes each.
+    let page_bytes = page_size * kv_heads * head_dim * 2 * 2 * layers.max(1);
+    let for_kv = budget.saturating_sub(budget / 5);
+    let total_pages = if page_bytes == 0 { 0 } else { for_kv / page_bytes };
+
+    let caps = driver_abi::DriverCapabilities {
+        abi_version: driver_abi::PIE_DRIVER_ABI_VERSION,
+        total_pages: u32::try_from(total_pages).unwrap_or(u32::MAX),
+        kv_page_size: u32::try_from(page_size).unwrap_or(16),
+        // No swap pool, no elastic accounting, no MTP or value head, and no
+        // sink this shell honours yet. Every one of these is a claim a
+        // program BINDS against, so a false advertisement is a program that
+        // runs as a silent no-op rather than one that is refused.
+        max_forward_tokens: 4096,
+        max_forward_requests: 256,
+        max_page_refs: u32::try_from(total_pages).unwrap_or(u32::MAX),
+        arch_name: hf.model_type.clone(),
+        vocab_size: u32::try_from(hf.vocab_size).unwrap_or(0),
+        max_model_len: u32::try_from(hf.max_position_embeddings).unwrap_or(0),
+        activation_dtype: "bf16".to_owned(),
+        hidden_size: u32::try_from(hf.hidden_size).unwrap_or(0),
+        // The recurrent families need slots assigned; `layer_types` naming a
+        // linear-attention layer IS the signature.
+        rs_cache_required: hf.layer_types.iter().any(|t| t == "linear_attention"),
+        snapshot_dir: snapshot.display().to_string(),
+        swap_pool_size: 0,
+        kv_copy_domain_mask: 0,
+        rs_cache_slots: 0,
+        rs_cache_slot_bytes: 0,
+        elastic_page_bytes: 0,
+        elastic_budget_pages: 0,
+        has_mtp_logits: false,
+        has_mtp_drafts: false,
+        has_value_head: false,
+        has_kv_envelopes: false,
+        has_attn_score: false,
+        has_attn_page_mask: false,
+        has_lora: false,
+        model_site_summary: driver_abi::ModelSiteSummary::default(),
+        device_geometry_port_mask: 0,
+        supports_media_encode: false,
+        kv_handle: None,
+        // This driver compiles its own PTIR through NVRTC; nothing upstream
+        // needs to generate a kernel for it.
+        codegen_backend: String::new(),
+    };
+    serde_json::to_vec(&caps).map_err(|_| PIE_STATUS_DRIVER_ERROR)
 }
 
 /// Register a program: adopt its launch package, compile its generated
