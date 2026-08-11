@@ -202,7 +202,7 @@ pub static KERNELS: &[KernelSig] = &[
         operands = operands![
             q: BufMut <- Source::Out(0),
             n: I32 <- Source::Rows,
-            num_heads: I32 <- Source::OutHeads(0),
+            num_heads: I32 <- Source::OutWidthOver(0, "head_dim"),
             head_dim: I32 <- Source::Ctx("head_dim"),
             eps: F32 <- Source::Ctx("eps"),
             stream: Stream <- Source::Ctx("stream"),
@@ -391,15 +391,15 @@ pub static KERNELS: &[KernelSig] = &[
             lse: F32s <- Source::In(1),
             sink: F32s <- Source::Weight(0),
             n: I32 <- Source::Rows,
-            // `OutHeads`, not `OutDim(0, 1)`. The two ask different
+            // `OutWidthOver`, not `OutDim(0, 1)`. The two ask different
             // questions and only one of them is answerable: `OutDim`
             // asks the PLAN what the second extent of a
             // `[Tokens, heads, dim]` value is, and the join has never
             // carried it — which is why this row sat on the generator's
-            // wall. `OutHeads` asks the BINDER how many head-dims fit in
-            // a row whose width it already holds, which is what the hand
-            // arm computed.
-            num_heads: I32 <- Source::OutHeads(0),
+            // wall. This asks the BINDER how many head-dims fit in a row
+            // whose width it already holds, which is what the hand arm
+            // computed.
+            num_heads: I32 <- Source::OutWidthOver(0, "head_dim"),
             head_dim: I32 <- Source::Ctx("head_dim"),
             stream: Stream <- Source::Ctx("stream"),
         ]),

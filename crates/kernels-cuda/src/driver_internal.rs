@@ -12,7 +12,7 @@
 //! seam or the executor needs a launcher the DSL surface correctly lacks.
 
 use kernels::kernel;
-use kernels::{KernelSig, operands};
+use kernels::{KernelSig, Source, operands};
 
 #[rustfmt::skip]
 pub static DRIVER_KERNELS: &[KernelSig] = &[
@@ -41,13 +41,34 @@ pub static DRIVER_KERNELS: &[KernelSig] = &[
     // the attn exhaustiveness test names.
     kernel!(split_qkv "attn::split_qkv_bf16",
         operands = operands![
-            packed: Buf, q_out: BufMut, k_out: BufMut, v_out: BufMut,
-            n_tokens: I32, q_dim: I32, kv_dim: I32, stream: Stream,
+            packed: Buf <- Source::In(0),
+            q_out: BufMut <- Source::Out(0),
+            k_out: BufMut <- Source::Out(1),
+            v_out: BufMut <- Source::Out(2),
+            n_tokens: I32 <- Source::Rows,
+            // The two widths come off what is WRITTEN, not off the packed
+            // operand: a `[N, q + 2*kv]` row cannot say where the cut
+            // falls, and both results can.
+            q_dim: I32 <- Source::OutWidth(0),
+            kv_dim: I32 <- Source::OutWidth(1),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
+    // The DEVICE-WINDOW twin. Its own stated symbol, so there is no
+    // ambiguity for a binder to resolve — the peel's tail region states
+    // this one and the plain body states the other. `CtxNonZero` on the
+    // window is the arm's null check: a fire that published no peel
+    // window is not one this launcher can run for.
     kernel!(split_qkv_devwin "attn::split_qkv_bf16_devwin",
         operands = operands![
-            packed: Buf, q_out: BufMut, k_out: BufMut, v_out: BufMut,
-            win_d: U32s, n_max: I32, q_dim: I32, kv_dim: I32, stream: Stream,
+            packed: Buf <- Source::In(0),
+            q_out: BufMut <- Source::Out(0),
+            k_out: BufMut <- Source::Out(1),
+            v_out: BufMut <- Source::Out(2),
+            win_d: U32s <- Source::CtxNonZero("peel_window"),
+            n_max: I32 <- Source::Ctx("rows_total"),
+            q_dim: I32 <- Source::OutWidth(0),
+            kv_dim: I32 <- Source::OutWidth(1),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // The page-mask packers `FirePageMask` fires.
     kernel!(pack_dense_mask "attn::pack_dense_mask",
@@ -124,8 +145,16 @@ pub static DRIVER_KERNELS: &[KernelSig] = &[
     // arguments rather than one width, because the stride IS the layout.
     kernel!(split_q_gate "layout::split_q_gate_bf16",
         operands = operands![
-            packed: Buf, q_out: BufMut, gate_out: BufMut,
-            n: I32, num_heads: I32, head_dim: I32, stream: Stream,
+            packed: Buf <- Source::In(0),
+            q_out: BufMut <- Source::Out(0),
+            gate_out: BufMut <- Source::Out(1),
+            n: I32 <- Source::Rows,
+            // Off the QUERY half, not the packed operand: `packed` is
+            // `[N, heads, 2*head_dim]` and only the query's half of it
+            // lands here, so the head count comes from what is written.
+            num_heads: I32 <- Source::OutWidthOver(0, "head_dim"),
+            head_dim: I32 <- Source::Ctx("head_dim"),
+            stream: Stream <- Source::Ctx("stream"),
         ]),
     // That gate applied: `a' = a * σ(g)`, IN PLACE on operand 0 — the
     // header spells `x` "bf16, in-place" in as many words.

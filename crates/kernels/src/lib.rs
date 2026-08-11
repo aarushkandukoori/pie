@@ -791,25 +791,30 @@ pub enum Source {
     /// is exactly that operand's element count. A product the table has
     /// no arithmetic for, read off a value that already is it.
     InElements(u8),
-    /// The `i`-th result's width in HEADS — its row width divided by the
-    /// fire's head dim.
+    /// The `i`-th result's row width DIVIDED by a context field.
+    ///
+    /// One variant and not two, because "how many head-dims fit in this
+    /// row" and "how many PLE layers fit in this row" are the same
+    /// question asked of different fields, and a `OutHeads` beside a
+    /// `OutPleLayers` would be the repetition this table exists to end.
+    /// Nine hand arms compute `width / ctx.head_dim.max(1)` — rope's q
+    /// and k counts, the attention sink correction, the per-head norms,
+    /// the q/gate split — and one computes `width / ctx.ple_dim`.
     ///
     /// Not the same question as [`Source::OutDim`], and that is why it is
     /// its own source rather than a use of one. `OutDim(i, 1)` asks the
     /// PLAN what the second extent of a `[Tokens, heads, dim]` value is,
-    /// and the join does not carry it; this asks the BINDER how many
-    /// head-dims fit in a row it already holds the width of. Nine hand
-    /// arms compute `width / ctx.head_dim.max(1)` — rope's q and k
-    /// counts, the attention sink correction, the per-head norms — and
-    /// every one of them was blocked on a shape the join has never had to
-    /// carry.
+    /// and the join does not carry it; this asks the BINDER how many of
+    /// something fit in a row it already holds the width of.
     ///
-    /// The `max(1)` is the driver's, not the row's: a fire that states no
-    /// head dim would divide by zero, and where that guard lives is the
-    /// same question `is_set` answers for [`Source::CtxNonZero`].
-    OutHeads(u8),
-    /// The same for the `i`-th operand. See [`Source::OutHeads`].
-    InHeads(u8),
+    /// A row stating this is guarded on the field being set, because
+    /// dividing a width by an unset field is not a smaller answer, it is
+    /// a meaningless one — the same reason [`Source::CtxNonZero`] guards.
+    /// Two of the arms this replaces refused explicitly on it and the
+    /// rest wrote `max(1)`, which is the same judgment less loudly.
+    OutWidthOver(u8, &'static str),
+    /// The same for the `i`-th operand. See [`Source::OutWidthOver`].
+    InWidthOver(u8, &'static str),
     /// A context field the fire holds PER LAYER, read at the statement's
     /// own layer.
     ///

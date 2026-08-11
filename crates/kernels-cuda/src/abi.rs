@@ -470,12 +470,13 @@ fn rust_bind_expr(op: &kernels::Operand) -> Option<String> {
         Source::InRows(i) => format!("rows_of(b, {i}, rows)"),
         Source::OutWidth(i) => format!("width_of(b, n_in + {i})"),
         Source::InWidth(i) => format!("width_of(b, {i})"),
-        // The `max(1)` is inside `heads_of`, on the driver's side, for
+        // The `max(1)` is inside `width_over`, on the driver's side, for
         // the reason `is_set` is: the row states which value's width to
-        // read and in what unit, and what a zero head dim means is the
-        // fire's business.
-        Source::OutHeads(i) => format!("heads_of(b, n_in + {i}, ctx.head_dim)"),
-        Source::InHeads(i) => format!("heads_of(b, {i}, ctx.head_dim)"),
+        // read and what to divide it by, and what a zero divisor means is
+        // the fire's business. The guard below refuses the branch outright
+        // when the field is unset, so the `max(1)` is belt to that braces.
+        Source::OutWidthOver(i, f) => format!("width_over(b, n_in + {i}, ctx.{f})"),
+        Source::InWidthOver(i, f) => format!("width_over(b, {i}, ctx.{f})"),
         // An ACCESSOR, not a field: the driver decides whether its
         // per-layer vector falls back, filters or refuses, and the
         // generator's claim is only that the statement's layer is the
@@ -614,12 +615,12 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
                 Source::In(i)
                 | Source::InRows(i)
                 | Source::InElements(i)
-                | Source::InHeads(i)
+                | Source::InWidthOver(i, _)
                 | Source::InWidth(i) => need_in = need_in.max(i + 1),
                 Source::Out(i)
                 | Source::OutRows(i)
                 | Source::OutWidth(i)
-                | Source::OutHeads(i)
+                | Source::OutWidthOver(i, _)
                 | Source::OutElements(i) => need_out = need_out.max(i + 1),
                 Source::Weight(i) => need_w = need_w.max(i + 1),
                 Source::Param(i) | Source::ParamF32(i) | Source::RoutesOfParam(i) => {
@@ -699,9 +700,25 @@ pub fn emit_rust_dispatch(tables: &[&'static [KernelSig]]) -> String {
         if need_ps > 0 {
             guard.push_str(&format!(" && spec.params.len() >= {need_ps}"));
         }
-        // A field a family zeroes to say "not mine".
+        // A field a family zeroes to say "not mine" — and a divisor,
+        // which is the same test for a different reason: a width divided
+        // by an unset field is not a smaller answer, it is a meaningless
+        // one, and the two arms this replaced refused explicitly on it.
+        //
+        // DEDUPED, because two operands may divide by the same field —
+        // `qk_rmsnorm_rope` reads a q head count and a kv head count off
+        // one `head_dim` — and `is_set(x) && is_set(x)` is a guard that
+        // makes a reader look for the difference.
+        let mut guarded: Vec<&str> = Vec::new();
         for o in k.operands {
-            if let Source::CtxNonZero(f) = o.source {
+            if let Source::CtxNonZero(f)
+            | Source::OutWidthOver(_, f)
+            | Source::InWidthOver(_, f) = o.source
+            {
+                if guarded.contains(&f) {
+                    continue;
+                }
+                guarded.push(f);
                 // `is_set` rather than `!= 0`: the emitter does not know
                 // the field's TYPE, and Rust will not compare an `f32` to
                 // an integer literal. The driver implements it for the

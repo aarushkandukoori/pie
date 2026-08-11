@@ -1012,16 +1012,18 @@ fn dispatch_generated(
     fn elems_of(b: &BoundLaunch<'_>, i: usize, rows: i32) -> usize {
         (rows.max(0) as usize) * (width_of(b, i).max(0) as usize)
     }
-    /// `Source::InHeads`/`OutHeads`: an operand's row width counted in
-    /// head-dims.
+    /// `Source::InWidthOver`/`OutWidthOver`: an operand's row width
+    /// divided by a context field — how many head-dims, or PLE layers,
+    /// fit in a row.
     ///
     /// The `max(1)` is here rather than in the row for the reason
-    /// [`IsSet`] is: what a fire that states no head dim means is the
-    /// fire's business, and a table that spelled the guard would be
-    /// stating a driver's policy. A zero head dim yields the flat width,
-    /// which is what the nine hand arms this replaces all did.
-    fn heads_of(b: &BoundLaunch<'_>, i: usize, head_dim: i32) -> i32 {
-        width_of(b, i) / head_dim.max(1)
+    /// [`IsSet`] is: what a fire that states no divisor means is the
+    /// fire's business. It is belt to the guard's braces — a row stating
+    /// this source is refused outright when the field is unset — and
+    /// exists so that a future guard change cannot turn a refusal into a
+    /// division by zero.
+    fn width_over(b: &BoundLaunch<'_>, i: usize, by: i32) -> i32 {
+        width_of(b, i) / by.max(1)
     }
 
     /// `Source::CtxNonZero`'s test: a family zeroes a context field to
@@ -1047,9 +1049,46 @@ fn dispatch_generated(
             self != 0
         }
     }
+    /// A POINTER field a fire leaves null to say "not published".
+    ///
+    /// `attn::split_qkv_bf16_devwin`'s peel window is the case: a fire
+    /// that published none is not one that launcher can run for, and its
+    /// hand arm said exactly that. Null is the pointer spelling of zero,
+    /// so it is the same test and not a new one.
+    impl<T> IsSet for *const T {
+        fn is_set(self) -> bool {
+            !self.is_null()
+        }
+    }
+    impl<T> IsSet for *mut T {
+        fn is_set(self) -> bool {
+            !self.is_null()
+        }
+    }
     fn is_set<T: IsSet>(v: T) -> bool {
         v.is_set()
     }
+
+    /// `cast_const` for a pointer that is ALREADY const.
+    ///
+    /// A generated bind for a `U32s`/`I32s` operand spells
+    /// `(e).cast_const().cast::<u32>()`, because most sources hand back a
+    /// `*mut` — an arg's `ptr` is one, and so is most of `DispatchCtx`.
+    /// A context field that is already `*const` has no inherent
+    /// `cast_const`, and the generator cannot know which it got without
+    /// the table carrying pointer mutability, which is a fact about the
+    /// DRIVER's struct and not about the launcher.
+    ///
+    /// Inherent methods win over trait methods, so this covers exactly
+    /// the case the inherent one does not and is invisible everywhere
+    /// else.
+    trait AlreadyConst: Copy {
+        #[allow(clippy::wrong_self_convention)]
+        fn cast_const(self) -> Self {
+            self
+        }
+    }
+    impl<T> AlreadyConst for *const T {}
 
     // A JOIN FACT NO `Source` CAN NAME declines the whole branch.
     //
@@ -1453,96 +1492,6 @@ pub fn dispatch<R: Resolver>(
                     a.logits_soft_cap,
                     a.sm_scale,
                     lse,
-                );
-            }
-        }
-        // args: [packed, q_raw, k_raw, v] — one input, then the op's THREE
-        // outputs stated as args (SplitQkv's outputs are values).
-        // args: [packed, q, k, v] — the same four the host-window form
-        // takes, and the SAME base pointers. The difference is where the
-        // row window comes from: a peel's tail addresses rows at absolute
-        // offsets in a full-N buffer, so the split rides in device memory
-        // and the grid spans every lane, out-of-window rows early-outing
-        // on `win[0]`/`win[1]`. That is what makes the launch replayable
-        // across splits, which is the whole reason the region asks for
-        // this kernel instead of choosing it.
-        //
-        // Note the operands are NOT windowed by the caller here, and that
-        // is the kernel's stated contract ("Buffers are BASE pointers")
-        // rather than an oversight — the binder's base-resolving
-        // behaviour, which §4's fourth decline-rule works around for the
-        // host-window form, is exactly right for this one.
-        "attn::split_qkv_bf16_devwin" => {
-            need(4)?;
-            let (packed, q, k, v) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            if ctx.peel_window.is_null() {
-                return Err(DispatchRefusal::NoArm(
-                    "attn::split_qkv_bf16_devwin: the fire published no peel window".into(),
-                ));
-            }
-            unsafe {
-                ffi::pie_k_attn_split_qkv_bf16_devwin(
-                    packed.ptr,
-                    q.ptr,
-                    k.ptr,
-                    v.ptr,
-                    ctx.peel_window,
-                    ctx.rows_total,
-                    i32::try_from(q.width).expect("q width"),
-                    i32::try_from(k.width).expect("kv width"),
-                    ctx.stream,
-                );
-            }
-        }
-        "attn::split_qkv_bf16" => {
-            need(4)?;
-            let (packed, q, k, v) =
-                (bound.args[0], bound.args[1], bound.args[2], bound.args[3]);
-            unsafe {
-                ffi::pie_k_attn_split_qkv_bf16(
-                    packed.ptr,
-                    q.ptr,
-                    k.ptr,
-                    v.ptr,
-                    rows,
-                    i32::try_from(q.width).expect("q width"),
-                    i32::try_from(k.width).expect("kv width"),
-                    ctx.stream,
-                );
-            }
-        }
-        // args: [q_in, k_in, q_out, k_out, q_norm_w, k_norm_w]. The KERNEL
-        // is in-place on (q, k); the lowering assigned separate in/out
-        // buffers, so the arm stages in→out with a d2d copy, then runs the
-        // kernel over the outs — the only reading under which both the
-        // row's signature and the launch's buffer assignment are honest.
-        "rope::qk_rmsnorm_rope_bf16" => {
-            need(6)?;
-            let (q_in, k_in, q_out, k_out, qw, kw) = (
-                bound.args[0],
-                bound.args[1],
-                bound.args[2],
-                bound.args[3],
-                bound.args[4],
-                bound.args[5],
-            );
-            stage_d2d(ctx, &bound.rows, q_out, q_in);
-            stage_d2d(ctx, &bound.rows, k_out, k_in);
-            unsafe {
-                ffi::pie_k_rope_qk_rmsnorm_rope_bf16(
-                    q_out.ptr,
-                    k_out.ptr,
-                    qw.ptr,
-                    kw.ptr,
-                    ctx.positions.cast_const().cast(),
-                    rows,
-                    i32::try_from(q_out.width).expect("q width") / ctx.head_dim.max(1),
-                    i32::try_from(k_out.width).expect("k width") / ctx.head_dim.max(1),
-                    ctx.head_dim,
-                    ctx.theta(bound.layers.start as usize),
-                    ctx.eps,
-                    ctx.stream,
                 );
             }
         }
@@ -1962,23 +1911,6 @@ pub fn dispatch<R: Resolver>(
                 );
             }
         }
-        // args: [packed, q_out, gate_out] — the 2×-wide gated q pack's
-        // per-head de-interleave.
-        "layout::split_q_gate_bf16" => {
-            need(3)?;
-            let (packed, q_out, gate_out) = (bound.args[0], bound.args[1], bound.args[2]);
-            unsafe {
-                ffi::pie_k_layout_split_q_gate_bf16(
-                    packed.ptr,
-                    q_out.ptr,
-                    gate_out.ptr,
-                    rows,
-                    i32::try_from(q_out.width).expect("q width") / ctx.head_dim.max(1),
-                    ctx.head_dim,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [x, gate] in place, or [x, gate, out] when the lowering
         // assigned distinct buffers — staged, the in-place contract.
         "mlp::sigmoid_gate_inplace_bf16" => {
@@ -2248,22 +2180,6 @@ pub fn dispatch<R: Resolver>(
                 ffi::pie_k_norm_scalar_mul_bf16(x_out.ptr, s, n, ctx.stream);
             }
         }
-        // args: [x_in, x_out] — `cap * tanh(x / cap)` over the logits;
-        // the cap is the deployment's final-softcap fact.
-        "attn::logit_softcap_bf16" => {
-            need(2)?;
-            let (x_in, x_out) = (bound.args[0], bound.args[1]);
-            stage_d2d(ctx, &bound.rows, x_out, x_in);
-            let n = (bound.rows.end - bound.rows.start) as usize * x_out.width as usize;
-            unsafe {
-                ffi::pie_k_attn_logit_softcap_bf16(
-                    x_out.ptr,
-                    ctx.final_logit_softcap,
-                    n,
-                    ctx.stream,
-                );
-            }
-        }
         // args: [packed, q_out, q_norm, k_norm] — gemma-4's fused local
         // decode post: split the packed projection, norm q/k, rope them
         // (rounded), norm v, write k/v straight to the pages. Only the
@@ -2430,29 +2346,6 @@ pub fn dispatch<R: Resolver>(
                     ctx.stream,
                     window_of(spec, a, u32::from(bound.layers.start)),
                     a.sm_scale,
-                );
-            }
-        }
-        // ── gemma-4's arms ───────────────────────────────────────────
-        // args: [src, dst] — the PLE relay: `[N, layers*dim]` transposed
-        // to `[layers, N, dim]` so each layer reads a contiguous slice.
-        "layout::transpose_bf16_nld_to_lnd" => {
-            need(2)?;
-            let (src, dst) = (bound.args[0], bound.args[1]);
-            if ctx.ple_dim <= 0 {
-                return Err(DispatchRefusal::NoArm(format!(
-                    "{}: the fire states no ple_dim",
-                    bound.kernel
-                )));
-            }
-            unsafe {
-                ffi::pie_k_layout_transpose_bf16_nld_to_lnd(
-                    src.ptr.cast_const().cast(),
-                    dst.ptr.cast(),
-                    rows,
-                    i32::try_from(src.width).expect("width") / ctx.ple_dim,
-                    ctx.ple_dim,
-                    ctx.stream,
                 );
             }
         }
