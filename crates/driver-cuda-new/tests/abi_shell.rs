@@ -11,9 +11,66 @@ use driver_abi::local::{
     PieDriverCreateDesc,
 };
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use driver_abi::local::{PieCompletion, PieFrameDesc, PieRuntimeCallbacks};
+
 mod common;
 #[allow(unused_imports)] // abi tests take only the guard
 use common::gpu_guard;
+
+
+// ── FIRING A FRAME AND WAITING FOR IT ────────────────────────────────
+//
+// `pie_cuda_launch` returns with the fire still on the stream: the work it
+// owes rides a stream-ordered callback, and the completion notify is how a
+// caller learns the fire is done. The engine waits for it. A test that reads
+// the ring or a terminal cell on the next line has to wait for it too.
+//
+// The counter is per DRIVER, carried in the runtime callbacks' `ctx`, so
+// tests running in parallel cannot see each other's fires.
+
+/// The notify a test registers: bump the caller's own counter.
+unsafe extern "C" fn bump_fires(ctx: *mut std::ffi::c_void, _wait_id: u64, _epoch: u64) {
+    if !ctx.is_null() {
+        unsafe { &*ctx.cast::<AtomicU64>() }.fetch_add(1, Ordering::Release);
+    }
+}
+
+/// A fire counter with a stable address, for `PieRuntimeCallbacks::ctx`.
+fn fire_counter() -> Box<AtomicU64> {
+    Box::new(AtomicU64::new(0))
+}
+
+/// The callbacks a test creates its driver with, wired to `fires`.
+fn runtime_for(fires: &AtomicU64) -> PieRuntimeCallbacks {
+    PieRuntimeCallbacks {
+        abi_version: PIE_DRIVER_ABI_VERSION,
+        reserved0: 0,
+        ctx: std::ptr::from_ref(fires).cast_mut().cast(),
+        notify: Some(bump_fires),
+    }
+}
+
+/// Launch, then wait for the fire to retire. The status is the launch's.
+fn fire_and_wait(
+    d: *mut driver_abi::local::PieDriver,
+    frame: &PieFrameDesc,
+    completion: PieCompletion,
+    fires: &AtomicU64,
+) -> i32 {
+    let before = fires.load(Ordering::Acquire);
+    let status = unsafe { driver_abi::local::pie_cuda_launch(d, frame, completion) };
+    if status != PIE_STATUS_OK {
+        return status;
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while fires.load(Ordering::Acquire) == before {
+        assert!(std::time::Instant::now() < deadline, "the fire never completed");
+        std::thread::yield_now();
+    }
+    status
+}
 
 #[test]
 fn the_shell_answers_the_engines_own_declarations() {
@@ -595,8 +652,16 @@ fn a_real_decode_frame_launches_through_the_abi() {
     };
     let status = unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) };
     assert_eq!(status, PIE_STATUS_OK, "the frame launches");
+    // THE NOTIFY IS THE FENCE. `pie_cuda_launch` returns with the fire still
+    // on the stream, so the terminal cell below has not been written yet —
+    // waiting for the notify is what the engine does and what makes the
+    // assertions after it about the fire rather than about the call.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while NOTIFIED.load(Ordering::SeqCst) != 0xBEEF {
+        assert!(std::time::Instant::now() < deadline, "the runtime was never notified");
+        std::thread::yield_now();
+    }
     assert_eq!(cell.outcome, PIE_TERMINAL_OUTCOME_SUCCESS, "the terminal cell published");
-    assert_eq!(NOTIFIED.load(Ordering::SeqCst), 0xBEEF, "the runtime was notified");
 
     unsafe { driver_abi::local::pie_cuda_destroy(d) };
 }
@@ -685,6 +750,8 @@ fn channels_bind_the_ring_contract() {
 #[test]
 fn logits_come_back_through_the_ring() {
     let _gpu = gpu_guard();
+    // The fire retires asynchronously; this is how the test learns it did.
+    let fires = fire_counter();
     use driver_abi::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PieBytes, PieChannelDesc, PieChannelEndpointBinding,
         PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc,
@@ -720,6 +787,7 @@ fn logits_come_back_through_the_ring() {
     let desc = PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+        runtime: runtime_for(&fires),
         ..Default::default()
     };
     let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
@@ -804,7 +872,7 @@ fn logits_come_back_through_the_ring() {
     let completion =
         PieCompletion { wait_id: 1, target_epoch: 1, terminal_cell: std::ptr::null_mut() };
     assert_eq!(
-        unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) },
+        fire_and_wait(d, &frame, completion, &fires),
         PIE_STATUS_OK
     );
 
@@ -839,6 +907,8 @@ fn logits_come_back_through_the_ring() {
 #[test]
 fn multi_step_resize_and_copy_preserve_the_kv() {
     let _gpu = gpu_guard();
+    // The fire retires asynchronously; this is how the test learns it did.
+    let fires = fire_counter();
     use driver_abi::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PieBytes, PieChannelDesc, PieChannelEndpointBinding,
         PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieKvCopyDesc,
@@ -875,6 +945,7 @@ fn multi_step_resize_and_copy_preserve_the_kv() {
     let desc = PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+        runtime: runtime_for(&fires),
         ..Default::default()
     };
     let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
@@ -973,7 +1044,7 @@ fn multi_step_resize_and_copy_preserve_the_kv() {
     let completion =
         PieCompletion { wait_id: 2, target_epoch: 1, terminal_cell: std::ptr::null_mut() };
     assert_eq!(
-        unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) },
+        fire_and_wait(d, &frame, completion, &fires),
         PIE_STATUS_OK,
         "the two-step frame launches"
     );
@@ -1019,7 +1090,7 @@ fn multi_step_resize_and_copy_preserve_the_kv() {
         ..frame
     };
     assert_eq!(
-        unsafe { driver_abi::local::pie_cuda_launch(d, &frame3, completion) },
+        fire_and_wait(d, &frame3, completion, &fires),
         PIE_STATUS_OK
     );
     assert_eq!(words[1], 3, "the third fire delivered");
@@ -1055,6 +1126,8 @@ fn multi_step_resize_and_copy_preserve_the_kv() {
 #[test]
 fn a_fifty_step_greedy_chain_is_deterministic_and_leak_free() {
     let _gpu = gpu_guard();
+    // The fire retires asynchronously; this is how the test learns it did.
+    let fires = fire_counter();
     use driver_abi::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PieBytes, PieChannelDesc, PieChannelEndpointBinding,
         PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc,
@@ -1099,6 +1172,7 @@ fn a_fifty_step_greedy_chain_is_deterministic_and_leak_free() {
         let desc = PieDriverCreateDesc {
             abi_version: PIE_DRIVER_ABI_VERSION,
             config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+            runtime: runtime_for(&fires),
             ..Default::default()
         };
         let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
@@ -1182,7 +1256,7 @@ fn a_fifty_step_greedy_chain_is_deterministic_and_leak_free() {
                 ..Default::default()
             };
             assert_eq!(
-                unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) },
+                fire_and_wait(d, &frame, completion, &fires),
                 PIE_STATUS_OK
             );
         };
@@ -1454,6 +1528,8 @@ fn the_711_fire_soak_holds_steady() {
 #[test]
 fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
     let _gpu = gpu_guard();
+    // The fire retires asynchronously; this is how the test learns it did.
+    let fires = fire_counter();
     use driver_abi::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PIE_RS_FLAG_RESET, PieBytes, PieChannelDesc,
         PieChannelEndpointBinding, PieCompletion, PieFrameDesc, PieInstanceBinding,
@@ -1491,6 +1567,7 @@ fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
     let desc = driver_abi::local::PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+        runtime: runtime_for(&fires),
         ..Default::default()
     };
     let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
@@ -1550,7 +1627,7 @@ fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
         };
         let completion =
             PieCompletion { wait_id: wait, target_epoch: 1, terminal_cell: std::ptr::null_mut() };
-        unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) }
+        fire_and_wait(d, &frame, completion, &fires)
     };
 
     // ── Prefill on slot 0 (RESET — a fresh sequence). ──
@@ -1702,6 +1779,8 @@ fn the_hybrid_loads_fires_and_copies_state_through_the_abi() {
 #[test]
 fn gemma4_loads_and_fires_both_classes_through_the_abi() {
     let _gpu = gpu_guard();
+    // The fire retires asynchronously; this is how the test learns it did.
+    let fires = fire_counter();
     use driver_abi::local::{
         PIE_CHANNEL_HOST_ROLE_READER, PieBytes, PieChannelDesc, PieChannelEndpointBinding,
         PieCompletion, PieFrameDesc, PieInstanceBinding, PieInstanceDesc, PieModelLoadDesc,
@@ -1738,6 +1817,7 @@ fn gemma4_loads_and_fires_both_classes_through_the_abi() {
     let desc = driver_abi::local::PieDriverCreateDesc {
         abi_version: PIE_DRIVER_ABI_VERSION,
         config_bytes: PieBytes { ptr: boot.as_ptr(), len: boot.len() },
+        runtime: runtime_for(&fires),
         ..Default::default()
     };
     let d = unsafe { driver_abi::local::pie_cuda_create(&desc, std::ptr::null_mut()) };
@@ -1797,7 +1877,7 @@ fn gemma4_loads_and_fires_both_classes_through_the_abi() {
         };
         let completion =
             PieCompletion { wait_id: wait, target_epoch: 1, terminal_cell: std::ptr::null_mut() };
-        unsafe { driver_abi::local::pie_cuda_launch(d, &frame, completion) }
+        fire_and_wait(d, &frame, completion, &fires)
     };
 
     // ── Prefill: the A/B's prompt, the A/B's exact argmax. ──

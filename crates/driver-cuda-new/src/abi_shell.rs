@@ -1981,26 +1981,21 @@ fn qwen35_facts_from_hf(model: &LoadedModel) -> Result<Box<dyn PlannedFamily>, i
 /// long before.
 const SCORE_PIN: model_compiler::trace::ValueId = model_compiler::trace::ValueId::MAX;
 
-/// Is the ASYNCHRONOUS completion armed for this process?
+/// Does a fire's completion ride a stream callback? **YES unless told not to**
+/// (`PIE_CUDA_RUNAHEAD=0`, or `[driver] runahead = false` per driver).
 ///
-/// `PIE_CUDA_RUNAHEAD=1`. Off by default, and for the reason the
-/// supergraph's gate was off: it changes what an `Ok` from
-/// `pie_cuda_launch` MEANS — enqueued rather than done — and every caller
-/// that reads a result straight after the call is asserting the old
-/// meaning. The engine waits for the notify and is fine; this tree's own
-/// tests read the ring and the terminal cells on the next line and are
-/// not.
+/// It was off, and the reason was honest: `pie_cuda_launch` used to finish the
+/// fire before it returned, and a caller reading the ring on the next line was
+/// asserting that. The gate protected a CONTRACT CHANGE.
 ///
-/// What the gate protects is a contract change, so it stays a gate until
-/// the callers have been moved to the contract.
-///
-/// The mechanism underneath it is not conditional and does not need to
-/// be: the fire's debts are the same either way, and the gate only
-/// decides whether they are paid by a stream callback or by this thread
-/// after a synchronize.
+/// It is on because the contract is now the ABI's: the notify says the fire
+/// retired, the engine waits for it, and this tree's tests do too. And because
+/// there is finally something to gain — a warm decode issues in 0.68 ms and
+/// retires 3.75 ms later, so the call returns with 3 ms of GPU work queued
+/// behind it. When the gate was written those two numbers were the same, and
+/// run-ahead bought nothing.
 fn runahead_env() -> bool {
-    std::env::var_os("PIE_CUDA_RUNAHEAD")
-        .is_some_and(|v| v == "1" || v == "true" || v == "on")
+    !std::env::var_os("PIE_CUDA_RUNAHEAD").is_some_and(|v| v == "0" || v == "false" || v == "off")
 }
 
 /// The arena offset the attention dispatch at `fi` WRITES.
