@@ -1,0 +1,20 @@
+[package]
+name = "voice-chat"
+version = "0.1.0"
+description = "One spoken turn of a conversation: resumes the session's KV snapshot, streams speakable text, re-saves"
+authors = ["Aarush Kandukoori <akanduko@andrew.cmu.edu>"]
+repository = "https://github.com/pie-project/pie"
+
+[runtime]
+core = "^0.2.0"
+mcp = "^0.2.0"
+
+[parameters]
+text = {type = "string", description = "What the user just said (one turn)"}
+session = {type = "string", optional = true, description = "Named KV snapshot carrying the conversation (default: voice-session)"}
+reset = {type = "bool", optional = true, description = "Drop the existing snapshot and start a fresh conversation (default: false)"}
+system = {type = "string", optional = true, description = "System prompt — only applied when the conversation starts"}
+max_tokens = {type = "int", optional = true, description = "Max tokens for this turn (default: 120)"}
+temperature = {type = "float", optional = true, description = "Sampling temperature (default: 0.7)"}
+top_p = {type = "float", optional = true, description = "Top-p nucleus sampling threshold (default: 0.95)"}
+think = {type = "bool", optional = true, description = "Let the model emit <think> blocks; off by default because they are not speakable (default: false)"}
