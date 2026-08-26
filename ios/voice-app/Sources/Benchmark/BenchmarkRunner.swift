@@ -50,6 +50,24 @@ enum BenchmarkRunner {
         return Double(info.phys_footprint) / 1_048_576
     }
 
+    /// Removes every model in Documents except the one this run wants.
+    ///
+    /// The ladder pushes one multi-gigabyte model per rung; without this a
+    /// device accumulates all of them (~8 GB) in the app container. Gated
+    /// behind an explicit flag so running benchmark mode by hand never
+    /// deletes anything unexpectedly — only the driver passes it.
+    private static func pruneOtherModels(keeping keepFile: String) {
+        guard UserDefaults.standard.string(forKey: "PieBenchPruneModels") == "1" else { return }
+        let fm = FileManager.default
+        let dir = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("qwen3-gguf")
+        guard let entries = try? fm.contentsOfDirectory(atPath: dir.path) else { return }
+        for name in entries where name != keepFile && name.hasSuffix(".gguf") {
+            try? fm.removeItem(at: dir.appendingPathComponent(name))
+            emit(["event": "pruned_model", "file": name])
+        }
+    }
+
     private static func emit(_ object: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -62,6 +80,9 @@ enum BenchmarkRunner {
     static func run(backend: ConversationBackend) {
         Task.detached(priority: .userInitiated) {
             let device = await deviceDescription()
+            if let requested = PieRuntimeConfig.requestedModelFile {
+                pruneOtherModels(keeping: requested)
+            }
 
             // A silently-substituted model would produce a table of numbers
             // attributed to the wrong weights. Refuse rather than mislead.

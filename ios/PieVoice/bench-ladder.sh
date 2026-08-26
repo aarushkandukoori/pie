@@ -63,19 +63,29 @@ run_bench() {  # $1 = label  $2 = model filename
     xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1
     sleep 1
     xcrun simctl launch --console-pty "$UDID" "$BUNDLE" \
-      -PieBenchmark 1 -PieBenchmarkTurns "$TURNS" -PieModel "$2" >"$log" 2>&1 &
+      -PieBenchmark 1 -PieBenchmarkTurns "$TURNS" -PieModel "$2" -PieBenchPruneModels 1 >"$log" 2>&1 &
   else
     xcrun devicectl device process launch --device "$UDID" --console \
-      "$BUNDLE" -PieBenchmark 1 -PieBenchmarkTurns "$TURNS" -PieModel "$2" >"$log" 2>&1 &
+      "$BUNDLE" -PieBenchmark 1 -PieBenchmarkTurns "$TURNS" -PieModel "$2" -PieBenchPruneModels 1 >"$log" 2>&1 &
   fi
   local pid=$!
-  # Wait for the done line, or give up after 15 minutes (8B is slow).
-  local waited=0
+  # Wait for a terminal record, the process dying, or 15 minutes (8B is slow).
+  local waited=0 died=0
   while [ $waited -lt 900 ]; do
     grep -qE '"event":"(done|model_mismatch)"' "$log" && break
+    # A model too large for the device is killed by jetsam: the process
+    # simply vanishes. Detect that instead of waiting out the timeout.
+    if ! kill -0 $pid 2>/dev/null; then died=1; break; fi
     sleep 5; waited=$((waited+5))
   done
   kill $pid 2>/dev/null
+
+  if [ $died -eq 1 ] && ! grep -q '"event":"done"' "$log"; then
+    local turns; turns=$(grep -c '"event":"turn"' "$log")
+    echo "  !! process died after $turns turn(s) — recording as did_not_fit"
+    printf '{"event":"did_not_fit","model_file":"%s","turns_completed":%s,"waited_s":%s}\n' \
+      "$2" "$turns" "$waited" >> "$OUT"
+  fi
   grep '^PIEBENCH ' "$log" | sed 's/^PIEBENCH //' >> "$OUT"
   grep -c '^PIEBENCH ' "$log" | xargs -I{} echo "  captured {} records for $1"
   grep -q '"event":"model_mismatch"' "$log" && echo "  !! MODEL MISMATCH — $1 not loaded"

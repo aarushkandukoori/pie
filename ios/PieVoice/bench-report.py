@@ -17,13 +17,23 @@ for r in rows:
         by_model[current]["turns"].append(r)
     elif r.get("event") == "done":
         by_model[current]["peak"] = r.get("peak_footprint_mb")
+    elif r.get("event") == "did_not_fit":
+        # The process was killed mid-run — on a device that means the model
+        # exceeded the memory the OS was willing to give the app.
+        if current:
+            by_model[current]["did_not_fit"] = r
 
 print(f"{'model':<22}{'warmup':>8}{'TTFT t1':>9}{'decode':>9}{'prefill t1':>11}{'reuse t2+':>10}{'peak MB':>9}")
 print("-" * 78)
 for model, d in by_model.items():
     t = d["turns"]
+    if d.get("did_not_fit"):
+        n = d["did_not_fit"].get("turns_completed", 0)
+        peak = f"{d['peak']:.0f}" if d.get("peak") else "?"
+        print(f"{model:<22}  DID NOT FIT — killed after {n} turn(s), peak {peak} MB")
+        continue
     if not t:
-        print(f"{model:<22}  (no turns — likely out of memory or failed to load)")
+        print(f"{model:<22}  (no turns — failed to load)")
         continue
     ttft = t[0]["ttft_s"]
     decode = statistics.median(x["decode_tps"] for x in t)
