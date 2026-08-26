@@ -35,7 +35,66 @@ enum PieRuntimeConfig {
 
     /// Model + driver, as the engine reports them. Shown in the UI so a
     /// screenshot says what actually ran.
-    static let modelDescription = "Qwen3-0.6B Q4_K_M"
+    /// One rung of the model ladder. The app ships whichever GGUFs are in
+    /// the bundle; `available` reports the ones actually present, so a
+    /// build with only the 0.6B behaves exactly as before.
+    struct Model: Equatable {
+        let label: String       // shown in the UI
+        let fileName: String    // inside qwen3-gguf/
+        /// Documents first, then the app bundle. Bundling every rung of the
+        /// ladder would mean a multi-gigabyte app; pushing the larger models
+        /// into the container keeps the shipped app small and lets a
+        /// benchmark run swap models without a rebuild.
+        var path: String {
+            let documents = FileManager.default
+                .urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("qwen3-gguf/\(fileName)").path
+            if FileManager.default.fileExists(atPath: documents) { return documents }
+            return "\(Bundle.main.bundlePath)/qwen3-gguf/\(fileName)"
+        }
+        var isPresent: Bool { FileManager.default.fileExists(atPath: path) }
+    }
+
+    /// Ordered smallest first — the ladder used for device benchmarking.
+    static let ladder: [Model] = [
+        Model(label: "Qwen3-0.6B Q4_K_M", fileName: "Qwen3-0.6B-Q4_K_M.gguf"),
+        Model(label: "Qwen3-1.7B Q4_K_M", fileName: "Qwen3-1.7B-Q4_K_M.gguf"),
+        Model(label: "Qwen3-4B Q4_K_M",   fileName: "Qwen3-4B-Q4_K_M.gguf"),
+        Model(label: "Qwen3-8B Q4_K_M",   fileName: "Qwen3-8B-Q4_K_M.gguf"),
+    ]
+
+    static var available: [Model] { ladder.filter(\.isPresent) }
+
+    /// The model the engine boots with. The engine loads weights once per
+    /// process, so switching models requires a relaunch — the UI says so
+    /// rather than pretending it is live-swappable.
+    private(set) static var selected: Model =
+        available.first ?? ladder[0]
+
+    /// Persisted across launches so a relaunch comes back on the chosen rung.
+    /// The key is launch-argument friendly (no dots): passing
+    /// `-PieModel Qwen3-4B-Q4_K_M.gguf` selects a rung for one run, which is
+    /// how the benchmark driver pins each model.
+    static let modelDefaultsKey = "PieModel"
+
+    static func select(_ model: Model) {
+        selected = model
+        UserDefaults.standard.set(model.fileName, forKey: modelDefaultsKey)
+    }
+
+    /// What was requested, whether or not it could be honoured.
+    static var requestedModelFile: String? {
+        UserDefaults.standard.string(forKey: modelDefaultsKey)
+    }
+
+    static func restoreSelection() {
+        guard let saved = requestedModelFile,
+              let match = available.first(where: { $0.fileName == saved })
+        else { return }
+        selected = match
+    }
+
+    static var modelDescription: String { selected.label }
     static let driverDescription = "ggml (CPU)"
     static let runtimeDescription = "wasmtime Pulley"
 
@@ -45,7 +104,6 @@ enum PieRuntimeConfig {
     /// irrelevant — the shim rewrites it to 0 and lets the OS pick — but
     /// the config schema requires the section.
     static func writeEngineConfig() throws -> String {
-        let bundle = Bundle.main.bundlePath
         let toml = """
         [server]
         host = "127.0.0.1"
@@ -60,7 +118,7 @@ enum PieRuntimeConfig {
 
         [[model]]
         name = "default"
-        hf_repo = "\(bundle)/qwen3-gguf/Qwen3-0.6B-Q4_K_M.gguf"
+        hf_repo = "\(selected.path)"
 
         [model.driver]
         type = "portable"

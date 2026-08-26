@@ -9,6 +9,9 @@ import SwiftUI
 final class AppComposition: ObservableObject {
 
     let controller: ConversationController
+    /// Exposed so benchmark mode can drive the backend without the
+    /// listen/speak loop in the way.
+    let backend: ConversationBackend
 
     private let microphone = MicrophoneInput()
     private let sample = AudioFileInput(resources: AppComposition.sampleResources)
@@ -34,8 +37,14 @@ final class AppComposition: ObservableObject {
     ]
 
     init() {
+        // Restore the ladder rung chosen on a previous launch before the
+        // controller reads the engine description.
+        PieRuntimeConfig.restoreSelection()
+
+        let engine = PieEngine()
+        backend = engine
         controller = ConversationController(
-            backend: PieEngine(),
+            backend: engine,
             input: microphone,
             output: SpokenOutput()
         )
@@ -57,7 +66,15 @@ struct PieVoiceApp: App {
                 ),
                 hasSampleRecording: composition.hasSampleRecording
             )
-            .onAppear { composition.controller.bootstrap() }
+            .onAppear {
+                    if BenchmarkRunner.isEnabled {
+                        // Benchmark mode drives the backend directly; the
+                        // normal warm-up/listen path would race it.
+                        BenchmarkRunner.run(backend: composition.backend)
+                    } else {
+                        composition.controller.bootstrap()
+                    }
+                }
         }
     }
 }

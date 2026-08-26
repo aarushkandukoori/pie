@@ -17,6 +17,7 @@ struct VoiceChatView: View {
     let hasSampleRecording: Bool
 
     @State private var typed = ""
+    @State private var selectedModelFile = PieRuntimeConfig.selected.fileName
     @State private var showsKeyboardEntry = false
 
     var body: some View {
@@ -49,6 +50,12 @@ struct VoiceChatView: View {
             Text(controller.engineDescription)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+
+            // Only meaningful when more than one rung of the ladder is
+            // bundled; a single-model build looks exactly as it did before.
+            if PieRuntimeConfig.available.count > 1 {
+                modelPicker
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -76,6 +83,33 @@ struct VoiceChatView: View {
         }
         .font(.caption2)
         .labelStyle(.titleAndIcon)
+    }
+
+    /// Switching models means booting a different set of weights, and the
+    /// engine loads weights once per process — so this records the choice
+    /// and asks for a relaunch instead of pretending to hot-swap.
+    private var modelPicker: some View {
+        HStack(spacing: 6) {
+            Picker("Model", selection: $selectedModelFile) {
+                ForEach(PieRuntimeConfig.available, id: \.fileName) { model in
+                    Text(model.label).tag(model.fileName)
+                }
+            }
+            .pickerStyle(.menu)
+            .font(.caption2)
+            .disabled(controller.state.isBusy)
+
+            if selectedModelFile != PieRuntimeConfig.selected.fileName {
+                Text("relaunch to apply")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .onChange(of: selectedModelFile) { _, newValue in
+            guard let model = PieRuntimeConfig.available
+                .first(where: { $0.fileName == newValue }) else { return }
+            PieRuntimeConfig.select(model)
+        }
     }
 
     // MARK: - Footer
