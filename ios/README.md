@@ -17,10 +17,23 @@ Runs the Pie runtime — wasmtime executing inferlets — inside an iOS app.
   inferlet, which carries the conversation's KV state across turns in a
   named snapshot.
 
-Status: REAL MODEL INFERENCE WORKS in the iOS Simulator — Qwen3-0.6B
-Q4_K_M GGUF through the portable (ggml, CPU) driver, streaming tokens
-into a SwiftUI chat view via inferlets running under wasmtime Pulley.
-Build the shim with --release: ggml at -O0 is unusably slow.
+Status (2026-09-21): **RUNS ON A REAL iPHONE 16 PRO** (iOS 26.1) — speech
+in, Qwen3-0.6B Q4_K_M through the portable (ggml, CPU) driver, speech out,
+all on the device, with inferlets running under wasmtime Pulley. Measured
+on the phone (3-turn scripted run, 4 ggml threads, warm relaunch): engine
+boot + weight load 0.97 s; turn 1 prefill 83 tokens, 0.57 s to first token,
+62.6 tok/s decode; turns 2-3 reuse 107/149 KV tokens with 0.17-0.19 s to
+first token at ~60 tok/s; peak footprint 1.03 GB
+(`PieVoice/results/dev-20260921-iphone16pro-qwen3-0.6b.jsonl`). Deploy with
+`bash ios/PieVoice/deploy-device.sh`. Build the shim with --release: ggml at
+-O0 is unusably slow.
+
+Measured on the phone: the largest single anonymous mmap the kernel grants
+is 5.2 GB without the extended-virtual-addressing entitlement. Two engine
+defaults exceeded it and aborted the app until sized for a phone — wasmtime's
+1000 x 4 GiB pool reservation (~4 TB) and ggml's scheduler context for a
+2^19-node graph budget (~11.6 GB); see `runtime/src/bootstrap.rs` and
+`driver/portable/src/graph_common.hpp`.
 
 iOS-specific changes so far:
 - Pulley engine target (runtime/src/bootstrap.rs)
@@ -52,5 +65,7 @@ voice app:
    `Context::seal()` before `save()`, which is easy to miss —
    `demo-persistent-kv` has the same gap.
 
-Next: ggml Metal backend on iOS, physical-device deployment, Android
+Next: model ladder on the phone (1.7B expected to fit; 4B/8B will not map
+under the 5.2 GB ceiling without the entitlement), ggml Metal backend on
+iOS, TestFlight (needs an Apple Developer Program membership), Android
 (llama.cpp Vulkan or ggml), durable-inferlet migration demo.
