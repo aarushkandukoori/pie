@@ -15,13 +15,30 @@
 
 #include <ggml.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 #include "executor/executor.hpp"
 
 namespace pie_portable_driver {
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+// iPhone: a process gets roughly 5 GB of virtual address space (measured
+// 5.2 GB on an iPhone 16 Pro, iOS 26.1, without the extended-virtual-
+// addressing entitlement). ggml's backend scheduler reserves
+// GGML_SCHED_MAX_SPLIT_INPUTS*2 tensors (~22 KB) per budgeted node, so the
+// desktop budget below would malloc ~11.6 GB up front, get NULL, and abort
+// in the first forward pass. 16k nodes is several times a Qwen3-0.6B
+// voice turn; the tensor budget for the graph context shrinks to match.
+inline constexpr std::size_t GRAPH_MAX_NODES = 1ull << 14;
+inline constexpr std::size_t GRAPH_CTX_MAX_TENSORS = 1ull << 16;
+#else
 // Per-call ggml graph node budget. Sized to comfortably fit MoE + spec
 // decode batches (every layer's MoE op count is ~10-20 nodes).
 inline constexpr std::size_t GRAPH_MAX_NODES = 1ull << 19;
+inline constexpr std::size_t GRAPH_CTX_MAX_TENSORS = 1ull << 20;
+#endif
 
 // ggml's CUDA flash_attn supports head_dim ≤ 256 across all GQA ratios.
 // Gemma 4's full-attention layers use head_dim=512 — those layers fall

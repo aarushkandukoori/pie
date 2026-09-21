@@ -163,10 +163,15 @@ enum PieRuntimeConfig {
 
     static func writeEngineConfig() throws -> String {
         try prepareEngineEnvironment()
+        // `-PieVerbose 1` (launch argument or `defaults`) turns on the
+        // engine's and driver's verbose logging — graph node counts, KV
+        // allocation, thread pinning — into the mirrored console log.
+        let verbose = UserDefaults.standard.bool(forKey: "PieVerbose")
         let toml = """
         [server]
         host = "127.0.0.1"
         port = 8093
+        verbose = \(verbose)
 
         [auth]
         enabled = false
@@ -181,7 +186,7 @@ enum PieRuntimeConfig {
         # (1000 instances x 4 GiB) reserve ~4 TB of address space, which
         # iOS refuses; the engine clamps these further on iOS regardless.
         wasm_max_instances = 4
-        wasm_max_memory_mb = 256
+        wasm_max_memory_mb = 128
 
         [[model]]
         name = "default"
@@ -192,10 +197,15 @@ enum PieRuntimeConfig {
         device = ["cpu"]
 
         [model.driver.options]
-        # 512 pages x 32 tokens = 16k tokens of KV, far beyond a spoken
-        # conversation, at roughly half the address space of the default
-        # 1024 — headroom that matters inside iOS's ~7 GiB budget.
-        total_pages = 512
+        # 256 pages x 32 tokens = 8k tokens of KV — a long spoken
+        # conversation is a few thousand — at a quarter of the default
+        # 1024 pages' address space. An iPhone 16 Pro measured a 5.2 GB
+        # ceiling on a single reservation; every GB here counts.
+        total_pages = 256
+        # A voice app serves one short turn at a time; cap the batch so
+        # nothing sized by these limits is built for a datacenter.
+        max_forward_tokens = 2048
+        max_forward_requests = 8
         # Weight load from flash on a phone, possibly while iOS suspends
         # the app in the background: give the driver far longer than the
         # desktop default (120 s) before boot is declared failed.

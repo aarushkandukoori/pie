@@ -1136,7 +1136,7 @@ std::vector<SamplerOutput> Executor::compute_(const BatchPlan& plan) {
         cache_->release();  // free any previous cached ctx
 
         const std::size_t mem_size =
-            ggml_tensor_overhead() * (1ull << 20) +
+            ggml_tensor_overhead() * GRAPH_CTX_MAX_TENSORS +
             ggml_graph_overhead_custom(GRAPH_MAX_NODES, false);
         ggml_init_params ip{
             /*.mem_size   =*/ mem_size,
