@@ -24,8 +24,8 @@
 namespace pie_portable_driver {
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-// iPhone: a process gets roughly 5 GB of virtual address space (measured
-// 5.2 GB on an iPhone 16 Pro, iOS 26.1, without the extended-virtual-
+// iPhone: a process gets roughly 5 GiB of virtual address space (measured
+// 5.2 GiB on an iPhone 16 Pro, iOS 26.1, without the extended-virtual-
 // addressing entitlement). ggml's backend scheduler reserves
 // GGML_SCHED_MAX_SPLIT_INPUTS*2 tensors (~22 KB) per budgeted node, so the
 // desktop budget below would malloc ~11.6 GB up front, get NULL, and abort

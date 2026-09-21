@@ -23,13 +23,13 @@ all on the device, with inferlets running under wasmtime Pulley. Measured
 on the phone (3-turn scripted run, 4 ggml threads, warm relaunch): engine
 boot + weight load 0.97 s; turn 1 prefill 83 tokens, 0.57 s to first token,
 62.6 tok/s decode; turns 2-3 reuse 107/149 KV tokens with 0.17-0.19 s to
-first token at ~60 tok/s; peak footprint 1.03 GB
+first token at ~60 tok/s; peak footprint 1.0 GiB (1,029 MiB)
 (`PieVoice/results/dev-20260921-iphone16pro-qwen3-0.6b.jsonl`). Deploy with
 `bash ios/PieVoice/deploy-device.sh`. Build the shim with --release: ggml at
 -O0 is unusably slow.
 
 Measured on the phone: the largest single anonymous mmap the kernel grants
-is 5.2 GB without the extended-virtual-addressing entitlement. Two engine
+is 5.2 GiB without the extended-virtual-addressing entitlement. Two engine
 defaults exceeded it and aborted the app until sized for a phone — wasmtime's
 1000 x 4 GiB pool reservation (~4 TB) and ggml's scheduler context for a
 2^19-node graph budget (~11.6 GB); see `runtime/src/bootstrap.rs` and
@@ -38,11 +38,11 @@ defaults exceeded it and aborted the app until sized for a phone — wasmtime's
 iOS-specific changes so far:
 - Pulley engine target (runtime/src/bootstrap.rs)
 - wasmtime allocator sized for a phone (runtime/src/bootstrap.rs,
-  `init_wasmtime_ios`): iOS grants a process ~7 GiB of usable virtual
+  `init_wasmtime_ios`): an iPhone 16 Pro grants a process at most 5.2 GiB of virtual
   address space without the extended-virtual-addressing entitlement, and
   the desktop pooling defaults (1000 slots × 4 GiB) reserve ~4 TB — the
   mmap fails with ENOMEM and the engine aborted on a real iPhone. iOS now
-  uses a 4-slot × 256 MiB pool and falls back to on-demand allocation
+  uses a 4-slot × 128 MiB pool and falls back to on-demand allocation
   instead of panicking.
 - file-backed mmap fallback for POSIX shmem (driver/bridge/src/ipc/posix.rs)
 - iOS cross-compile support for the portable driver's CMake build
@@ -66,6 +66,6 @@ voice app:
    `demo-persistent-kv` has the same gap.
 
 Next: model ladder on the phone (1.7B expected to fit; 4B/8B will not map
-under the 5.2 GB ceiling without the entitlement), ggml Metal backend on
+under the 5.2 GiB ceiling without the entitlement), ggml Metal backend on
 iOS, TestFlight (needs an Apple Developer Program membership), Android
 (llama.cpp Vulkan or ggml), durable-inferlet migration demo.

@@ -199,7 +199,7 @@ enum PieRuntimeConfig {
         [model.driver.options]
         # 256 pages x 32 tokens = 8k tokens of KV — a long spoken
         # conversation is a few thousand — at a quarter of the default
-        # 1024 pages' address space. An iPhone 16 Pro measured a 5.2 GB
+        # 1024 pages' address space. An iPhone 16 Pro measured a 5.2 GiB
         # ceiling on a single reservation; every GB here counts.
         total_pages = 256
         # A voice app serves one short turn at a time; cap the batch so

@@ -391,7 +391,8 @@ fn init_wasmtime(runtime: &RuntimeConfig) -> wasmtime::Engine {
 /// Builds the engine within an iPhone's virtual-address budget.
 ///
 /// Without the `extended-virtual-addressing` entitlement iOS grants a
-/// process roughly 7 GiB of usable address space. The desktop pooling
+/// process a few GiB of address space (5.2 GiB measured on an iPhone 16
+/// Pro, iOS 26.1, as the largest single reservation). The desktop pooling
 /// defaults (1000 slots × a 4 GiB reservation per linear memory) ask the
 /// kernel for ~4 TB up front; the mmap fails with ENOMEM and the
 /// `unwrap` in the desktop path aborted the whole app before the UI drew

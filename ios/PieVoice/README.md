@@ -21,8 +21,9 @@ Three device-only failures the Simulator never showed, all fixed on this
 branch: `$PIE_HOME` defaulting to the read-only container root (now
 Library/Application Support/pie), engine boot errors swallowed into a
 forever-spinner (now shown with a Retry button), and wasmtime's pooling
-allocator reserving ~4 TB of address space (iOS grants ~7 GiB without an
-entitlement; now a 4-slot × 256 MiB pool with an on-demand fallback,
+allocator reserving ~3.9 TiB of address space (the iPhone 16 Pro grants at
+most 5.2 GiB in a single reservation; now a 4-slot × 128 MiB pool with an
+on-demand fallback,
 `runtime/src/bootstrap.rs`). The app mirrors stdout/stderr to
 `Documents/pie-console.log` on device and logs the measured virtual-address
 ceiling at launch.
@@ -70,7 +71,8 @@ on install. Same 7-day refresh rule for free accounts.
   downloaded yet); the header badge says which is in force. Typing always
   works regardless of speech permissions.
 - A free Apple ID cannot use the extended-virtual-addressing entitlement, so
-  the process has ~7 GiB of usable address space: the 0.6B rung fits with
+  the largest single reservation the kernel grants is 5.2 GiB (measured on
+  an iPhone 16 Pro, iOS 26.1): the 0.6B rung fits with
   room; 4B and 8B will not map without the entitlement.
 
 - The simulator build cannot use on-device speech recognition (missing
