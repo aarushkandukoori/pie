@@ -32,7 +32,7 @@ Measured on the phone: the largest single anonymous mmap the kernel grants
 is 5.2 GiB without the extended-virtual-addressing entitlement. Two engine
 defaults exceeded it and aborted the app until sized for a phone — wasmtime's
 1000 x 4 GiB pool reservation (~4 TB) and ggml's scheduler context for a
-2^19-node graph budget (~11.6 GB); see `runtime/src/bootstrap.rs` and
+2^19-node graph budget (~10.8 GiB); see `runtime/src/bootstrap.rs` and
 `driver/portable/src/graph_common.hpp`.
 
 iOS-specific changes so far:
