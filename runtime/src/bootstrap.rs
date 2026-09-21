@@ -356,28 +356,108 @@ fn init_wasmtime(runtime: &RuntimeConfig) -> wasmtime::Engine {
         .target("pulley64")
         .expect("wasmtime built without the `pulley` feature");
 
-    // Every wasmtime knob comes from the caller — Python is the source
-    // of truth for defaults. The `wasm_max_instances` knob covers four
-    // wasmtime resource classes (pie uses one of each per inferlet).
+    #[cfg(not(target_os = "ios"))]
+    {
+        // Every wasmtime knob comes from the caller — Python is the source
+        // of truth for defaults. The `wasm_max_instances` knob covers four
+        // wasmtime resource classes (pie uses one of each per inferlet).
+        let mut pooling_config = wasmtime::PoolingAllocationConfig::default();
+        // Lockstep bump on the five "total_*" caps. wasmtime defaults all of them
+        // to 1000; pie uses exactly one of each per inferlet (one core instance,
+        // one component instance, one memory, one table, one async fiber stack).
+        pooling_config.total_core_instances(runtime.wasm_max_instances);
+        pooling_config.total_component_instances(runtime.wasm_max_instances);
+        pooling_config.total_memories(runtime.wasm_max_instances);
+        pooling_config.total_tables(runtime.wasm_max_instances);
+        pooling_config.total_stacks(runtime.wasm_max_instances);
+        pooling_config.max_memory_size(runtime.wasm_max_memory_mb.saturating_mul(1024 * 1024));
+        pooling_config
+            .linear_memory_keep_resident(runtime.wasm_warm_memory_mb.saturating_mul(1024 * 1024));
+        pooling_config.max_unused_warm_slots(runtime.wasm_warm_slots);
+
+        wasm_config.allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(
+            pooling_config,
+        ));
+
+        wasmtime::Engine::new(&wasm_config).unwrap()
+    }
+
+    #[cfg(target_os = "ios")]
+    {
+        init_wasmtime_ios(runtime, wasm_config)
+    }
+}
+
+/// Builds the engine within an iPhone's virtual-address budget.
+///
+/// Without the `extended-virtual-addressing` entitlement iOS grants a
+/// process roughly 7 GiB of usable address space. The desktop pooling
+/// defaults (1000 slots × a 4 GiB reservation per linear memory) ask the
+/// kernel for ~4 TB up front; the mmap fails with ENOMEM and the
+/// `unwrap` in the desktop path aborted the whole app before the UI drew
+/// a frame. A phone runs one inferlet at a time, so a handful of small
+/// slots keeps the pool's instantiation-latency benefit at a cost the
+/// address space can absorb — and if even that reservation is refused
+/// the engine falls back to on-demand allocation instead of panicking.
+#[cfg(target_os = "ios")]
+fn init_wasmtime_ios(runtime: &RuntimeConfig, mut wasm_config: wasmtime::Config) -> wasmtime::Engine {
+    const MIB: u64 = 1024 * 1024;
+    // Reservation per linear memory. The pooling allocator requires
+    // `max_memory_size <= memory_reservation`, so the two move together.
+    let slot_bytes = (runtime.wasm_max_memory_mb as u64)
+        .saturating_mul(MIB)
+        .clamp(64 * MIB, 256 * MIB);
+    let slots = runtime.wasm_max_instances.clamp(1, 4);
+
+    // Applies to both allocators. Pulley is an interpreter: every linear
+    // memory access is bounds-checked explicitly, so guard pages are never
+    // consulted and would only be dead address space. Zero them.
+    wasm_config.memory_reservation(slot_bytes);
+    wasm_config.memory_guard_size(0);
+    wasm_config.memory_reservation_for_growth(64 * MIB);
+
     let mut pooling_config = wasmtime::PoolingAllocationConfig::default();
-    // Lockstep bump on the five "total_*" caps. wasmtime defaults all of them
-    // to 1000; pie uses exactly one of each per inferlet (one core instance,
-    // one component instance, one memory, one table, one async fiber stack).
-    pooling_config.total_core_instances(runtime.wasm_max_instances);
-    pooling_config.total_component_instances(runtime.wasm_max_instances);
-    pooling_config.total_memories(runtime.wasm_max_instances);
-    pooling_config.total_tables(runtime.wasm_max_instances);
-    pooling_config.total_stacks(runtime.wasm_max_instances);
-    pooling_config.max_memory_size(runtime.wasm_max_memory_mb.saturating_mul(1024 * 1024));
-    pooling_config
-        .linear_memory_keep_resident(runtime.wasm_warm_memory_mb.saturating_mul(1024 * 1024));
-    pooling_config.max_unused_warm_slots(runtime.wasm_warm_slots);
+    // Linear memories are the address-space cost, so they get `slots`.
+    // Core instances and tables are cheap, and a wasip2 component brings
+    // several core modules (main module + adapter shims) per inferlet —
+    // give them room so a single live inferlet never exhausts the pool.
+    pooling_config.total_core_instances(slots * 4);
+    pooling_config.total_component_instances(slots);
+    pooling_config.total_memories(slots);
+    pooling_config.total_tables(slots * 4);
+    pooling_config.total_stacks(slots);
+    pooling_config.total_gc_heaps(slots);
+    pooling_config.max_memory_size(slot_bytes as usize);
+    pooling_config.max_unused_warm_slots(runtime.wasm_warm_slots.min(slots));
 
-    wasm_config.allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(
-        pooling_config,
-    ));
+    let mut pooled = wasm_config.clone();
+    pooled.allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(pooling_config));
+    match wasmtime::Engine::new(&pooled) {
+        Ok(engine) => {
+            eprintln!(
+                "[wasmtime] ios: pooling allocator with {slots} slot(s) x {} MiB",
+                slot_bytes / MIB
+            );
+            return engine;
+        }
+        Err(err) => {
+            eprintln!(
+                "[wasmtime] ios: pooling allocator unavailable ({err:#}); \
+                 falling back to on-demand allocation"
+            );
+        }
+    }
 
-    wasmtime::Engine::new(&wasm_config).unwrap()
+    wasm_config.allocation_strategy(wasmtime::InstanceAllocationStrategy::OnDemand);
+    match wasmtime::Engine::new(&wasm_config) {
+        Ok(engine) => engine,
+        Err(err) => {
+            // Nothing left to try. Say so on stderr (mirrored to the app's
+            // log file) before the process goes down.
+            eprintln!("[wasmtime] ios: on-demand engine failed too: {err:#}");
+            panic!("wasmtime engine could not be created on iOS: {err:#}");
+        }
+    }
 }
 
 /// Initialize the tracing subscriber with optional file logging and OTLP export.
@@ -421,12 +501,18 @@ fn init_tracing(
         None
     };
 
-    tracing_subscriber::registry()
+    // `try_init`, not `init`: an embedding host (the iOS app) may boot the
+    // engine more than once per process after a failed attempt, and a
+    // second global subscriber is a panic — which on a phone is an abort.
+    if let Err(err) = tracing_subscriber::registry()
         .with(filter)
         .with(file_layer)
         .with(otel_layer)
         .with(stdout_layer)
-        .init();
+        .try_init()
+    {
+        eprintln!("[pie] tracing subscriber already installed, keeping it: {err}");
+    }
 
     Ok(())
 }

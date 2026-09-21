@@ -107,7 +107,11 @@ enum BenchmarkRunner {
 
             // Engine boot + weight load, paid once.
             let bootStart = Date()
-            await backend.warmUp()
+            if let bootError = await backend.warmUp() {
+                emit(["event": "boot_error", "error": bootError])
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                exit(3)
+            }
             emit([
                 "event": "warmup",
                 "seconds": -bootStart.timeIntervalSinceNow,

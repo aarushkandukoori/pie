@@ -35,6 +35,12 @@ struct VoiceChatView: View {
             footer
         }
         .background(Color(.systemBackground))
+        .onChange(of: controller.availability) { _, availability in
+            switch availability {
+            case .denied, .unavailable: showsKeyboardEntry = true
+            default: break
+            }
+        }
     }
 
     // MARK: - Header
@@ -139,7 +145,10 @@ struct VoiceChatView: View {
         Group {
             switch controller.state {
             case .cold:
-                Label("starting the engine and loading the model…", systemImage: "hourglass")
+                Label(
+                    "starting the engine and loading the model… (\(controller.bootSeconds)s)",
+                    systemImage: "hourglass"
+                )
             case .idle:
                 Text(controller.turns.isEmpty ? "ready" : "ready — ask a follow-up")
             case .listening:
@@ -149,8 +158,23 @@ struct VoiceChatView: View {
             case .speaking:
                 Text("speaking — tap to interrupt")
             case .failed(let message):
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
+                VStack(spacing: 6) {
+                    Label(message, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    // A failed boot needs the engine started over; a
+                    // failed turn just needs another question. Only the
+                    // former gets a button.
+                    if controller.bootFailure != nil {
+                        Button {
+                            controller.quitToRetryEngineBoot()
+                        } label: {
+                            Label("Quit — reopen the app to retry", systemImage: "arrow.clockwise")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
             }
         }
         .font(.caption)
@@ -194,7 +218,7 @@ struct VoiceChatView: View {
             } label: {
                 Image(systemName: "arrow.counterclockwise")
             }
-            .disabled(controller.turns.isEmpty)
+            .disabled(controller.turns.isEmpty || controller.state == .thinking)
             .accessibilityLabel("Start a new conversation")
         }
         .buttonStyle(.bordered)

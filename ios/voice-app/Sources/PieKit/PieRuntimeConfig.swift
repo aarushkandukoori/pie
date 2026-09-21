@@ -103,7 +103,66 @@ enum PieRuntimeConfig {
     /// Mirrors what `pie run` would read from disk. The port is
     /// irrelevant — the shim rewrites it to 0 and lets the OS pick — but
     /// the config schema requires the section.
+    /// Points the engine's state directory somewhere iOS actually allows
+    /// writes.
+    ///
+    /// The server defaults `$PIE_HOME` to `~/.pie`, and on iOS `~` is the
+    /// app's container root — which the sandbox makes read-only, so the
+    /// driver failed with "create state dir ... Operation not permitted".
+    /// Only Documents/, Library/ and tmp/ are writable, so state goes to
+    /// Library/Application Support/pie. The Simulator's sandbox is
+    /// permissive enough that this never surfaced there.
+    private static var didPrepareEngineEnvironment = false
+
+    static func prepareEngineEnvironment() throws {
+        // Once per process: the engine reads these at boot, and the
+        // cleanup below must never run while an engine is alive.
+        guard !didPrepareEngineEnvironment else { return }
+
+        let support = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("pie", isDirectory: true)
+
+        try FileManager.default.createDirectory(
+            at: support, withIntermediateDirectories: true
+        )
+        // Engine scratch (logs, program cache, per-launch state) is
+        // regenerable and can grow; keep it out of iCloud/iTunes backups.
+        var stateRoot = support
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? stateRoot.setResourceValues(values)
+        setenv("PIE_HOME", support.path, 1)
+
+        // Each launch gets its own `standalone/<pid>/` state directory and
+        // nothing removes it afterwards. iOS never runs two instances of
+        // the app, so anything there belongs to a dead process — clear it
+        // before boot rather than letting a crash-loop pile them up.
+        let stale = support.appendingPathComponent("standalone", isDirectory: true)
+        try? FileManager.default.removeItem(at: stale)
+
+        // A Rust panic inside the engine aborts the whole process. The
+        // message already lands in the mirrored console log; a backtrace
+        // there is the difference between a bug report and a shrug.
+        setenv("RUST_BACKTRACE", "1", 0)
+
+        // ggml defaults to every hardware thread. A phone's efficiency
+        // cores finish each fork/join phase last, so all-cores is slower
+        // than leaving a couple free (llama.cpp's own iOS default is
+        // cores - 2). Respect an override from a launch environment.
+        if getenv("GGML_N_THREADS") == nil {
+            let cores = ProcessInfo.processInfo.activeProcessorCount
+            let threads = max(2, min(8, cores - 2))
+            setenv("GGML_N_THREADS", String(threads), 1)
+        }
+        didPrepareEngineEnvironment = true
+    }
+
     static func writeEngineConfig() throws -> String {
+        try prepareEngineEnvironment()
         let toml = """
         [server]
         host = "127.0.0.1"
@@ -113,8 +172,16 @@ enum PieRuntimeConfig {
         enabled = false
 
         [runtime]
-        allow_fs = true
+        # The voice-chat inferlet never touches a filesystem; leaving the
+        # scratch mount off also removes a per-turn directory creation
+        # that the runtime treats as fatal if it fails.
+        allow_fs = false
         allow_network = false
+        # A phone runs one inferlet at a time. The desktop defaults
+        # (1000 instances x 4 GiB) reserve ~4 TB of address space, which
+        # iOS refuses; the engine clamps these further on iOS regardless.
+        wasm_max_instances = 4
+        wasm_max_memory_mb = 256
 
         [[model]]
         name = "default"
@@ -123,6 +190,16 @@ enum PieRuntimeConfig {
         [model.driver]
         type = "portable"
         device = ["cpu"]
+
+        [model.driver.options]
+        # 512 pages x 32 tokens = 16k tokens of KV, far beyond a spoken
+        # conversation, at roughly half the address space of the default
+        # 1024 — headroom that matters inside iOS's ~7 GiB budget.
+        total_pages = 512
+        # Weight load from flash on a phone, possibly while iOS suspends
+        # the app in the background: give the driver far longer than the
+        # desktop default (120 s) before boot is declared failed.
+        ready_timeout_s = 600
         """
         let path = NSTemporaryDirectory() + "pie-voice-config.toml"
         try toml.write(toFile: path, atomically: true, encoding: .utf8)

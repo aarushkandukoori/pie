@@ -24,9 +24,19 @@ Build the shim with --release: ggml at -O0 is unusably slow.
 
 iOS-specific changes so far:
 - Pulley engine target (runtime/src/bootstrap.rs)
+- wasmtime allocator sized for a phone (runtime/src/bootstrap.rs,
+  `init_wasmtime_ios`): iOS grants a process ~7 GiB of usable virtual
+  address space without the extended-virtual-addressing entitlement, and
+  the desktop pooling defaults (1000 slots × 4 GiB) reserve ~4 TB — the
+  mmap fails with ENOMEM and the engine aborted on a real iPhone. iOS now
+  uses a 4-slot × 256 MiB pool and falls back to on-demand allocation
+  instead of panicking.
 - file-backed mmap fallback for POSIX shmem (driver/bridge/src/ipc/posix.rs)
 - iOS cross-compile support for the portable driver's CMake build
   (server/build.rs: SDK sysroot defines + ios system-libs arm)
+- the app sets `$PIE_HOME` to Library/Application Support/pie before boot:
+  the default `~/.pie` resolves to the read-only container root on device
+  (ios/voice-app/Sources/PieKit/PieRuntimeConfig.swift)
 
 Two things worth flagging to maintainers, found while building the
 voice app:

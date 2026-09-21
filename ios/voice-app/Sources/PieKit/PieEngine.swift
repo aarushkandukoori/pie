@@ -17,18 +17,29 @@ final class PieEngine: ConversationBackend {
 
     // MARK: - ConversationBackend
 
-    func warmUp() async {
-        guard !didWarmUp else { return }
+    func warmUp() async -> String? {
+        guard !didWarmUp else { return nil }
         didWarmUp = true
+        print("[warmup] engine boot starting")
         // Boots the engine and loads the model weights by running a
         // single-token turn. The snapshot it leaves behind is discarded:
         // the first real turn starts fresh and overwrites it.
-        _ = try? await run(
-            text: "hello",
-            startingFresh: true,
-            maxTokens: 1,
-            onDelta: { _ in }
-        )
+        do {
+            _ = try await run(
+                text: "hello",
+                startingFresh: true,
+                maxTokens: 1,
+                onDelta: { _ in }
+            )
+            print("[warmup] engine boot complete")
+            return nil
+        } catch {
+            // Swallowing this is how a boot failure turns into a silent
+            // forever-spinner. Surface it.
+            print("[warmup] engine boot FAILED: \(error)")
+            didWarmUp = false
+            return String(describing: error)
+        }
     }
 
     func reply(

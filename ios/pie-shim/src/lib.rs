@@ -99,6 +99,19 @@ pub unsafe extern "C" fn pie_ios_run_stream(
         .into_raw()
 }
 
+/// Upper bound on one inferlet run. A wedged driver or a forward pass
+/// that never returns would otherwise block the caller's serial queue
+/// forever with nothing on screen; past this the call returns an error
+/// the app can show. Generous: a phone-class CPU decoding 110 tokens
+/// after a long prefill is well under a minute.
+const TURN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(240);
+
+/// Programs already installed in this process, by wasm path. The wasm
+/// ships inside the app bundle and cannot change without a relaunch, so
+/// re-uploading (and, with force-overwrite, uninstalling and recompiling)
+/// it on every turn is pure latency.
+static INSTALLED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
 fn stream_impl(
     config_path: &str,
     wasm: &str,
@@ -109,23 +122,44 @@ fn stream_impl(
 ) -> Result<String> {
     let g = engine_globals(config_path)?;
     g.runtime.block_on(async move {
-        let client = Client::connect(&g.url).await.context("ws connect")?;
-        client.auth_by_token(&g.token).await.context("auth")?;
-        client
-            .add_program(Path::new(wasm), Path::new(manifest), true)
-            .await
-            .context("add_program")?;
-        let mut process = client
-            .launch_process(inferlet.to_string(), input.to_string(), true, None)
-            .await
-            .context("launch_process")?;
-        loop {
-            match process.recv().await.context("event recv")? {
-                ProcessEvent::Stdout(s) | ProcessEvent::Stderr(s) => emit(&s),
-                ProcessEvent::Return(s) => return Ok(s),
-                ProcessEvent::Error(e) => anyhow::bail!("inferlet errored: {e}"),
-                _ => {}
+        let turn = async {
+            let client = Client::connect(&g.url).await.context("ws connect")?;
+            client.auth_by_token(&g.token).await.context("auth")?;
+            let already = INSTALLED
+                .lock()
+                .map(|v| v.iter().any(|p| p == wasm))
+                .unwrap_or(false);
+            if !already {
+                client
+                    .add_program(Path::new(wasm), Path::new(manifest), true)
+                    .await
+                    .context("add_program")?;
+                if let Ok(mut v) = INSTALLED.lock() {
+                    v.push(wasm.to_string());
+                }
             }
+            let mut process = client
+                .launch_process(inferlet.to_string(), input.to_string(), true, None)
+                .await
+                .context("launch_process")?;
+            loop {
+                match process.recv().await.context("event recv")? {
+                    // Only stdout is speakable by contract; stderr is
+                    // diagnostics and belongs in the console log.
+                    ProcessEvent::Stdout(s) => emit(&s),
+                    ProcessEvent::Stderr(s) => eprintln!("[inferlet stderr] {}", s.trim_end()),
+                    ProcessEvent::Return(s) => return Ok(s),
+                    ProcessEvent::Error(e) => anyhow::bail!("inferlet errored: {e}"),
+                    _ => {}
+                }
+            }
+        };
+        match tokio::time::timeout(TURN_DEADLINE, turn).await {
+            Ok(result) => result,
+            Err(_) => anyhow::bail!(
+                "turn did not finish within {} s (engine stalled) — relaunch the app",
+                TURN_DEADLINE.as_secs()
+            ),
         }
     })
 }
@@ -141,6 +175,12 @@ struct EngineGlobals {
 
 static ENGINE: std::sync::OnceLock<EngineGlobals> = std::sync::OnceLock::new();
 static ENGINE_INIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// A boot that failed part-way leaves process-global state behind
+/// (driver threads that may still hold the weights, driver-channel
+/// indices, the tracing subscriber). Booting again on top of that is a
+/// coin flip between a double-loaded model and an abort, so a failed
+/// boot is final for the process and says so; the app relaunches.
+static BOOT_FAILURE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 fn engine_globals(config_path: &str) -> Result<&'static EngineGlobals> {
     if let Some(g) = ENGINE.get() {
@@ -150,7 +190,25 @@ fn engine_globals(config_path: &str) -> Result<&'static EngineGlobals> {
     if let Some(g) = ENGINE.get() {
         return Ok(g);
     }
+    if let Some(earlier) = BOOT_FAILURE.get() {
+        anyhow::bail!("engine boot failed earlier in this process ({earlier}); relaunch the app to retry");
+    }
 
+    match boot_engine(config_path) {
+        Ok(globals) => {
+            let _ = ENGINE.set(globals);
+            Ok(ENGINE.get().expect("just set"))
+        }
+        Err(err) => {
+            let message = format!("{err:#}");
+            eprintln!("[pie] engine boot failed: {message}");
+            let _ = BOOT_FAILURE.set(message);
+            Err(err)
+        }
+    }
+}
+
+fn boot_engine(config_path: &str) -> Result<EngineGlobals> {
     let mut cfg = config::Config::from_toml_file(Path::new(config_path))
         .with_context(|| format!("loading config {config_path}"))?;
     // Port 0: let the OS pick, same as `pie run`'s one-shot engine.
@@ -167,12 +225,11 @@ fn engine_globals(config_path: &str) -> Result<&'static EngineGlobals> {
     // raw pointers and isn't Sync, so it can't live in the static.
     std::mem::forget(engine);
 
-    let _ = ENGINE.set(EngineGlobals {
+    Ok(EngineGlobals {
         runtime,
         url,
         token,
-    });
-    Ok(ENGINE.get().expect("just set"))
+    })
 }
 
 fn run_impl(

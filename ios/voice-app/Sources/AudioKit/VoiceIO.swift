@@ -112,10 +112,13 @@ enum AudioSessionCoordinator {
     static func configure() throws {
         guard !isConfigured else { return }
         let session = AVAudioSession.sharedInstance()
+        // `.defaultToSpeaker` keeps the reply off the earpiece; the
+        // Bluetooth option lets AirPods carry it when they are connected,
+        // which play-and-record otherwise refuses to route to.
         try session.setCategory(
             .playAndRecord,
             mode: .spokenAudio,
-            options: [.defaultToSpeaker, .duckOthers]
+            options: [.defaultToSpeaker, .duckOthers, .allowBluetoothA2DP]
         )
         try session.setActive(true, options: [])
         isConfigured = true

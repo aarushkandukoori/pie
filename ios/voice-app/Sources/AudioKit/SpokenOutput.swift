@@ -16,11 +16,25 @@ final class SpokenOutput: NSObject, VoiceOutput {
     private var pendingUtterances = 0
     private var turnIsOpen = false
 
+    /// True from the first enqueue of a turn until the queue drains. Set
+    /// on enqueue rather than on the synthesizer's asynchronous `didStart`,
+    /// so a caller that checks it right after enqueuing the last sentence
+    /// sees speech pending instead of declaring the turn over.
     private(set) var isSpeaking = false
 
     override init() {
         super.init()
         synthesizer.delegate = self
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(audioSessionInterrupted(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - VoiceOutput
@@ -28,6 +42,13 @@ final class SpokenOutput: NSObject, VoiceOutput {
     func enqueue(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+
+        // A typed question never touches the microphone, so nothing else
+        // has configured the audio session: the synthesizer would speak
+        // through the default ambient session, which the ring/silent
+        // switch mutes. Claim the shared play-and-record session here so
+        // the reply is audible either way.
+        try? AudioSessionCoordinator.configure()
 
         turnIsOpen = true
         pendingUtterances += 1
@@ -40,6 +61,10 @@ final class SpokenOutput: NSObject, VoiceOutput {
         // together and the reply sounds breathless.
         utterance.postUtteranceDelay = 0.05
 
+        if !isSpeaking {
+            isSpeaking = true
+            delegate?.voiceOutputDidStartSpeaking()
+        }
         synthesizer.speak(utterance)
     }
 
@@ -66,6 +91,21 @@ final class SpokenOutput: NSObject, VoiceOutput {
         guard isSpeaking, pendingUtterances == 0, !turnIsOpen else { return }
         isSpeaking = false
         delegate?.voiceOutputDidFinishSpeaking()
+    }
+
+    /// A phone call, Siri, or an alarm takes the audio session away
+    /// mid-sentence; the synthesizer stops but its callbacks may never
+    /// come. Treat it as a cancel so the app settles instead of sitting in
+    /// "speaking" forever.
+    @objc private func audioSessionInterrupted(_ note: Notification) {
+        guard
+            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+            AVAudioSession.InterruptionType(rawValue: raw) == .began
+        else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isSpeaking else { return }
+            self.cancel()
+        }
     }
 
     /// Prefers an enhanced/premium voice when the device has one

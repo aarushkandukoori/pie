@@ -40,7 +40,9 @@ protocol ConversationBackend: AnyObject {
     var engineDescription: String { get }
 
     /// Boot cost paid ahead of the first utterance. Safe to call twice.
-    func warmUp() async
+    /// Returns nil on success, or a message describing why boot failed.
+    @discardableResult
+    func warmUp() async -> String?
 
     /// Generates a reply to one utterance.
     ///

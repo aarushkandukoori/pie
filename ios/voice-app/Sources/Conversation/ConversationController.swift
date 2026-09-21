@@ -35,6 +35,12 @@ final class ConversationController: ObservableObject {
     @Published private(set) var lastStats: TurnStats?
     @Published private(set) var availability: VoiceInputAvailability?
     @Published private(set) var engineIsWarm = false
+    /// Seconds spent in engine boot so far — shown while cold.
+    @Published private(set) var bootSeconds = 0
+    /// Why the last engine boot failed, if it did. Drives the retry
+    /// affordance: a failed *turn* is recoverable by asking again, a
+    /// failed *boot* needs the engine started over.
+    @Published private(set) var bootFailure: String?
 
     /// Start listening again as soon as the reply finishes. Off by
     /// default: on a desk with speakers, the synthesizer talks straight
@@ -57,6 +63,14 @@ final class ConversationController: ObservableObject {
     /// transcript just reads as breakage.
     private var lastReportedNote = ""
 
+    /// Guards against two concurrent boots.
+    private var isBooting = false
+
+    /// Identity of the turn whose completion is still welcome. A barge-in
+    /// or "start over" bumps it, so a reply that finishes generating
+    /// afterwards is dropped instead of landing on the next question.
+    private var activeTurnID = UUID()
+
     var engineDescription: String { backend.engineDescription }
 
     init(backend: ConversationBackend, input: VoiceInput, output: VoiceOutput) {
@@ -77,16 +91,56 @@ final class ConversationController: ObservableObject {
         // permissions are independent, and running them in sequence means
         // the model only starts loading once the user has finished
         // dismissing dialogs — several seconds of avoidable waiting.
-        Task {
-            await backend.warmUp()
-            await MainActor.run {
-                self.engineIsWarm = true
-                if case .cold = self.state { self.state = .idle }
-            }
-        }
+        bootEngine()
         Task {
             let availability = await input.prepare()
             await MainActor.run { self.availability = availability }
+        }
+    }
+
+    /// A failed boot leaves half-initialised engine state behind that
+    /// cannot be safely re-entered in the same process (the shim refuses
+    /// a second boot), so recovery is a clean relaunch: quit now, and the
+    /// next tap on the icon starts from scratch.
+    func quitToRetryEngineBoot() {
+        guard bootFailure != nil else { return }
+        print("[app] quitting for a fresh engine boot after: \(bootFailure ?? "")")
+        fflush(stdout)
+        exit(0)
+    }
+
+    private func bootEngine() {
+        guard !engineIsWarm, !isBooting else { return }
+        isBooting = true
+        bootSeconds = 0
+        Task {
+            let bootStart = Date()
+            // Tick the cold status so a hang is visibly different from a
+            // slow load — the user (and our screenshots) can see time move.
+            let ticker = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    await MainActor.run {
+                        if case .cold = self.state {
+                            self.bootSeconds = Int(-bootStart.timeIntervalSinceNow)
+                        }
+                    }
+                }
+            }
+            let bootError = await backend.warmUp()
+            ticker.cancel()
+            await MainActor.run {
+                self.isBooting = false
+                if let bootError {
+                    self.bootFailure = bootError
+                    self.state = .failed("engine boot failed: \(bootError)")
+                } else {
+                    self.bootFailure = nil
+                    self.engineIsWarm = true
+                    if case .cold = self.state { self.state = .idle }
+                    if case .failed = self.state { self.state = .idle }
+                }
+            }
         }
     }
 
@@ -110,8 +164,16 @@ final class ConversationController: ObservableObject {
         case .listening:
             input.stop()
         case .speaking:
-            // Barge-in: stop talking and listen instead.
+            // Barge-in: stop talking and listen instead. The reply may
+            // still be generating on the engine queue; retire its turn id
+            // so whatever it produces later is discarded.
+            activeTurnID = UUID()
             output.cancel()
+            chunker.reset()
+            if let index = turns.indices.last, turns[index].isStreaming {
+                turns[index].isStreaming = false
+                if turns[index].text.isEmpty { turns.remove(at: index) }
+            }
             beginListening()
         case .idle, .failed:
             beginListening()
@@ -125,11 +187,12 @@ final class ConversationController: ObservableObject {
     /// usable where speech recognition isn't.
     func submit(typed text: String) {
         let utterance = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !utterance.isEmpty, !state.isBusy else { return }
+        guard !utterance.isEmpty, !state.isBusy, engineIsWarm, bootFailure == nil else { return }
         handle(utterance: utterance)
     }
 
     func startOver() {
+        activeTurnID = UUID()
         input.stop()
         input.resetSequence()
         output.cancel()
@@ -139,16 +202,43 @@ final class ConversationController: ObservableObject {
         lastStats = nil
         needsFreshSession = true
         lastReportedNote = ""
-        state = engineIsWarm ? .idle : .cold
+        if let bootFailure {
+            state = .failed("engine boot failed: \(bootFailure)")
+        } else {
+            state = engineIsWarm ? .idle : .cold
+        }
     }
 
     // MARK: - Listening
 
     private func beginListening() {
-        guard availability?.isReady == true else {
-            state = .failed(availabilityMessage)
+        guard engineIsWarm else {
+            // A boot that failed can be retried; one still in progress
+            // just needs patience. Either way the mic can't help yet.
+            state = bootFailure.map { .failed("engine boot failed: \($0)") } ?? .cold
             return
         }
+        guard availability?.isReady == true else {
+            // Availability is a snapshot from launch. Speech assets finish
+            // downloading, the user flips a permission in Settings, the
+            // network comes back — re-check before declaring defeat.
+            Task {
+                let refreshed = await input.prepare()
+                await MainActor.run {
+                    self.availability = refreshed
+                    if refreshed.isReady {
+                        self.startInput()
+                    } else {
+                        self.state = .failed(self.availabilityMessage)
+                    }
+                }
+            }
+            return
+        }
+        startInput()
+    }
+
+    private func startInput() {
         partialTranscript = ""
         do {
             try input.start()
@@ -176,6 +266,8 @@ final class ConversationController: ObservableObject {
         chunker.reset()
 
         let startingFresh = needsFreshSession
+        let turnID = UUID()
+        activeTurnID = turnID
 
         Task {
             do {
@@ -184,19 +276,27 @@ final class ConversationController: ObservableObject {
                     startingFresh: startingFresh
                 ) { [weak self] delta in
                     // Arrives on the backend's own thread.
-                    DispatchQueue.main.async { self?.consume(delta: delta) }
+                    DispatchQueue.main.async { self?.consume(delta: delta, for: turnID) }
                 }
-                await MainActor.run { self.finishTurn(with: result.text, stats: result.stats) }
+                await MainActor.run {
+                    guard self.activeTurnID == turnID else { return }
+                    self.finishTurn(with: result.text, stats: result.stats)
+                }
             } catch {
-                await MainActor.run { self.failTurn(error) }
+                await MainActor.run {
+                    guard self.activeTurnID == turnID else { return }
+                    self.failTurn(error)
+                }
             }
         }
     }
 
     /// One chunk of generated text: shown immediately, spoken a sentence
     /// at a time so speech overlaps the rest of the generation.
-    private func consume(delta: String) {
-        guard let index = turns.indices.last else { return }
+    private func consume(delta: String, for turnID: UUID) {
+        guard turnID == activeTurnID else { return }
+        guard state == .thinking || state == .speaking else { return }
+        guard let index = turns.indices.last, turns[index].isStreaming else { return }
         turns[index].text += delta
 
         for sentence in chunker.push(delta) {
@@ -206,6 +306,8 @@ final class ConversationController: ObservableObject {
 
     private func finishTurn(with text: String, stats: TurnStats) {
         needsFreshSession = false
+        engineIsWarm = true
+        bootFailure = nil
 
         var stats = stats
         if stats.note == lastReportedNote {
@@ -250,6 +352,10 @@ final class ConversationController: ObservableObject {
         if let index = turns.indices.last, turns[index].speaker == .assistant {
             turns.remove(at: index)
         }
+        // The conversation's KV snapshot may be in an unknown state after
+        // a failed turn; start the next one from scratch rather than
+        // resuming into whatever was left behind.
+        needsFreshSession = true
         state = .failed(error.localizedDescription)
     }
 
@@ -291,6 +397,7 @@ extension ConversationController: VoiceInputDelegate {
 
     func voiceInputDidFail(_ error: Error) {
         inputLevel = 0
+        partialTranscript = ""
         state = .failed(error.localizedDescription)
     }
 }

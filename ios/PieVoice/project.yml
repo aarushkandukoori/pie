@@ -53,7 +53,11 @@ targets:
           -lpie_ios_shim -lresolv -lc++
           -Xlinker -U -Xlinker _SCDynamicStoreCopyComputerName
         CODE_SIGN_STYLE: Automatic
-        # DEVELOPMENT_TEAM intentionally unset — pick your team in Xcode once.
+        # Aarush's Personal Team (free Apple ID). Another developer
+        # overrides it with `xcodegen` after editing this line, or passes
+        # DEVELOPMENT_TEAM=<id> to xcodebuild / deploy-device.sh.
+        DEVELOPMENT_TEAM: JQ8RG44463
+        CODE_SIGN_IDENTITY: "Apple Development"
         TARGETED_DEVICE_FAMILY: "1,2"
     dependencies:
       - sdk: Security.framework
@@ -62,6 +66,3 @@ targets:
       - sdk: Accelerate.framework
       - sdk: AVFoundation.framework
       - sdk: Speech.framework
-    resources:
-      - path: Resources
-        buildPhase: resources
